@@ -12,7 +12,7 @@ QListWidget {
 }
 
 QListWidget::item {
-    height: 30px;
+    height: 10px;
     padding: 5px;
 }
 

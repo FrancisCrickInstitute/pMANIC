@@ -126,14 +126,23 @@ class MANIC(QMainWindow):
         # Add a vertical spacer between current metabolite widget & samples list
         toolbar_layout.addSpacing(10)  # Add a spacer with fixed height
 
-        # Add sample list widget
+        # Add samples loaded widget
         sample_list_widget = QListWidget()
-        sample_list_widget.setFont(QFont(FONT, 12))
-        sample_list_widget.setFixedHeight(200)  # Make the widget shorter
+        sample_list_widget.setFont(QFont(FONT, 10))
+        sample_list_widget.setFixedHeight(150)  # Make the widget shorter
         no_samples_item = QListWidgetItem("- No Samples Loaded -")
         sample_list_widget.addItem(no_samples_item)
         sample_list_widget.setCurrentItem(no_samples_item)  # Autoselect the default item
         toolbar_layout.addWidget(sample_list_widget)
+
+        # Add compounds loaded widget
+        loaded_compounds_widget = QListWidget()
+        loaded_compounds_widget.setFont(QFont(FONT, 10))
+        loaded_compounds_widget.setFixedHeight(150)  # Make the widget shorter
+        no_compounds_item = QListWidgetItem("- No Compounds Loaded -")
+        loaded_compounds_widget.addItem(no_compounds_item)
+        loaded_compounds_widget.setCurrentItem(no_samples_item)  # Autoselect the default item
+        toolbar_layout.addWidget(loaded_compounds_widget)
 
         # Add a spacer item to push all elements to the top
         toolbar_layout.addStretch()
@@ -181,5 +190,5 @@ if __name__ == "__main__":
     app.setApplicationName("MANIC")
     app.setApplicationVersion(APPLICATION_VERSION)
     manic = MANIC()
-    manic.show()
+    manic.showMaximized()  # Automatically open the window maximized
     sys.exit(app.exec())

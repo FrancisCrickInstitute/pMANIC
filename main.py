@@ -1,6 +1,7 @@
 import sys
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                               QLabel, QLineEdit, QCheckBox, QPushButton, QMenuBar, QMenu, QGridLayout, QGraphicsView)
+                               QLabel, QLineEdit, QCheckBox, QPushButton, QMenuBar, QMenu, QGridLayout, QGraphicsView,
+                               QListWidget, QListWidgetItem)
 from PySide6.QtGui import QPalette, QColor, QFont
 from PySide6.QtCore import Qt
 
@@ -9,6 +10,10 @@ APPLICATION_VERSION = "1.0.0"
 FONT = "Verdana"
 GREEN = QColor(215, 50, 50, 128)
 RED = QColor(102, 215, 102, 128)
+
+def load_stylesheet(filename):
+    with open(filename, "r") as file:
+        return file.read()
 
 class MANIC(QMainWindow):
     def __init__(self):
@@ -54,6 +59,10 @@ class MANIC(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction("Close App")
 
+        # Load and apply the stylesheet
+        stylesheet = load_stylesheet("style.qss")
+        self.setStyleSheet(stylesheet)
+
         # Create View Menu
         view_menu = menu_bar.addMenu("View")
         view_menu.addAction("Toggle Colour Blind Aid")
@@ -95,7 +104,6 @@ class MANIC(QMainWindow):
             loaded_data_widget_layout.addWidget(label)
 
         loaded_data_widget.setLayout(loaded_data_widget_layout)
-        loaded_data_widget.setStyleSheet("#loadedDataWidget {border: 1px solid lightgray; border-radius: 10px; padding: 5px;}")
         toolbar_layout.addWidget(loaded_data_widget)  # Add the top widget to the toolbar layout
 
         # Add a vertical spacer between loaded data widget and current metabolite widget
@@ -114,6 +122,18 @@ class MANIC(QMainWindow):
         current_standard_widget.setAlignment(Qt.AlignCenter)
         current_standard_widget.setStyleSheet("border: 1px solid lightgray; border-radius: 10px; padding: 5px;")
         toolbar_layout.addWidget(current_standard_widget)
+
+        # Add a vertical spacer between current metabolite widget & samples list
+        toolbar_layout.addSpacing(10)  # Add a spacer with fixed height
+
+        # Add sample list widget
+        sample_list_widget = QListWidget()
+        sample_list_widget.setFont(QFont(FONT, 12))
+        sample_list_widget.setFixedHeight(200)  # Make the widget shorter
+        no_samples_item = QListWidgetItem("- No Samples Loaded -")
+        sample_list_widget.addItem(no_samples_item)
+        sample_list_widget.setCurrentItem(no_samples_item)  # Autoselect the default item
+        toolbar_layout.addWidget(sample_list_widget)
 
         # Add a spacer item to push all elements to the top
         toolbar_layout.addStretch()

@@ -4,8 +4,11 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 from PySide6.QtGui import QPalette, QColor, QFont
 from PySide6.QtCore import Qt
 
+# Constants
 APPLICATION_VERSION = "1.0.0"
-
+FONT = "Verdana"
+GREEN = QColor(215, 50, 50, 128)
+RED = QColor(102, 215, 102, 128)
 
 class MANIC(QMainWindow):
     def __init__(self):
@@ -71,37 +74,52 @@ class MANIC(QMainWindow):
         left_toolbar.setFixedWidth(300)  # Set the width of the toolbar
         toolbar_layout = QVBoxLayout()  # Widgets arranged in a vertical layout
 
-        # Add elements to the left toolbar
+        # Add label indicators for loaded data tp the toolbar
         loaded_data_widget = QWidget()
+        loaded_data_widget.setObjectName("loadedDataWidget")
         loaded_data_widget_layout = QHBoxLayout()
-
-
-        color_labels = [
-            ("Raw Data", QColor(215, 50, 50)),
-            ("Compound List", QColor(102, 215, 102)),
-            ("Metadata", QColor(215, 50, 50))
+        data_loading_labels = [
+            ("Raw Data", RED),
+            ("Compound List", GREEN),
+            ("Metadata", RED)
         ]
-
-        for text, color in color_labels:
+        for text, color in data_loading_labels:
             label = QLabel(text)
             label.setAlignment(Qt.AlignCenter)
             label.setAutoFillBackground(True)
-            font = QFont("Arial", 10)
+            font = QFont(FONT, 9)
             label.setFont(font)
-            palette = label.palette()
-            palette.setColor(QPalette.Window, color)
-            palette.setColor(QPalette.WindowText, Qt.black)
-            label.setPalette(palette)
             label.setFixedSize(85, 50)  # Set the size of the labels
-            label.setStyleSheet(f"background-color: {color.name()}; color: black; border-radius: 10px;")
-            loaded_data_widget_layout.addWidget(label)
+            label.setStyleSheet(f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
+                                f"{color.alpha() / 255}); color: black; border-radius: 10px;")
             loaded_data_widget_layout.addWidget(label)
 
         loaded_data_widget.setLayout(loaded_data_widget_layout)
+        loaded_data_widget.setStyleSheet("#loadedDataWidget {border: 1px solid lightgray; border-radius: 10px; padding: 5px;}")
         toolbar_layout.addWidget(loaded_data_widget)  # Add the top widget to the toolbar layout
+
+        # Add a vertical spacer between loaded data widget and current metabolite widget
+        toolbar_layout.addSpacing(10)  # Add a spacer with fixed height
+
+        # Add current metabolite indicator to the toolbar
+        current_metabolite_widget = QLabel("- No Metabolite Selected -")
+        current_metabolite_widget.setFont(QFont(FONT, 12))
+        current_metabolite_widget.setAlignment(Qt.AlignCenter)
+        current_metabolite_widget.setStyleSheet("border: 1px solid lightgray; border-radius: 10px; padding: 5px;")
+        toolbar_layout.addWidget(current_metabolite_widget)
+
+        # Add selected standard indicator to the toolbar
+        current_standard_widget = QLabel("- No Standard Selected -")
+        current_standard_widget.setFont(QFont(FONT, 12))
+        current_standard_widget.setAlignment(Qt.AlignCenter)
+        current_standard_widget.setStyleSheet("border: 1px solid lightgray; border-radius: 10px; padding: 5px;")
+        toolbar_layout.addWidget(current_standard_widget)
 
         # Add a spacer item to push all elements to the top
         toolbar_layout.addStretch()
+
+
+
 
         # Confirm the layout of the left toolbar
         left_toolbar.setLayout(toolbar_layout)

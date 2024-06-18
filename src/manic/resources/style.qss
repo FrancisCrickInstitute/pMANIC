@@ -1,0 +1,47 @@
+#loadedDataWidget {
+    border: 1px solid lightgray;
+    border-radius: 10px;
+    padding: 5px;
+}
+QListWidget {
+    border: 1px solid lightgray;
+    border-radius: 10px;
+    padding: 5px;
+    background-color: #f9f9f9;
+    color: black;
+}
+QListWidget::item {
+    height: 10px;
+    padding: 5px;
+}
+QListWidget::item:selected {
+    background-color: #d0d0d0;
+    color: black;
+}
+QMainWindow {
+    background-color: white;
+}
+QChartView {
+    background-color: white;
+    border: none;
+}
+QWidget {
+    background-color: white;
+    color: black;
+}
+QLabel {
+    color: black;
+}
+QPushButton {
+    background-color: #f0f0f0;
+    color: black;
+    border: 1px solid #a0a0a0;
+    border-radius: 5px;
+    padding: 5px;
+}
+QPushButton:hover {
+    background-color: #e0e0e0;
+}
+QPushButton:pressed {
+    background-color: #d0d0d0;
+}

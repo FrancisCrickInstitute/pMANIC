@@ -1,8 +1,13 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QMenuBar
+from PySide6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QMenuBar, QFileDialog, QMessageBox,
+                               QProgressBar)
+from PySide6.QtGui import QAction
+from PySide6.QtCore import QCoreApplication
 from src.manic.gui.toolbar import Toolbar
 from src.manic.gui.graph_view import GraphView
 from src.manic.utils.constants import APPLICATION_VERSION
 from src.manic.utils.utils import load_stylesheet
+from src.manic.data.load_cdfs import load_cdf_files_from_directory
+from src.manic.gui.progress_bar import ProgressDialog
 
 
 class MainWindow(QMainWindow):
@@ -10,6 +15,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MANIC")
         self.setup_ui()
+        self.cdf_data_storage = None
 
     def setup_ui(self):
         # Create the main layout
@@ -35,7 +41,9 @@ class MainWindow(QMainWindow):
 
         # Create File Menu
         file_menu = menu_bar.addMenu("File")
-        file_menu.addAction("Load Raw Data (CDF)")
+        load_cdf_action = QAction("Load Raw Data (CDF)", self)
+        load_cdf_action.triggered.connect(self.load_cdf_files)
+        file_menu.addAction(load_cdf_action)
         file_menu.addSeparator()
         file_menu.addAction("Load Compounds/Parameter List")
         file_menu.addAction("Save Compounds/Parameter List")
@@ -66,3 +74,28 @@ class MainWindow(QMainWindow):
         # Load and apply the stylesheet
         stylesheet = load_stylesheet("src/manic/resources/style.qss")
         self.setStyleSheet(stylesheet)
+
+    def load_cdf_files(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Directory")
+        if not directory:
+            return
+
+        self.progress_dialog = ProgressDialog(self)
+        self.progress_dialog.show()
+
+        try:
+            self.cdf_data_storage = load_cdf_files_from_directory(directory, self.update_progress_bar)
+            self.update_ui_with_data()
+        except FileNotFoundError as e:
+            QMessageBox.warning(self, "Error", str(e))
+        finally:
+            self.progress_dialog.close()
+
+    def update_progress_bar(self, current, total):
+        progress = int((current / total) * 100)
+        self.progress_dialog.set_progress(progress)
+        QCoreApplication.processEvents()
+
+    def update_ui_with_data(self):
+        QMessageBox.information(self, "Files Loaded", f"Loaded {len(self.cdf_data_storage)} CDF files.")
+

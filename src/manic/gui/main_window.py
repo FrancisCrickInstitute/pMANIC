@@ -29,7 +29,6 @@ class MainWindow(QMainWindow):
 
         # Create the chart view
         chart_view = GraphView()
-        toolbar.updateChartSignal.connect(chart_view.update_chart)
         main_layout.addWidget(chart_view)
         main_layout.setStretch(1, 1)
 

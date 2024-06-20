@@ -2,7 +2,7 @@ import numpy as np
 from PySide6.QtWidgets import QWidget, QGridLayout
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtGui import QPainter, QFont, QColor
-from PySide6.QtCore import Qt, QTimer, QPointF
+from PySide6.QtCore import Qt, QTimer, QPointF, QMargins
 from src.manic.data.eic_data_object import EICData
 
 class GraphView(QWidget):
@@ -107,6 +107,7 @@ class GraphView(QWidget):
         chart.setTitle(eic_obj.file_name)
         chart.setTitleFont(QFont("Arial", 8))
         chart.setTitleBrush(QColor(100, 100, 100, 100))  # Semi-transparent gray
+        chart.setMargins(QMargins(0, 0, 0, 0))
 
         return chart
 
@@ -130,6 +131,7 @@ class GraphView(QWidget):
         for i, chart in enumerate(charts):
             chart_view = QChartView(chart)
             chart_view.setRenderHint(QPainter.Antialiasing)
+            chart_view.setContentsMargins(0, 0, 0, 0)
             row = i // num_columns
             col = i % num_columns
             self.graph_layout.addWidget(chart_view, row, col)

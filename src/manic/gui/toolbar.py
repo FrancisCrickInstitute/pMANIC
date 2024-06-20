@@ -5,7 +5,6 @@ from src.manic.utils.constants import FONT, GREEN, RED
 
 
 class Toolbar(QWidget):
-    updateChartSignal = Signal()
     def __init__(self):
         super().__init__()
         self.setup_ui()
@@ -73,20 +72,12 @@ class Toolbar(QWidget):
         loaded_compounds_widget.setCurrentItem(no_samples_item)
         toolbar_layout.addWidget(loaded_compounds_widget)
 
-        # Add "Update Chart" button
-        update_chart_button = QPushButton("Update Chart")
-        update_chart_button.clicked.connect(self.emit_update_chart_signal)
-        toolbar_layout.addWidget(update_chart_button)
-
         # Add a spacer item to push all elements to the top
         toolbar_layout.addStretch()
 
         # Set the toolbar layout
         self.setLayout(toolbar_layout)
         self.setFixedWidth(300)
-
-    def emit_update_chart_signal(self):
-        self.updateChartSignal.emit()
 
     def update_label_colors(self, raw_data_loaded, compound_list_loaded):
         labels = self.findChildren(QLabel)

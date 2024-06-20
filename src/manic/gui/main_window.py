@@ -27,9 +27,9 @@ class MainWindow(QMainWindow):
         toolbar = Toolbar()
         main_layout.addWidget(toolbar)
 
-        # Create the chart view
-        chart_view = GraphView()
-        main_layout.addWidget(chart_view)
+        # Create the graph view
+        self.graph_view = GraphView()
+        main_layout.addWidget(self.graph_view)
         main_layout.setStretch(1, 1)
 
         # Set the main layout as the central widget
@@ -89,10 +89,12 @@ class MainWindow(QMainWindow):
         try:
             self.cdf_data_storage = load_cdf_files_from_directory(directory, self.update_progress_bar)
             self.update_ui_with_data()
+            self.progress_dialog.close()
+            self.plot_graphs()
         except FileNotFoundError as e:
             QMessageBox.warning(self, "Error", str(e))
-        finally:
             self.progress_dialog.close()
+
 
     def load_compound_list(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Compound List", "", "Excel Files (*.xls *.xlsx)")
@@ -119,6 +121,22 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Files Loaded", f"Loaded {len(self.cdf_data_storage)} CDF files.")
         compound_list_loaded = self.compounds_data_storage is not None
         self.update_label_colors(raw_data_loaded=True, compound_list_loaded=compound_list_loaded)
+
+    def plot_graphs(self, compound=None, cdf_files=None):
+        if compound is None:
+            compound = self.compounds_data_storage[0]  # Use the first compound if none is specified
+
+        if cdf_files is None:
+            cdf_files = self.cdf_data_storage  # Use all loaded CDF files if none are specified
+
+        graphs = []
+        for cdf_object in cdf_files:
+            eic_data = self.graph_view.extract_eic_data(cdf_object, compound)
+            graph = self.graph_view.create_eic_plot(eic_data)
+            graphs.append(graph)
+
+        # Refresh the plots in the graph view
+        self.graph_view.refresh_plots(graphs)
 
     def update_label_colors(self, raw_data_loaded, compound_list_loaded):
         toolbar = self.findChild(Toolbar)

@@ -17,6 +17,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MANIC")
         self.setup_ui()
         self.cdf_data_storage = None
+        self.compounds_data_storage = None
 
     def setup_ui(self):
         # Create the main layout
@@ -100,7 +101,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            self.compounds = load_compound_list(file_path)
+            self.compounds_data_storage = load_compound_list(file_path)
             self.update_ui_with_compounds()
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
@@ -110,10 +111,18 @@ class MainWindow(QMainWindow):
         self.progress_dialog.set_progress(progress)
         QCoreApplication.processEvents()
 
+    def update_ui_with_compounds(self):
+        QMessageBox.information(self, "Compounds Loaded", f"Loaded {len(self.compounds_data_storage)} compounds.")
+        raw_data_loaded = self.cdf_data_storage is not None
+        self.update_label_colors(raw_data_loaded=raw_data_loaded, compound_list_loaded=True)
+
     def update_ui_with_data(self):
         QMessageBox.information(self, "Files Loaded", f"Loaded {len(self.cdf_data_storage)} CDF files.")
+        compound_list_loaded = self.compounds_data_storage is not None
+        self.update_label_colors(raw_data_loaded=True, compound_list_loaded=compound_list_loaded)
 
-    def update_ui_with_compounds(self):
-        QMessageBox.information(self, "Compounds Loaded", f"Loaded {len(self.compounds)} compounds.")
+    def update_label_colors(self, raw_data_loaded, compound_list_loaded):
+        toolbar = self.findChild(Toolbar)
+        toolbar.update_label_colors(raw_data_loaded, compound_list_loaded)
 
 

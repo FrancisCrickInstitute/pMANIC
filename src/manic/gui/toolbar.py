@@ -20,7 +20,7 @@ class Toolbar(QWidget):
         loaded_data_widget_layout = QHBoxLayout()
         data_loading_labels = [
             ("Raw Data", RED),
-            ("Compound List", GREEN)
+            ("Compound List", RED)
         ]
         for text, color in data_loading_labels:
             label = QLabel(text)
@@ -87,3 +87,15 @@ class Toolbar(QWidget):
 
     def emit_update_chart_signal(self):
         self.updateChartSignal.emit()
+
+    def update_label_colors(self, raw_data_loaded, compound_list_loaded):
+        labels = self.findChildren(QLabel)
+        for label in labels:
+            if label.text() == "Raw Data":
+                color = GREEN if raw_data_loaded else RED
+            elif label.text() == "Compound List":
+                color = GREEN if compound_list_loaded else RED
+            else:
+                continue
+            label.setStyleSheet(f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
+                                f"{color.alpha() / 255}); color: black; border-radius: 10px;")

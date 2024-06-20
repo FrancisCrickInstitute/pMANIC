@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QDialog, QVBoxLayout, QProgressBar, QLabel
 class ProgressDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Loading Data")
+        self.setWindowTitle("Loading CDF Data")
         self.setModal(True)
         self.setFixedSize(300, 100)
 

@@ -8,6 +8,7 @@ from src.manic.utils.constants import APPLICATION_VERSION
 from src.manic.utils.utils import load_stylesheet
 from src.manic.data.load_cdfs import load_cdf_files_from_directory
 from src.manic.gui.progress_bar import ProgressDialog
+from src.manic.data.load_compound_list import load_compound_list
 
 
 class MainWindow(QMainWindow):
@@ -45,7 +46,9 @@ class MainWindow(QMainWindow):
         load_cdf_action.triggered.connect(self.load_cdf_files)
         file_menu.addAction(load_cdf_action)
         file_menu.addSeparator()
-        file_menu.addAction("Load Compounds/Parameter List")
+        load_compound_action = QAction("Load Compounds/Parameter List", self)
+        load_compound_action.triggered.connect(self.load_compound_list)
+        file_menu.addAction(load_compound_action)
         file_menu.addAction("Save Compounds/Parameter List")
         file_menu.addSeparator()
         file_menu.addAction("Recover Deleted Files")
@@ -91,6 +94,17 @@ class MainWindow(QMainWindow):
         finally:
             self.progress_dialog.close()
 
+    def load_compound_list(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Compound List", "", "Excel Files (*.xls *.xlsx)")
+        if not file_path:
+            return
+
+        try:
+            self.compounds = load_compound_list(file_path)
+            self.update_ui_with_compounds()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
     def update_progress_bar(self, current, total):
         progress = int((current / total) * 100)
         self.progress_dialog.set_progress(progress)
@@ -98,4 +112,8 @@ class MainWindow(QMainWindow):
 
     def update_ui_with_data(self):
         QMessageBox.information(self, "Files Loaded", f"Loaded {len(self.cdf_data_storage)} CDF files.")
+
+    def update_ui_with_compounds(self):
+        QMessageBox.information(self, "Compounds Loaded", f"Loaded {len(self.compounds)} compounds.")
+
 

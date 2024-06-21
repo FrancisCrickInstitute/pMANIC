@@ -8,6 +8,7 @@ from src.manic.data.eic_data_object import EICData
 class GraphView(QWidget):
     def __init__(self):
         super().__init__()
+        self.setObjectName("graphView")
         self.graph_layout = QGridLayout()
         self.graph_layout.setSpacing(0)  # Reduce spacing between charts
         self.graph_layout.setContentsMargins(0, 0, 0, 0)  # Add small margins
@@ -98,8 +99,9 @@ class GraphView(QWidget):
 
         chart = QChart()
         chart.setBackgroundVisible(False)
+        chart.setPlotAreaBackgroundVisible(True)
+        chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))  # Set plot area to white
         chart.legend().hide()
-        chart.setPlotAreaBackgroundVisible(False)
 
         # Create series
         series = QLineSeries()
@@ -131,12 +133,16 @@ class GraphView(QWidget):
         x_axis.setRange(x_min, x_max)
         x_axis.setTickCount(5)
         x_axis.setLabelFormat("%.2f")
+        x_axis.setLabelsColor(QColor(0, 0, 0))  # Set axis label color to black
+        x_axis.setLinePenColor(QColor(0, 0, 0))
 
         # Customize y-axis
         y_max = np.max(eic_obj.eic_intensity)
         y_axis.setRange(0, y_max)
         y_axis.setTickCount(5)
         y_axis.setLabelFormat("%.0f")
+        y_axis.setLabelsColor(QColor(0, 0, 0))  # Set axis label color to black
+        y_axis.setLinePenColor(QColor(0, 0, 0))
 
         # Add vertical lines for lOffset, rOffset, and retention time
         rt_line = QLineSeries()
@@ -150,7 +156,7 @@ class GraphView(QWidget):
         loffset_line = QLineSeries()
         loffset_line.append(eic_obj.retention_time - eic_obj.l_offset, 0)
         loffset_line.append(eic_obj.retention_time - eic_obj.l_offset, y_max)
-        loffset_line.setPen(QPen(QColor(255, 215, 0), 1, Qt.DashLine))  # Gold color
+        loffset_line.setPen(QPen(QColor(255, 140, 0), 1, Qt.DashLine))  # Dark orange color
         chart.addSeries(loffset_line)
         loffset_line.attachAxis(x_axis)
         loffset_line.attachAxis(y_axis)
@@ -166,8 +172,8 @@ class GraphView(QWidget):
         # Add title as a small label in the background
         chart.setTitle(eic_obj.file_name)
         chart.setTitleFont(QFont("Arial", 8))
-        chart.setTitleBrush(QColor(100, 100, 100, 100))
-        chart.setMargins(QMargins(-15, -10, -15, -15))  # Adjusted top margin
+        chart.setTitleBrush(QColor(0, 0, 0))  # Set title color to black
+        chart.setMargins(QMargins(-13, -10, -13, -15))  # Adjusted top margin
 
         return chart
 
@@ -192,6 +198,7 @@ class GraphView(QWidget):
             chart_view = QChartView(eic_data)
             chart_view.setRenderHint(QPainter.Antialiasing)
             chart_view.setContentsMargins(0, 0, 0, 0)
+            chart_view.setObjectName("chartView")
 
             row = i // num_columns
             col = i % num_columns

@@ -1,8 +1,39 @@
-#loadedDataWidget {
-    border: 1px solid lightgray;
-    border-radius: 10px;
-    padding: 5px;
+/* Main Window */
+QMainWindow#mainWindow {
+    background-color: #F0F0F0;
 }
+
+QWidget#centralWidget {
+    background-color: #F0F0F0;
+}
+
+/* Graph View */
+QWidget#graphView {
+    background-color: #F0F0F0;
+}
+
+QChartView {
+    background-color: transparent;
+    border: none;
+}
+
+/* Toolbar */
+QWidget#toolbar {
+    background-color: white;
+}
+
+QWidget#toolbar QLabel, QWidget#toolbar QListWidget {
+    background-color: white;
+}
+
+/* Loaded Data Widget */
+QWidget#loadedDataWidget {
+    padding: 5px;
+    background-color: #F0F0F0;
+    border: none;
+}
+
+/* List Widgets */
 QListWidget {
     border: 1px solid lightgray;
     border-radius: 10px;
@@ -10,38 +41,25 @@ QListWidget {
     background-color: #f9f9f9;
     color: black;
 }
+
 QListWidget::item {
     height: 10px;
     padding: 5px;
 }
+
 QListWidget::item:selected {
     background-color: #d0d0d0;
     color: black;
 }
-QMainWindow {
-    background-color: white;
-}
-QChartView {
-    background-color: white;
-    border: none;
-}
-QWidget {
-    background-color: white;
-    color: black;
-}
+
 QLabel {
     color: black;
 }
-QPushButton {
-    background-color: #f0f0f0;
+
+QMessageBox {
+    background-color: white;
     color: black;
-    border: 1px solid #a0a0a0;
-    border-radius: 5px;
-    padding: 5px;
 }
-QPushButton:hover {
-    background-color: #e0e0e0;
-}
-QPushButton:pressed {
-    background-color: #d0d0d0;
+QDialog {
+    background-color: white;
 }

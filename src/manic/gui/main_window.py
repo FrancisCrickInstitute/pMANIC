@@ -83,11 +83,11 @@ class MainWindow(QMainWindow):
         if not directory:
             return
 
-        self.progress_dialog = ProgressDialog(self)
+        self.progress_dialog = ProgressDialog(self, "Loading CDF Files", "Loading CDF files, please wait...")
         self.progress_dialog.show()
 
         try:
-            self.cdf_data_storage = load_cdf_files_from_directory(directory, self.update_progress_bar)
+            self.cdf_data_storage = load_cdf_files_from_directory(directory, self.update_cdf_progress_bar)
             self.update_ui_with_data()
             self.progress_dialog.close()
             self.plot_graphs()
@@ -107,9 +107,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
-    def update_progress_bar(self, current, total):
+    def update_cdf_progress_bar(self, current, total):
         progress = int((current / total) * 100)
         self.progress_dialog.set_progress(progress)
+        self.progress_dialog.label.setText(f"Loading CDF files... ({current}/{total})")
         QCoreApplication.processEvents()
 
     def update_ui_with_compounds(self):
@@ -118,7 +119,6 @@ class MainWindow(QMainWindow):
         self.update_label_colors(raw_data_loaded=raw_data_loaded, compound_list_loaded=True)
 
     def update_ui_with_data(self):
-        QMessageBox.information(self, "Files Loaded", f"Loaded {len(self.cdf_data_storage)} CDF files.")
         compound_list_loaded = self.compounds_data_storage is not None
         self.update_label_colors(raw_data_loaded=True, compound_list_loaded=compound_list_loaded)
 

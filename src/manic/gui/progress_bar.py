@@ -1,15 +1,15 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QProgressBar, QLabel
 
 class ProgressDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, title='', label=''):
         super().__init__(parent)
-        self.setWindowTitle("Loading CDF Data")
+        self.setWindowTitle(title)
         self.setModal(True)
         self.setFixedSize(300, 100)
 
         layout = QVBoxLayout()
 
-        self.label = QLabel("Loading, please wait...")
+        self.label = QLabel(label)
         layout.addWidget(self.label)
 
         self.progress_bar = QProgressBar()

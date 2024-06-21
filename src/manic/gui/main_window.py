@@ -15,9 +15,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MANIC")
+        self.setObjectName("mainWindow")
         self.setup_ui()
         self.cdf_data_storage = None
         self.compounds_data_storage = None
+
+        # Load and apply the stylesheet
+        stylesheet = load_stylesheet("src/manic/resources/style.qss")
+        self.setStyleSheet(stylesheet)
 
     def setup_ui(self):
         # Create the main layout
@@ -25,6 +30,7 @@ class MainWindow(QMainWindow):
 
         # Create the toolbar
         toolbar = Toolbar()
+        toolbar.setObjectName("toolbar")
         main_layout.addWidget(toolbar)
 
         # Create the graph view
@@ -34,6 +40,7 @@ class MainWindow(QMainWindow):
 
         # Set the main layout as the central widget
         central_widget = QWidget()
+        central_widget.setObjectName("centralWidget")
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
@@ -73,10 +80,6 @@ class MainWindow(QMainWindow):
 
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
-
-        # Load and apply the stylesheet
-        stylesheet = load_stylesheet("src/manic/resources/style.qss")
-        self.setStyleSheet(stylesheet)
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")

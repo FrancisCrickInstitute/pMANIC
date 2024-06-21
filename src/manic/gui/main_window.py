@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
             self.cdf_data_storage = load_cdf_files_from_directory(directory, self.update_cdf_progress_bar)
             self.update_ui_with_data()
             self.progress_dialog.close()
+            QCoreApplication.processEvents()  # Process all pending events
             self.plot_graphs()
         except FileNotFoundError as e:
             QMessageBox.warning(self, "Error", str(e))
@@ -133,14 +134,30 @@ class MainWindow(QMainWindow):
         # Sort the cdf_files based on their file names
         cdf_files = sorted(cdf_files, key=lambda x: x.file_name)
 
-        graphs = []
-        for cdf_object in cdf_files:
-            eic_data = self.graph_view.extract_eic_data(cdf_object, compound)
-            graph = self.graph_view.create_eic_plot(eic_data)
-            graphs.append((graph))
+        self.progress_dialog = ProgressDialog(self, "Creating EIC Plots", "Plotting graphs, please wait...")
+        self.progress_dialog.show()
 
-        # Refresh the plots in the graph view
-        self.graph_view.refresh_plots(graphs)
+        try:
+            num_files = len(cdf_files)
+            graphs = []
+            for i, cdf_object in enumerate(cdf_files):
+                eic_data = self.graph_view.extract_eic_data(cdf_object, compound)
+                graph = self.graph_view.create_eic_plot(eic_data)
+                graphs.append(graph)
+
+                # Update the progress bar
+                self.update_plot_progress_bar(i + 1, num_files)
+
+            # Refresh the plots in the graph view
+            self.graph_view.refresh_plots(graphs)
+        finally:
+            self.progress_dialog.close()
+
+    def update_plot_progress_bar(self, current, total):
+        progress = int((current / total) * 100)
+        self.progress_dialog.set_progress(progress)
+        self.progress_dialog.label.setText(f"Plotting graphs... ({current}/{total})")
+        QCoreApplication.processEvents()
 
     def update_label_colors(self, raw_data_loaded, compound_list_loaded):
         toolbar = self.findChild(Toolbar)

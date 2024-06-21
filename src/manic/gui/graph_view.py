@@ -1,6 +1,4 @@
 import numpy as np
-import math
-from typing import Tuple, Optional
 from PySide6.QtWidgets import QWidget, QGridLayout,QGraphicsTextItem
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtGui import QPainter, QFont, QColor, QPen

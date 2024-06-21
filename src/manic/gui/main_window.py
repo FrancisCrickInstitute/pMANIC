@@ -16,13 +16,28 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MANIC")
         self.setObjectName("mainWindow")
-        self.setup_ui()
         self.cdf_data_storage = None
         self.compounds_data_storage = None
+
+        # Menu actions
+        self.load_cdf_action = None
+        self.load_compound_action = None
+        self.save_compounds_action = None
+        self.recover_deleted_files_action = None
+        self.recover_deleted_compounds_action = None
+        self.export_integrals_action = None
+        self.load_session_action = None
+        self.save_session_action = None
+        self.clear_session_action = None
+
+        self.setup_ui()
 
         # Load and apply the stylesheet
         stylesheet = load_stylesheet("src/manic/resources/style.qss")
         self.setStyleSheet(stylesheet)
+
+        # Initialize menu state
+        self.update_menu_state(compounds_loaded=False, raw_data_loaded=False)
 
     def setup_ui(self):
         # Create the main layout
@@ -49,23 +64,23 @@ class MainWindow(QMainWindow):
 
         # Create File Menu
         file_menu = menu_bar.addMenu("File")
-        load_cdf_action = QAction("Load Raw Data (CDF)", self)
-        load_cdf_action.triggered.connect(self.load_cdf_files)
-        file_menu.addAction(load_cdf_action)
+        self.load_cdf_action = QAction("Load Raw Data (CDF)", self)
+        self.load_cdf_action.triggered.connect(self.load_cdf_files)
+        file_menu.addAction(self.load_cdf_action)
         file_menu.addSeparator()
-        load_compound_action = QAction("Load Compounds/Parameter List", self)
-        load_compound_action.triggered.connect(self.load_compound_list)
-        file_menu.addAction(load_compound_action)
-        file_menu.addAction("Save Compounds/Parameter List")
+        self.load_compound_action = QAction("Load Compounds/Parameter List", self)
+        self.load_compound_action.triggered.connect(self.load_compound_list)
+        file_menu.addAction(self.load_compound_action)
+        self.save_compounds_action = file_menu.addAction("Save Compounds/Parameter List")
         file_menu.addSeparator()
-        file_menu.addAction("Recover Deleted Files")
-        file_menu.addAction("Recover Deleted Compounds")
+        self.recover_deleted_files_action = file_menu.addAction("Recover Deleted Files")
+        self.recover_deleted_compounds_action = file_menu.addAction("Recover Deleted Compounds")
         file_menu.addSeparator()
-        file_menu.addAction("Export Integrals")
+        self.export_integrals_action = file_menu.addAction("Export Integrals")
         file_menu.addSeparator()
-        file_menu.addAction("Load Session")
-        file_menu.addAction("Save Session")
-        file_menu.addAction("Clear Session")
+        self.load_session_action = file_menu.addAction("Load Session")
+        self.save_session_action = file_menu.addAction("Save Session")
+        self.clear_session_action = file_menu.addAction("Clear Session")
         file_menu.addSeparator()
         file_menu.addAction("Close App")
 
@@ -121,10 +136,12 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Compounds Loaded", f"Loaded {len(self.compounds_data_storage)} compounds.")
         raw_data_loaded = self.cdf_data_storage is not None
         self.update_label_colors(raw_data_loaded=raw_data_loaded, compound_list_loaded=True)
+        self.update_menu_state(compounds_loaded=True, raw_data_loaded=raw_data_loaded)
 
     def update_ui_with_data(self):
         compound_list_loaded = self.compounds_data_storage is not None
         self.update_label_colors(raw_data_loaded=True, compound_list_loaded=compound_list_loaded)
+        self.update_menu_state(compounds_loaded=compound_list_loaded, raw_data_loaded=True)
 
     def plot_graphs(self, compound=None, cdf_files=None):
         if compound is None:
@@ -165,5 +182,21 @@ class MainWindow(QMainWindow):
     def update_label_colors(self, raw_data_loaded, compound_list_loaded):
         toolbar = self.findChild(Toolbar)
         toolbar.update_label_colors(raw_data_loaded, compound_list_loaded)
+
+    def update_menu_state(self, compounds_loaded, raw_data_loaded):
+        # Always enable these actions
+        self.load_compound_action.setEnabled(True)
+        self.load_session_action.setEnabled(True)
+
+        # Enable/disable based on compounds loaded
+        self.load_cdf_action.setEnabled(compounds_loaded)
+
+        # Enable/disable based on raw data loaded
+        self.recover_deleted_files_action.setEnabled(raw_data_loaded)
+        self.export_integrals_action.setEnabled(raw_data_loaded)
+        self.save_session_action.setEnabled(raw_data_loaded)
+        self.clear_session_action.setEnabled(raw_data_loaded)
+        self.save_compounds_action.setEnabled(raw_data_loaded)
+        self.recover_deleted_compounds_action.setEnabled(raw_data_loaded)
 
 

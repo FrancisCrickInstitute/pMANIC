@@ -125,15 +125,19 @@ class MainWindow(QMainWindow):
     def plot_graphs(self, compound=None, cdf_files=None):
         if compound is None:
             compound = self.compounds_data_storage[0]  # Use the first compound if none is specified
+            print(compound)
 
         if cdf_files is None:
             cdf_files = self.cdf_data_storage  # Use all loaded CDF files if none are specified
+
+        # Sort the cdf_files based on their file names
+        cdf_files = sorted(cdf_files, key=lambda x: x.file_name)
 
         graphs = []
         for cdf_object in cdf_files:
             eic_data = self.graph_view.extract_eic_data(cdf_object, compound)
             graph = self.graph_view.create_eic_plot(eic_data)
-            graphs.append(graph)
+            graphs.append((graph))
 
         # Refresh the plots in the graph view
         self.graph_view.refresh_plots(graphs)

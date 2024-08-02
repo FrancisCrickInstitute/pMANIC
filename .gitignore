@@ -1,4 +1,4 @@
-venv/
-env/
-*.venv
-.venv/
+pymanic_env/
+pymanic_env/
+*.pymanic_env
+.pymanic_env/

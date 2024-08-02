@@ -1,12 +1,18 @@
 import pandas as pd
-from src.manic.data.compound_data_object import Compound
 
-def load_compound_list(file_path):
+
+def load_compound_list(file_path: str) -> dict:
     # Read the Excel file
     df = pd.read_excel(file_path)
-    # Create a list of Compound objects from the dataframe
-    compounds = [
-        Compound(row['name'], row['tR'], row['Mass0'], row['lOffset'], row['rOffset'])
-        for _, row in df.iterrows()
-    ]
+    # Create a dictionary of compound data from the dataframe
+    compounds = {
+        row["name"]: {
+            "tR": row["tR"],
+            "Mass0": row["Mass0"],
+            "lOffset": row["lOffset"],
+            "rOffset": row["rOffset"],
+        }
+        for i, row in df.iterrows()
+    }
+
     return compounds

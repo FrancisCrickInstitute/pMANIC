@@ -53,3 +53,15 @@ def load_eic_data(
     filtered_eic_intensity = eic_intensity
 
     return filtered_eic_time, filtered_eic_intensity
+
+
+def load_all_eic_plots_for_compound(
+    compound: str, cdf_data: dict, compound_data: dict
+) -> dict:
+    files = cdf_data.keys()
+    all_visible_plots = {
+        file: load_eic_data(file, compound, cdf_data, compound_data)
+        for file in files
+    }
+
+    return all_visible_plots

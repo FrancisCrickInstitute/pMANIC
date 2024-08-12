@@ -1,4 +1,2 @@
-pymanic_env/
-pymanic_env/
-*.pymanic_env
-.pymanic_env/
+__pycache__/
+*.pyc

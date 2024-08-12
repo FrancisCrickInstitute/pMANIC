@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "pythonmanic"
+version = "0.1.0"
+description = "MANIC software for GC-MS analysis written in Python."
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "3.11.9"
+pyside6 = "6.7.2"
+pytest = "7.1.2"
+netcdf4 = "1.7.1"
+xlrd = "2.0.1"
+openpyxl = "3.1.4"
+numpy = "2.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+start = "pythonMANIC.src.main:main"

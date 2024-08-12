@@ -9,13 +9,13 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction
 from PySide6.QtCore import QCoreApplication
-from src.manic.gui.toolbar import Toolbar
-from src.manic.gui.graph_view import GraphView
-from src.manic.utils.constants import APPLICATION_VERSION
-from src.manic.utils.utils import load_stylesheet
-from src.manic.controllers.load_cdf_data import load_cdf_files_from_directory
-from src.manic.gui.progress_bar import ProgressDialog
-from src.manic.data.load_compound_list import load_compound_list
+from manic.gui.toolbar import Toolbar
+from manic.gui.graph_view import GraphView
+from manic.utils.constants import APPLICATION_VERSION
+from manic.utils.utils import load_stylesheet
+from manic.controllers.load_cdf_data import load_cdf_files_from_directory
+from manic.gui.progress_bar import ProgressDialog
+from manic.controllers.load_compound_list import load_compound_list
 
 
 class MainWindow(QMainWindow):
@@ -124,11 +124,8 @@ class MainWindow(QMainWindow):
         self.progress_dialog.show()
 
         try:
-            self.cdf_data_storage = load_cdf_files_from_directory(
-                directory, self.update_cdf_progress_bar
-            )
+            self.cdf_data_storage = load_cdf_files_from_directory(directory)
             self.update_ui_with_data()
-            self.progress_dialog.close()
             QCoreApplication.processEvents()  # Process all pending events
             self.plot_graphs()
         except FileNotFoundError as e:
@@ -148,20 +145,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
-    def update_cdf_progress_bar(self, current, total):
-        progress = int((current / total) * 100)
-        self.progress_dialog.set_progress(progress)
-        self.progress_dialog.label.setText(
-            f"Loading CDF files... ({current}/{total})"
-        )
-        QCoreApplication.processEvents()
-
     def update_ui_with_compounds(self):
-        QMessageBox.information(
-            self,
-            "Compounds Loaded",
-            f"Loaded {len(self.compounds_data_storage)} compounds.",
-        )
         raw_data_loaded = self.cdf_data_storage is not None
         self.update_label_colors(
             raw_data_loaded=raw_data_loaded, compound_list_loaded=True

@@ -1,9 +1,13 @@
 [tool.poetry]
-name = "pythonmanic"
+name = "manic"
 version = "0.1.0"
 description = "MANIC software for GC-MS analysis written in Python."
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
+packages = [
+    { include = "manic", from = "src" },
+]
+
 
 [tool.poetry.dependencies]
 python = "3.11.9"
@@ -20,4 +24,5 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-start = "pythonMANIC.src.main:main"
+start = "manic.main:main"
+

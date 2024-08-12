@@ -1,7 +1,12 @@
 import os
+import logging
+import time
 from numpy import asarray, float64
 from src.manic.models import CdfFileData, CdfDirectory
 from netCDF4 import Dataset
+
+
+logger = logging.getLogger("manic_logger")
 
 
 def read_cdf_file(file_path: str) -> CdfFileData:
@@ -26,11 +31,14 @@ def read_cdf_file(file_path: str) -> CdfFileData:
             asarray(cdf_file.variables["total_intensity"][:], dtype=float64),
         )
 
+    logger.info(f"Successfully loaded CDF file: {file_name_with_extension}")
+
     return data_object
 
 
 def load_cdf_files_from_directory(directory: str) -> CdfDirectory:
     """Loads all CDF files from a directory and returns a CdfDirectory object."""
+    start_time = time.time()
     cdf_files = [
         file for file in os.listdir(directory) if file.lower().endswith(".cdf")
     ]
@@ -45,4 +53,6 @@ def load_cdf_files_from_directory(directory: str) -> CdfDirectory:
         file_data = read_cdf_file(file_path)
         cdf_directory_object.cdf_directory[file_data.filename] = file_data
 
+    end_time = time.time()
+    logger.info(f"All CDF files loaded in {end_time - start_time}s")
     return cdf_directory_object

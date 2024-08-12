@@ -13,7 +13,7 @@ from src.manic.gui.toolbar import Toolbar
 from src.manic.gui.graph_view import GraphView
 from src.manic.utils.constants import APPLICATION_VERSION
 from src.manic.utils.utils import load_stylesheet
-from src.manic.data.load_cdfs import load_cdf_files_from_directory
+from src.manic.controllers.load_cdf_data import load_cdf_files_from_directory
 from src.manic.gui.progress_bar import ProgressDialog
 from src.manic.data.load_compound_list import load_compound_list
 

@@ -16,7 +16,8 @@ pytest = "7.1.2"
 netcdf4 = "1.7.1"
 xlrd = "2.0.1"
 openpyxl = "3.1.4"
-numpy = "2.0"
+numpy = "1.26.4"
+pandas = "2.1.0"
 
 
 [build-system]
@@ -25,4 +26,3 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 start = "manic.main:main"
-

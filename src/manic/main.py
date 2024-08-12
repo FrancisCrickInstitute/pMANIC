@@ -1,9 +1,14 @@
 import sys
 from PySide6.QtWidgets import QApplication
-from src.manic.gui.main_window import MainWindow
+from manic.gui.main_window import MainWindow
 
-if __name__ == "__main__":
+
+def main():
     app = QApplication(sys.argv)
     manic = MainWindow()
     manic.showMaximized()
-    sys.exit(app.exec())
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

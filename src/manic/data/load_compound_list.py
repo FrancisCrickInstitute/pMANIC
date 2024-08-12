@@ -1,5 +1,8 @@
 import pandas as pd
 from src.manic.models import CompoundListData
+import logging
+
+logger = logging.getLogger("manic_logger")
 
 
 def load_compound_list(file_path: str) -> CompoundListData:

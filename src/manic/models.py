@@ -45,9 +45,33 @@ class CdfFileData:
 
 
 class CompoundListData:
-    def __init__(self, compounds: list, compound_data: dict):
+    """
+    Store a list of the compound names and a list of the compound data objects.
+    """
+
+    def __init__(self, compounds: list, compound_data: list):
         self.compounds = compounds
         self.compound_data = compound_data
+
+
+class CompoundData:
+    """
+    Store the information about a single compound.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        tR: float,
+        Mass0: float,
+        lOffset: float,
+        rOffset: float,
+    ):
+        self.name = name
+        self.tR = tR
+        self.Mass0 = Mass0
+        self.lOffset = lOffset
+        self.rOffset = rOffset
 
 
 class CompoundIonChromatograms:

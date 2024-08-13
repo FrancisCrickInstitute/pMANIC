@@ -39,6 +39,7 @@ def read_cdf_file(file_path: str) -> CdfFileData:
 def load_cdf_files_from_directory(directory: str) -> CdfDirectory:
     """Loads all CDF files from a directory and returns a CdfDirectory object."""
     start_time = time.time()
+
     cdf_files = [
         file for file in os.listdir(directory) if file.lower().endswith(".cdf")
     ]
@@ -54,5 +55,10 @@ def load_cdf_files_from_directory(directory: str) -> CdfDirectory:
         cdf_directory_object.cdf_directory[file_data.filename] = file_data
 
     end_time = time.time()
+
     logger.info(f"All CDF files loaded in {end_time - start_time}s")
+    logger.info(
+        f"Check example CDF data object: {vars(cdf_directory_object.cdf_directory[cdf_directory_object.file_list[0].strip('.CDF')])}"
+    )
+
     return cdf_directory_object

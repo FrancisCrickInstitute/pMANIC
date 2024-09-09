@@ -1,3 +1,4 @@
+import logging
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -9,13 +10,20 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction
 from PySide6.QtCore import QCoreApplication
-from manic.gui.toolbar import Toolbar
-from manic.gui.graph_view import GraphView
+from manic.views.toolbar import Toolbar
+from manic.views.graph_view import GraphView
 from manic.utils.constants import APPLICATION_VERSION
 from manic.utils.utils import load_stylesheet
 from manic.controllers.load_cdf_data import load_cdf_files_from_directory
-from manic.gui.progress_bar import ProgressDialog
 from manic.controllers.load_compound_list import load_compound_list
+from src.manic.models import (
+    CdfDirectory,
+    CdfFileData,
+    CompoundData,
+    CompoundListData,
+)
+
+logger = logging.getLogger("manic_logger")
 
 
 class MainWindow(QMainWindow):
@@ -23,8 +31,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MANIC")
         self.setObjectName("mainWindow")
-        self.cdf_data_storage = None
-        self.compounds_data_storage = None
+        self.cdf_data_storage: CdfDirectory | None = None
+        self.compounds_data_storage: CompoundListData | None = None
 
         # Menu actions
         self.load_cdf_action = None
@@ -47,6 +55,10 @@ class MainWindow(QMainWindow):
         self.update_menu_state(compounds_loaded=False, raw_data_loaded=False)
 
     def setup_ui(self):
+        """
+        Set up the application UI.
+        """
+
         # Create the main layout
         main_layout = QHBoxLayout()
 
@@ -69,17 +81,30 @@ class MainWindow(QMainWindow):
         # Create menu bar
         menu_bar = QMenuBar()
 
-        # Create File Menu
+        """ Create File Menu """
+
+        # Initiate the file menu
         file_menu = menu_bar.addMenu("File")
+
+        # Create the actions/logic for loading CDF files
         self.load_cdf_action = QAction("Load Raw Data (CDF)", self)
         self.load_cdf_action.triggered.connect(self.load_cdf_files)
+        # Add the load CDF action/logic to the file menu
         file_menu.addAction(self.load_cdf_action)
+
+        # Add a separator to the file menu
         file_menu.addSeparator()
+
+        # Create the actions/logic for loading compound list data
         self.load_compound_action = QAction(
             "Load Compounds/Parameter List", self
         )
-        self.load_compound_action.triggered.connect(self.load_compound_list)
+        self.load_compound_action.triggered.connect(
+            self.load_compound_list_data
+        )
+        # Add the load compound action/logic to the file menu
         file_menu.addAction(self.load_compound_action)
+
         self.save_compounds_action = file_menu.addAction(
             "Save Compounds/Parameter List"
         )
@@ -105,34 +130,44 @@ class MainWindow(QMainWindow):
 
         # Create Version Menu
         version_menu = menu_bar.addMenu("Application Version")
-        version_number = version_menu.addAction(
-            f"MANIC v{APPLICATION_VERSION}"
-        )
+        version_number = version_menu.addAction(f"MANIC v{APPLICATION_VERSION}")
         version_number.setEnabled(False)
 
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
 
-    def load_cdf_files(self):
-        directory = QFileDialog.getExistingDirectory(self, "Select Directory")
-        if not directory:
-            return
+    def update_ui_with_compounds(self: QMainWindow) -> None:
+        """
+        Update the UIs indicator of compound list loaded state.
 
-        self.progress_dialog = ProgressDialog(
-            self, "Loading CDF Files", "Loading CDF files, please wait..."
+        """
+        raw_data_loaded = self.cdf_data_storage is not None
+        self.update_label_colors(
+            raw_data_loaded=raw_data_loaded, compound_list_loaded=True
         )
-        self.progress_dialog.show()
+        self.update_menu_state(
+            compounds_loaded=True, raw_data_loaded=raw_data_loaded
+        )
 
-        try:
-            self.cdf_data_storage = load_cdf_files_from_directory(directory)
-            self.update_ui_with_data()
-            QCoreApplication.processEvents()  # Process all pending events
-            self.plot_graphs()
-        except FileNotFoundError as e:
-            QMessageBox.warning(self, "Error", str(e))
-            self.progress_dialog.close()
+    def update_ui_with_data(self: QMainWindow) -> None:
+        """
+        Update the UIs indicator of raw data/cdf loaded state.
 
-    def load_compound_list(self):
+        """
+        compound_list_loaded = self.compounds_data_storage is not None
+        self.update_label_colors(
+            raw_data_loaded=True, compound_list_loaded=compound_list_loaded
+        )
+        self.update_menu_state(
+            compounds_loaded=compound_list_loaded, raw_data_loaded=True
+        )
+
+    def load_compound_list_data(self: QMainWindow) -> None:
+        """
+        1. Prompt the user to select a compound list file.
+        2. Call the load_compound_list controller function to load the compound list.
+
+        """
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Compound List", "", "Excel Files (*.xls *.xlsx)"
         )
@@ -145,43 +180,44 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
-    def update_ui_with_compounds(self):
-        raw_data_loaded = self.cdf_data_storage is not None
-        self.update_label_colors(
-            raw_data_loaded=raw_data_loaded, compound_list_loaded=True
-        )
-        self.update_menu_state(
-            compounds_loaded=True, raw_data_loaded=raw_data_loaded
-        )
+    def load_cdf_files(self: QMainWindow) -> None:
+        """
+        1. Prompt the user to select a directory from which to load the CDF files.
+        2. Call the load_cdf_files_from_directory controller function to load the CDF files.
 
-    def update_ui_with_data(self):
-        compound_list_loaded = self.compounds_data_storage is not None
-        self.update_label_colors(
-            raw_data_loaded=True, compound_list_loaded=compound_list_loaded
-        )
-        self.update_menu_state(
-            compounds_loaded=compound_list_loaded, raw_data_loaded=True
-        )
+        """
+        directory = QFileDialog.getExistingDirectory(self, "Select Directory")
+        if not directory:
+            return
+        try:
+            self.cdf_data_storage = load_cdf_files_from_directory(directory)
+            self.update_ui_with_data()
+            QCoreApplication.processEvents()  # Process all pending events
+        except FileNotFoundError as e:
+            QMessageBox.warning(self, "Error", str(e))
+            self.progress_dialog.close()
 
-    def plot_graphs(self, compound=None, cdf_files=None):
-        if compound is None:
-            compound = self.compounds_data_storage[
+        if self.cdf_data_storage:
+            self.plot_graphs()
+
+    def plot_graphs(
+        self: QMainWindow,
+        compound: CompoundData | None = None,
+        cdf_files: list[CdfFileData] | None = None,
+    ):
+        if compound is None and self.compounds_data_storage is not None:
+            compound = self.compounds_data_storage.compound_data[
                 0
-            ]  # Use the first compound if none is specified
-            print(compound)
+            ]  # Use the first compound if none are specified
+            logger.info(f"First compound: {vars(compound)}")
 
-        if cdf_files is None:
-            cdf_files = (
-                self.cdf_data_storage
-            )  # Use all loaded CDF files if none are specified
+        if cdf_files is None and self.cdf_data_storage is not None:
+            cdf_files = self.cdf_data_storage.cdf_directory
+            # Use all loaded CDF files if none are specified
 
-        # Sort the cdf_files based on their file names
-        cdf_files = sorted(cdf_files, key=lambda x: x.file_name)
-
-        self.progress_dialog = ProgressDialog(
-            self, "Creating EIC Plots", "Plotting graphs, please wait..."
-        )
-        self.progress_dialog.show()
+        if compound is None or cdf_files is None:
+            QMessageBox.warning(self, "Error: No data to plot.")
+            return
 
         try:
             num_files = len(cdf_files)

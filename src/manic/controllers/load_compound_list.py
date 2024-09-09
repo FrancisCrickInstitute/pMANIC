@@ -18,7 +18,7 @@ def load_compound_list(file_path: str) -> CompoundListData:
             float(row["lOffset"]),
             float(row["rOffset"]),
         )
-        for i, row in df.iterrows()
+        for index, row in df.iterrows()
     ]
 
     logger.info(
@@ -27,6 +27,7 @@ def load_compound_list(file_path: str) -> CompoundListData:
     logger.info(
         f"See the list of loaded compounds {compound_data_object.compounds}"
     )
+
     logger.info(
         f"Check the following compound data objects: {vars(compound_data_object.compound_data[0])} and {vars(compound_data_object.compound_data[-1])}"
     )

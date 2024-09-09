@@ -1,6 +1,6 @@
 import sys
 from PySide6.QtWidgets import QApplication
-from manic.gui.main_window import MainWindow
+from manic.views.main_window import MainWindow
 import logging
 
 

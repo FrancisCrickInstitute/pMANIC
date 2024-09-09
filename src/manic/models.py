@@ -1,23 +1,6 @@
 import numpy as np
 
 
-class CdfDirectory:
-    """
-    A directory containing all of the CDF objects, the directory path, and a
-    list of the CDF filenames.
-
-    cdf_directory is a dictionary where the key is the filename and the value
-    is a CdfFileData object.
-    """
-
-    def __init__(
-        self, directory_path: str, file_list: list, cdf_directory: dict
-    ):
-        self.directory = directory_path
-        self.file_list = file_list
-        self.cdf_directory = cdf_directory
-
-
 class CdfFileData:
     """
     Store all of the data contained within a single CDF file.
@@ -42,6 +25,26 @@ class CdfFileData:
         self.scan_index = scan_index
         self.point_count = point_count
         self.total_intensity = total_intensity
+
+
+class CdfDirectory:
+    """
+    A directory containing all of the CDF objects, the directory path, and a
+    list of the CDF filenames.
+
+    cdf_directory is a dictionary where the key is the filename and the value
+    is a CdfFileData object.
+    """
+
+    def __init__(
+        self,
+        directory_path: str,
+        file_list: list[str],
+        cdf_directory: dict[str, CdfFileData],
+    ):
+        self.directory = directory_path
+        self.file_list = file_list
+        self.cdf_directory = cdf_directory
 
 
 class CompoundListData:
@@ -74,19 +77,24 @@ class CompoundData:
         self.rOffset = rOffset
 
 
-class CompoundIonChromatograms:
-    def __init__(self, compound_eics):
-        self.compound_eics = compound_eics
-
-
 class ExtractedIonChromatogramData:
-    def __init__(self, eic_plot):
-        self.eic_plot = eic_plot
+
+    def __init__(
+        self,
+        sample_name: str,
+        compound_name: str,
+        retention_time_window: float = 0.2,
+    ):
+        self.sample_name = sample_name
+        self.compound_name = compound_name
+        self.time_x: np.ndarray | None = None
+        self.intensity_y: np.ndarray | None = None
+        self.retention_time_window = retention_time_window
 
 
 class TotalIonChromatogramData:
     def __init__(self, tic_plot):
-        self.tic_plot = tic
+        self.tic_plot = tic_plot
 
 
 class MassSpectrumData:

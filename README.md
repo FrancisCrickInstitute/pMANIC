@@ -6,7 +6,7 @@
 
 ### Install Package/Project Manager
 
-Download [uv](https://github.com/astral-sh/uv) if not already in downloaded:
+Download [uv](https://github.com/astral-sh/uv) (if not already downloaded):
 ```bash
 # On macOS and Linux.
 curl -LsSf https://astral.sh/uv/install.sh | sh

@@ -18,6 +18,7 @@ logger = logging.getLogger("manic_logger")
 def main():
     # Connect to (or create) the database file
     conn = sqlite3.connect("manic_db.db")
+    conn.execute("PRAGMA foreign_keys = ON;")
     cur = conn.cursor()
 
     # Create compounds table

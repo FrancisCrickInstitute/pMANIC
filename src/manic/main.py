@@ -2,6 +2,8 @@ import logging
 import sys
 from pathlib import Path
 
+from manic.models.database import init_db
+
 
 def configure_logging() -> None:
     log_dir = Path.home() / ".manic_app"
@@ -22,8 +24,12 @@ def main():
 
     from manic.views.main_window import MainWindow
 
-    configure_logging()
     logger = logging.getLogger("manic_logger")
+
+    configure_logging()
+    init_db()
+    print("Database initialized")
+
     app = QApplication(sys.argv)
     manic = MainWindow()
     manic.showMaximized()

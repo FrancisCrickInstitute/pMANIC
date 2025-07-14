@@ -1,10 +1,11 @@
-import os
 import logging
+import os
 import time
-from numpy import asarray, float64
-from src.manic.models import CdfFileData, CdfDirectory
-from netCDF4 import Dataset
 
+from netCDF4 import Dataset
+from numpy import asarray, float64
+
+from manic.old_models import CdfDirectory, CdfFileData
 
 logger = logging.getLogger("manic_logger")
 
@@ -44,9 +45,7 @@ def load_cdf_files_from_directory(directory: str) -> CdfDirectory:
         file for file in os.listdir(directory) if file.lower().endswith(".cdf")
     ]
     if not cdf_files:
-        raise FileNotFoundError(
-            "No CDF files found in the selected directory."
-        )
+        raise FileNotFoundError("No CDF files found in the selected directory.")
 
     cdf_directory_object = CdfDirectory(directory, cdf_files, {})
     for cdf_file in cdf_files:

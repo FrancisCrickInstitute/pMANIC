@@ -1,6 +1,8 @@
-import pandas as pd
-from manic.models import CompoundListData, CompoundData
 import logging
+
+import pandas as pd
+
+from manic.old_models import CompoundData, CompoundListData
 
 logger = logging.getLogger("manic_logger")
 
@@ -24,9 +26,7 @@ def load_compound_list(file_path: str) -> CompoundListData:
     logger.info(
         f"{len(compound_data_object.compound_data)} compounds have been loaded."
     )
-    logger.info(
-        f"See the list of loaded compounds {compound_data_object.compounds}"
-    )
+    logger.info(f"See the list of loaded compounds {compound_data_object.compounds}")
 
     logger.info(
         f"Check the following compound data objects: {vars(compound_data_object.compound_data[0])} and {vars(compound_data_object.compound_data[-1])}"

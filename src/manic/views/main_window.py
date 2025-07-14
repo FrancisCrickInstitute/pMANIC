@@ -1,22 +1,24 @@
 import logging
-from PySide6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QHBoxLayout,
-    QMenuBar,
-    QFileDialog,
-    QMessageBox,
-    QProgressBar,
-)
-from PySide6.QtGui import QAction
+
 from PySide6.QtCore import QCoreApplication
-from manic.views.toolbar import Toolbar
-from manic.views.graph_view import GraphView
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QMainWindow,
+    QMenuBar,
+    QMessageBox,
+    QWidget,
+)
+
+from manic.controllers.load_cdf_data import load_cdf_files_from_directory
+from manic.io.compounds_import import import_compound_excel
+from manic.models.database import get_connection
 from manic.utils.constants import APPLICATION_VERSION
 from manic.utils.utils import load_stylesheet
-from manic.controllers.load_cdf_data import load_cdf_files_from_directory
-from manic.controllers.load_compound_list import load_compound_list
-from src.manic.models import (
+from manic.views.graph_view import GraphView
+from manic.views.toolbar import Toolbar
+from src.manic.old_models import (
     CdfDirectory,
     CdfFileData,
     CompoundData,
@@ -96,12 +98,8 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         # Create the actions/logic for loading compound list data
-        self.load_compound_action = QAction(
-            "Load Compounds/Parameter List", self
-        )
-        self.load_compound_action.triggered.connect(
-            self.load_compound_list_data
-        )
+        self.load_compound_action = QAction("Load Compounds/Parameter List", self)
+        self.load_compound_action.triggered.connect(self.load_compound_list_data)
         # Add the load compound action/logic to the file menu
         file_menu.addAction(self.load_compound_action)
 
@@ -109,9 +107,7 @@ class MainWindow(QMainWindow):
             "Save Compounds/Parameter List"
         )
         file_menu.addSeparator()
-        self.recover_deleted_files_action = file_menu.addAction(
-            "Recover Deleted Files"
-        )
+        self.recover_deleted_files_action = file_menu.addAction("Recover Deleted Files")
         self.recover_deleted_compounds_action = file_menu.addAction(
             "Recover Deleted Compounds"
         )
@@ -145,9 +141,7 @@ class MainWindow(QMainWindow):
         self.update_label_colors(
             raw_data_loaded=raw_data_loaded, compound_list_loaded=True
         )
-        self.update_menu_state(
-            compounds_loaded=True, raw_data_loaded=raw_data_loaded
-        )
+        self.update_menu_state(compounds_loaded=True, raw_data_loaded=raw_data_loaded)
 
     def update_ui_with_data(self: QMainWindow) -> None:
         """
@@ -175,7 +169,20 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            self.compounds_data_storage = load_compound_list(file_path)
+            self.compounds_data_storage = import_compound_excel(file_path)
+
+            sql = """
+                    SELECT *
+                    FROM   compounds
+                    WHERE  compound_name = ?
+                      AND  deleted = 0            -- omit if you don't use soft-deletes
+                    LIMIT 1
+                    """
+
+            with get_connection() as conn:
+                row = conn.execute(sql, ("Pyruvate",)).fetchone()
+                print(dict(row))
+
             self.update_ui_with_compounds()
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
@@ -223,9 +230,7 @@ class MainWindow(QMainWindow):
             num_files = len(cdf_files)
             graphs = []
             for i, cdf_object in enumerate(cdf_files):
-                eic_data = self.graph_view.extract_eic_data(
-                    cdf_object, compound
-                )
+                eic_data = self.graph_view.extract_eic_data(cdf_object, compound)
                 graph = self.graph_view.create_eic_plot(eic_data)
                 graphs.append(graph)
 
@@ -240,9 +245,7 @@ class MainWindow(QMainWindow):
     def update_plot_progress_bar(self, current, total):
         progress = int((current / total) * 100)
         self.progress_dialog.set_progress(progress)
-        self.progress_dialog.label.setText(
-            f"Plotting graphs... ({current}/{total})"
-        )
+        self.progress_dialog.label.setText(f"Plotting graphs... ({current}/{total})")
         QCoreApplication.processEvents()
 
     def update_label_colors(self, raw_data_loaded, compound_list_loaded):

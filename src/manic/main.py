@@ -2,7 +2,7 @@ import logging
 import sys
 from pathlib import Path
 
-from manic.models.database import init_db
+from manic.models.database import clear_database, init_db
 
 
 def configure_logging() -> None:
@@ -28,6 +28,7 @@ def main():
 
     configure_logging()
     init_db()
+    clear_database()
     print("Database initialized")
 
     app = QApplication(sys.argv)

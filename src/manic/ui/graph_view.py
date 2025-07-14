@@ -1,9 +1,10 @@
 import math
-from typing import List
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
+from PySide6.QtCore import QMargins, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QWidget
 
 from manic.io.compound_reader import read_compound
@@ -48,7 +49,8 @@ class GraphView(QWidget):
         """
         self._clear_layout()
 
-        samples: List[str] = list_active_samples()
+        samples = list_active_samples()
+        print(samples)
         if not samples:
             return
 
@@ -67,51 +69,80 @@ class GraphView(QWidget):
     #  internals                                                         #
     # ------------------------------------------------------------------ #
     def _build_plot(self, eic) -> pg.PlotWidget:
-        """
-        Create a PlotWidget with curve + three guide lines + small title.
-        """
+        """Create a QChartView with EIC data and guide lines."""
         compound = read_compound(eic.compound_name)
 
-        w = pg.PlotWidget(background="w")
-        w.hideAxis("right")
-        w.hideAxis("top")
+        # Create chart
+        chart = QChart()
+        chart.setBackgroundVisible(False)
+        chart.setPlotAreaBackgroundVisible(True)
+        chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
+        chart.legend().hide()
 
-        # curve
-        w.plot(eic.time, eic.intensity, pen=self._PEN_C)
+        # Create EIC series
+        series = QLineSeries()
+        for x, y in zip(eic.time, eic.intensity):
+            series.append(x, y)
+        series.setPen(QPen(QColor(139, 0, 0), 1))  # Dark red
+        chart.addSeries(series)
 
-        # axes style
-        for ax in ("bottom", "left"):
-            axis = w.getAxis(ax)
-            axis.setPen(pg.mkPen("k"))
-            axis.setTextPen("k")
-            axis.setTickFont(pg.QtGui.QFont("Arial", 8))
-            axis.setGrid(False)
+        # Create axes
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        series.attachAxis(x_axis)
+        series.attachAxis(y_axis)
 
-        # y-range
-        y_max = float(np.max(eic.intensity))
-        w.setYRange(0, y_max)
+        # Set up axes
+        x_axis.setGridLineVisible(False)
+        y_axis.setGridLineVisible(False)
+        font = QFont("Arial", 8)
+        x_axis.setLabelsFont(font)
+        y_axis.setLabelsFont(font)
 
-        # x-range (±0.2 min around RT)
+        # Set ranges
         rt = compound.retention_time
-        xmin = max(rt - 0.2, eic.time.min())
-        xmax = min(rt + 0.2, eic.time.max())
-        w.setXRange(xmin, xmax)
+        x_min = max(rt - 0.2, np.min(eic.time))
+        x_max = min(rt + 0.2, np.max(eic.time))
+        y_max = np.max(eic.intensity)
 
-        # guide lines
-        w.addLine(x=rt, pen=self._PEN_RT)
-        w.addLine(x=rt - compound.loffset, pen=self._PEN_LOFF)
-        w.addLine(x=rt + compound.roffset, pen=self._PEN_ROFF)
+        x_axis.setRange(x_min, x_max)
+        y_axis.setRange(0, y_max)
 
-        # sample name – small label in upper-right
-        label = pg.TextItem(
-            eic.sample_name,
-            anchor=(1, 0),  # right-top corner
-            color=(0, 0, 0),
-        )
-        w.addItem(label)
-        label.setPos(xmax, y_max)
+        # Add guide lines
+        self._add_guide_line(
+            chart, x_axis, y_axis, rt, 0, y_max, QColor(0, 0, 0)
+        )  # RT line
+        self._add_guide_line(
+            chart, x_axis, y_axis, rt - compound.loffset, 0, y_max, QColor(255, 140, 0)
+        )  # Left offset
+        self._add_guide_line(
+            chart, x_axis, y_axis, rt + compound.roffset, 0, y_max, QColor(138, 43, 226)
+        )  # Right offset
 
-        return w
+        # Set title
+        chart.setTitle(eic.sample_name)
+        chart.setTitleFont(QFont("Arial", 8))
+        chart.setTitleBrush(QColor(0, 0, 0))
+        chart.setMargins(QMargins(-13, -10, -13, -15))
+
+        # Create chart view
+        chart_view = QChartView(chart)
+        chart_view.setRenderHint(QPainter.Antialiasing)
+        chart_view.setContentsMargins(0, 0, 0, 0)
+
+        return chart_view
+
+    def _add_guide_line(self, chart, x_axis, y_axis, x_pos, y_start, y_end, color):
+        """Add a vertical guide line to the chart."""
+        line_series = QLineSeries()
+        line_series.append(x_pos, y_start)
+        line_series.append(x_pos, y_end)
+        line_series.setPen(QPen(color, 1))
+        chart.addSeries(line_series)
+        line_series.attachAxis(x_axis)
+        line_series.attachAxis(y_axis)
 
     def _update_graph_sizes(self) -> None:
         """

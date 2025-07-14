@@ -60,12 +60,12 @@ def import_eics(
     start = time.time()
     directory = Path(directory).expanduser()
 
-    # 1️⃣  discover CDF files (case-insensitive)
+    # discover CDF files (case-insensitive)
     cdf_files = [p for p in directory.iterdir() if p.suffix.lower() == ".cdf"]
     if not cdf_files:
         raise FileNotFoundError("No .CDF files found in the selected directory.")
 
-    # 2️⃣  fetch all active compounds once
+    # fetch all active compounds once
     with get_connection() as conn:
         compounds = list(_iter_compounds(conn))
     if not compounds:
@@ -75,7 +75,7 @@ def import_eics(
     done = 0
     inserted = 0
 
-    # 3️⃣  process each file
+    # process each file
     for cdf_path in cdf_files:
         cdf = read_cdf_file(cdf_path)
 

@@ -57,3 +57,13 @@ def get_connection():
     finally:
         if conn is not None:  #  close only if we actually opened it
             conn.close()
+
+
+def clear_database():
+    """Clear all data from the database (keep schema)."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM eic")
+        conn.execute("DELETE FROM samples")
+        conn.execute("DELETE FROM compounds")
+        conn.execute("DELETE FROM session_activity")
+    logger.info("Database cleared")

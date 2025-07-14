@@ -1,70 +1,29 @@
 import logging
-import sqlite3
 import sys
+from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
 
-from manic.views.main_window import MainWindow
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-logger = logging.getLogger("manic_logger")
+def configure_logging() -> None:
+    log_dir = Path.home() / ".manic_app"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            logging.FileHandler(log_dir / "manic.log", encoding="utf-8"),  # log file
+            logging.StreamHandler(),  # console
+        ],
+    )
 
 
 def main():
-    # Connect to (or create) the database file
-    conn = sqlite3.connect("manic_db.db")
-    conn.execute("PRAGMA foreign_keys = ON;")
-    cur = conn.cursor()
+    from PySide6.QtWidgets import QApplication
 
-    # Create compounds table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS compounds (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        compound_name TEXT UNIQUE NOT NULL,
-        retention_time REAL,
-        Mass0 REAL,
-        loffset REAL,
-        roffset REAL,
-        deleted BOOLEAN DEFAULT 0
-    )
-    """)
+    from manic.views.main_window import MainWindow
 
-    # Create sample table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS sample (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_name TEXT,
-        sample_name TEXT UNIQUE NOT NULL,
-        deleted BOOLEAN DEFAULT 0
-    )
-    """)
-
-    # Create eic table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS eic (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sample_name TEXT NOT NULL,
-        compound_name TEXT NOT NULL,
-        x_axis BLOB,
-        y_axis BLOB,
-        retention_time_window REAL,
-        corrected BOOLEAN DEFAULT 0,
-        deleted BOOLEAN DEFAULT 0,
-        spectrum_position INTEGER,
-        chromatogram_position INTEGER,
-        FOREIGN KEY (sample_name) REFERENCES sample(sample_name),
-        FOREIGN KEY (compound_name) REFERENCES compounds(compound_name)
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
+    configure_logging()
+    logger = logging.getLogger("manic_logger")
     app = QApplication(sys.argv)
     manic = MainWindow()
     manic.showMaximized()

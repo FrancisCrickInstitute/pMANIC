@@ -1,6 +1,6 @@
 import logging
 
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtCore import QCoreApplication, Qt, QThread
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -8,22 +8,16 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenuBar,
     QMessageBox,
+    QProgressBar,
+    QProgressDialog,
     QWidget,
 )
 
-from manic.controllers.load_cdf_data import load_cdf_files_from_directory
 from manic.io.compounds_import import import_compound_excel
-from manic.models.database import get_connection
-from manic.utils.constants import APPLICATION_VERSION
+from manic.ui.graph_view import GraphView
 from manic.utils.utils import load_stylesheet
-from manic.views.graph_view import GraphView
+from manic.utils.workers import CdfImportWorker
 from manic.views.toolbar import Toolbar
-from src.manic.old_models import (
-    CdfDirectory,
-    CdfFileData,
-    CompoundData,
-    CompoundListData,
-)
 
 logger = logging.getLogger("manic_logger")
 
@@ -33,19 +27,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MANIC")
         self.setObjectName("mainWindow")
-        self.cdf_data_storage: CdfDirectory | None = None
-        self.compounds_data_storage: CompoundListData | None = None
+        self.progress_bar = QProgressBar()
 
         # Menu actions
         self.load_cdf_action = None
         self.load_compound_action = None
-        self.save_compounds_action = None
-        self.recover_deleted_files_action = None
-        self.recover_deleted_compounds_action = None
-        self.export_integrals_action = None
-        self.load_session_action = None
-        self.save_session_action = None
-        self.clear_session_action = None
 
         self.setup_ui()
 
@@ -54,7 +40,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(stylesheet)
 
         # Initialize menu state
-        self.update_menu_state(compounds_loaded=False, raw_data_loaded=False)
+        # self.update_menu_state(compounds_loaded=False, raw_data_loaded=False)
 
     def setup_ui(self):
         """
@@ -103,58 +89,19 @@ class MainWindow(QMainWindow):
         # Add the load compound action/logic to the file menu
         file_menu.addAction(self.load_compound_action)
 
-        self.save_compounds_action = file_menu.addAction(
-            "Save Compounds/Parameter List"
-        )
-        file_menu.addSeparator()
-        self.recover_deleted_files_action = file_menu.addAction("Recover Deleted Files")
-        self.recover_deleted_compounds_action = file_menu.addAction(
-            "Recover Deleted Compounds"
-        )
-        file_menu.addSeparator()
-        self.export_integrals_action = file_menu.addAction("Export Integrals")
-        file_menu.addSeparator()
-        self.load_session_action = file_menu.addAction("Load Session")
-        self.save_session_action = file_menu.addAction("Save Session")
-        self.clear_session_action = file_menu.addAction("Clear Session")
-        file_menu.addSeparator()
-        file_menu.addAction("Close App")
-
-        # Create View Menu
-        view_menu = menu_bar.addMenu("View")
-        view_menu.addAction("Toggle Colour Blind Aid")
-
-        # Create Version Menu
-        version_menu = menu_bar.addMenu("Application Version")
-        version_number = version_menu.addAction(f"MANIC v{APPLICATION_VERSION}")
-        version_number.setEnabled(False)
-
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
 
-    def update_ui_with_compounds(self: QMainWindow) -> None:
-        """
-        Update the UIs indicator of compound list loaded state.
-
-        """
-        raw_data_loaded = self.cdf_data_storage is not None
-        self.update_label_colors(
-            raw_data_loaded=raw_data_loaded, compound_list_loaded=True
-        )
-        self.update_menu_state(compounds_loaded=True, raw_data_loaded=raw_data_loaded)
-
-    def update_ui_with_data(self: QMainWindow) -> None:
-        """
-        Update the UIs indicator of raw data/cdf loaded state.
-
-        """
-        compound_list_loaded = self.compounds_data_storage is not None
-        self.update_label_colors(
-            raw_data_loaded=True, compound_list_loaded=compound_list_loaded
-        )
-        self.update_menu_state(
-            compounds_loaded=compound_list_loaded, raw_data_loaded=True
-        )
+    # reusable progress dialog
+    def _build_progress_dialog(self, title: str) -> QProgressDialog:
+        dlg = QProgressDialog(title, None, 0, 100, self)
+        dlg.setWindowTitle("Please wait")
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.setMinimumDuration(0)  # Show immediately
+        dlg.setCancelButton(None)  # Remove cancel button for simplicity
+        return dlg
 
     def load_compound_list_data(self: QMainWindow) -> None:
         """
@@ -170,43 +117,63 @@ class MainWindow(QMainWindow):
 
         try:
             self.compounds_data_storage = import_compound_excel(file_path)
-
-            sql = """
-                    SELECT *
-                    FROM   compounds
-                    WHERE  compound_name = ?
-                      AND  deleted = 0            -- omit if you don't use soft-deletes
-                    LIMIT 1
-                    """
-
-            with get_connection() as conn:
-                row = conn.execute(sql, ("Pyruvate",)).fetchone()
-                print(dict(row))
-
-            self.update_ui_with_compounds()
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
-    def load_cdf_files(self: QMainWindow) -> None:
-        """
-        1. Prompt the user to select a directory from which to load the CDF files.
-        2. Call the load_cdf_files_from_directory controller function to load the CDF files.
-
-        """
+    def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
         if not directory:
             return
+
+        # build dialog & worker
+        self.progress_dialog = self._build_progress_dialog("Importing CDF data…")
+        self.progress_dialog.show()
+
+        self._thread = QThread(self)  # background thread
+        self._worker = CdfImportWorker(directory)  # heavy lifting
+        self._worker.moveToThread(self._thread)
+
+        # progress updates
+        self._worker.progress.connect(self._update_import_progress)
+        # finish / fail
+        self._worker.finished.connect(self._import_ok)
+        self._worker.failed.connect(self._import_fail)
+        self._worker.finished.connect(self._thread.quit)
+        self._worker.failed.connect(self._thread.quit)
+
+        self._thread.started.connect(self._worker.run)
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.start()
+
+    def _update_import_progress(self, current: int, total: int):
+        pct = int(current / total * 100)
+        self.progress_dialog.setMaximum(100)
+        self.progress_dialog.setValue(pct)
+        self.progress_dialog.setLabelText("Importing…")
+        QCoreApplication.processEvents()
+
+    def _import_ok(self, rows: int):
+        self.progress_dialog.close()
+        QMessageBox.information(
+            self, "Import OK", f"Data for {rows} EICs successfully extracted."
+        )
+        # Automatically plot after successful import
+        self.on_plot_button()
+
+    def _import_fail(self, msg: str):
+        self.progress_dialog.close()
+        QMessageBox.critical(self, "Import failed", msg)
+
+    def on_plot_button(self):
         try:
-            self.cdf_data_storage = load_cdf_files_from_directory(directory)
-            self.update_ui_with_data()
-            QCoreApplication.processEvents()  # Process all pending events
-        except FileNotFoundError as e:
-            QMessageBox.warning(self, "Error", str(e))
-            self.progress_dialog.close()
+            self.graph_view.plot_compound("Pyruvate")
+        except LookupError as err:
+            QMessageBox.warning(self, "Missing data", str(err))
+        except Exception as e:
+            logger.error(f"Error plotting: {e}")
+            QMessageBox.warning(self, "Error", f"Error plotting: {str(e)}")
 
-        if self.cdf_data_storage:
-            self.plot_graphs()
-
+    """
     def plot_graphs(
         self: QMainWindow,
         compound: CompoundData | None = None,
@@ -241,6 +208,7 @@ class MainWindow(QMainWindow):
             self.graph_view.refresh_plots(graphs)
         finally:
             self.progress_dialog.close()
+    """
 
     def update_plot_progress_bar(self, current, total):
         progress = int((current / total) * 100)
@@ -251,6 +219,9 @@ class MainWindow(QMainWindow):
     def update_label_colors(self, raw_data_loaded, compound_list_loaded):
         toolbar = self.findChild(Toolbar)
         toolbar.update_label_colors(raw_data_loaded, compound_list_loaded)
+
+
+"""
 
     def update_menu_state(self, compounds_loaded, raw_data_loaded):
         # Always enable these actions
@@ -267,3 +238,5 @@ class MainWindow(QMainWindow):
         self.clear_session_action.setEnabled(raw_data_loaded)
         self.save_compounds_action.setEnabled(raw_data_loaded)
         self.recover_deleted_compounds_action.setEnabled(raw_data_loaded)
+
+"""

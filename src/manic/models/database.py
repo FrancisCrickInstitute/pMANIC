@@ -42,16 +42,18 @@ def get_connection():
             conn.execute("INSERT INTO compounds (...) VALUES (...)")
 
     """
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-
+    conn = None  #  ensure the name exists
     try:
-        yield conn
-        conn.commit()
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        yield conn  #  hand the connection to callers
+        conn.commit()  #  normal exit ⇒ commit
     except Exception:
-        conn.rollback()
-        logger.exception("transaction rolled back due to error")
+        if conn is not None:
+            conn.rollback()  #  roll back only if we had a connection
+        logger.exception("DB transaction rolled back")
         raise
     finally:
-        conn.close()
+        if conn is not None:  #  close only if we actually opened it
+            conn.close()

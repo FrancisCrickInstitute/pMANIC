@@ -1,4 +1,3 @@
-# src/manic/io/eic_calculator.py
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,18 +22,28 @@ def extract_eic(
     rt_window: float = 0.2,
 ) -> EIC:
     """Return an EIC for `compound_name` or raise ValueError if empty."""
+
     # Convert seconds → minutes
     times = cdf.scan_time / 60.0
-
+    # boolean matrix with each value being true/false for whether the
+    # `scan_time/60` is within the time window
     time_mask = (times >= t_r - rt_window) & (times <= t_r + rt_window)
+    # get the indices of all scans within the retention time window
+    # [0] required as np.where returns a tuple containing an array
     idx = np.where(time_mask)[0]
     if idx.size == 0:
         raise ValueError("no scans inside RT window")
 
-    # Start / end spectrum indices for each scan
+    # Start spectrum indices for each scan
     starts = cdf.scan_index[idx]
-    ends = np.append(cdf.scan_index[idx[1:]], len(cdf.mass))
+    # If idx[-1] is the last scan in the file:
+    if idx[-1] + 1 < len(cdf.scan_index):
+        ends = cdf.scan_index[idx + 1]
+    else:
+        # For the last scan, append len(cdf.mass)
+        ends = np.append(cdf.scan_index[idx[1:]], len(cdf.mass))
 
+    # get the intenisty values for the eic
     eic_int = np.zeros(idx.size, dtype=float)
     for i, (s, e) in enumerate(zip(starts, ends)):
         scan_mass = cdf.mass[s:e]

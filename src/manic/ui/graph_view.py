@@ -11,22 +11,16 @@ from manic.io.compound_reader import read_compound
 from manic.io.sample_reader import list_active_samples
 from manic.processors.eic_processing import get_eics_for_compound
 
+# colours
+steel_blue_colour = QColor(70, 130, 180)
+dark_red_colour = QColor(139, 0, 0)
+
 
 class GraphView(QWidget):
     """
     Re-implements the old grid-of-charts look with pyqtgraph,
     but fetches data via the new processors/io stack.
     """
-
-    # ---- colour helpers -------------------------------------------------
-    _PEN_C = pg.mkPen(color=(139, 0, 0), width=1)  # dark-red EIC curve
-    _PEN_RT = pg.mkPen(color=(0, 0, 0), width=1)  # retention-time line
-    _PEN_LOFF = pg.mkPen(
-        color=(255, 140, 0), width=1, style=Qt.DashLine
-    )  # lOffset guide
-    _PEN_ROFF = pg.mkPen(
-        color=(138, 43, 226), width=1, style=Qt.DashLine
-    )  # rOffset guide
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,9 +34,7 @@ class GraphView(QWidget):
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._update_graph_sizes)
 
-    # ------------------------------------------------------------------ #
-    #  public slot called from MainWindow                                #
-    # ------------------------------------------------------------------ #
+    # public function
     def plot_compound(self, compound_name: str) -> None:
         """
         Build one mini-plot per active sample for the selected *compound*.
@@ -57,7 +49,6 @@ class GraphView(QWidget):
         eics = get_eics_for_compound(compound_name, samples)  # new pipeline
         num = len(eics)
         cols = math.ceil(math.sqrt(num))
-        rows = math.ceil(num / cols)
 
         for i, eic in enumerate(eics):
             plot_widget = self._build_plot(eic)
@@ -65,9 +56,7 @@ class GraphView(QWidget):
 
         self._update_graph_sizes()
 
-    # ------------------------------------------------------------------ #
-    #  internals                                                         #
-    # ------------------------------------------------------------------ #
+    #  internal functions
     def _build_plot(self, eic) -> pg.PlotWidget:
         """Create a QChartView with EIC data and guide lines."""
         compound = read_compound(eic.compound_name)
@@ -79,11 +68,17 @@ class GraphView(QWidget):
         chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
         chart.legend().hide()
 
+        # scale the data to make more space for graphs
+        y_max = float(np.max(eic.intensity))
+        scale_exp = int(np.floor(np.log10(y_max)))
+        scale_factor = 10**scale_exp
+        scaled_intensity = eic.intensity / scale_factor
+
         # Create EIC series
         series = QLineSeries()
-        for x, y in zip(eic.time, eic.intensity):
+        for x, y in zip(eic.time, scaled_intensity):
             series.append(x, y)
-        series.setPen(QPen(QColor(139, 0, 0), 1))  # Dark red
+        series.setPen(QPen(dark_red_colour, 1.2))  # Dark red
         chart.addSeries(series)
 
         # Create axes
@@ -102,28 +97,55 @@ class GraphView(QWidget):
         y_axis.setLabelsFont(font)
 
         # Set ranges
+        # Using smart range where the data starts at first recorded
+        # point within the window rather than the actual minumum
+        # time point in the range for which there might not be a recording
         rt = compound.retention_time
         x_min = max(rt - 0.2, np.min(eic.time))
         x_max = min(rt + 0.2, np.max(eic.time))
-        y_max = np.max(eic.intensity)
-
         x_axis.setRange(x_min, x_max)
+
+        y_max = np.max(scaled_intensity)
         y_axis.setRange(0, y_max)
+        y_axis.setLabelFormat("%.2g")
+
+        # Set tick count (number of major ticks/labels)
+        x_axis.setTickCount(5)
+        y_axis.setTickCount(5)
 
         # Add guide lines
         self._add_guide_line(
             chart, x_axis, y_axis, rt, 0, y_max, QColor(0, 0, 0)
         )  # RT line
         self._add_guide_line(
-            chart, x_axis, y_axis, rt - compound.loffset, 0, y_max, QColor(255, 140, 0)
+            chart,
+            x_axis,
+            y_axis,
+            rt - compound.loffset,
+            0,
+            y_max,
+            steel_blue_colour,
+            dashed=True,
         )  # Left offset
         self._add_guide_line(
-            chart, x_axis, y_axis, rt + compound.roffset, 0, y_max, QColor(138, 43, 226)
+            chart,
+            x_axis,
+            y_axis,
+            rt + compound.roffset,
+            0,
+            y_max,
+            steel_blue_colour,
+            dashed=True,
         )  # Right offset
 
+        # helper function get superscript num
+        def superscript(n):
+            sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+            return str(n).translate(sup_map)
+
         # Set title
-        chart.setTitle(eic.sample_name)
-        chart.setTitleFont(QFont("Arial", 8))
+        chart.setTitle(f"{eic.sample_name} (×10{superscript(scale_exp)})")
+        chart.setTitleFont(QFont("Arial", 9))
         chart.setTitleBrush(QColor(0, 0, 0))
         chart.setMargins(QMargins(-13, -10, -13, -15))
 
@@ -134,12 +156,17 @@ class GraphView(QWidget):
 
         return chart_view
 
-    def _add_guide_line(self, chart, x_axis, y_axis, x_pos, y_start, y_end, color):
+    def _add_guide_line(
+        self, chart, x_axis, y_axis, x_pos, y_start, y_end, color, dashed=False
+    ):
         """Add a vertical guide line to the chart."""
         line_series = QLineSeries()
         line_series.append(x_pos, y_start)
         line_series.append(x_pos, y_end)
-        line_series.setPen(QPen(color, 1))
+        pen = QPen(color, 1.2)  # pen width 1.2
+        if dashed:
+            pen.setStyle(Qt.DashLine)
+        line_series.setPen(pen)
         chart.addSeries(line_series)
         line_series.attachAxis(x_axis)
         line_series.attachAxis(y_axis)

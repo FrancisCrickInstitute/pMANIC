@@ -15,6 +15,19 @@ from manic.processors.eic_processing import get_eics_for_compound
 steel_blue_colour = QColor(70, 130, 180)
 dark_red_colour = QColor(139, 0, 0)
 
+label_colors = [
+    QColor(31, 119, 180),  # blue
+    QColor(255, 127, 14),  # orange
+    QColor(44, 160, 44),  # green
+    QColor(214, 39, 40),  # red
+    QColor(148, 103, 189),  # purple
+    QColor(140, 86, 75),  # brown
+    QColor(227, 119, 194),  # pink
+    QColor(127, 127, 127),  # gray
+    QColor(188, 189, 34),  # olive
+    QColor(23, 190, 207),  # cyan
+]
+
 
 class GraphView(QWidget):
     """
@@ -68,26 +81,52 @@ class GraphView(QWidget):
         chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
         chart.legend().hide()
 
+        eic_intensity = eic.intensity
+        if eic_intensity.ndim > 1:
+            multi_trace = True
+        else:
+            multi_trace = False
+
         # scale the data to make more space for graphs
-        y_max = float(np.max(eic.intensity))
+        if multi_trace:
+            all_intensities = eic.intensity.flatten()
+        else:
+            all_intensities = eic_intensity
+        y_max = float(np.max(all_intensities))
         scale_exp = int(np.floor(np.log10(y_max)))
         scale_factor = 10**scale_exp
         scaled_intensity = eic.intensity / scale_factor
-
-        # Create EIC series
-        series = QLineSeries()
-        for x, y in zip(eic.time, scaled_intensity):
-            series.append(x, y)
-        series.setPen(QPen(dark_red_colour, 1.2))  # Dark red
-        chart.addSeries(series)
 
         # Create axes
         x_axis = QValueAxis()
         y_axis = QValueAxis()
         chart.addAxis(x_axis, Qt.AlignBottom)
         chart.addAxis(y_axis, Qt.AlignLeft)
-        series.attachAxis(x_axis)
-        series.attachAxis(y_axis)
+
+        if multi_trace:
+            for i, intensity in enumerate(scaled_intensity):
+                series = QLineSeries()
+                for x, y in zip(eic.time, intensity):
+                    series.append(x, y)
+                # Set color and width for each label atom
+                color = label_colors[i % len(label_colors)]
+                pen = QPen(color, 2)
+                series.setPen(pen)
+                series.setName(f"Label {i}")  # Or use actual mass if you want
+                chart.addSeries(series)
+                series.attachAxis(x_axis)
+                series.attachAxis(y_axis)
+        else:
+            series = QLineSeries()
+            for x, y in zip(eic.time, scaled_intensity):
+                series.append(x, y)
+            # Set color and width for each label atom
+            color = dark_red_colour
+            pen = QPen(color, 2)
+            series.setPen(pen)
+            chart.addSeries(series)
+            series.attachAxis(x_axis)
+            series.attachAxis(y_axis)
 
         # Set up axes
         x_axis.setGridLineVisible(False)

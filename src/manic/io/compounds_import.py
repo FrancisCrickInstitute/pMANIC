@@ -21,6 +21,7 @@ class CompoundRow(BaseModel):
     mass0: float
     loffset: float = 0.0
     roffset: float = 0.0
+    label_atoms: int = 0
     deleted: int = 0  # soft-delete flag
 
     # pydantic auto checks all functions decorated
@@ -60,7 +61,7 @@ def import_compound_excel(filepath: str | Path) -> int:
 
     df.columns = [c.strip().lower() for c in df.columns]
 
-    required = {"name", "tr", "mass0", "loffset", "roffset"}
+    required = {"name", "tr", "mass0", "loffset", "roffset", "labelatoms"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"{path.name}: missing columns: {', '.join(missing)}")
@@ -76,6 +77,7 @@ def import_compound_excel(filepath: str | Path) -> int:
                 mass0=row["mass0"],
                 loffset=row["loffset"],
                 roffset=row["roffset"],
+                label_atoms=row["labelatoms"],
             )
             params.append(
                 (
@@ -84,6 +86,7 @@ def import_compound_excel(filepath: str | Path) -> int:
                     cr.mass0,
                     cr.loffset,
                     cr.roffset,
+                    cr.label_atoms,
                     cr.deleted,
                 )
             )
@@ -97,8 +100,8 @@ def import_compound_excel(filepath: str | Path) -> int:
     # sql insert statement
     SQL = """
     INSERT OR IGNORE INTO compounds
-        (compound_name, retention_time, mass0, loffset, roffset, deleted)
-    VALUES (?, ?, ?, ?, ?, ?);
+        (compound_name, retention_time, mass0, loffset, roffset, label_atoms, deleted)
+    VALUES (?, ?, ?, ?, ?, ?, ?);
     """
 
     # insert compound into the db

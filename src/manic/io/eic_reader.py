@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from manic.io.compound_reader import read_compound
 from manic.models.database import get_connection
 
 
@@ -28,6 +29,16 @@ def read_eic(sample: str, compound: str) -> EIC:
         if row is None:
             raise LookupError(f"EIC not found for {compound} in {sample}")
 
+    comp = read_compound(compound)
+    label_atoms = comp.label_atoms
+
     time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
     inten = np.frombuffer(zlib.decompress(row["y_axis"]), dtype=np.float64)
+    if label_atoms > 0:
+        inten = inten.reshape(
+            (
+                label_atoms,
+                len(inten) // label_atoms + 1,
+            )  # floor division works as embedded arrays are same length
+        )
     return EIC(sample, compound, time, inten)

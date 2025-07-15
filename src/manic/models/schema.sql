@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS compounds (
     loffset       REAL DEFAULT 0,
     roffset       REAL DEFAULT 0,
     mass0         REAL,
+    label_atoms   INTEGER DEFAULT 0,
     deleted       INTEGER DEFAULT 0
 );
 

@@ -11,12 +11,13 @@ class Compound:
     retention_time: float
     loffset: float
     roffset: float
+    label_atoms: int
     mass0: float
 
 
 def read_compound(compound_name: str) -> Compound:
     sql = """
-        SELECT compound_name, retention_time, loffset, roffset, mass0
+        SELECT compound_name, retention_time, loffset, roffset, label_atoms, mass0
         FROM   compounds
         WHERE  compound_name=? AND deleted=0
         LIMIT  1
@@ -31,5 +32,6 @@ def read_compound(compound_name: str) -> Compound:
         retention_time=row["retention_time"],
         loffset=row["loffset"],
         roffset=row["roffset"],
+        label_atoms=int(row["label_atoms"]),
         mass0=row["mass0"],
     )

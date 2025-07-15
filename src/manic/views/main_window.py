@@ -166,7 +166,7 @@ class MainWindow(QMainWindow):
 
     def on_plot_button(self):
         try:
-            self.graph_view.plot_compound("C12:0")
+            self.graph_view.plot_compound("Pyruvate")  # "C12:0"
         except LookupError as err:
             QMessageBox.warning(self, "Missing data", str(err))
         except Exception as e:

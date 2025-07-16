@@ -1,0 +1,31 @@
+[project]
+name = "manic"
+version = "0.1.0"
+description = "MANIC software for GC-MS analysis written in Python."
+authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = "==3.12.8"
+readme = "README.md"
+dependencies = [
+    "pyside6~=6.9.1",
+    "pytest~=8.4.1",
+    "netcdf4~=1.7.2",
+    "xlrd~=2.0.2",
+    "openpyxl~=3.1.5",
+    "numpy~=2.3.1",
+    "pandas~=2.3.1",
+    "pydantic~=2.4.2",
+    "pyqtgraph~=0.13.4",
+]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/manic"]
+
+[tool.hatch.build.targets.wheel]
+include = ["src/manic"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/manic" = "manic"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

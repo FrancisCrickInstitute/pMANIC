@@ -55,7 +55,6 @@ class GraphView(QWidget):
         self._clear_layout()
 
         samples = list_active_samples()
-        print(samples)
         if not samples:
             return
 

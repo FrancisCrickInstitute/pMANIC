@@ -31,14 +31,15 @@ def read_eic(sample: str, compound: str) -> EIC:
 
     comp = read_compound(compound)
     label_atoms = comp.label_atoms
+    num_labels = label_atoms + 1
 
     time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
     inten = np.frombuffer(zlib.decompress(row["y_axis"]), dtype=np.float64)
     if label_atoms > 0:
         inten = inten.reshape(
             (
-                label_atoms,
-                len(inten) // label_atoms + 1,
+                num_labels,
+                len(inten) // num_labels,
             )  # floor division works as embedded arrays are same length
         )
     return EIC(sample, compound, time, inten)

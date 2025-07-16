@@ -22,7 +22,7 @@ def configure_logging() -> None:
 def main():
     from PySide6.QtWidgets import QApplication
 
-    from manic.views.main_window import MainWindow
+    from manic.ui.main_window import MainWindow
 
     logger = logging.getLogger("manic_logger")
 

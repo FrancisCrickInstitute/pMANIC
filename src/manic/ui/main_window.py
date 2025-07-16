@@ -14,10 +14,11 @@ from PySide6.QtWidgets import (
 )
 
 from manic.io.compounds_import import import_compound_excel
+from manic.io.list_compound_names import list_compound_names
 from manic.ui.graph_view import GraphView
+from manic.ui.left_toolbar import Toolbar
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import CdfImportWorker
-from manic.views.toolbar import Toolbar
 
 logger = logging.getLogger("manic_logger")
 
@@ -39,6 +40,9 @@ class MainWindow(QMainWindow):
         stylesheet = load_stylesheet("src/manic/resources/style.qss")
         self.setStyleSheet(stylesheet)
 
+        # Connect the toolbar's custom signal to a handler method in MainWindow
+        self.toolbar.compound_selected.connect(self.on_compound_selected)
+
         # Initialize menu state
         # self.update_menu_state(compounds_loaded=False, raw_data_loaded=False)
 
@@ -51,9 +55,9 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout()
 
         # Create the toolbar
-        toolbar = Toolbar()
-        toolbar.setObjectName("toolbar")
-        main_layout.addWidget(toolbar)
+        self.toolbar = Toolbar()
+        self.toolbar.setObjectName("toolbar")
+        main_layout.addWidget(self.toolbar)
 
         # Create the graph view
         self.graph_view = GraphView()
@@ -74,6 +78,12 @@ class MainWindow(QMainWindow):
         # Initiate the file menu
         file_menu = menu_bar.addMenu("File")
 
+        # Create the actions/logic for loading compound list data
+        self.load_compound_action = QAction("Load Compounds/Parameter List", self)
+        self.load_compound_action.triggered.connect(self.load_compound_list_data)
+        # Add the load compound action/logic to the file menu
+        file_menu.addAction(self.load_compound_action)
+
         # Create the actions/logic for loading CDF files
         self.load_cdf_action = QAction("Load Raw Data (CDF)", self)
         self.load_cdf_action.triggered.connect(self.load_cdf_files)
@@ -82,12 +92,6 @@ class MainWindow(QMainWindow):
 
         # Add a separator to the file menu
         file_menu.addSeparator()
-
-        # Create the actions/logic for loading compound list data
-        self.load_compound_action = QAction("Load Compounds/Parameter List", self)
-        self.load_compound_action.triggered.connect(self.load_compound_list_data)
-        # Add the load compound action/logic to the file menu
-        file_menu.addAction(self.load_compound_action)
 
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
@@ -117,6 +121,16 @@ class MainWindow(QMainWindow):
 
         try:
             self.compounds_data_storage = import_compound_excel(file_path)
+            self.toolbar.update_label_colours(False, True)
+            self.toolbar.update_compound_list(list_compound_names())
+            # set the first item in compounds list as the selected one
+            first_item = self.toolbar.loaded_compounds_widget.item(
+                0
+            )  # Get the first item
+            self.toolbar.loaded_compounds_widget.setCurrentItem(
+                first_item
+            )  # Set it as the
+
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
@@ -157,58 +171,24 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self, "Import OK", f"Data for {rows} EICs successfully extracted."
         )
+        # set raw data indicator to green
+        self.toolbar.update_label_colours(True, True)
+
         # Automatically plot after successful import
-        self.on_plot_button()
+        self.on_plot_button(self.toolbar.get_selected_compound())
 
     def _import_fail(self, msg: str):
         self.progress_dialog.close()
         QMessageBox.critical(self, "Import failed", msg)
 
-    def on_plot_button(self):
+    def on_plot_button(self, compound_name):
         try:
-            self.graph_view.plot_compound("Pyruvate")  # "C12:0"
+            self.graph_view.plot_compound(compound_name)
         except LookupError as err:
             QMessageBox.warning(self, "Missing data", str(err))
         except Exception as e:
             logger.error(f"Error plotting: {e}")
             QMessageBox.warning(self, "Error", f"Error plotting: {str(e)}")
-
-    """
-    def plot_graphs(
-        self: QMainWindow,
-        compound: CompoundData | None = None,
-        cdf_files: list[CdfFileData] | None = None,
-    ):
-        if compound is None and self.compounds_data_storage is not None:
-            compound = self.compounds_data_storage.compound_data[
-                0
-            ]  # Use the first compound if none are specified
-            logger.info(f"First compound: {vars(compound)}")
-
-        if cdf_files is None and self.cdf_data_storage is not None:
-            cdf_files = self.cdf_data_storage.cdf_directory
-            # Use all loaded CDF files if none are specified
-
-        if compound is None or cdf_files is None:
-            QMessageBox.warning(self, "Error: No data to plot.")
-            return
-
-        try:
-            num_files = len(cdf_files)
-            graphs = []
-            for i, cdf_object in enumerate(cdf_files):
-                eic_data = self.graph_view.extract_eic_data(cdf_object, compound)
-                graph = self.graph_view.create_eic_plot(eic_data)
-                graphs.append(graph)
-
-                # Update the progress bar
-                self.update_plot_progress_bar(i + 1, num_files)
-
-            # Refresh the plots in the graph view
-            self.graph_view.refresh_plots(graphs)
-        finally:
-            self.progress_dialog.close()
-    """
 
     def update_plot_progress_bar(self, current, total):
         progress = int((current / total) * 100)
@@ -216,27 +196,10 @@ class MainWindow(QMainWindow):
         self.progress_dialog.label.setText(f"Plotting graphs... ({current}/{total})")
         QCoreApplication.processEvents()
 
-    def update_label_colors(self, raw_data_loaded, compound_list_loaded):
-        toolbar = self.findChild(Toolbar)
-        toolbar.update_label_colors(raw_data_loaded, compound_list_loaded)
+    def on_compound_selected(self, selected_compound):
+        """
+        This method will be called whenever a different compound is selected in the toolbar.
+        'selected_text' is the text of the selected item (passed from the signal).
+        """
 
-
-"""
-
-    def update_menu_state(self, compounds_loaded, raw_data_loaded):
-        # Always enable these actions
-        self.load_compound_action.setEnabled(True)
-        self.load_session_action.setEnabled(True)
-
-        # Enable/disable based on compounds loaded
-        self.load_cdf_action.setEnabled(compounds_loaded)
-
-        # Enable/disable based on raw data loaded
-        self.recover_deleted_files_action.setEnabled(raw_data_loaded)
-        self.export_integrals_action.setEnabled(raw_data_loaded)
-        self.save_session_action.setEnabled(raw_data_loaded)
-        self.clear_session_action.setEnabled(raw_data_loaded)
-        self.save_compounds_action.setEnabled(raw_data_loaded)
-        self.recover_deleted_compounds_action.setEnabled(raw_data_loaded)
-
-"""
+        self.on_plot_button(selected_compound)

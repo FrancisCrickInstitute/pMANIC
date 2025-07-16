@@ -7,8 +7,8 @@ from typing import Callable, Optional
 import numpy as np
 
 from manic.io.cdf_reader import read_cdf_file
-from manic.io.eic_calculator import extract_eic
 from manic.models.database import get_connection
+from manic.processors.eic_calculator import extract_eic
 
 logger = logging.getLogger(__name__)
 

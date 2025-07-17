@@ -124,13 +124,6 @@ class MainWindow(QMainWindow):
             self.compounds_data_storage = import_compound_excel(file_path)
             self.toolbar.update_label_colours(False, True)
             self.toolbar.update_compound_list(list_compound_names())
-            # set the first item in compounds list as the selected one
-            first_item = self.toolbar.loaded_compounds_widget.item(
-                0
-            )  # Get the first item
-            self.toolbar.loaded_compounds_widget.setCurrentItem(
-                first_item
-            )  # Set it as the
 
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from manic.io.compounds_import import import_compound_excel
 from manic.io.list_compound_names import list_compound_names
+from manic.io.sample_reader import list_active_samples
 from manic.ui.graph_view import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.utils.utils import load_stylesheet
@@ -173,6 +174,12 @@ class MainWindow(QMainWindow):
         )
         # set raw data indicator to green
         self.toolbar.update_label_colours(True, True)
+
+        # get active samples
+        active_samples = list_active_samples()
+
+        # update samples list in toolbar
+        self.toolbar.update_sample_list(active_samples)
 
         # Automatically plot after successful import
         self.on_plot_button(self.toolbar.get_selected_compound())

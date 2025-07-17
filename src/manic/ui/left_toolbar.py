@@ -60,13 +60,19 @@ class Toolbar(QWidget):
         toolbar_layout.addSpacing(5)
 
         # Add samples loaded widget
-        sample_list_widget = QListWidget()
-        sample_list_widget.setFont(QFont(FONT, 10))
-        sample_list_widget.setFixedHeight(150)
-        no_samples_item = QListWidgetItem("- No Samples Loaded -")
-        sample_list_widget.addItem(no_samples_item)
-        sample_list_widget.setCurrentItem(no_samples_item)
-        toolbar_layout.addWidget(sample_list_widget)
+        self.loaded_samples_widget = QListWidget()
+        self.loaded_samples_widget.setFont(QFont(FONT, 10))
+        self.loaded_samples_widget.setFixedHeight(150)
+        # Set the first item as selected by default
+        if self.loaded_samples_widget.count() > 0:  # Check if there are items
+            first_sample = self.loaded_samples_widget.item(0)  # Get the first item
+            self.loaded_samples_widget.setCurrentItem(first_sample)  # Set it as the
+        else:
+            no_samples_item = QListWidgetItem("- No Samples Loaded -")
+            self.loaded_samples_widget.addItem(no_samples_item)
+            self.loaded_samples_widget.setCurrentItem(no_samples_item)
+        # add samples list to toolbar
+        toolbar_layout.addWidget(self.loaded_samples_widget)
 
         # Add compounds loaded widget
         self.loaded_compounds_widget = QListWidget()
@@ -74,14 +80,17 @@ class Toolbar(QWidget):
         self.loaded_compounds_widget.setFixedHeight(150)
         # Set the first item as selected by default
         if self.loaded_compounds_widget.count() > 0:  # Check if there are items
-            first_item = self.loaded_compounds_widget.item(0)  # Get the first item
-            self.loaded_compounds_widget.setCurrentItem(first_item)  # Set it as the
+            first_compound = self.loaded_compounds_widget.item(0)  # Get the first item
+            self.loaded_compounds_widget.setCurrentItem(first_compound)  # Set it as the
         else:
             no_compounds_item = QListWidgetItem("- No Compounds Loaded -")
             self.loaded_compounds_widget.addItem(no_compounds_item)
             self.loaded_compounds_widget.setCurrentItem(no_compounds_item)
 
+        # add compounds list to toolbar
         toolbar_layout.addWidget(self.loaded_compounds_widget)
+
+        # connect signal to slot
         self.loaded_compounds_widget.itemSelectionChanged.connect(
             self.on_compound_selection_changed
         )
@@ -141,3 +150,12 @@ class Toolbar(QWidget):
                 0
             ].text()  # Return the text of the first selected item
         return None  # Or an empty string, depending on your needs
+
+    def update_sample_list(self, samples: List[str]):
+        self.loaded_samples_widget.clear()
+        if not samples:
+            self.loaded_samples_widget.addItem("- No Samples Loaded -")
+        else:
+            for sample_name in samples:
+                item = QListWidgetItem(sample_name)
+                self.loaded_samples_widget.addItem(item)

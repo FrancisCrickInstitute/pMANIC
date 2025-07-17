@@ -1,7 +1,5 @@
 # MANIC
 
-
-
 ## Developer Instructions (MacOS/Linux)
 
 ### Install Package/Project Manager

@@ -41,11 +41,9 @@ class MainWindow(QMainWindow):
         stylesheet = load_stylesheet("src/manic/resources/style.qss")
         self.setStyleSheet(stylesheet)
 
-        # Connect the toolbar's custom signal to a handler method in MainWindow
+        # Connect the toolbar's custom signals to a handler methods
+        self.toolbar.samples_selected.connect(self.on_samples_selected)
         self.toolbar.compound_selected.connect(self.on_compound_selected)
-
-        # Initialize menu state
-        # self.update_menu_state(compounds_loaded=False, raw_data_loaded=False)
 
     def setup_ui(self):
         """
@@ -174,32 +172,40 @@ class MainWindow(QMainWindow):
         # update samples list in toolbar
         self.toolbar.update_sample_list(active_samples)
 
+        compound = self.toolbar.get_selected_compound()
+        samples = self.toolbar.get_selected_samples()
+
         # Automatically plot after successful import
-        self.on_plot_button(self.toolbar.get_selected_compound())
+        self.on_plot_button(compound, samples)
 
     def _import_fail(self, msg: str):
         self.progress_dialog.close()
         QMessageBox.critical(self, "Import failed", msg)
 
-    def on_plot_button(self, compound_name):
+    def on_plot_button(self, compound_name, samples):
+        # Validate inputs before plotting
+        if not compound_name or compound_name.startswith("- No"):
+            return  # Don't plot with placeholder compound
+
+        if not samples or any(sample.startswith("- No") for sample in samples):
+            return  # Don't plot with placeholder samples
         try:
-            self.graph_view.plot_compound(compound_name)
+            if samples:
+                self.graph_view.plot_compound(compound_name, samples)
         except LookupError as err:
             QMessageBox.warning(self, "Missing data", str(err))
         except Exception as e:
             logger.error(f"Error plotting: {e}")
             QMessageBox.warning(self, "Error", f"Error plotting: {str(e)}")
 
-    def update_plot_progress_bar(self, current, total):
-        progress = int((current / total) * 100)
-        self.progress_dialog.set_progress(progress)
-        self.progress_dialog.label.setText(f"Plotting graphs... ({current}/{total})")
-        QCoreApplication.processEvents()
-
-    def on_compound_selected(self, selected_compound):
+    def on_compound_selected(self, compound_selected):
         """
         This method will be called whenever a different compound is selected in the toolbar.
         'selected_text' is the text of the selected item (passed from the signal).
         """
+        samples = self.toolbar.get_selected_samples()
+        self.on_plot_button(compound_selected, samples)
 
-        self.on_plot_button(selected_compound)
+    def on_samples_selected(self, samples_selected):
+        compound = self.toolbar.get_selected_compound()
+        self.on_plot_button(compound, samples_selected)

@@ -15,18 +15,31 @@ from src.manic.utils.constants import FONT, GREEN, RED
 
 
 class Toolbar(QWidget):
-    # the currently selected compound
+    # Signal for the currently selected samples
+    samples_selected = Signal(list)
+
+    # Signal for the currently selected compound
     compound_selected = Signal(str)
 
+    #####
+    # Instantiate Toolbar Components
+    #####
     def __init__(self):
         super().__init__()
         self.setup_ui()
 
+    #####
+    # Define Toolbar Components
+    #####
     def setup_ui(self):
-        # Create the toolbar layout
+        #####
+        # Toolbar Created
+        #####
         toolbar_layout = QVBoxLayout()
 
-        # Add label indicators for loaded data
+        #####
+        # Loaded Data Indicators
+        #####
         loaded_data_widget = QWidget()
         loaded_data_widget.setObjectName("loadedDataWidget")
         loaded_data_widget_layout = QHBoxLayout()
@@ -47,7 +60,9 @@ class Toolbar(QWidget):
         loaded_data_widget.setLayout(loaded_data_widget_layout)
         toolbar_layout.addWidget(loaded_data_widget)
 
-        # Add selected standard indicator
+        #####
+        # Internal Standard Indicator
+        #####
         current_standard_widget = QLabel("- No Standard Selected -")
         current_standard_widget.setFont(QFont(FONT, 12))
         current_standard_widget.setAlignment(Qt.AlignCenter)
@@ -56,10 +71,9 @@ class Toolbar(QWidget):
         )
         toolbar_layout.addWidget(current_standard_widget)
 
-        # Add a vertical spacer
-        toolbar_layout.addSpacing(5)
-
-        # Add samples loaded widget
+        #####
+        # Sample List
+        #####
         self.loaded_samples_widget = QListWidget()
         self.loaded_samples_widget.setSelectionMode(
             QListWidget.SelectionMode.ExtendedSelection
@@ -73,7 +87,14 @@ class Toolbar(QWidget):
         # add samples list to toolbar
         toolbar_layout.addWidget(self.loaded_samples_widget)
 
-        # Add compounds loaded widget
+        # connect signal to slot
+        self.loaded_samples_widget.itemSelectionChanged.connect(
+            self.on_samples_selection_changed
+        )
+
+        ######
+        # Compounds List
+        ######
         self.loaded_compounds_widget = QListWidget()
         self.loaded_compounds_widget.setFont(QFont(FONT, 10))
         self.loaded_compounds_widget.setFixedHeight(150)
@@ -94,12 +115,19 @@ class Toolbar(QWidget):
             self.on_compound_selection_changed
         )
 
+        #####
+        # Toolbar Formatting
+        #####
+
         # Add a spacer item to push all elements to the top
         toolbar_layout.addStretch()
-
         # Set the toolbar layout
         self.setLayout(toolbar_layout)
         self.setFixedWidth(200)
+
+    #####
+    # Toolbar Functions
+    #####
 
     def update_label_colours(self, raw_data_loaded, compound_list_loaded):
         labels = self.findChildren(QLabel)
@@ -147,14 +175,15 @@ class Toolbar(QWidget):
 
     def get_selected_compound(self):
         """
-        Returns the text of the currently selected compound, or None if nothing is selected.
+        Get the currently selected compound without emitting signals.
+        Avoid infinite recursion via signals.
+        Returns a string.
         """
         selected_items = self.loaded_compounds_widget.selectedItems()
         if selected_items:
-            return selected_items[
-                0
-            ].text()  # Return the text of the first selected item
-        return None  # Or an empty string, depending on your needs
+            return selected_items[0].text()
+        else:
+            return ""
 
     def update_sample_list(self, samples: List[str]):
         self.loaded_samples_widget.clear()
@@ -171,3 +200,27 @@ class Toolbar(QWidget):
                 ):  # iterate over all samples
                     item = self.loaded_samples_widget.item(i)
                     item.setSelected(True)  # select each item
+
+    def on_samples_selection_changed(self):
+        """
+        Handler for when the selection changes in the list widget.
+        Emits the custom signal with the selected item's text.
+        """
+        selected_items = self.loaded_samples_widget.selectedItems()
+        if selected_items:
+            selected_samples = [item.text() for item in selected_items]
+            self.samples_selected.emit(selected_samples)  # Emit the custom signal
+        else:
+            self.samples_selected.emit([])
+
+    def get_selected_samples(self):
+        """
+        Get the currently selected samples without emitting signals.
+        Avoid infinite recursion via signals.
+        Returns a list of strings.
+        """
+        selected_items = self.loaded_samples_widget.selectedItems()
+        if selected_items:
+            return [item.text() for item in selected_items]
+        else:
+            return []

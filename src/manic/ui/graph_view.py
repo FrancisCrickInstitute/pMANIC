@@ -1,4 +1,5 @@
 import math
+from typing import List
 
 import numpy as np
 import pyqtgraph as pg
@@ -8,7 +9,6 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QWidget
 
 from manic.io.compound_reader import read_compound
-from manic.io.sample_reader import list_active_samples
 from manic.processors.eic_processing import get_eics_for_compound
 
 # colours
@@ -48,13 +48,11 @@ class GraphView(QWidget):
         self._resize_timer.timeout.connect(self._update_graph_sizes)
 
     # public function
-    def plot_compound(self, compound_name: str) -> None:
+    def plot_compound(self, compound_name: str, samples: List[str]) -> None:
         """
         Build one mini-plot per active sample for the selected *compound*.
         """
         self._clear_layout()
-
-        samples = list_active_samples()
         if not samples:
             return
 

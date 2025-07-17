@@ -6,7 +6,7 @@ import pyqtgraph as pg
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QMargins, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QGridLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QSizePolicy, QWidget
 
 from manic.io.compound_reader import read_compound
 from manic.processors.eic_processing import get_eics_for_compound
@@ -62,8 +62,14 @@ class GraphView(QWidget):
 
         for i, eic in enumerate(eics):
             plot_widget = self._build_plot(eic)
-            self._layout.addWidget(plot_widget, i // cols, i % cols)
+            row = i // cols
+            col = i % cols
+            self._layout.addWidget(plot_widget, row, col)
+            # Set stretch factors to make widgets expand
+            self._layout.setColumnStretch(col, 1)
+            self._layout.setRowStretch(row, 1)
 
+        # ensure the added widgets are correctly sized with stretch factors
         self._update_graph_sizes()
 
     #  internal functions
@@ -190,6 +196,9 @@ class GraphView(QWidget):
         chart_view.setRenderHint(QPainter.Antialiasing)
         chart_view.setContentsMargins(0, 0, 0, 0)
 
+        # Add size policy to make charts expandable
+        chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
         return chart_view
 
     def _add_guide_line(
@@ -208,32 +217,30 @@ class GraphView(QWidget):
         line_series.attachAxis(y_axis)
 
     def _update_graph_sizes(self) -> None:
-        """
-        Resize every PlotWidget so the grid fills the parent without scrollbars.
-        """
-        if self._layout.count() == 0:
-            return
+        # Invalidate the layout to force recalculation
+        self._layout.invalidate()
+        self._layout.update()
 
-        cols = self._layout.columnCount() or 1
-        rows = self._layout.rowCount() or 1
-
-        avail_w = self.width() - (cols + 1) * self._layout.spacing()
-        avail_h = self.height() - (rows + 1) * self._layout.spacing()
-
-        w = avail_w // cols
-        h = avail_h // rows
-
-        for i in range(self._layout.count()):
-            widget = self._layout.itemAt(i).widget()
-            widget.setFixedSize(w, h)
+        # Update the parent widget geometry
+        parent = self.parent()
+        if parent:
+            parent.updateGeometry()
+            parent.update()
+            parent.repaint()
 
     def _clear_layout(self) -> None:
-        while self._layout.count():
-            w = self._layout.takeAt(0).widget()
-            if w:
-                w.setParent(None)
+        if not self._layout:
+            return
 
-    # throttle rapid resize events
-    def resizeEvent(self, ev):
-        super().resizeEvent(ev)
-        self._resize_timer.start(100)
+        # Remove all widgets and delete them
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        # Clear any stretch factors from previous layouts
+        for i in range(self._layout.columnCount()):
+            self._layout.setColumnStretch(i, 0)
+        for i in range(self._layout.rowCount()):
+            self._layout.setRowStretch(i, 0)

@@ -58,16 +58,25 @@ class GraphView(QWidget):
 
         eics = get_eics_for_compound(compound_name, samples)  # new pipeline
         num = len(eics)
+        if num == 0:
+            return
         cols = math.ceil(math.sqrt(num))
+        rows = math.ceil(num / cols)
 
-        for i, eic in enumerate(eics):
-            plot_widget = self._build_plot(eic)
+        # Set stretch factors once, outside the loop
+        for col in range(cols):
+            self._layout.setColumnStretch(col, 1)
+        for row in range(rows):
+            self._layout.setRowStretch(row, 1)
+
+        # Build all plots first
+        plot_widgets = [self._build_plot(eic) for eic in eics]
+
+        # Add to layout in one go
+        for i, widget in enumerate(plot_widgets):
             row = i // cols
             col = i % cols
-            self._layout.addWidget(plot_widget, row, col)
-            # Set stretch factors to make widgets expand
-            self._layout.setColumnStretch(col, 1)
-            self._layout.setRowStretch(row, 1)
+            self._layout.addWidget(widget, row, col)
 
         # ensure the added widgets are correctly sized with stretch factors
         self._update_graph_sizes()

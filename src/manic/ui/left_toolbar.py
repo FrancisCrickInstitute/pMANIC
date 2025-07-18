@@ -195,11 +195,7 @@ class Toolbar(QWidget):
                 self.loaded_samples_widget.addItem(item)
             # select all samples as default
             if self.loaded_samples_widget.count() > 0:  # Check if there are items
-                for i in range(
-                    self.loaded_samples_widget.count()
-                ):  # iterate over all samples
-                    item = self.loaded_samples_widget.item(i)
-                    item.setSelected(True)  # select each item
+                self.loaded_samples_widget.selectAll()
 
     def on_samples_selection_changed(self):
         """

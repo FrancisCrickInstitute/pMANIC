@@ -176,7 +176,7 @@ class MainWindow(QMainWindow):
         samples = self.toolbar.get_selected_samples()
 
         # Automatically plot after successful import
-        self.on_plot_button(compound, samples)
+        # self.on_plot_button(compound, samples)
 
     def _import_fail(self, msg: str):
         self.progress_dialog.close()
@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
 
         if not samples or any(sample.startswith("- No") for sample in samples):
             return  # Don't plot with placeholder samples
+
         try:
             if samples:
                 self.graph_view.plot_compound(compound_name, samples)

@@ -120,7 +120,7 @@ def import_eics(
                 if progress_cb:
                     progress_cb(done, total_work)
 
-        logger.info("processed %s", cdf_path.name)
+        # logger.info("processed %s", cdf_path.name)
 
     elapsed = time.time() - start
     logger.info("imported %d EICs in %.1f s", inserted, elapsed)

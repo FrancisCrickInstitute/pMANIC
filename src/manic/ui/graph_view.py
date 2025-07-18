@@ -1,3 +1,4 @@
+import logging
 import math
 from typing import List
 
@@ -10,6 +11,9 @@ from PySide6.QtWidgets import QGridLayout, QSizePolicy, QWidget
 
 from manic.io.compound_reader import read_compound
 from manic.processors.eic_processing import get_eics_for_compound
+from manic.utils.timer import measure_time
+
+logger = logging.getLogger(__name__)
 
 # colours
 steel_blue_colour = QColor(70, 130, 180)
@@ -52,11 +56,15 @@ class GraphView(QWidget):
         """
         Build one mini-plot per active sample for the selected *compound*.
         """
+
+        logging.info("plotting compound")
         self._clear_layout()
         if not samples:
             return
 
-        eics = get_eics_for_compound(compound_name, samples)  # new pipeline
+        with measure_time("get_eics_from_db"):
+            eics = get_eics_for_compound(compound_name, samples)  # new pipeline
+
         num = len(eics)
         if num == 0:
             return
@@ -69,14 +77,15 @@ class GraphView(QWidget):
         for row in range(rows):
             self._layout.setRowStretch(row, 1)
 
-        # Build all plots first
-        plot_widgets = [self._build_plot(eic) for eic in eics]
+        with measure_time("build_plots_and_add_to_layout"):
+            # Build all plots first
+            plot_widgets = [self._build_plot(eic) for eic in eics]
 
-        # Add to layout in one go
-        for i, widget in enumerate(plot_widgets):
-            row = i // cols
-            col = i % cols
-            self._layout.addWidget(widget, row, col)
+            # Add to layout in one go
+            for i, widget in enumerate(plot_widgets):
+                row = i // cols
+                col = i % cols
+                self._layout.addWidget(widget, row, col)
 
         # ensure the added widgets are correctly sized with stretch factors
         self._update_graph_sizes()

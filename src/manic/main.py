@@ -10,7 +10,7 @@ def configure_logging() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s(): %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[
             logging.FileHandler(log_dir / "manic.log", encoding="utf-8"),  # log file
@@ -24,7 +24,7 @@ def main():
 
     from manic.ui.main_window import MainWindow
 
-    logger = logging.getLogger("manic_logger")
+    logger = logging.getLogger(__name__)
 
     configure_logging()
     init_db()

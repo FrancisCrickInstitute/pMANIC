@@ -1,6 +1,9 @@
+import logging
 from typing import Iterable, List
 
 from manic.io.eic_reader import EIC, read_eic
+
+logger = logging.getLogger(__name__)
 
 
 def get_eics_for_compound(
@@ -14,6 +17,7 @@ def get_eics_for_compound(
     normalise=True scales every trace to its own max so shapes can
     be compared even when absolute intensity differs.
     """
+    logging.info("retreiving eics")
     eics = []
     for sample in samples:
         eic = read_eic(sample, compound)

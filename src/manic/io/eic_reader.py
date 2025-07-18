@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from manic.io.compound_reader import read_compound
+from manic.io.compound_reader import Compound
 from manic.models.database import get_connection
 
 
@@ -17,20 +17,20 @@ class EIC:
     intensity: np.ndarray
 
 
-def read_eic(sample: str, compound: str) -> EIC:
+def read_eic(sample: str, compound: Compound) -> EIC:
     sql = """
         SELECT x_axis, y_axis, rt_window
         FROM   eic
         WHERE  sample_name=? AND compound_name=? AND deleted=0
         LIMIT  1
     """
+    compound_name = compound.compound_name
     with get_connection() as conn:
-        row = conn.execute(sql, (sample, compound)).fetchone()
+        row = conn.execute(sql, (sample, compound_name)).fetchone()
         if row is None:
-            raise LookupError(f"EIC not found for {compound} in {sample}")
+            raise LookupError(f"EIC not found for {compound_name} in {sample}")
 
-    comp = read_compound(compound)
-    label_atoms = comp.label_atoms
+    label_atoms = compound.label_atoms
     num_labels = label_atoms + 1
 
     time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
@@ -42,4 +42,4 @@ def read_eic(sample: str, compound: str) -> EIC:
                 len(inten) // num_labels,
             )  # floor division works as embedded arrays are same length
         )
-    return EIC(sample, compound, time, inten)
+    return EIC(sample, compound_name, time, inten)

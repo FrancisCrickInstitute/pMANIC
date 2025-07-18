@@ -21,7 +21,7 @@ def measure_time(label: str) -> Generator[None, None, None]:
     finally:
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
-        logger.info(f"Time for {label}: {elapsed_time:.6f} seconds")
+        logger.info(f"{label}: {elapsed_time:.6f} seconds")
 
 
 """

@@ -1,6 +1,7 @@
 import logging
 from typing import Iterable, List
 
+from manic.io.compound_reader import read_compound
 from manic.io.eic_reader import EIC, read_eic
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,9 @@ def get_eics_for_compound(
     """
     logging.info("retreiving eics")
     eics = []
+    compound_obj = read_compound(compound)
     for sample in samples:
-        eic = read_eic(sample, compound)
+        eic = read_eic(sample, compound_obj)
         if normalise:
             max_i = eic.intensity.max() or 1
             eic.intensity = eic.intensity / max_i

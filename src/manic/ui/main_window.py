@@ -20,6 +20,7 @@ from manic.ui.graph_view import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import CdfImportWorker
+from src.manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
 
@@ -170,13 +171,8 @@ class MainWindow(QMainWindow):
         active_samples = list_active_samples()
 
         # update samples list in toolbar
+        # update to samples list in toolbar will trigger plotting
         self.toolbar.update_sample_list(active_samples)
-
-        compound = self.toolbar.get_selected_compound()
-        samples = self.toolbar.get_selected_samples()
-
-        # Automatically plot after successful import
-        # self.on_plot_button(compound, samples)
 
     def _import_fail(self, msg: str):
         self.progress_dialog.close()
@@ -192,7 +188,8 @@ class MainWindow(QMainWindow):
 
         try:
             if samples:
-                self.graph_view.plot_compound(compound_name, samples)
+                with measure_time("total_plotting_speed"):
+                    self.graph_view.plot_compound(compound_name, samples)
         except LookupError as err:
             QMessageBox.warning(self, "Missing data", str(err))
         except Exception as e:

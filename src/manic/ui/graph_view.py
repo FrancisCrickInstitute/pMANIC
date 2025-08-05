@@ -62,6 +62,7 @@ class GraphView(QWidget):
         if not samples:
             return
 
+        # time db retreival for debugging
         with measure_time("get_eics_from_db"):
             eics = get_eics_for_compound(compound_name, samples)  # new pipeline
 
@@ -77,6 +78,7 @@ class GraphView(QWidget):
         for row in range(rows):
             self._layout.setRowStretch(row, 1)
 
+        # time plot building for debugging
         with measure_time("build_plots_and_add_to_layout"):
             # Build all plots first
             plot_widgets = [self._build_plot(eic) for eic in eics]
@@ -103,20 +105,19 @@ class GraphView(QWidget):
         chart.legend().hide()
 
         eic_intensity = eic.intensity
-        if eic_intensity.ndim > 1:
-            multi_trace = True
-        else:
-            multi_trace = False
+        multi_trace = eic_intensity.ndim > 1
 
-        # scale the data to make more space for graphs
-        if multi_trace:
-            all_intensities = eic.intensity.flatten()
-        else:
-            all_intensities = eic_intensity
-        y_max = float(np.max(all_intensities))
-        scale_exp = int(np.floor(np.log10(y_max)))
+        # Compute y_max and scaling (with edge case handling)
+        all_intensities = eic_intensity.flatten() if multi_trace else eic_intensity
+        unscaled_y_max = float(np.max(all_intensities))
+        scale_exp = int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
         scale_factor = 10**scale_exp
-        scaled_intensity = eic.intensity / scale_factor
+        scaled_intensity = eic_intensity / scale_factor
+        scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
+
+        # Create reusable font and dark red pen
+        font = QFont("Arial", 8)
+        dark_red_pen = QPen(dark_red_colour, 2)
 
         # Create axes
         x_axis = QValueAxis()
@@ -125,14 +126,17 @@ class GraphView(QWidget):
         chart.addAxis(y_axis, Qt.AlignLeft)
 
         if multi_trace:
+            # Pre-create pens for multi-trace to reuse
+            pens = [
+                QPen(label_colors[i % len(label_colors)], 2)
+                for i in range(len(scaled_intensity))
+            ]
+
             for i, intensity in enumerate(scaled_intensity):
                 series = QLineSeries()
                 for x, y in zip(eic.time, intensity):
                     series.append(x, y)
-                # Set color and width for each label atom
-                color = label_colors[i % len(label_colors)]
-                pen = QPen(color, 2)
-                series.setPen(pen)
+                series.setPen(pens[i])
                 series.setName(f"Label {i}")  # Or use actual mass if you want
                 chart.addSeries(series)
                 series.attachAxis(x_axis)
@@ -141,10 +145,7 @@ class GraphView(QWidget):
             series = QLineSeries()
             for x, y in zip(eic.time, scaled_intensity):
                 series.append(x, y)
-            # Set color and width for each label atom
-            color = dark_red_colour
-            pen = QPen(color, 2)
-            series.setPen(pen)
+            series.setPen(dark_red_pen)
             chart.addSeries(series)
             series.attachAxis(x_axis)
             series.attachAxis(y_axis)
@@ -152,7 +153,6 @@ class GraphView(QWidget):
         # Set up axes
         x_axis.setGridLineVisible(False)
         y_axis.setGridLineVisible(False)
-        font = QFont("Arial", 8)
         x_axis.setLabelsFont(font)
         y_axis.setLabelsFont(font)
 
@@ -165,8 +165,7 @@ class GraphView(QWidget):
         x_max = min(rt + 0.2, np.max(eic.time))
         x_axis.setRange(x_min, x_max)
 
-        y_max = np.max(scaled_intensity)
-        y_axis.setRange(0, y_max)
+        y_axis.setRange(0, scaled_y_max)
         y_axis.setLabelFormat("%.2g")
 
         # Set tick count (number of major ticks/labels)
@@ -175,7 +174,7 @@ class GraphView(QWidget):
 
         # Add guide lines
         self._add_guide_line(
-            chart, x_axis, y_axis, rt, 0, y_max, QColor(0, 0, 0)
+            chart, x_axis, y_axis, rt, 0, scaled_y_max, QColor(0, 0, 0)
         )  # RT line
         self._add_guide_line(
             chart,
@@ -183,7 +182,7 @@ class GraphView(QWidget):
             y_axis,
             rt - compound.loffset,
             0,
-            y_max,
+            scaled_y_max,
             steel_blue_colour,
             dashed=True,
         )  # Left offset
@@ -193,7 +192,7 @@ class GraphView(QWidget):
             y_axis,
             rt + compound.roffset,
             0,
-            y_max,
+            scaled_y_max,
             steel_blue_colour,
             dashed=True,
         )  # Right offset

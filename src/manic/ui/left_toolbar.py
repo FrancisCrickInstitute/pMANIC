@@ -3,8 +3,10 @@ from typing import List
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QVBoxLayout,
@@ -114,6 +116,73 @@ class Toolbar(QWidget):
         self.loaded_compounds_widget.itemSelectionChanged.connect(
             self.on_compound_selection_changed
         )
+
+        ################################
+        ###### CURRENT DEV STARTS ######
+        ################################
+        ## integration window
+        integration_window = QGroupBox("Integration Window")
+        # Set the stylesheet for the groupbox title
+        integration_window.setStyleSheet(
+            "QGroupBox { background-color: #F0F0F0; border: solid gray; margin-top: 2ex;}"
+            "QGroupBox::title { color: black; subcontrol-origin: margin; subcontrol-position: top left; padding: 0 3px;}"
+        )
+
+        # vertical layout for integraton window
+        int_wnd_vlayout = QVBoxLayout()
+
+        # int window first row
+        int_wnd_row1 = QHBoxLayout()
+        lo_label = QLabel("Left Offset")
+        lo_label.setStyleSheet("QLabel { background-color: #F0F0F0; }")
+        lo_input = QLineEdit()
+        # Set the background color to a light gray
+        lo_input.setStyleSheet("QLineEdit { background-color: white; }")
+        int_wnd_row1.addWidget(lo_label)
+        int_wnd_row1.addWidget(lo_input)
+        int_wnd_vlayout.addLayout(int_wnd_row1)
+
+        # int window second row
+        int_wnd_row2 = QHBoxLayout()
+        tr_label = QLabel("tR")
+        tr_label.setStyleSheet("QLabel { background-color: #F0F0F0; }")
+        tr_input = QLineEdit()
+        # Set the background color to a light gray
+        tr_input.setStyleSheet("QLineEdit { background-color: white; }")
+        int_wnd_row2.addWidget(tr_label)
+        int_wnd_row2.addWidget(tr_input)
+        int_wnd_vlayout.addLayout(int_wnd_row2)
+
+        # int window third row
+        int_wnd_row3 = QHBoxLayout()
+        ro_label = QLabel("Right Offset")
+        ro_label.setStyleSheet("QLabel { background-color: #F0F0F0; }")
+        ro_input = QLineEdit()
+        # Set the background color to a light gray
+        ro_input.setStyleSheet("QLineEdit { background-color: white; }")
+        int_wnd_row3.addWidget(ro_label)
+        int_wnd_row3.addWidget(ro_input)
+        int_wnd_vlayout.addLayout(int_wnd_row3)
+
+        # int window fourth row
+        int_wnd_row4 = QHBoxLayout()
+        tr_window_label = QLabel("tR Window")
+        tr_window_label.setStyleSheet("QLabel { background-color: #F0F0F0; }")
+        tr_window_input = QLineEdit()
+        # Set the background color to a light gray
+        tr_window_input.setStyleSheet("QLineEdit { background-color: white; }")
+        int_wnd_row4.addWidget(tr_window_label)
+        int_wnd_row4.addWidget(tr_window_input)
+        int_wnd_vlayout.addLayout(int_wnd_row4)
+
+        # set the integration window vertical layout
+        integration_window.setLayout(int_wnd_vlayout)
+
+        toolbar_layout.addWidget(integration_window)
+
+        ################################
+        ###### CURRENT DEV ENDS ######
+        ################################
 
         #####
         # Toolbar Formatting

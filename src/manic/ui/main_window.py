@@ -96,6 +96,13 @@ class MainWindow(QMainWindow):
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
 
+        # Connect the toolbar's custom signals to handler methods
+        self.toolbar.samples_selected.connect(self.on_samples_selected)
+        self.toolbar.compound_selected.connect(self.on_compound_selected)
+
+        # Connect the graph view's selection signal
+        self.graph_view.selection_changed.connect(self.on_plot_selection_changed)
+
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
         dlg = QProgressDialog(title, None, 0, 100, self)
@@ -207,3 +214,9 @@ class MainWindow(QMainWindow):
     def on_samples_selected(self, samples_selected):
         compound = self.toolbar.get_selected_compound()
         self.on_plot_button(compound, samples_selected)
+
+    def on_plot_selection_changed(self, selected_samples):
+        """Handle when plots are selected/deselected"""
+        print(f"Selected plots: {selected_samples}")
+        # You can update the integration window here if needed
+        # or perform other actions based on selection

@@ -1,0 +1,46 @@
+/* Integration Window - match app background */
+QGroupBox#integrationWindow {
+    background-color: transparent;
+    margin-top: 10px;
+    border-radius: 5px;
+}
+
+/* Integration Window Title - black text */
+QGroupBox#integrationWindow::title {
+    color: black;
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 5px;
+    background-color: transparent;
+}
+
+/* Style the labels inside integration window */
+QGroupBox#integrationWindow QLabel {
+    background-color: transparent;
+    color: black;
+    padding: 0px;
+}
+
+/* All QLineEdit widgets inside Integration Window */
+QGroupBox#integrationWindow QLineEdit {
+    background-color: white;
+    color: black;
+    border: 1px solid #cccccc;
+    border-radius: 2px;
+    padding: 0px;
+    min-width: 70px;  /* Set consistent width */
+    max-width: 70px;  /* Prevent stretching beyond this */
+}
+
+/* Styling for "Apply" buttons */
+QPushButton#ApplyButton {
+    background-color: #0d6efd;
+    color: white;
+    border: none;
+    padding: 4px;
+    border-radius: 6px 12px;
+}
+
+QPushButton#ApplyButton:hover {
+    background-color: #0b5ed7;
+}

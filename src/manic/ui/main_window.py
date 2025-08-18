@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from manic.io.compounds_import import import_compound_excel
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
-from manic.ui.graph_view import GraphView
+from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import CdfImportWorker

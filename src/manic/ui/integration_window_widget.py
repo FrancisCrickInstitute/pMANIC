@@ -41,3 +41,30 @@ class IntegrationWindow(QGroupBox):
         self.apply_button = QPushButton("Apply")
         self.apply_button.setObjectName("ApplyButton")
         layout.addWidget(self.apply_button)
+
+    def populate_fields(self, compound_dict):
+        """Populate the line edit fields with compound data"""
+        if compound_dict is None:
+            # Clear all fields
+            self._clear_fields()
+            return
+
+        # Map compound data to UI fields
+        field_mappings = {
+            "lo_input": compound_dict.get("loffset", ""),
+            "tr_input": compound_dict.get("retention_time", ""),
+            "ro_input": compound_dict.get("roffset", ""),
+            "tr_window_input": compound_dict.get("tr_window", ""),
+        }
+
+        for obj_name, value in field_mappings.items():
+            line_edit = self.findChild(QLineEdit, obj_name)
+            if line_edit:
+                line_edit.setText(str(value) if value is not None else "")
+
+    def _clear_fields(self):
+        """Clear all line edit fields"""
+        for obj_name in ["lo_input", "tr_input", "ro_input", "tr_window_input"]:
+            line_edit = self.findChild(QLineEdit, obj_name)
+            if line_edit:
+                line_edit.clear()

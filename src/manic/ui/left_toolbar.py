@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.manic.io.compound_reader import read_compound
+
 from .compound_list_widget import CompoundListWidget
 from .integration_window_widget import IntegrationWindow
 from .loaded_data_widget import LoadedDataWidget
@@ -81,6 +83,7 @@ class Toolbar(QWidget):
         if selected_items:
             selected_text = selected_items[0].text()
             self.compound_selected.emit(selected_text)
+            self.fill_integration_window(selected_text)
         else:
             self.compound_selected.emit("")
 
@@ -120,3 +123,24 @@ class Toolbar(QWidget):
             return selected_items[0].text()
         else:
             return ""
+
+    def fill_integration_window(self, compound_name: str):
+        """Fill integration window fields with data for the specified compound"""
+        try:
+            compound_data = read_compound(compound_name)
+
+            compound_dict = {
+                "loffset": compound_data.loffset,
+                "retention_time": compound_data.retention_time,
+                "roffset": compound_data.roffset,
+                "tr_window": getattr(
+                    compound_data, "tr_window", 0.2
+                ),  # default if not exists
+            }
+
+            self.integration.populate_fields(compound_dict)
+
+        except Exception as e:
+            print(f"Could not load compound data for {compound_name}: {e}")
+            # Clear fields if data can't be loaded
+            self.integration.populate_fields(None)

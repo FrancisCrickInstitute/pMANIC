@@ -5,6 +5,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
+    QLineEdit,
     QMainWindow,
     QMenuBar,
     QMessageBox,
@@ -19,7 +20,7 @@ from manic.io.sample_reader import list_active_samples
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.utils.utils import load_stylesheet
-from manic.utils.workers import CdfImportWorker
+from manic.utils.workers import CdfImportWorker, EicRegenerationWorker
 from src.manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
@@ -106,6 +107,7 @@ class MainWindow(QMainWindow):
         # Connect the integration window's session data signals
         self.toolbar.integration.session_data_applied.connect(self.on_session_data_applied)
         self.toolbar.integration.session_data_restored.connect(self.on_session_data_restored)
+        self.toolbar.integration.data_regeneration_requested.connect(self.on_data_regeneration_requested)
 
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
@@ -308,3 +310,128 @@ class MainWindow(QMainWindow):
                 "Refresh Failed", 
                 f"Failed to refresh plots after restore: {str(e)}"
             )
+
+    def on_data_regeneration_requested(self, compound_name: str, tr_window: float, sample_names: list):
+        """Handle data regeneration request - start background regeneration with progress dialog"""
+        logger.info(f"Data regeneration requested for compound '{compound_name}' with tR window {tr_window}")
+        
+        try:
+            # Build and show progress dialog
+            self.regen_progress_dialog = self._build_progress_dialog(
+                f"Regenerating EIC data for '{compound_name}'..."
+            )
+            self.regen_progress_dialog.show()
+
+            # Create background thread and worker
+            self._regen_thread = QThread(self)
+            self._regen_worker = EicRegenerationWorker(compound_name, tr_window, sample_names)
+            self._regen_worker.moveToThread(self._regen_thread)
+
+            # Connect progress updates
+            self._regen_worker.progress.connect(self._update_regeneration_progress)
+            
+            # Connect completion/failure handlers
+            self._regen_worker.finished.connect(self._regeneration_completed)
+            self._regen_worker.failed.connect(self._regeneration_failed)
+            self._regen_worker.finished.connect(self._regen_thread.quit)
+            self._regen_worker.failed.connect(self._regen_thread.quit)
+
+            # Start the background work
+            self._regen_thread.started.connect(self._regen_worker.run)
+            self._regen_thread.finished.connect(self._regen_thread.deleteLater)
+            self._regen_thread.start()
+
+        except Exception as e:
+            logger.error(f"Failed to start regeneration: {e}")
+            QMessageBox.critical(
+                self,
+                "Regeneration Error",
+                f"Failed to start data regeneration: {str(e)}"
+            )
+
+    def _update_regeneration_progress(self, current: int, total: int):
+        """Update regeneration progress dialog"""
+        if hasattr(self, 'regen_progress_dialog'):
+            pct = int(current / total * 100) if total > 0 else 0
+            self.regen_progress_dialog.setMaximum(100)
+            self.regen_progress_dialog.setValue(pct)
+            self.regen_progress_dialog.setLabelText(f"Processing sample {current} of {total}...")
+            QCoreApplication.processEvents()
+
+    def _regeneration_completed(self, regenerated_count: int):
+        """Handle successful regeneration completion"""
+        if hasattr(self, 'regen_progress_dialog'):
+            self.regen_progress_dialog.close()
+            
+        logger.info(f"Regeneration completed successfully: {regenerated_count} EICs regenerated")
+        
+        try:
+            # Refresh plots to show new EIC data
+            # Since EIC data was regenerated, we need a full replot
+            current_compound = self.graph_view.get_current_compound()
+            current_samples = self.graph_view.get_current_samples()
+            
+            if current_compound and current_samples:
+                # Force a complete replot with fresh EIC data
+                self.graph_view.plot_compound(current_compound, current_samples)
+            else:
+                # Fallback to session data refresh
+                self.graph_view.refresh_plots_with_session_data()
+            
+            # Update integration window after refresh - but preserve tR window value
+            from PySide6.QtCore import QTimer
+            def update_integration_window():
+                current_compound = self.graph_view.get_current_compound()
+                current_selected = self.graph_view.get_selected_samples()
+                all_samples = self.graph_view.get_current_samples()
+                
+                # Store current tR window value before refresh
+                tr_window_field = self.toolbar.integration.findChild(QLineEdit, "tr_window_input")
+                current_tr_window = tr_window_field.text() if tr_window_field else ""
+                
+                if current_compound:
+                    # Refresh other fields but preserve tR window
+                    self.toolbar.integration.populate_fields_from_plots(
+                        current_compound,
+                        current_selected,
+                        all_samples
+                    )
+                    
+                    # Restore tR window value (don't overwrite with old default)
+                    if tr_window_field and current_tr_window:
+                        tr_window_field.setText(current_tr_window)
+            
+            # Small delay to ensure plot refresh completes
+            QTimer.singleShot(100, update_integration_window)
+            
+            # Show success message
+            QMessageBox.information(
+                self,
+                "Regeneration Complete",
+                f"Data regeneration completed successfully!\n\n"
+                f"Regenerated {regenerated_count} EIC records.\n"
+                f"Plots have been refreshed with new data."
+            )
+            
+        except Exception as e:
+            logger.error(f"Error during post-regeneration refresh: {e}")
+            QMessageBox.warning(
+                self,
+                "Regeneration Complete with Warning",
+                f"Data regeneration completed ({regenerated_count} EICs), "
+                f"but plot refresh failed: {str(e)}\n\n"
+                f"Try manually refreshing the plots."
+            )
+
+    def _regeneration_failed(self, error_msg: str):
+        """Handle regeneration failure"""
+        if hasattr(self, 'regen_progress_dialog'):
+            self.regen_progress_dialog.close()
+            
+        logger.error(f"Regeneration failed: {error_msg}")
+        QMessageBox.critical(
+            self,
+            "Regeneration Failed",
+            f"Data regeneration failed:\n\n{error_msg}\n\n"
+            f"Please check the log files for more details."
+        )

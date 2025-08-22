@@ -65,3 +65,21 @@ QGroupBox#integrationWindow QPushButton#RestoreButton:hover {
 QGroupBox#integrationWindow QPushButton#RestoreButton:pressed {
     background-color: #b02a37;
 }
+
+
+/* Styling for "Run" button - blue like apply button */
+QGroupBox#integrationWindow QPushButton#RegenerateButton {
+    background-color: #0d6efd;
+    color: white;
+    border: none;
+    padding: 4px;
+    border-radius: 6px 12px;
+}
+
+QGroupBox#integrationWindow QPushButton#RegenerateButton:hover {
+    background-color: #0b5ed7;
+}
+
+QGroupBox#integrationWindow QPushButton#RegenerateButton:pressed {
+    background-color: #0a58ca;
+}

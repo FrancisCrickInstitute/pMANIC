@@ -312,12 +312,10 @@ class GraphView(QWidget):
         y_axis.setLabelsFont(font)
 
         # Set ranges
-        # Using smart range where the data starts at first recorded
-        # point within the window rather than the actual minumum
-        # time point in the range for which there might not be a recording
-        rt = compound.retention_time
-        x_min = max(rt - 0.2, np.min(eic.time))
-        x_max = min(rt + 0.2, np.max(eic.time))
+        # Use the actual EIC time range (this will reflect the tR window used during extraction)
+        rt = compound.retention_time  # Still needed for guide lines
+        x_min = float(np.min(eic.time))
+        x_max = float(np.max(eic.time))
         x_axis.setRange(x_min, x_max)
 
         y_axis.setRange(0, scaled_y_max)

@@ -32,6 +32,11 @@ class IntegrationWindow(QGroupBox):
     # Signal emitted when restore button is clicked and session data is cleared
     session_data_restored = Signal(str, list)  # compound_name, sample_names
 
+    # Signal emitted when regenerate button is clicked (for future implementation)
+    data_regeneration_requested = Signal(
+        str, float, list
+    )  # compound_name, tr_window, sample_names
+
     def __init__(self, parent=None):
         super().__init__("Selected Plots: All", parent)
         self.setObjectName("integrationWindow")
@@ -51,11 +56,11 @@ class IntegrationWindow(QGroupBox):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
+        # Section 1: Fast Integration Parameters (same as original)
         for label_text, obj_name in [
             ("Left Offset", "lo_input"),
             ("tR", "tr_input"),
             ("Right Offset", "ro_input"),
-            ("tR Window", "tr_window_input"),
         ]:
             row = QHBoxLayout()
             lbl = QLabel(label_text)
@@ -66,9 +71,8 @@ class IntegrationWindow(QGroupBox):
             row.addWidget(edt, 1)
             layout.addLayout(row)
 
-        # Create button row layout
+        # Fast parameters buttons (same as original)
         button_row = QHBoxLayout()
-
         self.apply_button = QPushButton("Apply")
         self.apply_button.setObjectName("ApplyButton")
         self.apply_button.clicked.connect(self._on_apply_clicked)
@@ -80,6 +84,36 @@ class IntegrationWindow(QGroupBox):
         button_row.addWidget(self.restore_button)
 
         layout.addLayout(button_row)
+
+        # Add some spacing between sections
+        layout.addSpacing(10)
+
+        # Section 2: Data Regeneration - no QGroupBox, just add fields directly like above
+        # Add a simple label for the section title
+        regen_title = QLabel("Data Regeneration ⚠️")
+        regen_title.setStyleSheet(
+            "QLabel { font-weight: bold; margin-top: 5px; margin-bottom: 5px; margin-left: 0px; padding-left: 0px; }"
+        )
+        layout.addWidget(regen_title)
+
+        # tR Window field (same layout as above fields)
+        tr_window_row = QHBoxLayout()
+        tr_window_lbl = QLabel("tR Window")
+        tr_window_lbl.setStyleSheet("QLabel { background-color: #F0F0F0; }")
+        self.tr_window_edit = QLineEdit()
+        self.tr_window_edit.setObjectName("tr_window_input")
+        tr_window_row.addWidget(tr_window_lbl)
+        tr_window_row.addWidget(self.tr_window_edit, 1)
+        layout.addLayout(tr_window_row)
+
+        # Regenerate button (same button layout as above)
+        regen_button_row = QHBoxLayout()
+        self.regenerate_button = QPushButton("Run")
+        self.regenerate_button.setObjectName("RegenerateButton")
+        self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
+        regen_button_row.addWidget(self.regenerate_button)
+
+        layout.addLayout(regen_button_row)
 
     def populate_fields(self, compound_dict):
         """Populate the line edit fields with compound data"""
@@ -272,6 +306,17 @@ class IntegrationWindow(QGroupBox):
         self.apply_button.setToolTip(apply_tooltip)
         self.restore_button.setToolTip(restore_tooltip)
 
+        # Set detailed tooltip for regenerate button
+        regenerate_tooltip = (
+            "Regenerate EIC data with new tR window\n\n"
+            "⚠️ WARNING: This operation will:\n"
+            "• Delete existing EIC data for this compound\n"
+            "• Recalculate from raw CDF files\n"
+            "• Take 2-5 minutes to complete\n"
+            "• Cannot be easily undone"
+        )
+        self.regenerate_button.setToolTip(regenerate_tooltip)
+
     def _on_apply_clicked(self):
         """Handle apply button click - validate inputs and update session data"""
         if not self._current_compound:
@@ -458,3 +503,90 @@ class IntegrationWindow(QGroupBox):
                 self, "Validation Error", f"Error validating inputs: {str(e)}"
             )
             return None
+
+    def _on_regenerate_clicked(self):
+        """Handle regenerate button click - validate tR window and trigger data regeneration"""
+        if not self._current_compound:
+            QMessageBox.warning(self, "No Compound", "No compound selected.")
+            return
+
+        # Get and validate tR window input
+        tr_window_field = self.findChild(QLineEdit, "tr_window_input")
+        if not tr_window_field:
+            QMessageBox.critical(
+                self, "UI Error", "Could not find tR Window input field"
+            )
+            return
+
+        try:
+            tr_window_text = tr_window_field.text().strip()
+            if not tr_window_text:
+                QMessageBox.warning(self, "Invalid Input", "tR Window cannot be empty")
+                tr_window_field.setFocus()
+                return
+
+            # Handle range format (take first value like other fields)
+            if " - " in tr_window_text:
+                tr_window_text = tr_window_text.split(" - ")[0]
+
+            tr_window = float(tr_window_text)
+
+            if tr_window <= 0:
+                QMessageBox.warning(self, "Invalid Input", "tR Window must be positive")
+                tr_window_field.setFocus()
+                return
+
+        except ValueError:
+            QMessageBox.warning(
+                self, "Invalid Input", "tR Window must be a valid number"
+            )
+            tr_window_field.setFocus()
+            return
+
+        # Show detailed confirmation dialog with implications
+        samples_to_affect = self._all_samples if self._all_samples else []
+        sample_count = len(samples_to_affect)
+
+        if sample_count == 0:
+            QMessageBox.warning(
+                self, "No Samples", "No samples available for data regeneration."
+            )
+            return
+
+        # Create detailed confirmation message
+        message = (
+            f"⚠️ DATA REGENERATION WARNING ⚠️\n\n"
+            f"This will:\n"
+            f"• Delete all existing EIC data for '{self._current_compound}'\n"
+            f"• Recalculate EICs with new tR window ({tr_window} min)\n"
+            f"• Process {sample_count} samples\n"
+            f"• Take 2-5 minutes to complete\n\n"
+            f"This operation cannot be easily undone.\n\n"
+            f"Continue with data regeneration?"
+        )
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Data Regeneration",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Emit signal for future implementation
+                # Main window can connect to this signal to handle actual regeneration
+                self.data_regeneration_requested.emit(
+                    self._current_compound, tr_window, samples_to_affect
+                )
+
+                # Regeneration will be handled by main window via signal
+                pass
+
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Regeneration Failed",
+                    f"Failed to queue regeneration: {str(e)}",
+                )

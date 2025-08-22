@@ -115,6 +115,18 @@ class IntegrationWindow(QGroupBox):
 
         layout.addLayout(regen_button_row)
 
+    def populate_tr_window_field(self, compound_name: str):
+        """Populate only the tR window field - called only when compound changes"""
+        try:
+            compound_data = read_compound(compound_name)
+            tr_window_value = getattr(compound_data, "tr_window", 0.2)
+            
+            tr_window_field = self.findChild(QLineEdit, "tr_window_input")
+            if tr_window_field:
+                tr_window_field.setText(str(tr_window_value))
+        except Exception as e:
+            print(f"Error populating tR window field: {e}")
+
     def populate_fields(self, compound_dict):
         """Populate the line edit fields with compound data"""
         if compound_dict is None:
@@ -122,12 +134,11 @@ class IntegrationWindow(QGroupBox):
             self._clear_fields()
             return
 
-        # Map compound data to UI fields
+        # Map compound data to UI fields (excluding tR window - only updated on compound change)
         field_mappings = {
             "lo_input": compound_dict.get("loffset", ""),
             "tr_input": compound_dict.get("retention_time", ""),
             "ro_input": compound_dict.get("roffset", ""),
-            "tr_window_input": compound_dict.get("tr_window", ""),
         }
 
         for obj_name, value in field_mappings.items():
@@ -233,12 +244,11 @@ class IntegrationWindow(QGroupBox):
                 roffsets.append(compound_data.roffset)
                 tr_windows.append(getattr(compound_data, "tr_window", 0.2))
 
-            # Format ranges or single values
+            # Format ranges or single values (excluding tR window - only updated on compound change)
             field_values = {
                 "lo_input": self._format_range(loffsets),
                 "tr_input": self._format_range(rt_times),
                 "ro_input": self._format_range(roffsets),
-                "tr_window_input": self._format_range(tr_windows),
             }
 
             # Populate fields

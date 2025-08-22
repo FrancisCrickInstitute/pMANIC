@@ -211,6 +211,9 @@ class MainWindow(QMainWindow):
                     [],  # No plots selected initially
                     samples  # All visible samples
                 )
+                
+                # Update tR window field only when compound changes
+                self.toolbar.integration.populate_tr_window_field(compound_name)
         except LookupError as err:
             QMessageBox.warning(self, "Missing data", str(err))
         except Exception as e:

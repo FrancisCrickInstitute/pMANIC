@@ -6,7 +6,7 @@ import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QMargins, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QGridLayout, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGridLayout, QSizePolicy, QWidget, QGraphicsTextItem, QVBoxLayout, QLabel
 
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
@@ -131,22 +131,25 @@ class GraphView(QWidget):
 
         # time plot building for debugging
         with measure_time("build_plots_and_add_to_layout"):
-            # Build all plots first
-            plot_widgets = [self._build_plot(eic) for eic in eics]
-            self._current_plots = plot_widgets
+            # Build all plots with captions first
+            plot_containers = [self._build_plot_with_caption(eic) for eic in eics]
+            
+            # Extract chart views for click handling
+            self._current_plots = [container.chart_view for container in plot_containers]
 
             # Connect click signals
-            for plot_widget in plot_widgets:
-                plot_widget.clicked.connect(self._on_plot_clicked)
+            for container in plot_containers:
+                container.chart_view.clicked.connect(self._on_plot_clicked)
 
             # Add to layout in one go
-            for i, widget in enumerate(plot_widgets):
+            for i, container in enumerate(plot_containers):
                 row = i // cols
                 col = i % cols
-                self._layout.addWidget(widget, row, col)
+                self._layout.addWidget(container, row, col)
 
         # ensure the added widgets are correctly sized with stretch factors
         self._update_graph_sizes()
+
 
     def _on_plot_clicked(self, clicked_plot: ClickableChartView):
         """Handle plot click - toggle selection"""
@@ -247,6 +250,31 @@ class GraphView(QWidget):
                 pass  # Don't cascade failures
 
     #  internal functions
+    def _build_plot_with_caption(self, eic) -> QWidget:
+        """Create a widget containing a plot with sample name caption below."""
+        # Create the plot
+        chart_view = self._build_plot(eic)
+        
+        # Create caption label
+        caption = QLabel(eic.sample_name)
+        caption.setAlignment(Qt.AlignCenter)
+        caption.setFont(QFont("Arial", 9, QFont.Bold))
+        caption.setStyleSheet("color: black; padding: 2px;")
+        caption.setMaximumHeight(20)
+        
+        # Create container widget
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(chart_view)
+        layout.addWidget(caption)
+        
+        # Store reference to chart_view for click handling
+        container.chart_view = chart_view
+        
+        return container
+
     def _build_plot(self, eic) -> ClickableChartView:
         """Create a ClickableChartView with EIC data and guide lines."""
         # Use session data if available, otherwise use default compound data
@@ -359,22 +387,20 @@ class GraphView(QWidget):
             sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
             return str(n).translate(sup_map)
 
-        # Set title
-        chart.setTitle(f"{eic.sample_name} (×10{superscript(scale_exp)})")
-        chart.setTitleFont(QFont("Arial", 9))
-        chart.setTitleBrush(QColor(0, 0, 0))
-        chart.setMargins(QMargins(-13, -10, -13, -15))
-
-        # Create chart view
-        chart_view = QChartView(chart)
-        chart_view.setRenderHint(QPainter.Antialiasing)
-        chart_view.setContentsMargins(0, 0, 0, 0)
-
-        # Add size policy to make charts expandable
-        chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # Create clickable chart view
+        # Create chart view first to get access to scene
         chart_view = ClickableChartView(chart, eic.sample_name)
+        
+        # Add only scale factor in top-left corner if needed
+        if scale_exp != 0:
+            scale_text = QGraphicsTextItem(f"×10{superscript(scale_exp)}")
+            scale_text.setFont(QFont("Arial", 10))  # Bigger font size
+            scale_text.setDefaultTextColor(QColor(80, 80, 80))
+            scale_text.setPos(10, 10)  # Top-left corner
+            chart.scene().addItem(scale_text)
+
+        # Remove chart title to maximize space
+        chart.setTitle("")
+        chart.setMargins(QMargins(-13, -10, -13, -15))
 
         return chart_view
 

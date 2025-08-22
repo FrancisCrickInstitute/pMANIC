@@ -102,6 +102,10 @@ class MainWindow(QMainWindow):
 
         # Connect the graph view's selection signal
         self.graph_view.selection_changed.connect(self.on_plot_selection_changed)
+        
+        # Connect the integration window's session data signals
+        self.toolbar.integration.session_data_applied.connect(self.on_session_data_applied)
+        self.toolbar.integration.session_data_restored.connect(self.on_session_data_restored)
 
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
@@ -197,6 +201,14 @@ class MainWindow(QMainWindow):
             if samples:
                 with measure_time("total_plotting_speed"):
                     self.graph_view.plot_compound(compound_name, samples)
+                
+                # After plotting, update integration window to show "All" state
+                # (no plots selected initially)
+                self.toolbar.integration.populate_fields_from_plots(
+                    compound_name, 
+                    [],  # No plots selected initially
+                    samples  # All visible samples
+                )
         except LookupError as err:
             QMessageBox.warning(self, "Missing data", str(err))
         except Exception as e:
@@ -217,6 +229,82 @@ class MainWindow(QMainWindow):
 
     def on_plot_selection_changed(self, selected_samples):
         """Handle when plots are selected/deselected"""
-        print(f"Selected plots: {selected_samples}")
-        # You can update the integration window here if needed
-        # or perform other actions based on selection
+        # Update integration window based on plot selection
+        current_compound = self.graph_view.get_current_compound()
+        all_samples = self.graph_view.get_current_samples()
+        
+        if current_compound:
+            self.toolbar.integration.populate_fields_from_plots(
+                current_compound, 
+                selected_samples, 
+                all_samples
+            )
+    
+    def on_session_data_applied(self, compound_name: str, sample_names: list):
+        """Handle when session data is applied - refresh plots to show updated parameters"""
+        logger.info(f"Session data applied for {compound_name}, refreshing plots")
+        
+        try:
+            # Refresh plots with session data
+            self.graph_view.refresh_plots_with_session_data()
+            
+            # After refreshing plots, update the integration window to show the new values
+            # Add a small delay to ensure the plot refresh is fully complete
+            from PySide6.QtCore import QTimer
+            def update_integration_window():
+                current_selected = self.graph_view.get_selected_samples()
+                all_samples = self.graph_view.get_current_samples()
+                
+                if compound_name:
+                    self.toolbar.integration.populate_fields_from_plots(
+                        compound_name,
+                        current_selected,
+                        all_samples
+                    )
+            
+            # Use a timer to delay the update slightly
+            QTimer.singleShot(100, update_integration_window)
+            
+        except Exception as e:
+            logger.error(f"Failed to refresh plots after session data update: {e}")
+            # Show error to user but don't crash the application
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                "Refresh Failed", 
+                f"Failed to refresh plots with updated parameters: {str(e)}"
+            )
+    
+    def on_session_data_restored(self, compound_name: str, sample_names: list):
+        """Handle when session data is restored - refresh plots to show default parameters"""
+        logger.info(f"Session data restored for {compound_name}, refreshing plots")
+        
+        try:
+            # Refresh plots with default data (session data has been removed)
+            self.graph_view.refresh_plots_with_session_data()
+            
+            # After refreshing plots, update the integration window to show the default values
+            from PySide6.QtCore import QTimer
+            def update_integration_window():
+                current_selected = self.graph_view.get_selected_samples()
+                all_samples = self.graph_view.get_current_samples()
+                
+                if compound_name:
+                    self.toolbar.integration.populate_fields_from_plots(
+                        compound_name,
+                        current_selected,
+                        all_samples
+                    )
+            
+            # Use a timer to delay the update slightly
+            QTimer.singleShot(100, update_integration_window)
+            
+        except Exception as e:
+            logger.error(f"Failed to refresh plots after session data restore: {e}")
+            # Show error to user but don't crash the application
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                "Refresh Failed", 
+                f"Failed to refresh plots after restore: {str(e)}"
+            )

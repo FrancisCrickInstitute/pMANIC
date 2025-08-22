@@ -8,7 +8,7 @@ from PySide6.QtCore import QMargins, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QSizePolicy, QWidget
 
-from manic.io.compound_reader import read_compound
+from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.timer import measure_time
 
@@ -88,6 +88,10 @@ class GraphView(QWidget):
 
         # Store all current plots for easy access
         self._current_plots: List[ClickableChartView] = []
+        
+        # Store current compound and samples for integration window updates
+        self._current_compound: str = ""
+        self._current_samples: List[str] = []
 
         # throttle resize events – avoids constant redraw while user resizes
         self._resize_timer = QTimer(self)
@@ -104,6 +108,10 @@ class GraphView(QWidget):
         self._clear_layout()
         if not samples:
             return
+        
+        # Store current compound and samples for integration window updates
+        self._current_compound = compound_name
+        self._current_samples = samples
 
         # time db retreival for debugging
         with measure_time("get_eics_from_db"):
@@ -168,13 +176,19 @@ class GraphView(QWidget):
         else:
             title = f"Selected Plots: {len(self._selected_plots)} samples"
 
-        # You'll need to emit a signal or access the integration window to update title
-        # For now, just print - you can connect this properly later
-        print(f"Integration window title should be: {title}")
+        # Integration window title is updated via signals
 
     def get_selected_samples(self) -> List[str]:
         """Get list of currently selected sample names"""
         return [plot.sample_name for plot in self._selected_plots]
+    
+    def get_current_compound(self) -> str:
+        """Get the currently displayed compound"""
+        return self._current_compound
+    
+    def get_current_samples(self) -> List[str]:
+        """Get the list of all currently displayed samples"""
+        return self._current_samples.copy()
 
     def clear_selection(self):
         """Clear all plot selections"""
@@ -182,11 +196,61 @@ class GraphView(QWidget):
             plot.set_selected(False)
         self._selected_plots.clear()
         self.selection_changed.emit([])
+    
+    def refresh_plots_with_session_data(self):
+        """
+        Refresh the current plots using session data where available.
+        
+        This method rebuilds all current plots, using session activity data
+        where it exists, while preserving the current plot selection state.
+        """
+        if not self._current_compound or not self._current_samples:
+            logger.warning("Cannot refresh plots: no current compound or samples")
+            return
+        
+        # Store current selection state
+        selected_sample_names = {plot.sample_name for plot in self._selected_plots}
+        
+        try:
+            with measure_time("refresh_plots_with_session_data"):
+                # Clear existing selection tracking before re-plotting
+                self._selected_plots.clear()
+                
+                # Re-plot the compound with the same samples
+                self.plot_compound(self._current_compound, self._current_samples)
+                
+                # Restore selection state - need to be careful with timing
+                # since _current_plots is updated in plot_compound
+                restored_count = 0
+                for plot in self._current_plots:
+                    if plot.sample_name in selected_sample_names:
+                        plot.set_selected(True)
+                        self._selected_plots.add(plot)
+                        restored_count += 1
+                
+                # Emit selection signal to update integration window
+                selected_samples = [plot.sample_name for plot in self._selected_plots]
+                self.selection_changed.emit(selected_samples)
+                
+                logger.info(
+                    f"Refreshed {len(self._current_plots)} plots for '{self._current_compound}' "
+                    f"with session data. Restored {restored_count} selections."
+                )
+                
+        except Exception as e:
+            logger.error(f"Failed to refresh plots with session data: {e}")
+            # Try to maintain some UI state even if refresh fails
+            try:
+                selected_samples = [plot.sample_name for plot in self._selected_plots]
+                self.selection_changed.emit(selected_samples)
+            except:
+                pass  # Don't cascade failures
 
     #  internal functions
     def _build_plot(self, eic) -> ClickableChartView:
         """Create a ClickableChartView with EIC data and guide lines."""
-        compound = read_compound(eic.compound_name)
+        # Use session data if available, otherwise use default compound data
+        compound = read_compound_with_session(eic.compound_name, eic.sample_name)
 
         # Create chart
         chart = QChart()
@@ -267,11 +331,15 @@ class GraphView(QWidget):
         self._add_guide_line(
             chart, x_axis, y_axis, rt, 0, scaled_y_max, QColor(0, 0, 0)
         )  # RT line
+        
+        left_line_pos = rt - compound.loffset
+        right_line_pos = rt + compound.roffset
+        
         self._add_guide_line(
             chart,
             x_axis,
             y_axis,
-            rt - compound.loffset,
+            left_line_pos,
             0,
             scaled_y_max,
             steel_blue_colour,
@@ -281,7 +349,7 @@ class GraphView(QWidget):
             chart,
             x_axis,
             y_axis,
-            rt + compound.roffset,
+            right_line_pos,
             0,
             scaled_y_max,
             steel_blue_colour,

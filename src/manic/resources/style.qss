@@ -60,6 +60,82 @@ QMessageBox {
     background-color: white;
     color: black;
 }
+
+QMessageBox QPushButton {
+    background-color: #e9ecef !important;
+    color: black !important;
+    border: 1px solid #adb5bd !important;
+    border-radius: 4px;
+    padding: 6px 12px;
+    min-width: 60px;
+    font-weight: normal;
+}
+
+QMessageBox QPushButton:hover {
+    background-color: #dee2e6 !important;
+    border-color: #adb5bd !important;
+}
+
+QMessageBox QPushButton:pressed {
+    background-color: #ced4da !important;
+    border-color: #6c757d !important;
+}
+
+QMessageBox QPushButton[text="&Yes"], QMessageBox QPushButton[text="Yes"] {
+    background-color: #0d6efd !important;
+    color: white !important;
+    border-color: #0d6efd !important;
+}
+
+QMessageBox QPushButton[text="&Yes"]:hover, QMessageBox QPushButton[text="Yes"]:hover {
+    background-color: #0b5ed7 !important;
+    border-color: #0a58ca !important;
+}
+
+QMessageBox QPushButton[text="&No"], QMessageBox QPushButton[text="No"] {
+    background-color: #6c757d !important;
+    color: white !important;
+    border-color: #6c757d !important;
+}
+
+QMessageBox QPushButton[text="&No"]:hover, QMessageBox QPushButton[text="No"]:hover {
+    background-color: #5a6268 !important;
+    border-color: #545b62 !important;
+}
+
+QMessageBox QLabel {
+    color: black !important;
+    background-color: transparent;
+    font-weight: normal;
+}
+
 QDialog {
     background-color: white;
+    color: black;
+}
+
+QDialog QPushButton {
+    background-color: #e9ecef !important;
+    color: black !important;
+    border: 1px solid #adb5bd !important;
+    border-radius: 4px;
+    padding: 6px 12px;
+    min-width: 60px;
+    font-weight: normal;
+}
+
+QDialog QPushButton:hover {
+    background-color: #dee2e6 !important;
+    border-color: #adb5bd !important;
+}
+
+QDialog QPushButton:pressed {
+    background-color: #ced4da !important;
+    border-color: #6c757d !important;
+}
+
+QDialog QLabel {
+    color: black !important;
+    background-color: transparent;
+    font-weight: normal;
 }

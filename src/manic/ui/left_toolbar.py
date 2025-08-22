@@ -83,6 +83,7 @@ class Toolbar(QWidget):
         if selected_items:
             selected_text = selected_items[0].text()
             self.compound_selected.emit(selected_text)
+            # Initial fill - will be updated by plot selection logic after plotting
             self.fill_integration_window(selected_text)
         else:
             self.compound_selected.emit("")

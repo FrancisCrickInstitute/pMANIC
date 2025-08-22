@@ -45,10 +45,11 @@ CREATE TABLE IF NOT EXISTS session_activity (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     compound_name  TEXT NOT NULL,
     sample_name    TEXT NOT NULL,
-    mass0          REAL,
+    retention_time REAL,
     loffset        REAL,
     roffset        REAL,
     sample_deleted INTEGER DEFAULT 0,
     FOREIGN KEY (compound_name) REFERENCES compounds(compound_name),
-    FOREIGN KEY (sample_name)   REFERENCES samples(sample_name)
+    FOREIGN KEY (sample_name)   REFERENCES samples(sample_name),
+    UNIQUE(compound_name, sample_name)
 );

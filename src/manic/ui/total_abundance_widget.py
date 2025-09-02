@@ -52,8 +52,10 @@ class TotalAbundanceWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.chart_view)
 
-        # Same height as isotopologue widget
-        self.setFixedHeight(330)
+        # Responsive height to match isotopologue widget
+        self.setMinimumHeight(200)  # Still readable
+        self.setMaximumHeight(330)  # Preferred size
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         # Single color for all bars - dark teal (not in isotopologue palette)
         self.bar_color = QColor(0, 128, 128)  # Dark teal

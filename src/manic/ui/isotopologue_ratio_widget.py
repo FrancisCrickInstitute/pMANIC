@@ -54,8 +54,10 @@ class IsotopologueRatioWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.chart_view)
 
-        # Fixed height for toolbar integration
-        self.setFixedHeight(330)
+        # Responsive height for toolbar integration
+        self.setMinimumHeight(200)  # Still readable
+        self.setMaximumHeight(330)  # Preferred size
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         # Data storage
         self._current_eics: Optional[List[EIC]] = None

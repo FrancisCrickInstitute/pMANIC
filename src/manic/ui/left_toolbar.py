@@ -53,10 +53,10 @@ class Toolbar(QWidget):
         layout.addWidget(self.integration)
 
         self.isotopologue_ratios = IsotopologueRatioWidget()
-        layout.addWidget(self.isotopologue_ratios)
+        layout.addWidget(self.isotopologue_ratios, stretch=1)  # Allow expansion
 
         self.total_abundance = TotalAbundanceWidget()
-        layout.addWidget(self.total_abundance)
+        layout.addWidget(self.total_abundance, stretch=1)  # Allow expansion
 
         # Add spacer to push elements to top
         layout.addStretch()

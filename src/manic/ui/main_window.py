@@ -215,8 +215,17 @@ class MainWindow(QMainWindow):
                 # Update tR window field only when compound changes
                 self.toolbar.integration.populate_tr_window_field(compound_name)
                 
-                # Update isotopologue ratios
-                self.toolbar.isotopologue_ratios.update_ratios(compound_name, self._get_current_eics())
+                # Update isotopologue ratios first (calculates both ratios and abundances)
+                current_eics = self._get_current_eics()
+                self.toolbar.isotopologue_ratios.update_ratios(compound_name, current_eics)
+                
+                # Share the calculated abundances with total abundance widget (no recalculation)
+                abundances, eics = self.toolbar.isotopologue_ratios.get_last_total_abundances()
+                if abundances is not None:
+                    self.toolbar.total_abundance.update_abundance_from_data(compound_name, eics, abundances)
+                else:
+                    # Fallback - clear the chart if no data available
+                    self.toolbar.total_abundance._clear_chart()
         except LookupError as err:
             QMessageBox.warning(self, "Missing data", str(err))
         except Exception as e:
@@ -263,8 +272,14 @@ class MainWindow(QMainWindow):
                 all_samples
             )
             
-            # Update isotopologue ratios (integration parameters may have changed)
-            self.toolbar.isotopologue_ratios.update_ratios(current_compound, self._get_current_eics())
+            # Update isotopologue ratios and total abundance (integration parameters may have changed)
+            current_eics = self._get_current_eics()
+            self.toolbar.isotopologue_ratios.update_ratios(current_compound, current_eics)
+            
+            # Share calculated abundances
+            abundances, eics = self.toolbar.isotopologue_ratios.get_last_total_abundances()
+            if abundances is not None:
+                self.toolbar.total_abundance.update_abundance_from_data(current_compound, eics, abundances)
     
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         """Handle when session data is applied - refresh plots to show updated parameters"""
@@ -291,10 +306,17 @@ class MainWindow(QMainWindow):
             # Use a timer to delay the update slightly
             QTimer.singleShot(100, update_integration_window)
             
-            # Update isotopologue ratios with new integration parameters
-            QTimer.singleShot(150, lambda: self.toolbar.isotopologue_ratios.update_ratios(
-                compound_name, self._get_current_eics()
-            ))
+            # Update isotopologue ratios and total abundance with new integration parameters
+            def update_charts():
+                current_eics = self._get_current_eics()
+                self.toolbar.isotopologue_ratios.update_ratios(compound_name, current_eics)
+                
+                # Share calculated abundances
+                abundances, eics = self.toolbar.isotopologue_ratios.get_last_total_abundances()
+                if abundances is not None:
+                    self.toolbar.total_abundance.update_abundance_from_data(compound_name, eics, abundances)
+            
+            QTimer.singleShot(150, update_charts)
             
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data update: {e}")
@@ -330,10 +352,17 @@ class MainWindow(QMainWindow):
             # Use a timer to delay the update slightly
             QTimer.singleShot(100, update_integration_window)
             
-            # Update isotopologue ratios with restored default parameters
-            QTimer.singleShot(150, lambda: self.toolbar.isotopologue_ratios.update_ratios(
-                compound_name, self._get_current_eics()
-            ))
+            # Update isotopologue ratios and total abundance with restored default parameters
+            def update_charts():
+                current_eics = self._get_current_eics()
+                self.toolbar.isotopologue_ratios.update_ratios(compound_name, current_eics)
+                
+                # Share calculated abundances
+                abundances, eics = self.toolbar.isotopologue_ratios.get_last_total_abundances()
+                if abundances is not None:
+                    self.toolbar.total_abundance.update_abundance_from_data(compound_name, eics, abundances)
+            
+            QTimer.singleShot(150, update_charts)
             
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data restore: {e}")

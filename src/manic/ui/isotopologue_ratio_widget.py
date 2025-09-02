@@ -45,7 +45,8 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.setPlotAreaBackgroundVisible(True)
         self.chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
         self.chart.legend().setVisible(False)
-        self.chart.setTitle("")
+        self.chart.setTitle("Label Incorporation")
+        self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
         self.chart.setMargins(QMargins(5, 5, 5, 5))  # Minimal margins
 
         # Layout
@@ -59,6 +60,8 @@ class IsotopologueRatioWidget(QWidget):
         # Data storage
         self._current_eics: Optional[List[EIC]] = None
         self._current_compound: str = ""
+        self._last_total_abundances: Optional[np.ndarray] = None
+        self._last_eics: Optional[List[EIC]] = None
 
     def update_ratios(self, compound_name: str, eics: List[EIC]) -> None:
         """
@@ -80,12 +83,16 @@ class IsotopologueRatioWidget(QWidget):
         self._current_eics = eics
         self._current_compound = compound_name
 
-        # Calculate ratios using on-demand integration
-        ratios = self._calculate_ratios_integrated(eics, compound_name)
+        # Calculate both ratios and total abundances using unified integration
+        ratios, total_abundances = self._calculate_integrated_data(eics, compound_name)
 
         if ratios is None:
             self._clear_chart()
             return
+
+        # Store total abundances for sharing with total abundance widget
+        self._last_total_abundances = total_abundances
+        self._last_eics = eics
 
         # Order EICs to match graph window layout (left-to-right, top-to-bottom in grid)
         # But reverse for horizontal bars (QtCharts displays from bottom-to-top)
@@ -98,23 +105,26 @@ class IsotopologueRatioWidget(QWidget):
         # Update chart
         self._update_chart(ordered_ratios, [eic.sample_name for eic in ordered_eics])
 
-    def _calculate_ratios_integrated(
+    def _calculate_integrated_data(
         self, eics: List[EIC], compound_name: str
-    ) -> Optional[np.ndarray]:
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Calculate isotopologue ratios using numerical integration.
+        Calculate both isotopologue ratios and total abundances using unified integration.
 
         Integrates each isotopologue trace within the integration boundaries
-        defined by retention_time ± offsets, then calculates ratios.
+        defined by retention_time ± offsets, then calculates both ratios and total abundances.
 
         Args:
             eics: List of EIC data
             compound_name: Name of compound for integration parameters
 
         Returns:
-            Array of shape (n_samples, n_isotopologues) with ratios, or None if no data
+            Tuple of (ratios_array, total_abundances_array) or (None, None) if no data
+            - ratios: Array of shape (n_samples, n_isotopologues) with ratios
+            - total_abundances: Array of shape (n_samples,) with total integrated areas
         """
         ratios = []
+        total_abundances = []
 
         for eic in eics:
             # Get integration parameters (with session overrides if available)
@@ -135,6 +145,7 @@ class IsotopologueRatioWidget(QWidget):
                 # No data points in integration window
                 num_isotopologues = eic.intensity.shape[0]
                 ratios.append(np.zeros(num_isotopologues))
+                total_abundances.append(0.0)
                 continue
 
             # Integrate each isotopologue trace using trapezoidal rule
@@ -143,14 +154,20 @@ class IsotopologueRatioWidget(QWidget):
                 area = np.trapz(eic.intensity[i, mask], eic.time[mask])
                 isotope_areas.append(max(0, area))  # Ensure non-negative
 
-            # Calculate ratios
+            # Calculate total abundance (sum of all isotopologue areas)
             total_area = sum(isotope_areas)
+            total_abundances.append(total_area)
+
+            # Calculate ratios from same areas
             if total_area > 0:
                 ratios.append(np.array(isotope_areas) / total_area)
             else:
                 ratios.append(np.zeros(len(isotope_areas)))
 
-        return np.array(ratios) if ratios else None
+        if ratios:
+            return np.array(ratios), np.array(total_abundances)
+        else:
+            return None, None
 
     def _order_like_graph_window(
         self, eics: List[EIC], ratios: np.ndarray
@@ -264,3 +281,9 @@ class IsotopologueRatioWidget(QWidget):
         # Reset data
         self._current_eics = None
         self._current_compound = ""
+        self._last_total_abundances = None
+        self._last_eics = None
+
+    def get_last_total_abundances(self) -> tuple[Optional[np.ndarray], Optional[List[EIC]]]:
+        """Get the last calculated total abundances to share with total abundance widget"""
+        return self._last_total_abundances, self._last_eics

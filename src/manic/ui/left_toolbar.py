@@ -10,10 +10,11 @@ from src.manic.io.compound_reader import read_compound
 
 from .compound_list_widget import CompoundListWidget
 from .integration_window_widget import IntegrationWindow
-from .isotopologue_ratio_widget_horizontal import IsotopologueRatioWidget
+from .isotopologue_ratio_widget import IsotopologueRatioWidget
 from .loaded_data_widget import LoadedDataWidget
 from .sample_list_widget import SampleListWidget
 from .standard_indicator_widget import StandardIndicator
+from .total_abundance_widget import TotalAbundanceWidget
 
 
 class Toolbar(QWidget):
@@ -53,6 +54,9 @@ class Toolbar(QWidget):
 
         self.isotopologue_ratios = IsotopologueRatioWidget()
         layout.addWidget(self.isotopologue_ratios)
+
+        self.total_abundance = TotalAbundanceWidget()
+        layout.addWidget(self.total_abundance)
 
         # Add spacer to push elements to top
         layout.addStretch()

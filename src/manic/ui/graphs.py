@@ -385,8 +385,13 @@ class GraphView(QWidget):
 
         # Add only scale factor in top-left corner if needed
         if scale_exp != 0:
-            scale_text = QGraphicsTextItem(f"×10{superscript(scale_exp)}")
-            scale_text.setFont(QFont("Arial", 12))  # Bigger font size
+            # Use HTML to make only the superscript larger
+            html_text = (
+                f'×10<span style="font-size: 14pt;">{superscript(scale_exp)}</span>'
+            )
+            scale_text = QGraphicsTextItem()
+            scale_text.setHtml(html_text)
+            scale_text.setFont(QFont("Arial", 10))  # Base font size for ×10
             scale_text.setDefaultTextColor(QColor(80, 80, 80))
             scale_text.setPos(10, 10)  # Top-left corner
             chart.scene().addItem(scale_text)

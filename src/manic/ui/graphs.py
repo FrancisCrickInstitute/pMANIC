@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
     QGridLayout,
     QLabel,
+    QMenu,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -192,6 +193,52 @@ class GraphView(QWidget):
             plot.set_selected(False)
         self._selected_plots.clear()
         self.selection_changed.emit([])
+
+    def select_all_plots(self):
+        """Select all currently displayed plots"""
+        for plot in self._current_plots:
+            if not plot.is_selected:
+                plot.set_selected(True)
+                self._selected_plots.add(plot)
+        
+        # Emit signal with all selected sample names
+        selected_samples = [plot.sample_name for plot in self._selected_plots]
+        self.selection_changed.emit(selected_samples)
+        self._update_integration_title()
+
+    def deselect_all_plots(self):
+        """Deselect all currently selected plots"""
+        self.clear_selection()
+        self._update_integration_title()
+
+    def contextMenuEvent(self, event):
+        """
+        Handle right-click context menu for plot selection.
+        
+        This method is automatically called by Qt when:
+        - User right-clicks anywhere in the graph window
+        - User presses the context menu key on keyboard  
+        - User performs platform-specific context menu gesture
+        
+        Qt's QWidget base class automatically detects right-click events
+        and converts them to context menu events, then calls this override.
+        """
+        if not self._current_plots:
+            return
+        
+        # Create context menu with selection options
+        context_menu = QMenu(self)
+        
+        # Add select all action
+        select_all_action = context_menu.addAction("Select All")
+        select_all_action.triggered.connect(self.select_all_plots)
+        
+        # Add deselect all action
+        deselect_all_action = context_menu.addAction("Deselect All")
+        deselect_all_action.triggered.connect(self.deselect_all_plots)
+        
+        # Show the menu at the cursor position (where right-click occurred)
+        context_menu.exec_(event.globalPos())
 
     def refresh_plots_with_session_data(self):
         """

@@ -6,31 +6,23 @@ import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QMargins, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QGridLayout, QSizePolicy, QWidget, QGraphicsTextItem, QVBoxLayout, QLabel
+from PySide6.QtWidgets import (
+    QGraphicsTextItem,
+    QGridLayout,
+    QLabel,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
-from manic.io.compound_reader import read_compound, read_compound_with_session
+from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.timer import measure_time
 
 logger = logging.getLogger(__name__)
 
-# colours
-steel_blue_colour = QColor(70, 130, 180)
-dark_red_colour = QColor(139, 0, 0)
-selection_color = QColor(144, 238, 144, 50)  # Light green with transparency
-
-label_colors = [
-    QColor(31, 119, 180),  # blue
-    QColor(255, 127, 14),  # orange
-    QColor(44, 160, 44),  # green
-    QColor(214, 39, 40),  # red
-    QColor(148, 103, 189),  # purple
-    QColor(140, 86, 75),  # brown
-    QColor(227, 119, 194),  # pink
-    QColor(127, 127, 127),  # gray
-    QColor(188, 189, 34),  # olive
-    QColor(23, 190, 207),  # cyan
-]
+# Import shared colors
+from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
 
 
 class ClickableChartView(QChartView):
@@ -88,7 +80,7 @@ class GraphView(QWidget):
 
         # Store all current plots for easy access
         self._current_plots: List[ClickableChartView] = []
-        
+
         # Store current compound and samples for integration window updates
         self._current_compound: str = ""
         self._current_samples: List[str] = []
@@ -108,7 +100,7 @@ class GraphView(QWidget):
         self._clear_layout()
         if not samples:
             return
-        
+
         # Store current compound and samples for integration window updates
         self._current_compound = compound_name
         self._current_samples = samples
@@ -133,9 +125,11 @@ class GraphView(QWidget):
         with measure_time("build_plots_and_add_to_layout"):
             # Build all plots with captions first
             plot_containers = [self._build_plot_with_caption(eic) for eic in eics]
-            
+
             # Extract chart views for click handling
-            self._current_plots = [container.chart_view for container in plot_containers]
+            self._current_plots = [
+                container.chart_view for container in plot_containers
+            ]
 
             # Connect click signals
             for container in plot_containers:
@@ -149,7 +143,6 @@ class GraphView(QWidget):
 
         # ensure the added widgets are correctly sized with stretch factors
         self._update_graph_sizes()
-
 
     def _on_plot_clicked(self, clicked_plot: ClickableChartView):
         """Handle plot click - toggle selection"""
@@ -184,11 +177,11 @@ class GraphView(QWidget):
     def get_selected_samples(self) -> List[str]:
         """Get list of currently selected sample names"""
         return [plot.sample_name for plot in self._selected_plots]
-    
+
     def get_current_compound(self) -> str:
         """Get the currently displayed compound"""
         return self._current_compound
-    
+
     def get_current_samples(self) -> List[str]:
         """Get the list of all currently displayed samples"""
         return self._current_samples.copy()
@@ -199,29 +192,29 @@ class GraphView(QWidget):
             plot.set_selected(False)
         self._selected_plots.clear()
         self.selection_changed.emit([])
-    
+
     def refresh_plots_with_session_data(self):
         """
         Refresh the current plots using session data where available.
-        
+
         This method rebuilds all current plots, using session activity data
         where it exists, while preserving the current plot selection state.
         """
         if not self._current_compound or not self._current_samples:
             logger.warning("Cannot refresh plots: no current compound or samples")
             return
-        
+
         # Store current selection state
         selected_sample_names = {plot.sample_name for plot in self._selected_plots}
-        
+
         try:
             with measure_time("refresh_plots_with_session_data"):
                 # Clear existing selection tracking before re-plotting
                 self._selected_plots.clear()
-                
+
                 # Re-plot the compound with the same samples
                 self.plot_compound(self._current_compound, self._current_samples)
-                
+
                 # Restore selection state - need to be careful with timing
                 # since _current_plots is updated in plot_compound
                 restored_count = 0
@@ -230,16 +223,16 @@ class GraphView(QWidget):
                         plot.set_selected(True)
                         self._selected_plots.add(plot)
                         restored_count += 1
-                
+
                 # Emit selection signal to update integration window
                 selected_samples = [plot.sample_name for plot in self._selected_plots]
                 self.selection_changed.emit(selected_samples)
-                
+
                 logger.info(
                     f"Refreshed {len(self._current_plots)} plots for '{self._current_compound}' "
                     f"with session data. Restored {restored_count} selections."
                 )
-                
+
         except Exception as e:
             logger.error(f"Failed to refresh plots with session data: {e}")
             # Try to maintain some UI state even if refresh fails
@@ -254,14 +247,14 @@ class GraphView(QWidget):
         """Create a widget containing a plot with sample name caption below."""
         # Create the plot
         chart_view = self._build_plot(eic)
-        
+
         # Create caption label
         caption = QLabel(eic.sample_name)
         caption.setAlignment(Qt.AlignCenter)
         caption.setFont(QFont("Arial", 9, QFont.Bold))
         caption.setStyleSheet("color: black; padding: 2px;")
         caption.setMaximumHeight(20)
-        
+
         # Create container widget
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -269,10 +262,10 @@ class GraphView(QWidget):
         layout.setSpacing(0)
         layout.addWidget(chart_view)
         layout.addWidget(caption)
-        
+
         # Store reference to chart_view for click handling
         container.chart_view = chart_view
-        
+
         return container
 
     def _build_plot(self, eic) -> ClickableChartView:
@@ -357,10 +350,10 @@ class GraphView(QWidget):
         self._add_guide_line(
             chart, x_axis, y_axis, rt, 0, scaled_y_max, QColor(0, 0, 0)
         )  # RT line
-        
+
         left_line_pos = rt - compound.loffset
         right_line_pos = rt + compound.roffset
-        
+
         self._add_guide_line(
             chart,
             x_axis,
@@ -389,11 +382,11 @@ class GraphView(QWidget):
 
         # Create chart view first to get access to scene
         chart_view = ClickableChartView(chart, eic.sample_name)
-        
+
         # Add only scale factor in top-left corner if needed
         if scale_exp != 0:
             scale_text = QGraphicsTextItem(f"×10{superscript(scale_exp)}")
-            scale_text.setFont(QFont("Arial", 10))  # Bigger font size
+            scale_text.setFont(QFont("Arial", 12))  # Bigger font size
             scale_text.setDefaultTextColor(QColor(80, 80, 80))
             scale_text.setPos(10, 10)  # Top-left corner
             chart.scene().addItem(scale_text)

@@ -214,11 +214,29 @@ class MainWindow(QMainWindow):
                 
                 # Update tR window field only when compound changes
                 self.toolbar.integration.populate_tr_window_field(compound_name)
+                
+                # Update isotopologue ratios
+                self.toolbar.isotopologue_ratios.update_ratios(compound_name, self._get_current_eics())
         except LookupError as err:
             QMessageBox.warning(self, "Missing data", str(err))
         except Exception as e:
             logger.error(f"Error plotting: {e}")
             QMessageBox.warning(self, "Error", f"Error plotting: {str(e)}")
+
+    def _get_current_eics(self):
+        """Get EICs for the current compound and samples"""
+        compound = self.graph_view.get_current_compound()
+        samples = self.graph_view.get_current_samples()
+        
+        if not compound or not samples:
+            return []
+            
+        try:
+            from manic.processors.eic_processing import get_eics_for_compound
+            return get_eics_for_compound(compound, samples)
+        except Exception as e:
+            logger.error(f"Error getting current EICs: {e}")
+            return []
 
     def on_compound_selected(self, compound_selected):
         """
@@ -244,6 +262,9 @@ class MainWindow(QMainWindow):
                 selected_samples, 
                 all_samples
             )
+            
+            # Update isotopologue ratios (integration parameters may have changed)
+            self.toolbar.isotopologue_ratios.update_ratios(current_compound, self._get_current_eics())
     
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         """Handle when session data is applied - refresh plots to show updated parameters"""
@@ -269,6 +290,11 @@ class MainWindow(QMainWindow):
             
             # Use a timer to delay the update slightly
             QTimer.singleShot(100, update_integration_window)
+            
+            # Update isotopologue ratios with new integration parameters
+            QTimer.singleShot(150, lambda: self.toolbar.isotopologue_ratios.update_ratios(
+                compound_name, self._get_current_eics()
+            ))
             
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data update: {e}")
@@ -303,6 +329,11 @@ class MainWindow(QMainWindow):
             
             # Use a timer to delay the update slightly
             QTimer.singleShot(100, update_integration_window)
+            
+            # Update isotopologue ratios with restored default parameters
+            QTimer.singleShot(150, lambda: self.toolbar.isotopologue_ratios.update_ratios(
+                compound_name, self._get_current_eics()
+            ))
             
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data restore: {e}")

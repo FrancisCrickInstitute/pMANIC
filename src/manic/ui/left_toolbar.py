@@ -10,6 +10,7 @@ from src.manic.io.compound_reader import read_compound
 
 from .compound_list_widget import CompoundListWidget
 from .integration_window_widget import IntegrationWindow
+from .isotopologue_ratio_widget_horizontal import IsotopologueRatioWidget
 from .loaded_data_widget import LoadedDataWidget
 from .sample_list_widget import SampleListWidget
 from .standard_indicator_widget import StandardIndicator
@@ -31,6 +32,9 @@ class Toolbar(QWidget):
         """Set up the toolbar layout and child widgets"""
         layout = QVBoxLayout()
 
+        # Minimize left margin to save space
+        layout.setContentsMargins(5, 10, 10, 10)  # left, top, right, bottom
+
         # Create child widgets
         self.loaded_data = LoadedDataWidget()
         layout.addWidget(self.loaded_data)
@@ -47,9 +51,12 @@ class Toolbar(QWidget):
         self.integration = IntegrationWindow()
         layout.addWidget(self.integration)
 
+        self.isotopologue_ratios = IsotopologueRatioWidget()
+        layout.addWidget(self.isotopologue_ratios)
+
         # Add spacer to push elements to top
         layout.addStretch()
-        self.setFixedWidth(200)
+        self.setFixedWidth(220)
 
         # set the layout
         self.setLayout(layout)

@@ -1,5 +1,188 @@
 # MANIC
 
+MANIC is a mass spectrometry data analysis application designed for processing and quantifying isotopically-labeled compounds from GC-MS or LC-MS data in CDF format.
+
+## User Guide
+
+### Overview
+
+MANIC processes chromatographic mass spectrometry data to extract, integrate, and quantify compounds and their isotopologues. The application reads CDF files containing raw mass spectrometry data and uses compound definitions to extract specific ion chromatograms for analysis.
+
+### Main Interface Components
+
+#### 1. Left Toolbar
+- **Status Indicators**: Shows loading status for raw data (CDF files) and compound definitions
+  - Red: Not loaded
+  - Green: Loaded successfully
+- **Internal Standard Indicator**: Displays the selected internal standard compound
+  - Red: No standard selected
+  - Green: Standard selected (shows compound name)
+- **Sample List**: Displays all loaded samples with multi-selection capability
+- **Compound List**: Shows all defined compounds for analysis
+- **Integration Parameters**: Displays and allows editing of:
+  - Retention Time (RT): Expected elution time in minutes
+  - Left Offset: Integration window start offset from RT (minutes)
+  - Right Offset: Integration window end offset from RT (minutes)
+  - TR Window: Retention time extraction window (±minutes from RT)
+- **Label Incorporation Chart**: Horizontal stacked bar chart showing isotopologue ratios
+- **Total Abundance Chart**: Horizontal bar chart showing integrated peak areas
+
+#### 2. Main Display Area
+- Grid view of extracted ion chromatograms (EICs)
+- Each plot shows intensity vs. time for selected compound(s) and sample(s)
+- Vertical guide lines indicate integration boundaries
+- Scientific notation scaling applied automatically for large values
+
+### Workflow
+
+#### Basic Analysis Workflow
+
+1. **Load Compound Definitions** (File → Load Compounds/Parameter List)
+   - Excel file containing compound parameters:
+     - Compound name
+     - Retention time (minutes)
+     - Target m/z value
+     - Integration window parameters
+     - Number of labeled atoms (for isotopologue analysis)
+
+2. **Load Raw Data** (File → Load Raw Data (CDF))
+   - Select CDF files from GC-MS or LC-MS instruments
+   - Data is processed and stored in an internal database
+   - EICs are automatically extracted based on compound definitions
+
+3. **Select Samples and Compounds**
+   - Use the sample list to select which samples to display
+   - Select a compound from the compound list to view its EICs
+   - Plots update automatically based on selections
+
+4. **Review and Adjust Integration**
+   - Visual inspection of integration boundaries (blue dashed lines)
+   - Modify integration parameters if needed
+   - Apply changes to update calculations
+
+### Calculations and Methods
+
+#### Extracted Ion Chromatogram (EIC) Generation
+
+For each compound, MANIC extracts ion chromatograms using:
+- **Target m/z**: The base mass-to-charge ratio
+- **Mass tolerance**: Default 0.2 Da (adjustable in Settings)
+- **RT window**: Extraction window around expected retention time
+- **Isotopologue extraction**: Automatically extracts M+0, M+1, M+2... based on number of labeled atoms
+
+The extraction process:
+1. Filters raw MS data for ions within mass tolerance of target m/z
+2. Restricts to retention time window (RT ± TR window)
+3. Generates time-intensity traces for each isotopologue
+
+#### Peak Integration
+
+Integration uses trapezoidal numerical integration within defined boundaries:
+- **Integration window**: RT - left_offset to RT + right_offset
+- **Method**: Trapezoidal rule (numpy.trapz)
+- **Baseline**: Currently no baseline correction applied
+- Areas are calculated separately for each isotopologue
+
+#### Isotopologue Ratio Calculation
+
+For compounds with isotopic labeling:
+1. Each isotopologue (M+0, M+1, M+2, etc.) is integrated separately
+2. Ratios are calculated as: isotopologue_area / total_area
+3. Total area = sum of all isotopologue areas
+4. Displayed as stacked bar chart (0-1 scale representing 0-100%)
+
+#### Total Abundance Calculation
+
+Total abundance represents the sum of all isotopologue peak areas:
+- For unlabeled compounds: single peak area
+- For labeled compounds: sum of M+0, M+1, M+2... areas
+- Values displayed with scientific notation scaling for clarity
+
+### Features
+
+#### Context Menu Options
+
+**Compound List**:
+- Right-click → "Select as Internal Standard": Designates compound for normalization
+
+**Graph Area**:
+- Right-click → "Select All": Select all displayed plots
+- Right-click → "Deselect All": Clear selection
+- Right-click → "View Detailed...": Opens detailed view with EIC, TIC, and mass spectrum
+
+#### Detailed View
+
+Double-clicking a plot or using "View Detailed..." shows:
+- **Top panel**: Full EIC with integration boundaries
+- **Middle panel**: Total Ion Chromatogram (TIC) for reference
+- **Bottom panel**: Mass spectrum at compound retention time
+
+#### Mass Spectrum Display
+
+The mass spectrum shows:
+- All ions detected at the retention time (±0.1 min tolerance)
+- X-axis automatically scales to data range
+- Target m/z indicated with vertical guide line
+- Stem plot visualization for clarity
+
+#### Plot Selection and Multi-Sample Analysis
+
+- Click plots to select (steel blue border indicates selection)
+- Shift-click for range selection
+- Selected plots update the integration parameters display
+- Integration parameters can be applied to all selected plots simultaneously
+
+### Data Management
+
+#### Session Export/Import
+
+Sessions preserve analytical methods without including raw data:
+
+**Export Contains**:
+- Compound definitions and parameters
+- Integration boundary adjustments
+- Session-specific overrides
+- Human-readable changelog
+
+**Export Does NOT Contain**:
+- Raw CDF files
+- Processed EIC data
+- Sample data
+
+This separation ensures:
+- Reproducible analysis from raw data
+- Transparent methodology sharing
+- Independent verification capability
+
+#### Database Structure
+
+MANIC uses an SQLite database for data management:
+- Stores extracted EICs for rapid display
+- Maintains compound definitions and parameters
+- Tracks session-specific integration overrides
+- Enables fast compound and sample switching
+
+### Settings
+
+#### Mass Tolerance
+- Accessible via Settings → Mass Tolerance
+- Default: 0.2 Da
+- Defines the m/z window for ion extraction
+- Affects EIC generation (requires data regeneration after change)
+
+### Technical Details
+
+#### File Format Support
+- **Input**: CDF (Common Data Format) from mass spectrometers
+- **Compound definitions**: Excel (.xlsx) format
+- **Session export**: JSON with markdown documentation
+
+#### Performance Optimizations
+- Batch processing of CDF files
+- Database caching of extracted EICs
+- Efficient numpy-based calculations
+- Multi-threaded data extraction
+
 ## Developer Instructions (MacOS/Linux)
 
 ### Install Package/Project Manager

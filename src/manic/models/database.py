@@ -56,6 +56,47 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         # Table doesn't exist yet, will be created by schema.sql
         logger.debug(f"Migration check: {e}")
         pass
+    
+    # Migration for TIC and MS data tables (v4.0.0)
+    try:
+        existing_tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        
+        if 'tic_data' not in existing_tables:
+            logger.info("Creating tic_data table for v4.0.0")
+            conn.execute("""
+                CREATE TABLE tic_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sample_name TEXT NOT NULL,
+                    time REAL NOT NULL,
+                    intensity REAL NOT NULL,
+                    deleted INTEGER DEFAULT 0,
+                    FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
+                    UNIQUE(sample_name, time)
+                )
+            """)
+            conn.execute("CREATE INDEX idx_tic_sample_time ON tic_data(sample_name, time)")
+            conn.commit()
+            
+        if 'ms_data' not in existing_tables:
+            logger.info("Creating ms_data table for v4.0.0") 
+            conn.execute("""
+                CREATE TABLE ms_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sample_name TEXT NOT NULL,
+                    time REAL NOT NULL,
+                    mz REAL NOT NULL,
+                    intensity REAL NOT NULL,
+                    deleted INTEGER DEFAULT 0,
+                    FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
+                    UNIQUE(sample_name, time, mz)
+                )
+            """)
+            conn.execute("CREATE INDEX idx_ms_sample_time ON ms_data(sample_name, time)")
+            conn.commit()
+                
+    except sqlite3.OperationalError as e:
+        logger.error(f"Migration error for TIC/MS tables: {e}")
+        pass
 
 
 @contextmanager
@@ -95,6 +136,9 @@ def clear_database():
         # session_activity references both compounds and samples, so clear it first
         conn.execute("DELETE FROM session_activity")
         conn.execute("DELETE FROM eic")
+        # Clear TIC and MS data that reference samples
+        conn.execute("DELETE FROM tic_data")
+        conn.execute("DELETE FROM ms_data")
         conn.execute("DELETE FROM samples")
         conn.execute("DELETE FROM compounds")
     logger.info("Database cleared")

@@ -22,12 +22,12 @@ def extract_eic(
     cdf: CdfFileData,
     mass_tol: float = 0.25,
     rt_window: float = 0.2,
+    label_atoms: int = 0,
 ) -> EIC:
     """Return an EIC for `compound_name` or raise ValueError if empty."""
 
-    # get the label atoms for compound
-    compound = read_compound(compound_name)
-    label_atoms = int(compound.label_atoms)
+    # Use provided label_atoms or default to 0
+    label_atoms = int(label_atoms) if label_atoms else 0
 
     # Convert seconds → minutes
     times = cdf.scan_time / 60.0

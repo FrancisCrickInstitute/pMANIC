@@ -10,6 +10,8 @@ from manic.io.cdf_reader import read_cdf_file
 from manic.io.compound_reader import read_compound
 from manic.models.database import get_connection
 from manic.processors.eic_calculator import extract_eic
+from manic.io.tic_reader import store_tic_data
+from manic.io.ms_reader import store_ms_data_batch
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +23,91 @@ def _compress(arr: np.ndarray) -> bytes:
 
 
 def _iter_compounds(conn):
-    """Yield `(compound_name, rt, mass0)` rows that are not deleted."""
+    """Yield `(compound_name, rt, mass0, label_atoms)` rows that are not deleted."""
     for row in conn.execute(
-        "SELECT compound_name, retention_time, mass0 "
+        "SELECT compound_name, retention_time, mass0, label_atoms "
         "FROM   compounds "
         "WHERE  deleted = 0"
     ):
-        yield row["compound_name"], row["retention_time"], row["mass0"]
+        yield row["compound_name"], row["retention_time"], row["mass0"], row["label_atoms"]
+
+
+def _extract_tic_from_cdf(cdf):
+    """
+    Extract Total Ion Chromatogram from CDF data.
+    
+    Args:
+        cdf: CdfFileData object
+        
+    Returns:
+        tuple: (time_array, intensity_array)
+    """
+    try:
+        # Use the correct CDF data structure
+        # Convert time from seconds to minutes
+        times = cdf.scan_time / 60.0
+        intensities = cdf.total_intensity
+        return times, intensities
+        
+    except Exception as e:
+        logger.error(f"Failed to extract TIC from CDF: {e}")
+        return np.array([]), np.array([])
+
+
+def _extract_ms_at_retention_times(cdf, retention_times, tolerance=0.1):
+    """
+    Extract mass spectra at specific retention times.
+    
+    Args:
+        cdf: CdfFileData object
+        retention_times: List of retention times to extract MS at (in minutes)
+        tolerance: Time tolerance window (minutes)
+        
+    Returns:
+        List of (time, mz_array, intensity_array) tuples
+    """
+    try:
+        ms_data_points = []
+        
+        # Convert scan times from seconds to minutes
+        scan_times_minutes = cdf.scan_time / 60.0
+        
+        for rt in retention_times:
+            # Find the scan closest to target time (both in minutes now)
+            time_diffs = np.abs(scan_times_minutes - rt)
+            
+            if np.min(time_diffs) > tolerance:
+                # No scan within tolerance
+                continue
+                
+            # Get the closest scan
+            closest_scan_idx = np.argmin(time_diffs)
+            actual_time = scan_times_minutes[closest_scan_idx]
+            
+            # Extract mass spectrum for this scan
+            # scan_index tells us where each scan starts in the mass/intensity arrays
+            scan_start = cdf.scan_index[closest_scan_idx]
+            point_count = cdf.point_count[closest_scan_idx]
+            scan_end = scan_start + point_count
+            
+            # Extract m/z and intensity values for this scan
+            mz_values = cdf.mass[scan_start:scan_end]
+            intensities = cdf.intensity[scan_start:scan_end]
+            
+            # Filter out zero intensities to save space
+            nonzero_mask = intensities > 0
+            if np.any(nonzero_mask):
+                ms_data_points.append((
+                    actual_time,
+                    mz_values[nonzero_mask],
+                    intensities[nonzero_mask]
+                ))
+        
+        return ms_data_points
+        
+    except Exception as e:
+        logger.error(f"Failed to extract MS data: {e}")
+        return []
 
 
 # ─────────────────────── public import function ─────────────────
@@ -75,6 +155,9 @@ def import_eics(
     total_work = len(cdf_files) * len(compounds)
     done = 0
     inserted = 0
+    tic_count = 0
+    ms_count = 0
+    total_ms_peaks = 0
 
     # process each file
     for cdf_path in cdf_files:
@@ -88,9 +171,27 @@ def import_eics(
                 (cdf.sample_name, str(cdf_path)),
             )
 
-            for name, rt, mz in compounds:
+            # Extract and store TIC data
+            tic_times, tic_intensities = _extract_tic_from_cdf(cdf)
+            if len(tic_times) > 0:
+                if store_tic_data(cdf.sample_name, tic_times, tic_intensities, conn):
+                    tic_count += 1
+                else:
+                    logger.warning(f"Failed to store TIC data for {cdf.sample_name}")
+            
+            # Extract and store all MS data  
+            compound_retention_times = [rt for name, rt, mz, label_atoms in compounds]
+            ms_data_points = _extract_ms_at_retention_times(cdf, compound_retention_times)
+            if ms_data_points:
+                if store_ms_data_batch(cdf.sample_name, ms_data_points, conn):
+                    ms_count += 1
+                    total_ms_peaks += sum(len(mz_vals) for _, mz_vals, _ in ms_data_points)
+                else:
+                    logger.warning(f"Failed to store MS data for {cdf.sample_name}")
+
+            for name, rt, mz, label_atoms in compounds:
                 try:
-                    eic = extract_eic(name, rt, mz, cdf, mass_tol, rt_window)
+                    eic = extract_eic(name, rt, mz, cdf, mass_tol, rt_window, label_atoms)
                 except ValueError:
                     # no data in the RT / m/z window
                     done += 1
@@ -125,6 +226,11 @@ def import_eics(
 
     elapsed = time.time() - start
     logger.info("imported %d EICs in %.1f s", inserted, elapsed)
+    
+    # Log TIC and MS data summary
+    if tic_count > 0 or ms_count > 0:
+        logger.info(f"Stored additional data: {tic_count} TIC chromatograms, {ms_count} MS spectra sets ({total_ms_peaks:,} total peaks)")
+    
     return inserted
 
 
@@ -163,11 +269,12 @@ def regenerate_compound_eics(
     
     logger.info(f"Starting regeneration for compound '{compound_name}' with tR window {tr_window}")
     
-    # Get compound data (retention time, mass)
+    # Get compound data (retention time, mass, label_atoms)
     try:
         compound_data = read_compound(compound_name)
         rt = compound_data.retention_time
         mz = compound_data.mass0
+        label_atoms = compound_data.label_atoms
     except Exception as e:
         raise RuntimeError(f"Failed to read compound '{compound_name}': {e}")
     
@@ -215,7 +322,7 @@ def regenerate_compound_eics(
             
             # Read CDF file and extract EIC
             cdf = read_cdf_file(cdf_path)
-            eic = extract_eic(compound_name, rt, mz, cdf, mass_tol, tr_window)
+            eic = extract_eic(compound_name, rt, mz, cdf, mass_tol, tr_window, label_atoms)
             
             # Insert new EIC record
             with get_connection() as conn:

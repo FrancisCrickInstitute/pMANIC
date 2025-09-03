@@ -30,10 +30,12 @@ class ClickableChartView(QChartView):
     """Custom QChartView that can be selected"""
 
     clicked = Signal(object)  # Signal to emit when clicked
+    right_clicked = Signal(object, object)  # Signal to emit when right-clicked (view, position)
 
-    def __init__(self, chart, sample_name, parent=None):
+    def __init__(self, chart, sample_name, compound_name="", parent=None):
         super().__init__(chart, parent)
         self.sample_name = sample_name
+        self.compound_name = compound_name
         self.is_selected = False
         self.setRenderHint(QPainter.Antialiasing)
         self.setContentsMargins(0, 0, 0, 0)
@@ -43,6 +45,8 @@ class ClickableChartView(QChartView):
         """Handle mouse clicks"""
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self)
+        elif event.button() == Qt.RightButton:
+            self.right_clicked.emit(self, event.globalPosition())
         super().mousePressEvent(event)
 
     def set_selected(self, selected: bool):
@@ -135,6 +139,7 @@ class GraphView(QWidget):
             # Connect click signals
             for container in plot_containers:
                 container.chart_view.clicked.connect(self._on_plot_clicked)
+                container.chart_view.right_clicked.connect(self._on_plot_right_clicked)
 
             # Add to layout in one go
             for i, container in enumerate(plot_containers):
@@ -174,6 +179,68 @@ class GraphView(QWidget):
             title = f"Selected Plots: {len(self._selected_plots)} samples"
 
         # Integration window title is updated via signals
+
+    def _on_plot_right_clicked(self, clicked_plot: ClickableChartView, global_pos):
+        """Handle right-click on plot - show consolidated context menu"""
+        try:
+            self._show_context_menu(global_pos.toPoint(), clicked_plot)
+        except Exception as e:
+            logger.error(f"Failed to show context menu: {e}")
+
+    def _show_context_menu(self, global_pos, clicked_plot=None):
+        """Show consolidated context menu with appropriate options"""
+        context_menu = QMenu(self)
+        
+        # Add select all/deselect actions (always available)
+        select_all_action = context_menu.addAction("Select All")
+        select_all_action.triggered.connect(self.select_all_plots)
+        
+        deselect_all_action = context_menu.addAction("Deselect All")
+        deselect_all_action.triggered.connect(self.clear_selection)
+        
+        # Add separator before detailed view option
+        context_menu.addSeparator()
+        
+        # Add detailed view action (only if single plot clicked and none or one selected)
+        if clicked_plot is not None and len(self._selected_plots) <= 1:
+            detailed_action = context_menu.addAction("View Detailed...")
+            detailed_action.triggered.connect(
+                lambda: self._show_detailed_view(clicked_plot.compound_name, clicked_plot.sample_name)
+            )
+        elif clicked_plot is None and len(self._selected_plots) == 1:
+            # If right-clicked on empty space but exactly one plot is selected
+            selected_plot = next(iter(self._selected_plots))
+            detailed_action = context_menu.addAction("View Detailed...")
+            detailed_action.triggered.connect(
+                lambda: self._show_detailed_view(selected_plot.compound_name, selected_plot.sample_name)
+            )
+        else:
+            # Add disabled detailed view action to show it's not available
+            detailed_action = context_menu.addAction("View Detailed...")
+            detailed_action.setEnabled(False)
+            detailed_action.setToolTip("Available only with single plot selection")
+        
+        # Show menu at position
+        context_menu.exec(global_pos)
+    
+    def _show_detailed_view(self, compound_name: str, sample_name: str):
+        """Show detailed plot dialog for compound-sample combination"""
+        try:
+            from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+            
+            dialog = DetailedPlotDialog(
+                compound_name=compound_name,
+                sample_name=sample_name,
+                parent=self
+            )
+            dialog.exec()
+            
+        except Exception as e:
+            logger.error(f"Failed to show detailed view for {compound_name}/{sample_name}: {e}")
+            # Show error message to user
+            error_msg = QLabel(f"Error opening detailed view: {str(e)}")
+            error_msg.setStyleSheet("color: red; padding: 10px;")
+            error_msg.show()
 
     def get_selected_samples(self) -> List[str]:
         """Get list of currently selected sample names"""
@@ -234,19 +301,8 @@ class GraphView(QWidget):
         if not self._current_plots:
             return
         
-        # Create context menu with selection options
-        context_menu = QMenu(self)
-        
-        # Add select all action
-        select_all_action = context_menu.addAction("Select All")
-        select_all_action.triggered.connect(self.select_all_plots)
-        
-        # Add deselect all action
-        deselect_all_action = context_menu.addAction("Deselect All")
-        deselect_all_action.triggered.connect(self.deselect_all_plots)
-        
-        # Show the menu at the cursor position (where right-click occurred)
-        context_menu.exec_(event.globalPos())
+        # Use consolidated context menu (no specific plot clicked)
+        self._show_context_menu(event.globalPos(), clicked_plot=None)
 
     def refresh_plots_with_session_data(self):
         """
@@ -436,7 +492,7 @@ class GraphView(QWidget):
             return str(n).translate(sup_map)
 
         # Create chart view first to get access to scene
-        chart_view = ClickableChartView(chart, eic.sample_name)
+        chart_view = ClickableChartView(chart, eic.sample_name, eic.compound_name)
 
         # Add only scale factor in top-left corner if needed
         if scale_exp != 0:

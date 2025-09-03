@@ -13,6 +13,11 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QWidget,
+    QDialog,
+    QVBoxLayout,
+    QLabel,
+    QDoubleSpinBox,
+    QDialogButtonBox,
 )
 
 from manic.io.compounds_import import import_compound_excel
@@ -48,6 +53,9 @@ class MainWindow(QMainWindow):
         self.about_action = None
         
         # State tracking for menu management
+        
+        # Mass tolerance setting (default 0.2 Da)
+        self.mass_tolerance = 0.2
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -126,6 +134,14 @@ class MainWindow(QMainWindow):
         # Add the clear session action to the file menu
         file_menu.addAction(self.clear_session_action)
 
+        """ Create Settings Menu """
+        
+        settings_menu = menu_bar.addMenu("Settings")
+        
+        self.mass_tolerance_action = QAction("Mass Tolerance...", self)
+        self.mass_tolerance_action.triggered.connect(self.show_mass_tolerance_dialog)
+        settings_menu.addAction(self.mass_tolerance_action)
+        
         """ Create Help Menu """
         
         help_menu = menu_bar.addMenu("Help")
@@ -812,6 +828,67 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")
 
+    def show_mass_tolerance_dialog(self):
+        """Show dialog to edit mass tolerance setting."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Mass Tolerance Settings")
+        dialog.setModal(True)
+        dialog.resize(400, 150)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Info label
+        info_label = QLabel("Set the mass tolerance (±Da) for EIC extraction:")
+        layout.addWidget(info_label)
+        
+        # Mass tolerance input
+        mass_tol_layout = QHBoxLayout()
+        mass_tol_label = QLabel("Mass Tolerance (Da):")
+        mass_tol_layout.addWidget(mass_tol_label)
+        
+        mass_tol_spinbox = QDoubleSpinBox()
+        mass_tol_spinbox.setRange(0.01, 1.0)
+        mass_tol_spinbox.setSingleStep(0.01)
+        mass_tol_spinbox.setDecimals(3)
+        mass_tol_spinbox.setValue(self.mass_tolerance)
+        # Remove suffix and set button symbols to nothing (removes spin buttons)
+        mass_tol_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
+        # Set white background with white text
+        mass_tol_spinbox.setStyleSheet("QDoubleSpinBox { background-color: white; color: black; }")
+        mass_tol_layout.addWidget(mass_tol_spinbox)
+        mass_tol_layout.addStretch()
+        
+        layout.addLayout(mass_tol_layout)
+        
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+            dialog
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        # Show dialog and handle result
+        if dialog.exec() == QDialog.Accepted:
+            old_value = self.mass_tolerance
+            new_value = mass_tol_spinbox.value()
+            self.mass_tolerance = new_value
+            
+            if old_value != new_value:
+                logger.info(f"Mass tolerance changed from {old_value} to {new_value} Da")
+                
+                # Notify user that re-import may be needed
+                if self.cdf_data_loaded:
+                    msg = self._create_message_box(
+                        "info",
+                        "Mass Tolerance Changed", 
+                        f"Mass tolerance changed to {new_value} Da.",
+                        "Note: This change will only apply to new data imports. "
+                        "You may need to re-import CDF files to apply the new tolerance."
+                    )
+                    msg.exec()
+    
     def show_about(self):
         """Show About dialog with version information."""
         from manic.__version__ import APP_DESCRIPTION

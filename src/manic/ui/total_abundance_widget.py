@@ -233,6 +233,7 @@ class TotalAbundanceWidget(QWidget):
 
         # Set scaling factor as axis title with larger font
         if scale_exp != 0:
+
             def superscript(n):
                 sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
                 return str(n).translate(sup_map)

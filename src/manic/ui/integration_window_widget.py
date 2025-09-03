@@ -52,9 +52,15 @@ class IntegrationWindow(QGroupBox):
         # Load and apply the stylesheet
         stylesheet = load_stylesheet("src/manic/resources/integration_window.qss")
         self.setStyleSheet(stylesheet)
+        
+        # Make title bold
+        font = self.font()
+        font.setBold(True)
+        self.setFont(font)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
 
         # Section 1: Fast Integration Parameters (same as original)
         for label_text, obj_name in [
@@ -85,16 +91,6 @@ class IntegrationWindow(QGroupBox):
 
         layout.addLayout(button_row)
 
-        # Add some spacing between sections
-        layout.addSpacing(10)
-
-        # Section 2: Data Regeneration - no QGroupBox, just add fields directly like above
-        # Add a simple label for the section title
-        regen_title = QLabel("Data Regeneration ⚠️")
-        regen_title.setStyleSheet(
-            "QLabel { font-weight: bold; margin-top: 5px; margin-bottom: 5px; margin-left: 0px; padding-left: 0px; }"
-        )
-        layout.addWidget(regen_title)
 
         # tR Window field (same layout as above fields)
         tr_window_row = QHBoxLayout()
@@ -108,7 +104,7 @@ class IntegrationWindow(QGroupBox):
 
         # Regenerate button (same button layout as above)
         regen_button_row = QHBoxLayout()
-        self.regenerate_button = QPushButton("Run")
+        self.regenerate_button = QPushButton("Update tR")
         self.regenerate_button.setObjectName("RegenerateButton")
         self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
         regen_button_row.addWidget(self.regenerate_button)
@@ -120,7 +116,7 @@ class IntegrationWindow(QGroupBox):
         try:
             compound_data = read_compound(compound_name)
             tr_window_value = getattr(compound_data, "tr_window", 0.2)
-            
+
             tr_window_field = self.findChild(QLineEdit, "tr_window_input")
             if tr_window_field:
                 tr_window_field.setText(str(tr_window_value))

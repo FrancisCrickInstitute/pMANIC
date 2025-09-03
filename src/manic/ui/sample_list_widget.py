@@ -11,7 +11,8 @@ class SampleListWidget(QListWidget):
         super().__init__(parent)
         self.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.setFont(QFont(FONT, 10))
-        self.setFixedHeight(150)
+        self.setMaximumHeight(150)
+        self.setMinimumHeight(80)
         self._show_empty()
 
     def _show_empty(self):

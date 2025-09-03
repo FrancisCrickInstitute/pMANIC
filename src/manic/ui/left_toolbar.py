@@ -33,8 +33,8 @@ class Toolbar(QWidget):
         """Set up the toolbar layout and child widgets"""
         layout = QVBoxLayout()
 
-        # Minimize left margin to save space
-        layout.setContentsMargins(5, 10, 10, 10)  # left, top, right, bottom
+        layout.setContentsMargins(5, 10, 10, 5)  # left, top, right, bottom
+        layout.setSpacing(8)
 
         # Create child widgets
         self.loaded_data = LoadedDataWidget()
@@ -53,13 +53,10 @@ class Toolbar(QWidget):
         layout.addWidget(self.integration)
 
         self.isotopologue_ratios = IsotopologueRatioWidget()
-        layout.addWidget(self.isotopologue_ratios, stretch=1)  # Allow expansion
+        layout.addWidget(self.isotopologue_ratios, stretch=1)
 
         self.total_abundance = TotalAbundanceWidget()
-        layout.addWidget(self.total_abundance, stretch=1)  # Allow expansion
-
-        # Add spacer to push elements to top
-        layout.addStretch()
+        layout.addWidget(self.total_abundance, stretch=1)
         self.setFixedWidth(220)
 
         # set the layout

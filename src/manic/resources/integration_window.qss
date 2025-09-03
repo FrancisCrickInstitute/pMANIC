@@ -5,9 +5,10 @@ QGroupBox#integrationWindow {
     border-radius: 5px;
 }
 
-/* Integration Window Title - black text */
+/* Integration Window Title - black text and bold */
 QGroupBox#integrationWindow::title {
     color: black;
+    font-weight: bold;
     subcontrol-origin: margin;
     subcontrol-position: top left;
     padding: 0 5px;

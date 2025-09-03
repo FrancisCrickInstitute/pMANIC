@@ -47,7 +47,7 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.legend().setVisible(False)
         self.chart.setTitle("Label Incorporation")
         self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
-        self.chart.setMargins(QMargins(5, 5, 5, 5))  # Minimal margins
+        self.chart.setMargins(QMargins(2, 1, 5, 1))  # Minimal margins
 
         # Layout
         layout = QVBoxLayout(self)
@@ -286,6 +286,8 @@ class IsotopologueRatioWidget(QWidget):
         self._last_total_abundances = None
         self._last_eics = None
 
-    def get_last_total_abundances(self) -> tuple[Optional[np.ndarray], Optional[List[EIC]]]:
+    def get_last_total_abundances(
+        self,
+    ) -> tuple[Optional[np.ndarray], Optional[List[EIC]]]:
         """Get the last calculated total abundances to share with total abundance widget"""
         return self._last_total_abundances, self._last_eics

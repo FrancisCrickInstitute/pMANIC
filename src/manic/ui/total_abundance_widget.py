@@ -12,7 +12,7 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QPainter, QMouseEvent
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from manic.io.eic_reader import EIC
@@ -38,6 +38,9 @@ class TotalAbundanceWidget(QWidget):
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # Enable double-click on chart view
+        self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
         # Setup chart appearance
         self.chart.setBackgroundVisible(False)
@@ -65,6 +68,8 @@ class TotalAbundanceWidget(QWidget):
         # Data storage
         self._current_eics: Optional[List[EIC]] = None
         self._current_compound: str = ""
+        self._current_abundances: Optional[np.ndarray] = None
+        self._current_sample_names: Optional[List[str]] = None
 
 
     def update_abundance_from_data(
@@ -89,10 +94,14 @@ class TotalAbundanceWidget(QWidget):
         # Reverse order so top graph corresponds to top bar
         ordered_eics.reverse()
         ordered_abundances = np.flip(ordered_abundances)  # Flip array
+        
+        # Store current data for popup
+        self._current_abundances = ordered_abundances
+        self._current_sample_names = [eic.sample_name for eic in ordered_eics]
 
         # Update chart
         self._update_chart(
-            ordered_abundances, [eic.sample_name for eic in ordered_eics]
+            ordered_abundances, self._current_sample_names
         )
 
     def _order_like_graph_window(
@@ -220,3 +229,39 @@ class TotalAbundanceWidget(QWidget):
         # Reset data
         self._current_eics = None
         self._current_compound = ""
+        self._current_abundances = None
+        self._current_sample_names = None
+
+    def _chart_view_double_click(self, event: QMouseEvent):
+        """Handle double-click on chart view to show popup chart."""
+        if event.button() == Qt.LeftButton and self._has_data():
+            self._show_popup_chart()
+    
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        """Handle double-click on widget (but not chart view) to show popup chart."""
+        if event.button() == Qt.LeftButton and self._has_data():
+            self._show_popup_chart()
+        super().mouseDoubleClickEvent(event)
+    
+    def _has_data(self) -> bool:
+        """Check if chart has data to display."""
+        return (self._current_abundances is not None and 
+                self._current_sample_names is not None and 
+                len(self._current_abundances) > 0)
+    
+    def _show_popup_chart(self):
+        """Show enlarged chart in popup dialog."""
+        try:
+            from manic.ui.chart_popup_dialog import ChartPopupDialog
+            
+            dialog = ChartPopupDialog(
+                chart_type="total_abundance",
+                title="Total Abundance",
+                data=self._current_abundances,
+                sample_names=self._current_sample_names,
+                parent=self
+            )
+            dialog.exec()
+            
+        except Exception as e:
+            print(f"Failed to show popup chart: {e}")

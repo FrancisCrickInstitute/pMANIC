@@ -12,7 +12,7 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QPainter, QMouseEvent
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from manic.io.compound_reader import read_compound_with_session
@@ -40,6 +40,9 @@ class IsotopologueRatioWidget(QWidget):
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # Enable double-click on chart view
+        self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
         # Setup chart appearance
         self.chart.setBackgroundVisible(False)
@@ -66,6 +69,8 @@ class IsotopologueRatioWidget(QWidget):
         self._current_compound: str = ""
         self._last_total_abundances: Optional[np.ndarray] = None
         self._last_eics: Optional[List[EIC]] = None
+        self._current_ratios: Optional[np.ndarray] = None
+        self._current_sample_names: Optional[List[str]] = None
 
     def update_ratios(self, compound_name: str, eics: List[EIC]) -> None:
         """
@@ -108,8 +113,12 @@ class IsotopologueRatioWidget(QWidget):
         ordered_eics.reverse()
         ordered_ratios = np.flipud(ordered_ratios)  # Flip array upside down
 
+        # Store current data for popup
+        self._current_ratios = ordered_ratios
+        self._current_sample_names = [eic.sample_name for eic in ordered_eics]
+
         # Update chart
-        self._update_chart(ordered_ratios, [eic.sample_name for eic in ordered_eics])
+        self._update_chart(ordered_ratios, self._current_sample_names)
 
     def _calculate_integrated_data(
         self, eics: List[EIC], compound_name: str
@@ -305,9 +314,45 @@ class IsotopologueRatioWidget(QWidget):
         self._current_compound = ""
         self._last_total_abundances = None
         self._last_eics = None
+        self._current_ratios = None
+        self._current_sample_names = None
 
     def get_last_total_abundances(
         self,
     ) -> tuple[Optional[np.ndarray], Optional[List[EIC]]]:
         """Get the last calculated total abundances to share with total abundance widget"""
         return self._last_total_abundances, self._last_eics
+
+    def _chart_view_double_click(self, event: QMouseEvent):
+        """Handle double-click on chart view to show popup chart."""
+        if event.button() == Qt.LeftButton and self._has_data():
+            self._show_popup_chart()
+    
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        """Handle double-click on widget (but not chart view) to show popup chart."""
+        if event.button() == Qt.LeftButton and self._has_data():
+            self._show_popup_chart()
+        super().mouseDoubleClickEvent(event)
+    
+    def _has_data(self) -> bool:
+        """Check if chart has data to display."""
+        return (self._current_ratios is not None and 
+                self._current_sample_names is not None and 
+                len(self._current_ratios) > 0)
+    
+    def _show_popup_chart(self):
+        """Show enlarged chart in popup dialog."""
+        try:
+            from manic.ui.chart_popup_dialog import ChartPopupDialog
+            
+            dialog = ChartPopupDialog(
+                chart_type="isotopologue_ratios",
+                title="Label Incorporation",
+                data=self._current_ratios,
+                sample_names=self._current_sample_names,
+                parent=self
+            )
+            dialog.exec()
+            
+        except Exception as e:
+            print(f"Failed to show popup chart: {e}")

@@ -1,34 +1,56 @@
 """
-Matplotlib-based plot widget for detailed view.
+Matplotlib-based plot widget for enhanced data visualization.
 
-Provides interactive plots with proper scientific notation and zoom controls.
+This module provides a high-performance plotting widget using matplotlib
+with optimized rendering and professional scientific notation support.
+Key features include custom zoom controls, responsive layouts, and
+efficient batch rendering for improved performance.
 """
 
 import logging
 import numpy as np
 from typing import Optional
+from contextlib import contextmanager
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QFrame
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QPalette, QColor
 
-# Import matplotlib with Qt backend - optimize imports
+# Configure matplotlib for Qt5 integration with performance optimizations
 import matplotlib
 matplotlib.use('Qt5Agg')
-# Set non-interactive backend options for speed
-matplotlib.rcParams['figure.dpi'] = 80  # Lower DPI for faster rendering
-matplotlib.rcParams['figure.autolayout'] = False  # Disable auto layout
-matplotlib.rcParams['axes.unicode_minus'] = False  # Faster minus sign rendering
+# Configure matplotlib rendering parameters for optimal performance
+matplotlib.rcParams['figure.dpi'] = 80  # Optimized DPI for responsive rendering
+matplotlib.rcParams['figure.autolayout'] = False  # Manual layout control for performance
+matplotlib.rcParams['axes.unicode_minus'] = False  # Simplified minus sign rendering
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
 
+@contextmanager
+def matplotlib_cleanup():
+    """Context manager to ensure matplotlib resources are properly cleaned up."""
+    try:
+        yield
+    finally:
+        # Force garbage collection of matplotlib objects
+        import gc
+        gc.collect()
+        # Close any lingering figures
+        plt.close('all')
+
+
 class CompactNavigationToolbar(QWidget):
-    """Compact, modern-looking navigation toolbar for matplotlib plots."""
+    """Streamlined navigation toolbar with essential plot controls.
+    
+    Provides a minimal, aesthetically pleasing interface for plot interaction
+    with zoom, pan, and reset functionality.
+    """
     
     def __init__(self, canvas, parent=None):
         super().__init__(parent)
@@ -44,10 +66,10 @@ class CompactNavigationToolbar(QWidget):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(2)
         
-        # Set white background for toolbar - this worked before
+        # Configure toolbar with clean white background
         self.setStyleSheet("background-color: white;")
         
-        # Create compact buttons
+        # Define consistent button styling with hover and toggle states
         button_style = """
             QToolButton {
                 border: none;
@@ -69,7 +91,7 @@ class CompactNavigationToolbar(QWidget):
             }
         """
         
-        # Home/Reset button with black circular arrow
+        # Reset button: returns plot to original view state
         self.home_btn = QToolButton()
         self.home_btn.setText("↻")  # Circular arrow for reset
         self.home_btn.setToolTip("Reset view")
@@ -77,7 +99,7 @@ class CompactNavigationToolbar(QWidget):
         self.home_btn.setStyleSheet(button_style)
         layout.addWidget(self.home_btn)
         
-        # Drag button (formerly Pan)
+        # Drag button: enables plot panning functionality
         self.pan_btn = QToolButton()
         self.pan_btn.setText("✋")
         self.pan_btn.setToolTip("Drag")
@@ -86,7 +108,7 @@ class CompactNavigationToolbar(QWidget):
         self.pan_btn.setStyleSheet(button_style)
         layout.addWidget(self.pan_btn)
         
-        # Zoom button
+        # Zoom button: activates rectangular zoom selection
         self.zoom_btn = QToolButton()
         self.zoom_btn.setText("🔍")
         self.zoom_btn.setToolTip("Zoom to rectangle")
@@ -97,11 +119,11 @@ class CompactNavigationToolbar(QWidget):
         
         layout.addStretch()
         
-        # Set a maximum height for compactness
+        # Constrain toolbar height for space efficiency
         self.setMaximumHeight(30)
         
     def _on_pan(self):
-        """Toggle pan mode."""
+        """Toggle plot panning mode with exclusive button state management."""
         if self.pan_btn.isChecked():
             self.zoom_btn.setChecked(False)
             self.toolbar.pan()
@@ -109,22 +131,29 @@ class CompactNavigationToolbar(QWidget):
             self.toolbar.pan()  # Toggle off
             
     def _on_zoom(self):
-        """Toggle zoom mode."""
+        """Toggle rectangular zoom mode with exclusive button state management."""
         if self.zoom_btn.isChecked():
             self.pan_btn.setChecked(False)
             self.toolbar.zoom()
         else:
             self.toolbar.zoom()  # Toggle off
+    
+    def cleanup(self):
+        """Cleanup toolbar resources."""
+        if hasattr(self, 'toolbar') and self.toolbar:
+            self.toolbar = None
 
 
 class MatplotlibPlotWidget(QWidget):
     """
-    Plot widget using matplotlib for better scientific plotting.
+    Advanced scientific plotting widget with matplotlib backend.
     
-    Features:
-    - Built-in navigation toolbar (zoom, pan, home, save)
-    - Proper scientific notation
-    - Precise line positioning
+    Provides professional-grade visualization capabilities including:
+    - Integrated navigation controls for interactive exploration
+    - Automatic scientific notation for large numerical ranges
+    - High-precision line and marker positioning
+    - Optimized batch rendering for performance
+    - Responsive layout adaptation
     """
     
     def __init__(self, title: str = "", x_label: str = "", y_label: str = "", parent=None):
@@ -133,54 +162,53 @@ class MatplotlibPlotWidget(QWidget):
         self.x_label = x_label
         self.y_label = y_label
         
-        # Store data for retention time calculation
+        # Initialize data storage for plot management
         self.data_lines = []
         
         self._setup_ui()
         
     def _setup_ui(self):
         """Setup the UI with matplotlib figure."""
-        # Set widget background to white - simple approach
+        # Apply consistent white background styling
         self.setStyleSheet("background-color: white;")
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # Create matplotlib figure with optimizations
-        # Smaller figure size and no tight_layout for faster creation
+        # Initialize matplotlib figure with performance-optimized parameters
         self.figure = Figure(figsize=(6, 3), dpi=80, tight_layout=False, facecolor='white', edgecolor='white')
         self.canvas = FigureCanvas(self.figure)
-        # Force the canvas widget to have white background
+        # Ensure canvas maintains consistent white background
         self.canvas.setStyleSheet("background-color: white; border: none;")
         
-        # Create subplot with adjusted margins for speed
+        # Configure subplot with optimized margin parameters
         self.ax = self.figure.add_subplot(111, facecolor='white')
         self.figure.subplots_adjust(left=0.1, right=0.95, top=0.92, bottom=0.15)
         
-        # Remove borders/spines
+        # Configure minimal axis styling for clean appearance
         self.ax.spines['top'].set_visible(False)
         self.ax.spines['right'].set_visible(False)
         self.ax.spines['left'].set_linewidth(0.5)
         self.ax.spines['bottom'].set_linewidth(0.5)
         
-        # Set initial labels and title
+        # Initialize plot labels and title
         self.ax.set_title(self.title, fontsize=10, pad=5)
         self.ax.set_xlabel(self.x_label, fontsize=9)
         self.ax.set_ylabel(self.y_label, fontsize=9)
         
-        # Configure grid with minimal style
+        # Apply subtle grid styling for reference
         self.ax.grid(True, alpha=0.2, linestyle='-', linewidth=0.5)
         self.ax.tick_params(labelsize=8)
         
-        # Create and add compact toolbar
+        # Integrate custom navigation toolbar
         self.toolbar = CompactNavigationToolbar(self.canvas, self)
         
         # Add widgets to layout
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
         
-        # Set minimum height
+        # Define minimum widget dimensions
         self.setMinimumHeight(200)
         
     def clear_plot(self):
@@ -194,12 +222,12 @@ class MatplotlibPlotWidget(QWidget):
         self.ax.grid(True, alpha=0.2, linestyle='-', linewidth=0.5)
         self.ax.tick_params(labelsize=8)
         
-        # Re-apply spine settings after clear
+        # Restore axis styling configuration
         self.ax.spines['top'].set_visible(False)
         self.ax.spines['right'].set_visible(False)
         self.ax.spines['left'].set_linewidth(0.5)
         self.ax.spines['bottom'].set_linewidth(0.5)
-        # Don't draw yet - wait for data
+        # Defer rendering until data is loaded
         
     def plot_line(self, x_data: np.ndarray, y_data: np.ndarray, 
                   color: str = "blue", width: int = 2, name: str = ""):
@@ -214,11 +242,11 @@ class MatplotlibPlotWidget(QWidget):
             name: Series name for legend
         """
         try:
-            # Convert to numpy arrays
+            # Ensure data is in numpy array format
             x_data = np.asarray(x_data, dtype=np.float64)
             y_data = np.asarray(y_data, dtype=np.float64)
             
-            # Filter out non-finite values
+            # Remove invalid data points
             mask = np.isfinite(x_data) & np.isfinite(y_data)
             x_data = x_data[mask]
             y_data = y_data[mask]
@@ -230,7 +258,7 @@ class MatplotlibPlotWidget(QWidget):
             # Store data for later reference
             self.data_lines.append((x_data, y_data))
             
-            # Handle rgba colors
+            # Parse RGBA color format if provided
             if color.startswith("rgba"):
                 import re
                 match = re.match(r'rgba\((\d+),(\d+),(\d+),([\d.]+)\)', color)
@@ -254,7 +282,7 @@ class MatplotlibPlotWidget(QWidget):
                 self.ax.ticklabel_format(axis='y', style='scientific', scilimits=(0,0))
                 self.ax.yaxis.get_offset_text().set_fontsize(8)
             
-            # Don't draw yet - wait for finalize_plot()
+            # Defer canvas update for batch rendering
             
         except Exception as e:
             logger.error(f"Failed to plot line: {e}")
@@ -271,7 +299,7 @@ class MatplotlibPlotWidget(QWidget):
             width: Line width
         """
         try:
-            # Convert to numpy arrays
+            # Ensure data is in numpy array format
             x_data = np.asarray(x_data, dtype=np.float64)
             y_data = np.asarray(y_data, dtype=np.float64)
             
@@ -303,7 +331,7 @@ class MatplotlibPlotWidget(QWidget):
                 self.ax.ticklabel_format(axis='y', style='scientific', scilimits=(0,0))
                 self.ax.yaxis.get_offset_text().set_fontsize(8)
             
-            # Don't draw yet - wait for finalize_plot()
+            # Defer canvas update for batch rendering
             
         except Exception as e:
             logger.error(f"Failed to plot stems: {e}")
@@ -320,7 +348,7 @@ class MatplotlibPlotWidget(QWidget):
             style: Line style (solid, dashed, dotted)
         """
         try:
-            # Handle rgba colors
+            # Parse RGBA color format if provided
             if color.startswith("rgba"):
                 import re
                 match = re.match(r'rgba\((\d+),(\d+),(\d+),([\d.]+)\)', color)
@@ -339,7 +367,7 @@ class MatplotlibPlotWidget(QWidget):
             self.ax.axvline(x=x_position, color=color, linewidth=width, 
                            linestyle=linestyle, alpha=None if not isinstance(color, tuple) else color[3])
             
-            # Don't draw yet - wait for finalize_plot()
+            # Defer canvas update for batch rendering
             
         except Exception as e:
             logger.error(f"Failed to add vertical line: {e}")
@@ -363,3 +391,45 @@ class MatplotlibPlotWidget(QWidget):
         
         # Single draw call for all updates - much faster
         self.canvas.draw()
+    
+    def cleanup(self):
+        """Properly cleanup matplotlib resources to prevent memory leaks."""
+        try:
+            # Clear the axes
+            if hasattr(self, 'ax') and self.ax:
+                self.ax.clear()
+                self.ax = None
+            
+            # Clear and close the figure
+            if hasattr(self, 'figure') and self.figure:
+                self.figure.clear()
+                plt.close(self.figure)
+                self.figure = None
+            
+            # Clear canvas reference
+            if hasattr(self, 'canvas') and self.canvas:
+                self.canvas = None
+            
+            # Clear toolbar reference
+            if hasattr(self, 'toolbar') and self.toolbar:
+                if hasattr(self.toolbar, 'cleanup'):
+                    self.toolbar.cleanup()
+                self.toolbar = None
+            
+            # Clear data storage
+            if hasattr(self, 'data_lines'):
+                self.data_lines = []
+            
+            logger.debug("Matplotlib resources cleaned up successfully")
+            
+        except Exception as e:
+            logger.error(f"Error during matplotlib cleanup: {e}")
+    
+    def closeEvent(self, event):
+        """Handle widget close event."""
+        self.cleanup()
+        super().closeEvent(event)
+    
+    def __del__(self):
+        """Destructor to ensure cleanup on deletion."""
+        self.cleanup()

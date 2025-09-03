@@ -1,10 +1,12 @@
 """
-Detailed plot dialog showing EIC, TIC, and MS plots.
+Comprehensive visualization dialog for mass spectrometry data analysis.
 
-Displays three interactive plots:
-1. Enhanced EIC plot with integration boundaries
-2. Total Ion Chromatogram with retention time marker
-3. Mass spectrum at retention time
+Provides integrated visualization of chromatographic and spectral data:
+1. Extracted Ion Chromatogram (EIC) with integration boundary visualization
+2. Total Ion Chromatogram (TIC) with compound retention time indicators
+3. Mass spectrum at the specified retention time point
+
+Features responsive layout adaptation and professional scientific notation.
 """
 
 import logging
@@ -36,13 +38,14 @@ logger = logging.getLogger(__name__)
 
 class DetailedPlotDialog(QDialog):
     """
-    Modal dialog showing detailed plots for a compound-sample combination.
+    Modal dialog for detailed compound-sample visualization.
 
-    Features:
-    - Large EIC plot with integration boundaries highlighted
-    - TIC plot with retention time marker
-    - Mass spectrum at retention time
-    - Interactive plots with zoom/pan capabilities
+    Provides comprehensive analytical views with:
+    - Enhanced EIC visualization with integration boundary display
+    - TIC overlay with precise retention time marking
+    - Mass spectrum extraction at compound retention time
+    - Professional zoom and pan controls for data exploration
+    - Responsive layout with scroll support for various screen sizes
     """
 
     def __init__(self, compound_name: str, sample_name: str, parent=None):
@@ -50,7 +53,7 @@ class DetailedPlotDialog(QDialog):
         self.compound_name = compound_name
         self.sample_name = sample_name
 
-        # Data storage
+        # Initialize data containers
         self.eic_data = None
         self.tic_data = None
         self.ms_data = None
@@ -68,19 +71,19 @@ class DetailedPlotDialog(QDialog):
         self.resize(1400, 1100)  # Larger default size
         self.setMinimumSize(800, 600)  # Smaller minimum to allow for smaller screens
         
-        # Get screen geometry to set maximum size
+        # Calculate optimal window size based on screen dimensions
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen()
         if screen:
             screen_rect = screen.availableGeometry()
             self.setMaximumSize(int(screen_rect.width() * 0.95), int(screen_rect.height() * 0.95))
 
-        # Main layout
+        # Configure primary layout structure
         layout = QVBoxLayout(self)
         layout.setSpacing(2)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Header with compound/sample info
+        # Create header section with compound identification
         header_layout = QHBoxLayout()
 
         title_label = QLabel(
@@ -92,23 +95,23 @@ class DetailedPlotDialog(QDialog):
 
         layout.addLayout(header_layout)
 
-        # Create scroll area for plots
+        # Initialize scrollable container for plot widgets
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         
-        # Container widget for the scroll area
+        # Configure scroll area content widget
         scroll_widget = QWidget()
         scroll_widget.setStyleSheet("background-color: white;")
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create splitter for resizable plots
+        # Initialize resizable splitter for plot arrangement
         splitter = QSplitter(Qt.Vertical)
         splitter.setChildrenCollapsible(False)
 
-        # EIC Plot (top, larger)
+        # Initialize Extracted Ion Chromatogram display
         self.eic_plot = MatplotlibPlotWidget(
             title="Extracted Ion Chromatogram",
             x_label="Time (min)",
@@ -118,7 +121,7 @@ class DetailedPlotDialog(QDialog):
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
 
-        # TIC Plot (middle)
+        # Initialize Total Ion Chromatogram display
         self.tic_plot = MatplotlibPlotWidget(
             title="Total Ion Chromatogram",
             x_label="Time (min)",
@@ -128,7 +131,7 @@ class DetailedPlotDialog(QDialog):
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.tic_plot)
 
-        # MS Plot (bottom)
+        # Initialize Mass Spectrum display
         self.ms_plot = MatplotlibPlotWidget(
             title="Mass Spectrum", x_label="m/z", y_label="Intensity"
         )
@@ -136,7 +139,7 @@ class DetailedPlotDialog(QDialog):
         self.ms_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.ms_plot)
 
-        # Set initial splitter sizes (TIC slightly taller than MS)
+        # Configure initial plot height proportions
         splitter.setSizes([450, 450, 350])
         
         # Add splitter to scroll layout
@@ -148,7 +151,7 @@ class DetailedPlotDialog(QDialog):
         # Add scroll area to main layout
         layout.addWidget(scroll_area)
 
-        # Info panel
+        # Create information display panel
         info_layout = QHBoxLayout()
         self.info_label = QLabel("Loading data...")
         self.info_label.setFont(QFont("Arial", 9))
@@ -156,7 +159,7 @@ class DetailedPlotDialog(QDialog):
         info_layout.addWidget(self.info_label)
         info_layout.addStretch()
 
-        # Zoom instructions as a key
+        # Display navigation control legend
         zoom_label = QLabel("<b>↻:</b> Reset | <b>✋:</b> Drag | <b>🔍:</b> Zoom")
         zoom_label.setFont(QFont("Arial", 9))
         zoom_label.setStyleSheet("color: gray; padding: 5px;")
@@ -164,7 +167,7 @@ class DetailedPlotDialog(QDialog):
 
         layout.addLayout(info_layout)
 
-        # Button layout
+        # Configure dialog control buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
@@ -176,13 +179,13 @@ class DetailedPlotDialog(QDialog):
 
         layout.addLayout(button_layout)
 
-        # Set window properties
+        # Enable window maximization capability
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
 
     def _load_data(self):
         """Load all required data for the plots."""
         try:
-            # Load compound information
+            # Retrieve compound metadata from database
             self.compound_info = read_compound_with_session(
                 self.compound_name, self.sample_name
             )
@@ -190,16 +193,16 @@ class DetailedPlotDialog(QDialog):
                 self._show_error("Failed to load compound information")
                 return
 
-            # Load EIC data (required)
+            # Extract Extracted Ion Chromatogram data (mandatory)
             self._load_eic_data()
 
-            # Load TIC data (optional)
+            # Retrieve Total Ion Chromatogram data (if available)
             self._load_tic_data()
 
-            # Load MS data (optional)
+            # Extract Mass Spectrum at retention time (if available)
             self._load_ms_data()
 
-            # Plot all data (EIC is required, others show fallback if unavailable)
+            # Render all available data visualizations
             self._plot_eic()
             self._plot_tic()
             self._plot_ms()
@@ -207,7 +210,7 @@ class DetailedPlotDialog(QDialog):
             # Update info label
             self._update_info_label()
 
-            # Check if we have minimal data to show
+            # Validate minimum data requirements
             if not self.eic_data:
                 self._show_error(
                     "No EIC data available for this compound-sample combination"
@@ -281,12 +284,12 @@ class DetailedPlotDialog(QDialog):
             return
 
         try:
-            # Clear any existing plot first
+            # Reset plot area before rendering
             self.eic_plot.clear_plot()
 
-            # Plot the main EIC trace
+            # Render primary EIC trace
             if self.eic_data.intensity.ndim == 1:
-                # Single trace - use first label color (blue)
+                # Single isotopologue: apply primary color scheme
                 qcolor = label_colors[0]
                 color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
                 self.eic_plot.plot_line(
@@ -297,7 +300,7 @@ class DetailedPlotDialog(QDialog):
                     name=f"{self.compound_name} EIC",
                 )
             else:
-                # Multiple traces (isotopologues) - use same colors as main window
+                # Multiple isotopologues: apply consistent color palette
                 for i in range(
                     min(self.eic_data.intensity.shape[0], len(label_colors))
                 ):
@@ -314,12 +317,12 @@ class DetailedPlotDialog(QDialog):
                         name=f"M+{i}",
                     )
 
-            # Add integration boundaries
+            # Calculate and display integration boundaries
             rt = self.compound_info.retention_time
             left_bound = rt - self.compound_info.loffset
             right_bound = rt + self.compound_info.roffset
 
-            # Add vertical lines for integration boundaries (thinner and semi-transparent)
+            # Render integration boundary markers with transparency
             self.eic_plot.add_vertical_line(
                 left_bound, color="rgba(255,0,0,0.5)", width=1, style="dashed"
             )
@@ -330,10 +333,10 @@ class DetailedPlotDialog(QDialog):
                 rt, color="rgba(0,0,0,0.5)", width=1, style="dotted"
             )
 
-            # Finalize the plot
+            # Execute batch rendering for performance
             self.eic_plot.finalize_plot()
 
-            # Log the retention time for debugging
+            # Record retention time values for diagnostics
             logger.debug(
                 f"EIC plot - RT: {rt:.3f}, Left: {left_bound:.3f}, Right: {right_bound:.3f}"
             )
@@ -349,10 +352,10 @@ class DetailedPlotDialog(QDialog):
             return
 
         try:
-            # Clear any existing plot first
+            # Reset plot area before rendering
             self.tic_plot.clear_plot()
 
-            # Plot TIC trace
+            # Render Total Ion Chromatogram trace
             self.tic_plot.plot_line(
                 self.tic_data.time,
                 self.tic_data.intensity,
@@ -361,14 +364,14 @@ class DetailedPlotDialog(QDialog):
                 name="Total Ion Chromatogram",
             )
 
-            # Add retention time marker (thinner and semi-transparent)
+            # Display retention time indicator with transparency
             if self.compound_info:
                 rt = self.compound_info.retention_time
                 self.tic_plot.add_vertical_line(
                     rt, color="rgba(255,0,0,0.5)", width=1, style="solid"
                 )
 
-            # Finalize the plot
+            # Execute batch rendering for performance
             self.tic_plot.finalize_plot()
 
         except Exception as e:
@@ -383,15 +386,15 @@ class DetailedPlotDialog(QDialog):
             return
 
         try:
-            # Clear any existing plot first
+            # Reset plot area before rendering
             self.ms_plot.clear_plot()
 
-            # Use the stems method for MS data
+            # Render mass spectrum as stem plot
             self.ms_plot.plot_stems(
                 self.ms_data.mz, self.ms_data.intensity, color="darkblue", width=2
             )
 
-            # Add red vertical line at the compound's m/z (thinner and semi-transparent)
+            # Mark target m/z position with transparent indicator
             if self.compound_info:
                 self.ms_plot.add_vertical_line(
                     self.compound_info.mass0,
@@ -400,7 +403,7 @@ class DetailedPlotDialog(QDialog):
                     style="solid",
                 )
 
-            # Finalize the plot
+            # Execute batch rendering for performance
             self.ms_plot.finalize_plot()
 
         except Exception as e:
@@ -435,7 +438,7 @@ class DetailedPlotDialog(QDialog):
         )
         msg_box.exec()
 
-        # Update info label
+        # Display error message in information panel
         self.info_label.setText(f"Error: {message}")
 
     def keyPressEvent(self, event):
@@ -444,3 +447,42 @@ class DetailedPlotDialog(QDialog):
             self.close()
         else:
             super().keyPressEvent(event)
+    
+    def cleanup_plots(self):
+        """Clean up all matplotlib resources from plot widgets."""
+        try:
+            # Clean up each plot widget
+            if hasattr(self, 'eic_plot') and self.eic_plot:
+                self.eic_plot.cleanup()
+            
+            if hasattr(self, 'tic_plot') and self.tic_plot:
+                self.tic_plot.cleanup()
+            
+            if hasattr(self, 'ms_plot') and self.ms_plot:
+                self.ms_plot.cleanup()
+            
+            # Clear data references
+            self.eic_data = None
+            self.tic_data = None
+            self.ms_data = None
+            self.compound_info = None
+            
+            logger.debug(f"Cleaned up plots for {self.compound_name}/{self.sample_name}")
+            
+        except Exception as e:
+            logger.error(f"Error during plot cleanup: {e}")
+    
+    def closeEvent(self, event):
+        """Handle dialog close event with proper cleanup."""
+        self.cleanup_plots()
+        super().closeEvent(event)
+    
+    def reject(self):
+        """Override reject to ensure cleanup when dialog is cancelled."""
+        self.cleanup_plots()
+        super().reject()
+    
+    def accept(self):
+        """Override accept to ensure cleanup when dialog is accepted."""
+        self.cleanup_plots()
+        super().accept()

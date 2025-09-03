@@ -16,14 +16,28 @@ from manic.io.ms_reader import store_ms_data_batch
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────── helpers ────────────────────────────
+# ─────────────────────────── Utility Functions ────────────────────────────
 def _compress(arr: np.ndarray) -> bytes:
-    """Return a zlib-compressed `float64` byte stream."""
+    """Compress numpy array to optimized byte stream for database storage.
+    
+    Args:
+        arr: Input numpy array to compress
+        
+    Returns:
+        Zlib-compressed bytes in float64 format
+    """
     return zlib.compress(arr.astype(np.float64).tobytes())
 
 
 def _iter_compounds(conn):
-    """Yield `(compound_name, rt, mass0, label_atoms)` rows that are not deleted."""
+    """Iterate over active compounds in the database.
+    
+    Args:
+        conn: Database connection object
+        
+    Yields:
+        Tuple of (compound_name, retention_time, mass0, label_atoms)
+    """
     for row in conn.execute(
         "SELECT compound_name, retention_time, mass0, label_atoms "
         "FROM   compounds "
@@ -43,8 +57,7 @@ def _extract_tic_from_cdf(cdf):
         tuple: (time_array, intensity_array)
     """
     try:
-        # Use the correct CDF data structure
-        # Convert time from seconds to minutes
+        # Extract time array and convert from seconds to minutes for consistency
         times = cdf.scan_time / 60.0
         intensities = cdf.total_intensity
         return times, intensities
@@ -69,32 +82,31 @@ def _extract_ms_at_retention_times(cdf, retention_times, tolerance=0.1):
     try:
         ms_data_points = []
         
-        # Convert scan times from seconds to minutes
+        # Normalize scan times to minutes for retention time matching
         scan_times_minutes = cdf.scan_time / 60.0
         
         for rt in retention_times:
-            # Find the scan closest to target time (both in minutes now)
+            # Identify scan index nearest to target retention time
             time_diffs = np.abs(scan_times_minutes - rt)
             
             if np.min(time_diffs) > tolerance:
-                # No scan within tolerance
+                # Skip if no scan falls within tolerance window
                 continue
                 
-            # Get the closest scan
+            # Select scan with minimum time difference
             closest_scan_idx = np.argmin(time_diffs)
             actual_time = scan_times_minutes[closest_scan_idx]
             
-            # Extract mass spectrum for this scan
-            # scan_index tells us where each scan starts in the mass/intensity arrays
+            # Extract mass spectrum data using scan index boundaries
             scan_start = cdf.scan_index[closest_scan_idx]
             point_count = cdf.point_count[closest_scan_idx]
             scan_end = scan_start + point_count
             
-            # Extract m/z and intensity values for this scan
+            # Retrieve m/z and intensity arrays for current scan
             mz_values = cdf.mass[scan_start:scan_end]
             intensities = cdf.intensity[scan_start:scan_end]
             
-            # Filter out zero intensities to save space
+            # Remove zero-intensity peaks for storage optimization
             nonzero_mask = intensities > 0
             if np.any(nonzero_mask):
                 ms_data_points.append((
@@ -110,7 +122,7 @@ def _extract_ms_at_retention_times(cdf, retention_times, tolerance=0.1):
         return []
 
 
-# ─────────────────────── public import function ─────────────────
+# ─────────────────────── Public API Functions ─────────────────
 def import_eics(
     directory: str | Path,
     mass_tol: float = 0.25,
@@ -141,12 +153,12 @@ def import_eics(
     start = time.time()
     directory = Path(directory).expanduser()
 
-    # discover CDF files (case-insensitive)
+    # Discover all CDF files in directory (case-insensitive matching)
     cdf_files = [p for p in directory.iterdir() if p.suffix.lower() == ".cdf"]
     if not cdf_files:
         raise FileNotFoundError("No .CDF files found in the selected directory.")
 
-    # fetch all active compounds once
+    # Retrieve all active compounds for processing
     with get_connection() as conn:
         compounds = list(_iter_compounds(conn))
     if not compounds:
@@ -159,19 +171,19 @@ def import_eics(
     ms_count = 0
     total_ms_peaks = 0
 
-    # process each file
+    # Process each CDF file sequentially
     for cdf_path in cdf_files:
         cdf = read_cdf_file(cdf_path)
 
         with get_connection() as conn:
-            # ensure the sample exists (idempotent)
+            # Create or verify sample record (idempotent operation)
             conn.execute(
                 "INSERT OR IGNORE INTO samples "
                 "(sample_name, file_name, deleted) VALUES (?,?,0)",
                 (cdf.sample_name, str(cdf_path)),
             )
 
-            # Extract and store TIC data
+            # Process Total Ion Chromatogram data
             tic_times, tic_intensities = _extract_tic_from_cdf(cdf)
             if len(tic_times) > 0:
                 if store_tic_data(cdf.sample_name, tic_times, tic_intensities, conn):
@@ -179,7 +191,7 @@ def import_eics(
                 else:
                     logger.warning(f"Failed to store TIC data for {cdf.sample_name}")
             
-            # Extract and store all MS data  
+            # Process and store mass spectrum data for all retention times  
             compound_retention_times = [rt for name, rt, mz, label_atoms in compounds]
             ms_data_points = _extract_ms_at_retention_times(cdf, compound_retention_times)
             if ms_data_points:
@@ -193,13 +205,13 @@ def import_eics(
                 try:
                     eic = extract_eic(name, rt, mz, cdf, mass_tol, rt_window, label_atoms)
                 except ValueError:
-                    # no data in the RT / m/z window
+                    # Skip compounds with no data in specified RT/m/z window
                     done += 1
                     if progress_cb:
                         progress_cb(done, total_work)
                     continue
 
-                # store the chromatogram
+                # Persist extracted ion chromatogram to database
                 conn.execute(
                     """
                     INSERT INTO eic (
@@ -227,7 +239,7 @@ def import_eics(
     elapsed = time.time() - start
     logger.info("imported %d EICs in %.1f s", inserted, elapsed)
     
-    # Log TIC and MS data summary
+    # Report additional data storage statistics
     if tic_count > 0 or ms_count > 0:
         logger.info(f"Stored additional data: {tic_count} TIC chromatograms, {ms_count} MS spectra sets ({total_ms_peaks:,} total peaks)")
     

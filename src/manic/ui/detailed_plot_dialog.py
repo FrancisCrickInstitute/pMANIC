@@ -17,9 +17,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QVBoxLayout,
+    QWidget,
 )
 
 from manic.io.compound_reader import read_compound_with_session
@@ -27,7 +29,7 @@ from manic.io.ms_reader import read_ms_at_time
 from manic.io.tic_reader import read_tic
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.ui.colors import label_colors  # Import the same colors as main window
-from manic.ui.static_plot_widget import StaticPlotWidget
+from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +66,19 @@ class DetailedPlotDialog(QDialog):
         )
         self.setModal(True)
         self.resize(1400, 1100)  # Larger default size
-        self.setMinimumSize(900, 700)  # Larger minimum size
+        self.setMinimumSize(800, 600)  # Smaller minimum to allow for smaller screens
+        
+        # Get screen geometry to set maximum size
+        from PySide6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            screen_rect = screen.availableGeometry()
+            self.setMaximumSize(int(screen_rect.width() * 0.95), int(screen_rect.height() * 0.95))
 
         # Main layout
         layout = QVBoxLayout(self)
         layout.setSpacing(2)
+        layout.setContentsMargins(5, 5, 5, 5)
 
         # Header with compound/sample info
         header_layout = QHBoxLayout()
@@ -82,39 +92,60 @@ class DetailedPlotDialog(QDialog):
 
         layout.addLayout(header_layout)
 
+        # Create scroll area for plots
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Container widget for the scroll area
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+
         # Create splitter for resizable plots
         splitter = QSplitter(Qt.Vertical)
         splitter.setChildrenCollapsible(False)
 
         # EIC Plot (top, larger)
-        self.eic_plot = StaticPlotWidget(
-            title="Enhanced Extracted Ion Chromatogram",
+        self.eic_plot = MatplotlibPlotWidget(
+            title="Extracted Ion Chromatogram",
             x_label="Time (min)",
             y_label="Intensity",
         )
+        self.eic_plot.setMinimumHeight(250)  # Minimum height for usability
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
 
         # TIC Plot (middle)
-        self.tic_plot = StaticPlotWidget(
+        self.tic_plot = MatplotlibPlotWidget(
             title="Total Ion Chromatogram",
             x_label="Time (min)",
             y_label="Total Intensity",
         )
+        self.tic_plot.setMinimumHeight(250)  # Minimum height for usability
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.tic_plot)
 
         # MS Plot (bottom)
-        self.ms_plot = StaticPlotWidget(
+        self.ms_plot = MatplotlibPlotWidget(
             title="Mass Spectrum", x_label="m/z", y_label="Intensity"
         )
+        self.ms_plot.setMinimumHeight(200)  # Slightly smaller minimum for MS
         self.ms_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.ms_plot)
 
-        # Set initial splitter sizes (all taller, EIC largest)
-        splitter.setSizes([500, 400, 400])
-
-        layout.addWidget(splitter)
+        # Set initial splitter sizes (TIC slightly taller than MS)
+        splitter.setSizes([450, 450, 350])
+        
+        # Add splitter to scroll layout
+        scroll_layout.addWidget(splitter)
+        
+        # Set the scroll widget as the content of scroll area
+        scroll_area.setWidget(scroll_widget)
+        
+        # Add scroll area to main layout
+        layout.addWidget(scroll_area)
 
         # Info panel
         info_layout = QHBoxLayout()
@@ -124,8 +155,8 @@ class DetailedPlotDialog(QDialog):
         info_layout.addWidget(self.info_label)
         info_layout.addStretch()
 
-        # Zoom instructions
-        zoom_label = QLabel("Drag to zoom | Use buttons below each plot")
+        # Zoom instructions as a key
+        zoom_label = QLabel("<b>↻:</b> Reset | <b>✋:</b> Drag | <b>🔍:</b> Zoom")
         zoom_label.setFont(QFont("Arial", 9))
         zoom_label.setStyleSheet("color: gray; padding: 5px;")
         info_layout.addWidget(zoom_label)
@@ -298,6 +329,14 @@ class DetailedPlotDialog(QDialog):
                 rt, color="rgba(0,0,0,0.5)", width=1, style="dotted"
             )
 
+            # Finalize the plot
+            self.eic_plot.finalize_plot()
+
+            # Log the retention time for debugging
+            logger.debug(
+                f"EIC plot - RT: {rt:.3f}, Left: {left_bound:.3f}, Right: {right_bound:.3f}"
+            )
+
         except Exception as e:
             logger.error(f"Failed to plot EIC: {e}")
 
@@ -328,6 +367,9 @@ class DetailedPlotDialog(QDialog):
                     rt, color="rgba(255,0,0,0.5)", width=1, style="solid"
                 )
 
+            # Finalize the plot
+            self.tic_plot.finalize_plot()
+
         except Exception as e:
             logger.error(f"Failed to plot TIC: {e}")
             self.tic_plot.set_title("Total Ion Chromatogram (error loading data)")
@@ -356,6 +398,9 @@ class DetailedPlotDialog(QDialog):
                     width=1,
                     style="solid",
                 )
+
+            # Finalize the plot
+            self.ms_plot.finalize_plot()
 
         except Exception as e:
             logger.error(f"Failed to plot MS: {e}")

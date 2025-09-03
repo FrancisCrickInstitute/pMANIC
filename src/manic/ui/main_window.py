@@ -41,6 +41,8 @@ class MainWindow(QMainWindow):
         # Menu actions
         self.load_cdf_action = None
         self.load_compound_action = None
+        self.export_method_action = None
+        self.import_session_action = None
         self.clear_session_action = None
         
         # State tracking for menu management
@@ -102,6 +104,18 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.load_cdf_action)
 
         # Add a separator to the file menu
+        file_menu.addSeparator()
+
+        # Create method export/import actions
+        self.export_method_action = QAction("Export Session...", self)
+        self.export_method_action.triggered.connect(self.export_method)
+        file_menu.addAction(self.export_method_action)
+
+        self.import_session_action = QAction("Import Session...", self)
+        self.import_session_action.triggered.connect(self.import_session)
+        file_menu.addAction(self.import_session_action)
+
+        # Add another separator
         file_menu.addSeparator()
 
         # Create the Clear Session action
@@ -198,6 +212,12 @@ class MainWindow(QMainWindow):
         # Load CDF Data: enabled only if compound data loaded but CDF not loaded
         self.load_cdf_action.setEnabled(self.compound_data_loaded and not self.cdf_data_loaded)
         
+        # Export Session: enabled if compound data loaded
+        self.export_method_action.setEnabled(self.compound_data_loaded)
+        
+        # Import Session: enabled only if both compound and CDF data loaded
+        self.import_session_action.setEnabled(self.compound_data_loaded and self.cdf_data_loaded)
+        
         # Clear Session: enabled if any data loaded
         self.clear_session_action.setEnabled(self.compound_data_loaded or self.cdf_data_loaded)
         
@@ -213,6 +233,14 @@ class MainWindow(QMainWindow):
             self.load_cdf_action.setToolTip("Raw data already loaded. Use 'Clear Session' to start over.")
         else:
             self.load_cdf_action.setToolTip("Load raw CDF data files")
+            
+        # Import Session tooltips
+        if not self.compound_data_loaded:
+            self.import_session_action.setToolTip("Load compound data first")
+        elif not self.cdf_data_loaded:
+            self.import_session_action.setToolTip("Load CDF data before importing session")
+        else:
+            self.import_session_action.setToolTip("Import session-specific integration overrides")
 
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
@@ -604,6 +632,177 @@ class MainWindow(QMainWindow):
                                           f"Data regeneration failed:\n\n{error_msg}\n\n"
                                           f"Please check the log files for more details.")
         msg_box.exec()
+
+    def export_method(self):
+        """Export current analytical session to a file."""
+        from PySide6.QtWidgets import QFileDialog
+        from manic.models.session_export import export_session_method, get_method_info
+        
+        # Get export file path
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Export Analytical Session", 
+            "manic_session.json",
+            "MANIC Session (*.json);;All files (*.*)"
+        )
+        
+        if not file_path:
+            return  # User cancelled
+            
+        try:
+            success = export_session_method(file_path)
+            
+            if success:
+                # Show info about what was exported
+                # Extract base name to show directory structure
+                from pathlib import Path
+                export_path = Path(file_path)
+                if export_path.suffix.lower() == '.json':
+                    base_name = export_path.stem
+                else:
+                    base_name = export_path.name
+                export_dir = export_path.parent / f"manic_export_{base_name}"
+                
+                info_text = (
+                    f"Analytical session exported successfully!\n\n"
+                    f"Export Directory: {export_dir}\n\n"
+                    f"Files created:\n"
+                    f"• {base_name}.json - Machine-readable session data\n"
+                    f"• changelog.md - Human-readable summary\n\n"
+                    f"The export contains compound definitions and analysis parameters only. "
+                    f"To use this session, follow the 3-step import process described in the changelog."
+                )
+                msg_box = self._create_message_box(
+                    "information", 
+                    "Session Export Successful", 
+                    info_text
+                )
+                msg_box.exec()
+                logger.info(f"Session exported to {export_dir}")
+            else:
+                msg_box = self._create_message_box(
+                    "critical", 
+                    "Export Failed", 
+                    "Failed to export session. Check logs for details."
+                )
+                msg_box.exec()
+                
+        except Exception as e:
+            logger.error(f"Session export error: {e}")
+            msg_box = self._create_message_box(
+                "critical", 
+                "Export Error", 
+                f"An error occurred during export:\n{str(e)}"
+            )
+            msg_box.exec()
+
+
+    def import_session(self):
+        """Import session overrides from a session file."""
+        from PySide6.QtWidgets import QFileDialog
+        from manic.models.session_export import import_session_overrides, validate_method_file, get_method_info
+        
+        # Get import file path
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Import Session Overrides", 
+            "",
+            "MANIC Session (*.json);;All files (*.*)"
+        )
+        
+        if not file_path:
+            return  # User cancelled
+            
+        try:
+            # Validate method file
+            is_valid, error_msg = validate_method_file(file_path)
+            
+            if not is_valid:
+                msg_box = self._create_message_box(
+                    "warning", 
+                    "Invalid Session File", 
+                    f"The selected file is not a valid session file:\n\n{error_msg}"
+                )
+                msg_box.exec()
+                return
+            
+            # Get method info to show what will be imported
+            method_info = get_method_info(file_path)
+            if method_info and method_info['session_override_count'] > 0:
+                info_text = (
+                    f"Session contains:\n"
+                    f"• {method_info['session_override_count']} integration overrides\n"
+                    f"• Expected samples: {method_info['expected_sample_count']}\n\n"
+                    f"This will import session-specific integration boundaries.\n"
+                    f"Any existing session overrides will be replaced.\n\n"
+                    f"Continue with session import?"
+                )
+            else:
+                msg_box = self._create_message_box(
+                    "information",
+                    "No Session Data",
+                    "This session file does not contain any session overrides to import."
+                )
+                msg_box.exec()
+                return
+            
+            # Confirm import
+            reply = self._show_question_dialog(
+                "Import Session Overrides",
+                "Import session data?",
+                info_text
+            )
+            
+            if reply != QMessageBox.Yes:
+                return
+                
+            # Import the session overrides
+            success = import_session_overrides(file_path)
+            
+            if success:
+                msg_box = self._create_message_box(
+                    "information", 
+                    "Session Import Successful", 
+                    f"Session overrides imported successfully from:\n{file_path}\n\n"
+                    f"Integration boundaries have been updated for the affected samples."
+                )
+                msg_box.exec()
+                logger.info(f"Session overrides imported from {file_path}")
+                
+                # Refresh current display if compound/sample are selected
+                self._refresh_after_session_import()
+            else:
+                msg_box = self._create_message_box(
+                    "critical", 
+                    "Import Failed", 
+                    "Failed to import session overrides. Check logs for details."
+                )
+                msg_box.exec()
+                
+        except Exception as e:
+            logger.error(f"Session import error: {e}")
+            msg_box = self._create_message_box(
+                "critical", 
+                "Import Error", 
+                f"An error occurred during session import:\n{str(e)}"
+            )
+            msg_box.exec()
+
+    def _refresh_after_session_import(self):
+        """Refresh display after session import if data is currently displayed."""
+        try:
+            # If we have compound and samples selected, refresh the display
+            selected_compound = self.toolbar.get_selected_compound()
+            selected_samples = self.toolbar.get_selected_samples()
+            
+            if selected_compound and selected_samples:
+                # Regenerate the plots with new session data
+                self.on_samples_selected(selected_samples)
+                
+        except Exception as e:
+            logger.error(f"Failed to refresh after session import: {e}")
+
+
 
     def clear_session(self):
         """Clear all loaded data and reset application state."""

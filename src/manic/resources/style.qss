@@ -182,86 +182,195 @@ QScrollBar::add-page, QScrollBar::sub-page {
     background: none;
 }
 
+/* Message Box and Dialog Styling */
 QMessageBox {
     background-color: white;
-    color: black;
+    color: #212529;
+    border: none;
 }
 
 QMessageBox QPushButton {
-    background-color: #e9ecef !important;
-    color: black !important;
-    border: 1px solid #adb5bd !important;
-    border-radius: 4px;
-    padding: 6px 12px;
-    min-width: 60px;
-    font-weight: normal;
+    background-color: #f8f9fa;
+    color: #212529;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    min-width: 80px;
+    font-size: 14px;
+    font-weight: 500;
 }
 
 QMessageBox QPushButton:hover {
-    background-color: #dee2e6 !important;
-    border-color: #adb5bd !important;
+    background-color: #e9ecef;
 }
 
 QMessageBox QPushButton:pressed {
-    background-color: #ced4da !important;
-    border-color: #6c757d !important;
+    background-color: #dee2e6;
 }
 
-QMessageBox QPushButton[text="&Yes"], QMessageBox QPushButton[text="Yes"] {
-    background-color: #0d6efd !important;
-    color: white !important;
-    border-color: #0d6efd !important;
+/* Blue buttons for Yes/OK/Accept actions */
+QMessageBox QPushButton[text="&Yes"],
+QMessageBox QPushButton[text="Yes"],
+QMessageBox QPushButton[text="&OK"],
+QMessageBox QPushButton[text="OK"],
+QMessageBox QPushButton[text="&Accept"],
+QMessageBox QPushButton[text="Accept"],
+QMessageBox QPushButton:default {
+    background-color: #0d6efd;
+    color: white;
+    border: none;
 }
 
-QMessageBox QPushButton[text="&Yes"]:hover, QMessageBox QPushButton[text="Yes"]:hover {
-    background-color: #0b5ed7 !important;
-    border-color: #0a58ca !important;
+QMessageBox QPushButton[text="&Yes"]:hover,
+QMessageBox QPushButton[text="Yes"]:hover,
+QMessageBox QPushButton[text="&OK"]:hover,
+QMessageBox QPushButton[text="OK"]:hover,
+QMessageBox QPushButton[text="&Accept"]:hover,
+QMessageBox QPushButton[text="Accept"]:hover,
+QMessageBox QPushButton:default:hover {
+    background-color: #0b5ed7;
 }
 
-QMessageBox QPushButton[text="&No"], QMessageBox QPushButton[text="No"] {
-    background-color: #6c757d !important;
-    color: white !important;
-    border-color: #6c757d !important;
+QMessageBox QPushButton[text="&Yes"]:pressed,
+QMessageBox QPushButton[text="Yes"]:pressed,
+QMessageBox QPushButton[text="&OK"]:pressed,
+QMessageBox QPushButton[text="OK"]:pressed,
+QMessageBox QPushButton[text="&Accept"]:pressed,
+QMessageBox QPushButton[text="Accept"]:pressed,
+QMessageBox QPushButton:default:pressed {
+    background-color: #0a58ca;
 }
 
-QMessageBox QPushButton[text="&No"]:hover, QMessageBox QPushButton[text="No"]:hover {
-    background-color: #5a6268 !important;
-    border-color: #545b62 !important;
+/* Red buttons for No/Cancel/Reject actions */
+QMessageBox QPushButton[text="&No"],
+QMessageBox QPushButton[text="No"],
+QMessageBox QPushButton[text="&Cancel"],
+QMessageBox QPushButton[text="Cancel"],
+QMessageBox QPushButton[text="&Reject"],
+QMessageBox QPushButton[text="Reject"] {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+}
+
+QMessageBox QPushButton[text="&No"]:hover,
+QMessageBox QPushButton[text="No"]:hover,
+QMessageBox QPushButton[text="&Cancel"]:hover,
+QMessageBox QPushButton[text="Cancel"]:hover,
+QMessageBox QPushButton[text="&Reject"]:hover,
+QMessageBox QPushButton[text="Reject"]:hover {
+    background-color: #bb2d3b;
+}
+
+QMessageBox QPushButton[text="&No"]:pressed,
+QMessageBox QPushButton[text="No"]:pressed,
+QMessageBox QPushButton[text="&Cancel"]:pressed,
+QMessageBox QPushButton[text="Cancel"]:pressed,
+QMessageBox QPushButton[text="&Reject"]:pressed,
+QMessageBox QPushButton[text="Reject"]:pressed {
+    background-color: #b02a37;
 }
 
 QMessageBox QLabel {
-    color: black !important;
+    color: #212529;
     background-color: transparent;
-    font-weight: normal;
+    font-size: 14px;
+    padding: 10px;
+    border: none;
 }
 
+/* Dialog Styling */
 QDialog {
     background-color: white;
-    color: black;
+    color: #212529;
+    border: none;
 }
 
 QDialog QPushButton {
-    background-color: #e9ecef !important;
-    color: black !important;
-    border: 1px solid #adb5bd !important;
-    border-radius: 4px;
-    padding: 6px 12px;
-    min-width: 60px;
-    font-weight: normal;
+    background-color: #f8f9fa;
+    color: #212529;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    min-width: 80px;
+    font-size: 14px;
+    font-weight: 500;
 }
 
 QDialog QPushButton:hover {
-    background-color: #dee2e6 !important;
-    border-color: #adb5bd !important;
+    background-color: #e9ecef;
 }
 
 QDialog QPushButton:pressed {
-    background-color: #ced4da !important;
-    border-color: #6c757d !important;
+    background-color: #dee2e6;
+}
+
+/* Blue buttons for Yes/OK/Accept actions in dialogs */
+QDialog QPushButton[text="&Yes"],
+QDialog QPushButton[text="Yes"],
+QDialog QPushButton[text="&OK"],
+QDialog QPushButton[text="OK"],
+QDialog QPushButton[text="&Accept"],
+QDialog QPushButton[text="Accept"],
+QDialog QPushButton:default {
+    background-color: #0d6efd;
+    color: white;
+    border: none;
+}
+
+QDialog QPushButton[text="&Yes"]:hover,
+QDialog QPushButton[text="Yes"]:hover,
+QDialog QPushButton[text="&OK"]:hover,
+QDialog QPushButton[text="OK"]:hover,
+QDialog QPushButton[text="&Accept"]:hover,
+QDialog QPushButton[text="Accept"]:hover,
+QDialog QPushButton:default:hover {
+    background-color: #0b5ed7;
+}
+
+QDialog QPushButton[text="&Yes"]:pressed,
+QDialog QPushButton[text="Yes"]:pressed,
+QDialog QPushButton[text="&OK"]:pressed,
+QDialog QPushButton[text="OK"]:pressed,
+QDialog QPushButton[text="&Accept"]:pressed,
+QDialog QPushButton[text="Accept"]:pressed,
+QDialog QPushButton:default:pressed {
+    background-color: #0a58ca;
+}
+
+/* Red buttons for No/Cancel/Reject actions in dialogs */
+QDialog QPushButton[text="&No"],
+QDialog QPushButton[text="No"],
+QDialog QPushButton[text="&Cancel"],
+QDialog QPushButton[text="Cancel"],
+QDialog QPushButton[text="&Reject"],
+QDialog QPushButton[text="Reject"] {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+}
+
+QDialog QPushButton[text="&No"]:hover,
+QDialog QPushButton[text="No"]:hover,
+QDialog QPushButton[text="&Cancel"]:hover,
+QDialog QPushButton[text="Cancel"]:hover,
+QDialog QPushButton[text="&Reject"]:hover,
+QDialog QPushButton[text="Reject"]:hover {
+    background-color: #bb2d3b;
+}
+
+QDialog QPushButton[text="&No"]:pressed,
+QDialog QPushButton[text="No"]:pressed,
+QDialog QPushButton[text="&Cancel"]:pressed,
+QDialog QPushButton[text="Cancel"]:pressed,
+QDialog QPushButton[text="&Reject"]:pressed,
+QDialog QPushButton[text="Reject"]:pressed {
+    background-color: #b02a37;
 }
 
 QDialog QLabel {
-    color: black !important;
+    color: #212529;
     background-color: transparent;
-    font-weight: normal;
+    font-size: 14px;
+    padding: 10px;
 }

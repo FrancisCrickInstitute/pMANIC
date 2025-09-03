@@ -79,11 +79,6 @@ class IsotopologueRatioWidget(QWidget):
             self._clear_chart()
             return
 
-        # Check if this compound has isotopologues
-        if eics[0].intensity.ndim == 1:
-            self._clear_chart()
-            return
-
         self._current_eics = eics
         self._current_compound = compound_name
 
@@ -97,6 +92,13 @@ class IsotopologueRatioWidget(QWidget):
         # Store total abundances for sharing with total abundance widget
         self._last_total_abundances = total_abundances
         self._last_eics = eics
+
+        # Check if this compound has isotopologues
+        if eics[0].intensity.ndim == 1:
+            # Single trace - don't show isotopologue chart (it would just be 100%)
+            self._clear_chart()
+            # But we still have the abundance data stored for the total abundance widget
+            return
 
         # Order EICs to match graph window layout (left-to-right, top-to-bottom in grid)
         # But reverse for horizontal bars (QtCharts displays from bottom-to-top)
@@ -147,26 +149,42 @@ class IsotopologueRatioWidget(QWidget):
 
             if not np.any(mask):
                 # No data points in integration window
-                num_isotopologues = eic.intensity.shape[0]
-                ratios.append(np.zeros(num_isotopologues))
-                total_abundances.append(0.0)
+                if eic.intensity.ndim == 1:
+                    # Single trace
+                    ratios.append(np.array([1.0]))  # 100% for single isotope
+                    total_abundances.append(0.0)
+                else:
+                    # Multi-trace
+                    num_isotopologues = eic.intensity.shape[0]
+                    ratios.append(np.zeros(num_isotopologues))
+                    total_abundances.append(0.0)
                 continue
 
-            # Integrate each isotopologue trace using trapezoidal rule
-            isotope_areas = []
-            for i in range(eic.intensity.shape[0]):
-                area = np.trapz(eic.intensity[i, mask], eic.time[mask])
-                isotope_areas.append(max(0, area))  # Ensure non-negative
-
-            # Calculate total abundance (sum of all isotopologue areas)
-            total_area = sum(isotope_areas)
-            total_abundances.append(total_area)
-
-            # Calculate ratios from same areas
-            if total_area > 0:
-                ratios.append(np.array(isotope_areas) / total_area)
+            # Check if single or multi-trace
+            if eic.intensity.ndim == 1:
+                # Single trace - integrate directly
+                area = np.trapz(eic.intensity[mask], eic.time[mask])
+                area = max(0, area)  # Ensure non-negative
+                
+                # For single trace: ratio is always 1.0 (100%)
+                ratios.append(np.array([1.0]))
+                total_abundances.append(area)
             else:
-                ratios.append(np.zeros(len(isotope_areas)))
+                # Multi-trace - integrate each isotopologue
+                isotope_areas = []
+                for i in range(eic.intensity.shape[0]):
+                    area = np.trapz(eic.intensity[i, mask], eic.time[mask])
+                    isotope_areas.append(max(0, area))  # Ensure non-negative
+
+                # Calculate total abundance (sum of all isotopologue areas)
+                total_area = sum(isotope_areas)
+                total_abundances.append(total_area)
+
+                # Calculate ratios from same areas
+                if total_area > 0:
+                    ratios.append(np.array(isotope_areas) / total_area)
+                else:
+                    ratios.append(np.zeros(len(isotope_areas)))
 
         if ratios:
             return np.array(ratios), np.array(total_abundances)

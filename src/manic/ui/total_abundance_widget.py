@@ -66,46 +66,6 @@ class TotalAbundanceWidget(QWidget):
         self._current_eics: Optional[List[EIC]] = None
         self._current_compound: str = ""
 
-    def update_abundance(self, compound_name: str, eics: List[EIC]) -> None:
-        """
-        Update the chart with new total abundance data.
-
-        Args:
-            compound_name: Name of the compound
-            eics: List of EIC data for each sample
-        """
-        if not eics or not compound_name:
-            self._clear_chart()
-            return
-
-        # Check if this compound has isotopologues
-        if eics[0].intensity.ndim == 1:
-            self._clear_chart()
-            return
-
-        self._current_eics = eics
-        self._current_compound = compound_name
-
-        # Calculate total abundances using same integration logic as isotopologue widget
-        ratios, total_abundances = self._calculate_integrated_data(eics, compound_name)
-
-        if total_abundances is None:
-            self._clear_chart()
-            return
-
-        # Order to match graph window layout and reverse for display
-        ordered_eics, ordered_abundances = self._order_like_graph_window(
-            eics, total_abundances
-        )
-
-        # Reverse order so top graph corresponds to top bar
-        ordered_eics.reverse()
-        ordered_abundances = np.flip(ordered_abundances)  # Flip array
-
-        # Update chart
-        self._update_chart(
-            ordered_abundances, [eic.sample_name for eic in ordered_eics]
-        )
 
     def update_abundance_from_data(
         self, compound_name: str, eics: List[EIC], abundances: np.ndarray
@@ -115,11 +75,6 @@ class TotalAbundanceWidget(QWidget):
         This avoids duplicate integration calculations.
         """
         if not eics or not compound_name or abundances is None:
-            self._clear_chart()
-            return
-
-        # Check if this compound has isotopologues
-        if eics[0].intensity.ndim == 1:
             self._clear_chart()
             return
 

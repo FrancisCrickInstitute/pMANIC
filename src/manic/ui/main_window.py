@@ -1,7 +1,8 @@
 import logging
+import os
 
 from PySide6.QtCore import QCoreApplication, Qt, QThread
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -31,6 +32,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MANIC")
         self.setObjectName("mainWindow")
+        
+        # Set window icon
+        self._set_window_icon()
         self.progress_bar = QProgressBar()
 
         # Menu actions
@@ -109,6 +113,68 @@ class MainWindow(QMainWindow):
         self.toolbar.integration.session_data_restored.connect(self.on_session_data_restored)
         self.toolbar.integration.data_regeneration_requested.connect(self.on_data_regeneration_requested)
 
+    def _get_logo_path(self) -> str:
+        """Get the path to the MANIC logo."""
+        # Try to find the logo relative to this file
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        logo_path = os.path.join(base_dir, "resources", "manic_logo.png")
+        if os.path.exists(logo_path):
+            return logo_path
+        return ""
+    
+    def _set_window_icon(self):
+        """Set the window icon to the MANIC logo."""
+        logo_path = self._get_logo_path()
+        if logo_path:
+            self.setWindowIcon(QIcon(logo_path))
+    
+    def _create_message_box(self, msg_type: str, title: str, text: str, 
+                           informative_text: str = "", parent=None) -> QMessageBox:
+        """Create a message box with consistent styling and logo."""
+        if parent is None:
+            parent = self
+            
+        # Create a custom message box without standard icons
+        msg_box = QMessageBox(parent=parent)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(text)
+        
+        # Set informative text if provided
+        if informative_text:
+            msg_box.setInformativeText(informative_text)
+        
+        # Set appropriate buttons based on message type
+        if msg_type == "information":
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.setDefaultButton(QMessageBox.Ok)
+        elif msg_type == "warning":
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.setDefaultButton(QMessageBox.Ok)
+        elif msg_type == "critical":
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.setDefaultButton(QMessageBox.Ok)
+        elif msg_type == "question":
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.Yes)
+        
+        # Set the logo as window icon and replace standard icon
+        logo_path = self._get_logo_path()
+        if logo_path:
+            msg_box.setWindowIcon(QIcon(logo_path))
+            # Replace the standard icon with our logo (scaled appropriately)
+            pixmap = QPixmap(logo_path)
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                msg_box.setIconPixmap(scaled_pixmap)
+        
+        return msg_box
+    
+    def _show_question_dialog(self, title: str, text: str, 
+                             informative_text: str = "", parent=None) -> int:
+        """Show a question dialog and return the result (QMessageBox.Yes or QMessageBox.No)."""
+        msg_box = self._create_message_box("question", title, text, informative_text, parent)
+        return msg_box.exec()
+
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
         dlg = QProgressDialog(title, None, 0, 100, self)
@@ -118,6 +184,12 @@ class MainWindow(QMainWindow):
         dlg.setAutoReset(False)
         dlg.setMinimumDuration(0)  # Show immediately
         dlg.setCancelButton(None)  # Remove cancel button for simplicity
+        
+        # Set the logo
+        logo_path = self._get_logo_path()
+        if logo_path:
+            dlg.setWindowIcon(QIcon(logo_path))
+        
         return dlg
 
     def load_compound_list_data(self: QMainWindow) -> None:
@@ -138,7 +210,8 @@ class MainWindow(QMainWindow):
             self.toolbar.update_compound_list(list_compound_names())
 
         except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
+            msg_box = self._create_message_box("warning", "Error", str(e))
+            msg_box.exec()
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
@@ -174,9 +247,9 @@ class MainWindow(QMainWindow):
 
     def _import_ok(self, rows: int):
         self.progress_dialog.close()
-        QMessageBox.information(
-            self, "Import OK", f"Data for {rows} EICs successfully extracted."
-        )
+        msg_box = self._create_message_box("information", "Import OK", 
+                                           f"Data for {rows} EICs successfully extracted.")
+        msg_box.exec()
         # set raw data indicator to green
         self.toolbar.update_label_colours(True, True)
 
@@ -189,7 +262,8 @@ class MainWindow(QMainWindow):
 
     def _import_fail(self, msg: str):
         self.progress_dialog.close()
-        QMessageBox.critical(self, "Import failed", msg)
+        msg_box = self._create_message_box("critical", "Import failed", msg)
+        msg_box.exec()
 
     def on_plot_button(self, compound_name, samples):
         # Validate inputs before plotting
@@ -223,14 +297,13 @@ class MainWindow(QMainWindow):
                 abundances, eics = self.toolbar.isotopologue_ratios.get_last_total_abundances()
                 if abundances is not None:
                     self.toolbar.total_abundance.update_abundance_from_data(compound_name, eics, abundances)
-                else:
-                    # Fallback - clear the chart if no data available
-                    self.toolbar.total_abundance._clear_chart()
         except LookupError as err:
-            QMessageBox.warning(self, "Missing data", str(err))
+            msg_box = self._create_message_box("warning", "Missing data", str(err))
+            msg_box.exec()
         except Exception as e:
             logger.error(f"Error plotting: {e}")
-            QMessageBox.warning(self, "Error", f"Error plotting: {str(e)}")
+            msg_box = self._create_message_box("warning", "Error", f"Error plotting: {str(e)}")
+            msg_box.exec()
 
     def _get_current_eics(self):
         """Get EICs for the current compound and samples"""
@@ -321,12 +394,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data update: {e}")
             # Show error to user but don't crash the application
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(
-                self,
-                "Refresh Failed", 
-                f"Failed to refresh plots with updated parameters: {str(e)}"
-            )
+            msg_box = self._create_message_box("warning", "Refresh Failed",
+                                              f"Failed to refresh plots with updated parameters: {str(e)}")
+            msg_box.exec()
     
     def on_session_data_restored(self, compound_name: str, sample_names: list):
         """Handle when session data is restored - refresh plots to show default parameters"""
@@ -367,12 +437,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data restore: {e}")
             # Show error to user but don't crash the application
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(
-                self,
-                "Refresh Failed", 
-                f"Failed to refresh plots after restore: {str(e)}"
-            )
+            msg_box = self._create_message_box("warning", "Refresh Failed",
+                                              f"Failed to refresh plots after restore: {str(e)}")
+            msg_box.exec()
 
     def on_data_regeneration_requested(self, compound_name: str, tr_window: float, sample_names: list):
         """Handle data regeneration request - start background regeneration with progress dialog"""
@@ -406,11 +473,9 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to start regeneration: {e}")
-            QMessageBox.critical(
-                self,
-                "Regeneration Error",
-                f"Failed to start data regeneration: {str(e)}"
-            )
+            msg_box = self._create_message_box("critical", "Regeneration Error",
+                                              f"Failed to start data regeneration: {str(e)}")
+            msg_box.exec()
 
     def _update_regeneration_progress(self, current: int, total: int):
         """Update regeneration progress dialog"""
@@ -468,23 +533,19 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(100, update_integration_window)
             
             # Show success message
-            QMessageBox.information(
-                self,
-                "Regeneration Complete",
-                f"Data regeneration completed successfully!\n\n"
-                f"Regenerated {regenerated_count} EIC records.\n"
-                f"Plots have been refreshed with new data."
-            )
+            msg_box = self._create_message_box("information", "Regeneration Complete",
+                                              f"Data regeneration completed successfully!\n\n"
+                                              f"Regenerated {regenerated_count} EIC records.\n"
+                                              f"Plots have been refreshed with new data.")
+            msg_box.exec()
             
         except Exception as e:
             logger.error(f"Error during post-regeneration refresh: {e}")
-            QMessageBox.warning(
-                self,
-                "Regeneration Complete with Warning",
-                f"Data regeneration completed ({regenerated_count} EICs), "
-                f"but plot refresh failed: {str(e)}\n\n"
-                f"Try manually refreshing the plots."
-            )
+            msg_box = self._create_message_box("warning", "Regeneration Complete with Warning",
+                                              f"Data regeneration completed ({regenerated_count} EICs), "
+                                              f"but plot refresh failed: {str(e)}\n\n"
+                                              f"Try manually refreshing the plots.")
+            msg_box.exec()
 
     def _regeneration_failed(self, error_msg: str):
         """Handle regeneration failure"""
@@ -492,9 +553,7 @@ class MainWindow(QMainWindow):
             self.regen_progress_dialog.close()
             
         logger.error(f"Regeneration failed: {error_msg}")
-        QMessageBox.critical(
-            self,
-            "Regeneration Failed",
-            f"Data regeneration failed:\n\n{error_msg}\n\n"
-            f"Please check the log files for more details."
-        )
+        msg_box = self._create_message_box("critical", "Regeneration Failed",
+                                          f"Data regeneration failed:\n\n{error_msg}\n\n"
+                                          f"Please check the log files for more details.")
+        msg_box.exec()

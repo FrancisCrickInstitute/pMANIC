@@ -85,3 +85,100 @@ QGroupBox#integrationWindow QPushButton#RegenerateButton:hover {
 QGroupBox#integrationWindow QPushButton#RegenerateButton:pressed {
     background-color: #0a58ca;
 }
+
+/* Message Box and Dialog Styling - ensure popups from integration window are styled */
+QMessageBox {
+    background-color: white;
+    color: #212529;
+    border: none;
+}
+
+QMessageBox QPushButton {
+    background-color: #f8f9fa;
+    color: #212529;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    min-width: 80px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+QMessageBox QPushButton:hover {
+    background-color: #e9ecef;
+}
+
+QMessageBox QPushButton:pressed {
+    background-color: #dee2e6;
+}
+
+/* Blue buttons for Yes/OK/Accept actions */
+QMessageBox QPushButton[text="&Yes"],
+QMessageBox QPushButton[text="Yes"],
+QMessageBox QPushButton[text="&OK"],
+QMessageBox QPushButton[text="OK"],
+QMessageBox QPushButton[text="&Accept"],
+QMessageBox QPushButton[text="Accept"],
+QMessageBox QPushButton:default {
+    background-color: #0d6efd;
+    color: white;
+    border: none;
+}
+
+QMessageBox QPushButton[text="&Yes"]:hover,
+QMessageBox QPushButton[text="Yes"]:hover,
+QMessageBox QPushButton[text="&OK"]:hover,
+QMessageBox QPushButton[text="OK"]:hover,
+QMessageBox QPushButton[text="&Accept"]:hover,
+QMessageBox QPushButton[text="Accept"]:hover,
+QMessageBox QPushButton:default:hover {
+    background-color: #0b5ed7;
+}
+
+QMessageBox QPushButton[text="&Yes"]:pressed,
+QMessageBox QPushButton[text="Yes"]:pressed,
+QMessageBox QPushButton[text="&OK"]:pressed,
+QMessageBox QPushButton[text="OK"]:pressed,
+QMessageBox QPushButton[text="&Accept"]:pressed,
+QMessageBox QPushButton[text="Accept"]:pressed,
+QMessageBox QPushButton:default:pressed {
+    background-color: #0a58ca;
+}
+
+/* Red buttons for No/Cancel/Reject actions */
+QMessageBox QPushButton[text="&No"],
+QMessageBox QPushButton[text="No"],
+QMessageBox QPushButton[text="&Cancel"],
+QMessageBox QPushButton[text="Cancel"],
+QMessageBox QPushButton[text="&Reject"],
+QMessageBox QPushButton[text="Reject"] {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+}
+
+QMessageBox QPushButton[text="&No"]:hover,
+QMessageBox QPushButton[text="No"]:hover,
+QMessageBox QPushButton[text="&Cancel"]:hover,
+QMessageBox QPushButton[text="Cancel"]:hover,
+QMessageBox QPushButton[text="&Reject"]:hover,
+QMessageBox QPushButton[text="Reject"]:hover {
+    background-color: #bb2d3b;
+}
+
+QMessageBox QPushButton[text="&No"]:pressed,
+QMessageBox QPushButton[text="No"]:pressed,
+QMessageBox QPushButton[text="&Cancel"]:pressed,
+QMessageBox QPushButton[text="Cancel"]:pressed,
+QMessageBox QPushButton[text="&Reject"]:pressed,
+QMessageBox QPushButton[text="Reject"]:pressed {
+    background-color: #b02a37;
+}
+
+QMessageBox QLabel {
+    color: #212529;
+    background-color: transparent;
+    font-size: 14px;
+    padding: 10px;
+    border: none;
+}

@@ -57,6 +57,30 @@ class IntegrationWindow(QGroupBox):
         font.setBold(True)
         self.setFont(font)
 
+    def _get_main_window(self):
+        """Get the main window instance to use its message box helper."""
+        widget = self
+        while widget.parent():
+            widget = widget.parent()
+            # Check if this widget has the _create_message_box method (i.e., it's the MainWindow)
+            if hasattr(widget, '_create_message_box'):
+                return widget
+        return None
+
+    def _show_message(self, msg_type: str, title: str, text: str, informative_text: str = ""):
+        """Show a message using the main window's styled message box helper."""
+        main_window = self._get_main_window()
+        if main_window:
+            msg_box = main_window._create_message_box(msg_type, title, text, informative_text, self)
+            return msg_box.exec()
+        else:
+            # Fallback to standard message box if main window not found
+            if msg_type == "question":
+                return QMessageBox.question(self, title, text)
+            else:
+                getattr(QMessageBox, msg_type)(self, title, text)
+                return None
+
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -324,7 +348,7 @@ class IntegrationWindow(QGroupBox):
     def _on_apply_clicked(self):
         """Handle apply button click - validate inputs and update session data"""
         if not self._current_compound:
-            QMessageBox.warning(self, "No Compound", "No compound selected.")
+            self._show_message("warning", "No Compound", "No compound selected.")
             return
 
         # Determine which samples to apply to
@@ -333,9 +357,7 @@ class IntegrationWindow(QGroupBox):
         )
 
         if not samples_to_apply:
-            QMessageBox.warning(
-                self, "No Samples", "No samples available to apply changes to."
-            )
+            self._show_message("warning", "No Samples", "No samples available to apply changes to.")
             return
 
         try:
@@ -359,14 +381,12 @@ class IntegrationWindow(QGroupBox):
             self.session_data_applied.emit(self._current_compound, samples_to_apply)
 
         except Exception as e:
-            QMessageBox.critical(
-                self, "Apply Failed", f"Failed to apply changes: {str(e)}"
-            )
+            self._show_message("critical", "Apply Failed", f"Failed to apply changes: {str(e)}")
 
     def _on_restore_clicked(self):
         """Handle restore button click - clear session data and restore to defaults"""
         if not self._current_compound:
-            QMessageBox.warning(self, "No Compound", "No compound selected.")
+            self._show_message("warning", "No Compound", "No compound selected.")
             return
 
         # Determine which samples to restore
@@ -375,7 +395,7 @@ class IntegrationWindow(QGroupBox):
         )
 
         if not samples_to_restore:
-            QMessageBox.warning(self, "No Samples", "No samples available to restore.")
+            self._show_message("warning", "No Samples", "No samples available to restore.")
             return
 
         # Confirm restore action
@@ -388,13 +408,7 @@ class IntegrationWindow(QGroupBox):
         else:
             message = f"Restore all {sample_count} samples to default values?"
 
-        reply = QMessageBox.question(
-            self,
-            "Confirm Restore",
-            message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
+        reply = self._show_message("question", "Confirm Restore", message)
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
@@ -410,9 +424,7 @@ class IntegrationWindow(QGroupBox):
                 )
 
             except Exception as e:
-                QMessageBox.critical(
-                    self, "Restore Failed", f"Failed to restore to defaults: {str(e)}"
-                )
+                self._show_message("critical", "Restore Failed", f"Failed to restore to defaults: {str(e)}")
 
     def _get_validated_inputs(self) -> Optional[tuple[float, float, float]]:
         """
@@ -440,9 +452,7 @@ class IntegrationWindow(QGroupBox):
                     retention_time_text = retention_time_text.split(" - ")[0]
                 retention_time = float(retention_time_text)
             except ValueError:
-                QMessageBox.warning(
-                    self, "Invalid Input", "Retention time must be a valid number"
-                )
+                self._show_message("warning", "Invalid Input", "Retention time must be a valid number")
                 tr_field.setFocus()
                 return None
 
@@ -456,9 +466,7 @@ class IntegrationWindow(QGroupBox):
                     loffset_text = loffset_text.split(" - ")[0]
                 loffset = float(loffset_text)
             except ValueError:
-                QMessageBox.warning(
-                    self, "Invalid Input", "Left offset must be a valid number"
-                )
+                self._show_message("warning", "Invalid Input", "Left offset must be a valid number")
                 lo_field.setFocus()
                 return None
 
@@ -472,60 +480,48 @@ class IntegrationWindow(QGroupBox):
                     roffset_text = roffset_text.split(" - ")[0]
                 roffset = float(roffset_text)
             except ValueError:
-                QMessageBox.warning(
-                    self, "Invalid Input", "Right offset must be a valid number"
-                )
+                self._show_message("warning", "Invalid Input", "Right offset must be a valid number")
                 ro_field.setFocus()
                 return None
 
             # Basic validation
             if retention_time <= 0:
-                QMessageBox.warning(
-                    self, "Invalid Input", "Retention time must be positive"
-                )
+                self._show_message("warning", "Invalid Input", "Retention time must be positive")
                 tr_field.setFocus()
                 return None
 
             if loffset < 0:
-                QMessageBox.warning(
-                    self, "Invalid Input", "Left offset cannot be negative"
-                )
+                self._show_message("warning", "Invalid Input", "Left offset cannot be negative")
                 lo_field.setFocus()
                 return None
 
             if roffset < 0:
-                QMessageBox.warning(
-                    self, "Invalid Input", "Right offset cannot be negative"
-                )
+                self._show_message("warning", "Invalid Input", "Right offset cannot be negative")
                 ro_field.setFocus()
                 return None
 
             return retention_time, loffset, roffset
 
         except Exception as e:
-            QMessageBox.critical(
-                self, "Validation Error", f"Error validating inputs: {str(e)}"
-            )
+            self._show_message("critical", "Validation Error", f"Error validating inputs: {str(e)}")
             return None
 
     def _on_regenerate_clicked(self):
         """Handle regenerate button click - validate tR window and trigger data regeneration"""
         if not self._current_compound:
-            QMessageBox.warning(self, "No Compound", "No compound selected.")
+            self._show_message("warning", "No Compound", "No compound selected.")
             return
 
         # Get and validate tR window input
         tr_window_field = self.findChild(QLineEdit, "tr_window_input")
         if not tr_window_field:
-            QMessageBox.critical(
-                self, "UI Error", "Could not find tR Window input field"
-            )
+            self._show_message("critical", "UI Error", "Could not find tR Window input field")
             return
 
         try:
             tr_window_text = tr_window_field.text().strip()
             if not tr_window_text:
-                QMessageBox.warning(self, "Invalid Input", "tR Window cannot be empty")
+                self._show_message("warning", "Invalid Input", "tR Window cannot be empty")
                 tr_window_field.setFocus()
                 return
 
@@ -536,14 +532,12 @@ class IntegrationWindow(QGroupBox):
             tr_window = float(tr_window_text)
 
             if tr_window <= 0:
-                QMessageBox.warning(self, "Invalid Input", "tR Window must be positive")
+                self._show_message("warning", "Invalid Input", "tR Window must be positive")
                 tr_window_field.setFocus()
                 return
 
         except ValueError:
-            QMessageBox.warning(
-                self, "Invalid Input", "tR Window must be a valid number"
-            )
+            self._show_message("warning", "Invalid Input", "tR Window must be a valid number")
             tr_window_field.setFocus()
             return
 
@@ -552,9 +546,7 @@ class IntegrationWindow(QGroupBox):
         sample_count = len(samples_to_affect)
 
         if sample_count == 0:
-            QMessageBox.warning(
-                self, "No Samples", "No samples available for data regeneration."
-            )
+            self._show_message("warning", "No Samples", "No samples available for data regeneration.")
             return
 
         # Create detailed confirmation message
@@ -569,13 +561,7 @@ class IntegrationWindow(QGroupBox):
             f"Continue with data regeneration?"
         )
 
-        reply = QMessageBox.question(
-            self,
-            "Confirm Data Regeneration",
-            message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
+        reply = self._show_message("question", "Confirm Data Regeneration", message)
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
@@ -589,8 +575,4 @@ class IntegrationWindow(QGroupBox):
                 pass
 
             except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "Regeneration Failed",
-                    f"Failed to queue regeneration: {str(e)}",
-                )
+                self._show_message("critical", "Regeneration Failed", f"Failed to queue regeneration: {str(e)}")

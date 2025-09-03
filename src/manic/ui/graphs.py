@@ -190,6 +190,26 @@ class GraphView(QWidget):
     def _show_context_menu(self, global_pos, clicked_plot=None):
         """Show consolidated context menu with appropriate options"""
         context_menu = QMenu(self)
+        # Set menu style to ensure black text on white background
+        context_menu.setStyleSheet("""
+            QMenu {
+                background-color: white;
+                color: black;
+                border: 1px solid #d0d0d0;
+            }
+            QMenu::item {
+                background-color: white;
+                color: black;
+                padding: 5px 20px;
+            }
+            QMenu::item:selected {
+                background-color: #e0e0e0;
+                color: black;
+            }
+            QMenu::item:disabled {
+                color: #a0a0a0;
+            }
+        """)
         
         # Add select all/deselect actions (always available)
         select_all_action = context_menu.addAction("Select All")

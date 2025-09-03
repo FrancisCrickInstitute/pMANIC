@@ -120,6 +120,9 @@ class Toolbar(QWidget):
         self.compound_list.itemSelectionChanged.connect(
             self.on_compound_selection_changed
         )
+        self.compound_list.internal_standard_selected.connect(
+            self.on_internal_standard_selected
+        )
 
     # --- Signal Handlers ---
     def on_samples_selection_changed(self):
@@ -147,6 +150,13 @@ class Toolbar(QWidget):
             self.fill_integration_window(selected_text)
         else:
             self.compound_selected.emit("")
+    
+    def on_internal_standard_selected(self, compound_name: str):
+        """
+        Handler for when a compound is selected as internal standard.
+        Updates the standard indicator widget.
+        """
+        self.standard.set_internal_standard(compound_name)
 
     # --- Public Methods ---
     def update_label_colours(self, raw_data_loaded, compound_list_loaded):
@@ -184,6 +194,13 @@ class Toolbar(QWidget):
             return selected_items[0].text()
         else:
             return ""
+    
+    def get_internal_standard(self):
+        """
+        Get the currently selected internal standard.
+        Returns the compound name or None if no standard is selected.
+        """
+        return self.standard.internal_standard
 
     def fill_integration_window(self, compound_name: str):
         """Fill integration window fields with data for the specified compound"""

@@ -357,6 +357,11 @@ class MatplotlibPlotWidget(QWidget):
             y_min, y_max = self.ax.get_ylim()
             self.ax.set_ylim(0, y_max * 1.1)
             
+            # Set X axis limits based on actual data range with small padding
+            x_min, x_max = x_data.min(), x_data.max()
+            x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 10
+            self.ax.set_xlim(max(0, x_min - x_padding), x_max + x_padding)
+            
             # Use scientific notation for large numbers
             if y_max > SCIENTIFIC_NOTATION_THRESHOLD:
                 self.ax.ticklabel_format(axis='y', style='scientific', scilimits=(0,0))

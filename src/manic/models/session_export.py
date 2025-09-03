@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from manic.models.database import get_connection
+from manic.__version__ import __version__, APP_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -110,8 +111,8 @@ def export_session_method(export_path: str) -> bool:
 
         method_data["export_metadata"] = {
             "export_date": datetime.datetime.now().isoformat(),
-            "export_version": "1.0",
-            "application": "MANIC",
+            "export_version": __version__,
+            "application": APP_NAME,
             "description": "Analytical method and parameters (raw data not included)",
         }
 
@@ -369,7 +370,7 @@ def _generate_changelog(method_data: dict, changelog_path: Path) -> None:
 
             f.write(f"**Export Date:** {export_date}\n")
             f.write(f"**Export Version:** {export_version}\n")
-            f.write(f"**Application:** {metadata.get('application', 'MANIC')}\n\n")
+            f.write(f"**Application:** {metadata.get('application', APP_NAME)}\n\n")
 
             f.write("---\n\n")
 

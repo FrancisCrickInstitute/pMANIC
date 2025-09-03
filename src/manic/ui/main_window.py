@@ -24,6 +24,7 @@ from manic.utils.utils import load_stylesheet
 from manic.utils.workers import CdfImportWorker, EicRegenerationWorker
 from manic.models.database import clear_database
 from src.manic.utils.timer import measure_time
+from manic.__version__ import __version__, APP_NAME
 
 logger = logging.getLogger("manic_logger")
 
@@ -31,7 +32,7 @@ logger = logging.getLogger("manic_logger")
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MANIC")
+        self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.setObjectName("mainWindow")
         
         # Set window icon
@@ -44,6 +45,7 @@ class MainWindow(QMainWindow):
         self.export_method_action = None
         self.import_session_action = None
         self.clear_session_action = None
+        self.about_action = None
         
         # State tracking for menu management
         self.compound_data_loaded = False
@@ -123,6 +125,14 @@ class MainWindow(QMainWindow):
         self.clear_session_action.triggered.connect(self.clear_session)
         # Add the clear session action to the file menu
         file_menu.addAction(self.clear_session_action)
+
+        """ Create Help Menu """
+        
+        help_menu = menu_bar.addMenu("Help")
+        
+        self.about_action = QAction("About MANIC...", self)
+        self.about_action.triggered.connect(self.show_about)
+        help_menu.addAction(self.about_action)
 
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
@@ -802,7 +812,29 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")
 
-
+    def show_about(self):
+        """Show About dialog with version information."""
+        from manic.__version__ import APP_DESCRIPTION
+        
+        about_text = f"""<h2>{APP_NAME} {__version__}</h2>
+<p><b>{APP_DESCRIPTION}</b></p>
+<p>This application provides tools for analyzing natural isotope composition in mass spectrometry data.</p>
+<p><b>Features:</b></p>
+<ul>
+<li>Compound definition and parameter management</li>
+<li>Raw CDF data processing</li>
+<li>Session export/import for reproducible analysis</li>
+<li>Integration boundary customization</li>
+<li>Isotopologue ratio analysis</li>
+</ul>
+<p><b>Version:</b> {__version__}</p>"""
+        
+        msg_box = self._create_message_box(
+            "information",
+            f"About {APP_NAME}",
+            about_text
+        )
+        msg_box.exec()
 
     def clear_session(self):
         """Clear all loaded data and reset application state."""

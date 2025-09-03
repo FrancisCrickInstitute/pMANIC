@@ -33,6 +33,7 @@ class IsotopologueRatioWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("isotopologueRatioWidget")
 
         # Create chart and chart view
         self.chart = QChart()
@@ -47,7 +48,8 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.legend().setVisible(False)
         self.chart.setTitle("Label Incorporation")
         self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
-        self.chart.setMargins(QMargins(2, 1, 5, 1))  # Minimal margins
+        self.chart.setTitleBrush(QColor("black"))
+        self.chart.setMargins(QMargins(2, 1, 5, 1))
 
         # Layout
         layout = QVBoxLayout(self)
@@ -55,8 +57,8 @@ class IsotopologueRatioWidget(QWidget):
         layout.addWidget(self.chart_view)
 
         # Responsive height for toolbar integration
-        self.setMinimumHeight(200)  # Still readable
-        self.setMaximumHeight(330)  # Preferred size
+        self.setMinimumHeight(200)
+        self.setMaximumHeight(330)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         # Data storage

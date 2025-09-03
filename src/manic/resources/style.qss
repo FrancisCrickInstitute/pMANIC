@@ -20,9 +20,59 @@ QChartView {
 /* Toolbar */
 QWidget#toolbar {
     background-color: white;
+    border: 1px solid #d0d0d0;
+    border-radius: 8px;
+    margin: 2px;
 }
 
 QWidget#toolbar QLabel, QWidget#toolbar QListWidget {
+    background-color: white;
+}
+
+/* Toolbar ScrollArea styling */
+QWidget#toolbar QScrollArea {
+    border: none;
+    background-color: white;
+}
+
+QWidget#toolbar QScrollArea > QWidget > QWidget {
+    background-color: white;
+}
+
+/* Compact scrollbar styling for toolbar - 8px width with rounded edges */
+QWidget#toolbar QScrollBar:vertical {
+    background-color: #f0f0f0;
+    width: 8px;
+    border: none;
+    border-radius: 4px;
+}
+
+QWidget#toolbar QScrollBar::handle:vertical {
+    background-color: #c0c0c0;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+QWidget#toolbar QScrollBar::handle:vertical:hover {
+    background-color: #a0a0a0;
+}
+
+QWidget#toolbar QScrollBar::add-line:vertical,
+QWidget#toolbar QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+    height: 0px;
+}
+
+QWidget#toolbar QScrollBar::add-page:vertical,
+QWidget#toolbar QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+/* Chart widget borders */
+QWidget#isotopologueRatioWidget, QWidget#totalAbundanceWidget {
+    border: 1px solid #d0d0d0;
+    border-radius: 5px;
     background-color: white;
 }
 
@@ -52,8 +102,84 @@ QListWidget::item:selected {
     color: black;
 }
 
+/* List Widget Scrollbars - rounded */
+QListWidget QScrollBar:vertical {
+    background-color: #f0f0f0;
+    width: 12px;
+    border: none;
+    border-radius: 6px;
+}
+
+QListWidget QScrollBar::handle:vertical {
+    background-color: #c0c0c0;
+    border-radius: 6px;
+    min-height: 20px;
+}
+
+QListWidget QScrollBar::handle:vertical:hover {
+    background-color: #a0a0a0;
+}
+
+QListWidget QScrollBar::add-line:vertical,
+QListWidget QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+    height: 0px;
+}
+
+QListWidget QScrollBar::add-page:vertical,
+QListWidget QScrollBar::sub-page:vertical {
+    background: none;
+}
+
 QLabel {
     color: black;
+}
+
+/* Global scrollbar styling with rounded edges */
+QScrollBar:vertical {
+    background-color: #f0f0f0;
+    width: 12px;
+    border: none;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #c0c0c0;
+    border-radius: 6px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #a0a0a0;
+}
+
+QScrollBar:horizontal {
+    background-color: #f0f0f0;
+    height: 12px;
+    border: none;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #c0c0c0;
+    border-radius: 6px;
+    min-width: 20px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #a0a0a0;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    border: none;
+    background: none;
+    width: 0px;
+    height: 0px;
+}
+
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: none;
 }
 
 QMessageBox {

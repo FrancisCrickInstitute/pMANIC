@@ -53,7 +53,6 @@ class IntegrationWindow(QGroupBox):
         stylesheet = load_stylesheet("src/manic/resources/integration_window.qss")
         self.setStyleSheet(stylesheet)
         
-        # Make title bold
         font = self.font()
         font.setBold(True)
         self.setFont(font)
@@ -62,7 +61,7 @@ class IntegrationWindow(QGroupBox):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        # Section 1: Fast Integration Parameters (same as original)
+        # Integration parameter fields
         for label_text, obj_name in [
             ("Left Offset", "lo_input"),
             ("tR", "tr_input"),
@@ -70,14 +69,14 @@ class IntegrationWindow(QGroupBox):
         ]:
             row = QHBoxLayout()
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("QLabel { background-color: #F0F0F0; }")
+            lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
             edt = QLineEdit()
             edt.setObjectName(obj_name)
             row.addWidget(lbl)
             row.addWidget(edt, 1)
             layout.addLayout(row)
 
-        # Fast parameters buttons (same as original)
+        # Action buttons
         button_row = QHBoxLayout()
         self.apply_button = QPushButton("Apply")
         self.apply_button.setObjectName("ApplyButton")
@@ -91,18 +90,17 @@ class IntegrationWindow(QGroupBox):
 
         layout.addLayout(button_row)
 
-
-        # tR Window field (same layout as above fields)
+        # tR Window field for data regeneration
         tr_window_row = QHBoxLayout()
         tr_window_lbl = QLabel("tR Window")
-        tr_window_lbl.setStyleSheet("QLabel { background-color: #F0F0F0; }")
+        tr_window_lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
         tr_window_row.addWidget(tr_window_lbl)
         tr_window_row.addWidget(self.tr_window_edit, 1)
         layout.addLayout(tr_window_row)
 
-        # Regenerate button (same button layout as above)
+        # Regeneration button
         regen_button_row = QHBoxLayout()
         self.regenerate_button = QPushButton("Update tR")
         self.regenerate_button.setObjectName("RegenerateButton")

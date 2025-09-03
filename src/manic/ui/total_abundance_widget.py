@@ -31,6 +31,7 @@ class TotalAbundanceWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("totalAbundanceWidget")
 
         # Create chart and chart view
         self.chart = QChart()
@@ -45,7 +46,8 @@ class TotalAbundanceWidget(QWidget):
         self.chart.legend().setVisible(False)
         self.chart.setTitle("Total Abundance")
         self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
-        self.chart.setMargins(QMargins(5, 5, 5, 5))  # Minimal margins
+        self.chart.setTitleBrush(QColor("black"))
+        self.chart.setMargins(QMargins(5, 5, 5, 5))
 
         # Layout
         layout = QVBoxLayout(self)
@@ -53,8 +55,8 @@ class TotalAbundanceWidget(QWidget):
         layout.addWidget(self.chart_view)
 
         # Responsive height to match isotopologue widget
-        self.setMinimumHeight(200)  # Still readable
-        self.setMaximumHeight(330)  # Preferred size
+        self.setMinimumHeight(200)
+        self.setMaximumHeight(330)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         # Single color for all bars - dark teal (not in isotopologue palette)

@@ -13,6 +13,26 @@ class SampleListWidget(QListWidget):
         self.setFont(QFont(FONT, 10))
         self.setMaximumHeight(150)
         self.setMinimumHeight(80)
+        # Custom scrollbar styling with rounded edges
+        self.setStyleSheet("""
+            QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 10px;
+                border: none;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                border-radius: 5px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+                border-radius: 5px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
         self._show_empty()
 
     def _show_empty(self):

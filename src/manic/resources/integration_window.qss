@@ -1,8 +1,9 @@
 /* Integration Window - match app background */
 QGroupBox#integrationWindow {
-    background-color: transparent;
+    background-color: white;
     margin-top: 10px;
-    border-radius: 5px;
+    border: 1px solid #d0d0d0;
+    border-radius: 8px;
 }
 
 /* Integration Window Title - black text and bold */
@@ -10,14 +11,14 @@ QGroupBox#integrationWindow::title {
     color: black;
     font-weight: bold;
     subcontrol-origin: margin;
-    subcontrol-position: top left;
+    subcontrol-position: top center;
     padding: 0 5px;
-    background-color: transparent;
+    background-color: white;
 }
 
 /* Style the labels inside integration window */
 QGroupBox#integrationWindow QLabel {
-    background-color: transparent;
+    background-color: white;
     color: black;
     padding: 0px;
 }

@@ -1,7 +1,9 @@
 from typing import List
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QFrame,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -26,41 +28,91 @@ class Toolbar(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("toolbar")  # Required for CSS targeting
         self._build_ui()
         self._connect_signals()
 
     def _build_ui(self):
         """Set up the toolbar layout and child widgets"""
-        layout = QVBoxLayout()
+        # Container widget provides rounded border appearance
+        container = QWidget()
+        container.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border: 1px solid #d0d0d0;
+                border-radius: 8px;
+            }
+        """)
+        
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Scroll area handles overflow on smaller screens
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setStyleSheet("""
+            QScrollArea { 
+                border: none; 
+                background-color: transparent; 
+            }
+            QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 8px;
+                border: none;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+                border-radius: 4px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        
+        # Content widget holds all toolbar elements
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(10, 10, 10, 10)
+        content_layout.setSpacing(8)
 
-        layout.setContentsMargins(5, 10, 10, 5)  # left, top, right, bottom
-        layout.setSpacing(8)
-
-        # Create child widgets
         self.loaded_data = LoadedDataWidget()
-        layout.addWidget(self.loaded_data)
+        content_layout.addWidget(self.loaded_data)
 
         self.standard = StandardIndicator()
-        layout.addWidget(self.standard)
+        content_layout.addWidget(self.standard)
 
         self.sample_list = SampleListWidget()
-        layout.addWidget(self.sample_list)
+        content_layout.addWidget(self.sample_list)
 
         self.compound_list = CompoundListWidget()
-        layout.addWidget(self.compound_list)
+        content_layout.addWidget(self.compound_list)
 
         self.integration = IntegrationWindow()
-        layout.addWidget(self.integration)
+        content_layout.addWidget(self.integration)
 
         self.isotopologue_ratios = IsotopologueRatioWidget()
-        layout.addWidget(self.isotopologue_ratios, stretch=1)
+        content_layout.addWidget(self.isotopologue_ratios, stretch=1)
 
         self.total_abundance = TotalAbundanceWidget()
-        layout.addWidget(self.total_abundance, stretch=1)
-        self.setFixedWidth(220)
+        content_layout.addWidget(self.total_abundance, stretch=1)
 
-        # set the layout
-        self.setLayout(layout)
+        scroll_area.setWidget(content_widget)
+        container_layout.addWidget(scroll_area)
+        
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        self.setFixedWidth(222)  # Accounts for border width
+        self.setLayout(main_layout)
 
     def _connect_signals(self):
         """Connect child widget signals to toolbar signal handlers"""

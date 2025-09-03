@@ -10,7 +10,7 @@ from typing import Optional
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QFrame
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPalette, QColor
 
 # Import matplotlib with Qt backend - optimize imports
 import matplotlib
@@ -44,7 +44,7 @@ class CompactNavigationToolbar(QWidget):
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(2)
         
-        # Set white background for toolbar
+        # Set white background for toolbar - this worked before
         self.setStyleSheet("background-color: white;")
         
         # Create compact buttons
@@ -55,6 +55,7 @@ class CompactNavigationToolbar(QWidget):
                 margin: 1px;
                 background-color: transparent;
                 border-radius: 3px;
+                color: black;
             }
             QToolButton:hover {
                 background-color: rgba(0, 0, 0, 0.1);
@@ -68,7 +69,7 @@ class CompactNavigationToolbar(QWidget):
             }
         """
         
-        # Home/Reset button with circular arrow
+        # Home/Reset button with black circular arrow
         self.home_btn = QToolButton()
         self.home_btn.setText("↻")  # Circular arrow for reset
         self.home_btn.setToolTip("Reset view")
@@ -135,22 +136,23 @@ class MatplotlibPlotWidget(QWidget):
         # Store data for retention time calculation
         self.data_lines = []
         
-        # Set widget background to white
-        self.setStyleSheet("background-color: white;")
-        
         self._setup_ui()
         
     def _setup_ui(self):
         """Setup the UI with matplotlib figure."""
+        # Set widget background to white - simple approach
+        self.setStyleSheet("background-color: white;")
+        
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
         # Create matplotlib figure with optimizations
         # Smaller figure size and no tight_layout for faster creation
-        self.figure = Figure(figsize=(6, 3), dpi=80, tight_layout=False, facecolor='white')
+        self.figure = Figure(figsize=(6, 3), dpi=80, tight_layout=False, facecolor='white', edgecolor='white')
         self.canvas = FigureCanvas(self.figure)
-        self.canvas.setStyleSheet("background-color: white;")
+        # Force the canvas widget to have white background
+        self.canvas.setStyleSheet("background-color: white; border: none;")
         
         # Create subplot with adjusted margins for speed
         self.ax = self.figure.add_subplot(111, facecolor='white')

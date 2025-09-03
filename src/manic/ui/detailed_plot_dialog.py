@@ -100,6 +100,7 @@ class DetailedPlotDialog(QDialog):
         
         # Container widget for the scroll area
         scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("background-color: white;")
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
 

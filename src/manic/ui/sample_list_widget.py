@@ -3,7 +3,7 @@ from typing import List
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QListWidget, QListWidgetItem
 
-from src.manic.utils.constants import FONT
+from manic.constants import FONT
 
 
 class SampleListWidget(QListWidget):

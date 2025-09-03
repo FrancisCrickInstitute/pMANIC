@@ -32,6 +32,24 @@ from manic.io.tic_reader import read_tic
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.ui.colors import label_colors  # Import the same colors as main window
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
+from manic.constants import (
+    DETAILED_DIALOG_WIDTH,
+    DETAILED_DIALOG_HEIGHT,
+    DETAILED_DIALOG_MIN_WIDTH,
+    DETAILED_DIALOG_MIN_HEIGHT,
+    DETAILED_DIALOG_SCREEN_RATIO,
+    DETAILED_EIC_HEIGHT,
+    DETAILED_TIC_HEIGHT,
+    DETAILED_MS_HEIGHT,
+    DETAILED_EIC_MIN_HEIGHT,
+    DETAILED_TIC_MIN_HEIGHT,
+    DETAILED_MS_MIN_HEIGHT,
+    MS_TIME_TOLERANCE,
+    PLOT_LINE_WIDTH,
+    PLOT_STEM_WIDTH,
+    GUIDELINE_ALPHA,
+    PLOT_GUIDELINE_WIDTH,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,15 +86,15 @@ class DetailedPlotDialog(QDialog):
             f"Detailed View - {self.compound_name} ({self.sample_name})"
         )
         self.setModal(True)
-        self.resize(1400, 1100)  # Larger default size
-        self.setMinimumSize(800, 600)  # Smaller minimum to allow for smaller screens
+        self.resize(DETAILED_DIALOG_WIDTH, DETAILED_DIALOG_HEIGHT)  # Larger default size
+        self.setMinimumSize(DETAILED_DIALOG_MIN_WIDTH, DETAILED_DIALOG_MIN_HEIGHT)  # Smaller minimum to allow for smaller screens
         
         # Calculate optimal window size based on screen dimensions
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen()
         if screen:
             screen_rect = screen.availableGeometry()
-            self.setMaximumSize(int(screen_rect.width() * 0.95), int(screen_rect.height() * 0.95))
+            self.setMaximumSize(int(screen_rect.width() * DETAILED_DIALOG_SCREEN_RATIO), int(screen_rect.height() * DETAILED_DIALOG_SCREEN_RATIO))
 
         # Configure primary layout structure
         layout = QVBoxLayout(self)
@@ -117,7 +135,7 @@ class DetailedPlotDialog(QDialog):
             x_label="Time (min)",
             y_label="Intensity",
         )
-        self.eic_plot.setMinimumHeight(250)  # Minimum height for usability
+        self.eic_plot.setMinimumHeight(DETAILED_EIC_MIN_HEIGHT)  # Minimum height for usability
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
 
@@ -127,7 +145,7 @@ class DetailedPlotDialog(QDialog):
             x_label="Time (min)",
             y_label="Total Intensity",
         )
-        self.tic_plot.setMinimumHeight(250)  # Minimum height for usability
+        self.tic_plot.setMinimumHeight(DETAILED_TIC_MIN_HEIGHT)  # Minimum height for usability
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.tic_plot)
 
@@ -135,12 +153,12 @@ class DetailedPlotDialog(QDialog):
         self.ms_plot = MatplotlibPlotWidget(
             title="Mass Spectrum", x_label="m/z", y_label="Intensity"
         )
-        self.ms_plot.setMinimumHeight(200)  # Slightly smaller minimum for MS
+        self.ms_plot.setMinimumHeight(DETAILED_MS_MIN_HEIGHT)  # Slightly smaller minimum for MS
         self.ms_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.ms_plot)
 
         # Configure initial plot height proportions
-        splitter.setSizes([450, 450, 350])
+        splitter.setSizes([DETAILED_EIC_HEIGHT, DETAILED_TIC_HEIGHT, DETAILED_MS_HEIGHT])
         
         # Add splitter to scroll layout
         scroll_layout.addWidget(splitter)
@@ -260,7 +278,7 @@ class DetailedPlotDialog(QDialog):
             if self.compound_info:
                 retention_time = self.compound_info.retention_time
                 self.ms_data = read_ms_at_time(
-                    self.sample_name, retention_time, tolerance=0.1
+                    self.sample_name, retention_time, tolerance=MS_TIME_TOLERANCE
                 )
 
                 if self.ms_data:
@@ -296,7 +314,7 @@ class DetailedPlotDialog(QDialog):
                     self.eic_data.time,
                     self.eic_data.intensity,
                     color=color,
-                    width=2,
+                    width=PLOT_LINE_WIDTH,
                     name=f"{self.compound_name} EIC",
                 )
             else:
@@ -313,7 +331,7 @@ class DetailedPlotDialog(QDialog):
                         self.eic_data.time,
                         self.eic_data.intensity[i, :],
                         color=color,
-                        width=2,
+                        width=PLOT_LINE_WIDTH,
                         name=f"M+{i}",
                     )
 
@@ -324,13 +342,13 @@ class DetailedPlotDialog(QDialog):
 
             # Render integration boundary markers with transparency
             self.eic_plot.add_vertical_line(
-                left_bound, color="rgba(255,0,0,0.5)", width=1, style="dashed"
+                left_bound, color=f"rgba(255,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="dashed"
             )
             self.eic_plot.add_vertical_line(
-                right_bound, color="rgba(255,0,0,0.5)", width=1, style="dashed"
+                right_bound, color=f"rgba(255,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="dashed"
             )
             self.eic_plot.add_vertical_line(
-                rt, color="rgba(0,0,0,0.5)", width=1, style="dotted"
+                rt, color=f"rgba(0,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="dotted"
             )
 
             # Execute batch rendering for performance
@@ -360,7 +378,7 @@ class DetailedPlotDialog(QDialog):
                 self.tic_data.time,
                 self.tic_data.intensity,
                 color="darkgreen",
-                width=2,
+                width=PLOT_LINE_WIDTH,
                 name="Total Ion Chromatogram",
             )
 
@@ -368,7 +386,7 @@ class DetailedPlotDialog(QDialog):
             if self.compound_info:
                 rt = self.compound_info.retention_time
                 self.tic_plot.add_vertical_line(
-                    rt, color="rgba(255,0,0,0.5)", width=1, style="solid"
+                    rt, color=f"rgba(255,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="solid"
                 )
 
             # Execute batch rendering for performance
@@ -391,15 +409,15 @@ class DetailedPlotDialog(QDialog):
 
             # Render mass spectrum as stem plot
             self.ms_plot.plot_stems(
-                self.ms_data.mz, self.ms_data.intensity, color="darkblue", width=2
+                self.ms_data.mz, self.ms_data.intensity, color="darkblue", width=PLOT_STEM_WIDTH
             )
 
             # Mark target m/z position with transparent indicator
             if self.compound_info:
                 self.ms_plot.add_vertical_line(
                     self.compound_info.mass0,
-                    color="rgba(255,0,0,0.5)",
-                    width=1,
+                    color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
+                    width=PLOT_GUIDELINE_WIDTH,
                     style="solid",
                 )
 

@@ -16,11 +16,42 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QF
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QPalette, QColor
 
+from manic.constants import (
+    PLOT_DPI,
+    PLOT_FIGURE_WIDTH,
+    PLOT_FIGURE_HEIGHT,
+    PLOT_MARGIN_LEFT,
+    PLOT_MARGIN_RIGHT,
+    PLOT_MARGIN_TOP,
+    PLOT_MARGIN_BOTTOM,
+    PLOT_TITLE_FONTSIZE,
+    PLOT_LABEL_FONTSIZE,
+    PLOT_TICK_FONTSIZE,
+    PLOT_TITLE_PADDING,
+    PLOT_GRID_ALPHA,
+    PLOT_GRID_LINEWIDTH,
+    PLOT_AXIS_SPINE_WIDTH,
+    PLOT_LINE_WIDTH,
+    PLOT_STEM_WIDTH,
+    PLOT_GUIDELINE_WIDTH,
+    PLOT_MIN_HEIGHT,
+    TOOLBAR_MAX_HEIGHT,
+    TOOLBAR_BUTTON_PADDING,
+    TOOLBAR_BUTTON_MARGIN,
+    TOOLBAR_SPACING,
+    TOOLBAR_MARGINS,
+    BUTTON_HOVER_OPACITY,
+    BUTTON_PRESSED_OPACITY,
+    BUTTON_CHECKED_BORDER_OPACITY,
+    SCIENTIFIC_NOTATION_THRESHOLD,
+    GUIDELINE_ALPHA,
+)
+
 # Configure matplotlib for Qt5 integration with performance optimizations
 import matplotlib
 matplotlib.use('Qt5Agg')
 # Configure matplotlib rendering parameters for optimal performance
-matplotlib.rcParams['figure.dpi'] = 80  # Optimized DPI for responsive rendering
+matplotlib.rcParams['figure.dpi'] = PLOT_DPI  # Optimized DPI for responsive rendering
 matplotlib.rcParams['figure.autolayout'] = False  # Manual layout control for performance
 matplotlib.rcParams['axes.unicode_minus'] = False  # Simplified minus sign rendering
 
@@ -63,32 +94,32 @@ class CompactNavigationToolbar(QWidget):
     def _setup_ui(self):
         """Create a compact toolbar with essential buttons."""
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(2)
+        layout.setContentsMargins(TOOLBAR_MARGINS, TOOLBAR_MARGINS, TOOLBAR_MARGINS, TOOLBAR_MARGINS)
+        layout.setSpacing(TOOLBAR_SPACING)
         
         # Configure toolbar with clean white background
         self.setStyleSheet("background-color: white;")
         
         # Define consistent button styling with hover and toggle states
-        button_style = """
-            QToolButton {
+        button_style = f"""
+            QToolButton {{
                 border: none;
-                padding: 3px;
-                margin: 1px;
+                padding: {TOOLBAR_BUTTON_PADDING}px;
+                margin: {TOOLBAR_BUTTON_MARGIN}px;
                 background-color: transparent;
                 border-radius: 3px;
                 color: black;
-            }
-            QToolButton:hover {
-                background-color: rgba(0, 0, 0, 0.1);
-            }
-            QToolButton:pressed {
-                background-color: rgba(0, 0, 0, 0.2);
-            }
-            QToolButton:checked {
+            }}
+            QToolButton:hover {{
+                background-color: rgba(0, 0, 0, {BUTTON_HOVER_OPACITY});
+            }}
+            QToolButton:pressed {{
+                background-color: rgba(0, 0, 0, {BUTTON_PRESSED_OPACITY});
+            }}
+            QToolButton:checked {{
                 background-color: rgba(0, 120, 215, 0.2);
-                border: 1px solid rgba(0, 120, 215, 0.5);
-            }
+                border: 1px solid rgba(0, 120, 215, {BUTTON_CHECKED_BORDER_OPACITY});
+            }}
         """
         
         # Reset button: returns plot to original view state
@@ -120,7 +151,7 @@ class CompactNavigationToolbar(QWidget):
         layout.addStretch()
         
         # Constrain toolbar height for space efficiency
-        self.setMaximumHeight(30)
+        self.setMaximumHeight(TOOLBAR_MAX_HEIGHT)
         
     def _on_pan(self):
         """Toggle plot panning mode with exclusive button state management."""
@@ -177,29 +208,29 @@ class MatplotlibPlotWidget(QWidget):
         layout.setSpacing(0)
         
         # Initialize matplotlib figure with performance-optimized parameters
-        self.figure = Figure(figsize=(6, 3), dpi=80, tight_layout=False, facecolor='white', edgecolor='white')
+        self.figure = Figure(figsize=(PLOT_FIGURE_WIDTH, PLOT_FIGURE_HEIGHT), dpi=PLOT_DPI, tight_layout=False, facecolor='white', edgecolor='white')
         self.canvas = FigureCanvas(self.figure)
         # Ensure canvas maintains consistent white background
         self.canvas.setStyleSheet("background-color: white; border: none;")
         
         # Configure subplot with optimized margin parameters
         self.ax = self.figure.add_subplot(111, facecolor='white')
-        self.figure.subplots_adjust(left=0.1, right=0.95, top=0.92, bottom=0.15)
+        self.figure.subplots_adjust(left=PLOT_MARGIN_LEFT, right=PLOT_MARGIN_RIGHT, top=PLOT_MARGIN_TOP, bottom=PLOT_MARGIN_BOTTOM)
         
         # Configure minimal axis styling for clean appearance
         self.ax.spines['top'].set_visible(False)
         self.ax.spines['right'].set_visible(False)
-        self.ax.spines['left'].set_linewidth(0.5)
-        self.ax.spines['bottom'].set_linewidth(0.5)
+        self.ax.spines['left'].set_linewidth(PLOT_AXIS_SPINE_WIDTH)
+        self.ax.spines['bottom'].set_linewidth(PLOT_AXIS_SPINE_WIDTH)
         
         # Initialize plot labels and title
-        self.ax.set_title(self.title, fontsize=10, pad=5)
-        self.ax.set_xlabel(self.x_label, fontsize=9)
-        self.ax.set_ylabel(self.y_label, fontsize=9)
+        self.ax.set_title(self.title, fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING)
+        self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
+        self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
         
         # Apply subtle grid styling for reference
-        self.ax.grid(True, alpha=0.2, linestyle='-', linewidth=0.5)
-        self.ax.tick_params(labelsize=8)
+        self.ax.grid(True, alpha=PLOT_GRID_ALPHA, linestyle='-', linewidth=PLOT_GRID_LINEWIDTH)
+        self.ax.tick_params(labelsize=PLOT_TICK_FONTSIZE)
         
         # Integrate custom navigation toolbar
         self.toolbar = CompactNavigationToolbar(self.canvas, self)
@@ -209,28 +240,28 @@ class MatplotlibPlotWidget(QWidget):
         layout.addWidget(self.canvas)
         
         # Define minimum widget dimensions
-        self.setMinimumHeight(200)
+        self.setMinimumHeight(PLOT_MIN_HEIGHT)
         
     def clear_plot(self):
         """Clear all data from the plot."""
         self.ax.clear()
         self.data_lines = []
         self.ax.set_facecolor('white')
-        self.ax.set_title(self.title, fontsize=10, pad=5)
-        self.ax.set_xlabel(self.x_label, fontsize=9)
-        self.ax.set_ylabel(self.y_label, fontsize=9)
-        self.ax.grid(True, alpha=0.2, linestyle='-', linewidth=0.5)
-        self.ax.tick_params(labelsize=8)
+        self.ax.set_title(self.title, fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING)
+        self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
+        self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
+        self.ax.grid(True, alpha=PLOT_GRID_ALPHA, linestyle='-', linewidth=PLOT_GRID_LINEWIDTH)
+        self.ax.tick_params(labelsize=PLOT_TICK_FONTSIZE)
         
         # Restore axis styling configuration
         self.ax.spines['top'].set_visible(False)
         self.ax.spines['right'].set_visible(False)
-        self.ax.spines['left'].set_linewidth(0.5)
-        self.ax.spines['bottom'].set_linewidth(0.5)
+        self.ax.spines['left'].set_linewidth(PLOT_AXIS_SPINE_WIDTH)
+        self.ax.spines['bottom'].set_linewidth(PLOT_AXIS_SPINE_WIDTH)
         # Defer rendering until data is loaded
         
     def plot_line(self, x_data: np.ndarray, y_data: np.ndarray, 
-                  color: str = "blue", width: int = 2, name: str = ""):
+                  color: str = "blue", width: int = PLOT_LINE_WIDTH, name: str = ""):
         """
         Plot a line.
         
@@ -278,7 +309,7 @@ class MatplotlibPlotWidget(QWidget):
             self.ax.autoscale_view()
             
             # Use scientific notation for large numbers
-            if np.max(np.abs(y_data)) > 10000:
+            if np.max(np.abs(y_data)) > SCIENTIFIC_NOTATION_THRESHOLD:
                 self.ax.ticklabel_format(axis='y', style='scientific', scilimits=(0,0))
                 self.ax.yaxis.get_offset_text().set_fontsize(8)
             
@@ -288,7 +319,7 @@ class MatplotlibPlotWidget(QWidget):
             logger.error(f"Failed to plot line: {e}")
             
     def plot_stems(self, x_data: np.ndarray, y_data: np.ndarray,
-                   color: str = "darkblue", width: int = 1):
+                   color: str = "darkblue", width: int = PLOT_STEM_WIDTH):
         """
         Plot vertical lines from zero (stem plot) for MS data.
         
@@ -327,7 +358,7 @@ class MatplotlibPlotWidget(QWidget):
             self.ax.set_ylim(0, y_max * 1.1)
             
             # Use scientific notation for large numbers
-            if y_max > 10000:
+            if y_max > SCIENTIFIC_NOTATION_THRESHOLD:
                 self.ax.ticklabel_format(axis='y', style='scientific', scilimits=(0,0))
                 self.ax.yaxis.get_offset_text().set_fontsize(8)
             
@@ -337,7 +368,7 @@ class MatplotlibPlotWidget(QWidget):
             logger.error(f"Failed to plot stems: {e}")
             
     def add_vertical_line(self, x_position: float, color: str = "red", 
-                         width: int = 1, style: str = "solid"):
+                         width: int = PLOT_GUIDELINE_WIDTH, style: str = "solid"):
         """
         Add a vertical line at specified position.
         

@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QLabel
 
-from src.manic.utils.constants import FONT
+from manic.constants import FONT
 
 
 class StandardIndicator(QLabel):

@@ -193,6 +193,14 @@ class GraphView(QWidget):
             plot.set_selected(False)
         self._selected_plots.clear()
         self.selection_changed.emit([])
+    
+    def clear_all_plots(self):
+        """Clear all plots from the graph view"""
+        self.clear_selection()
+        self._current_plots.clear()
+        self._current_compound = ""
+        self._current_samples = []
+        self._clear_layout()
 
     def select_all_plots(self):
         """Select all currently displayed plots"""

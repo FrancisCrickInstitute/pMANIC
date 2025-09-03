@@ -22,6 +22,7 @@ from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import CdfImportWorker, EicRegenerationWorker
+from manic.models.database import clear_database
 from src.manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
@@ -40,6 +41,11 @@ class MainWindow(QMainWindow):
         # Menu actions
         self.load_cdf_action = None
         self.load_compound_action = None
+        self.clear_session_action = None
+        
+        # State tracking for menu management
+        self.compound_data_loaded = False
+        self.cdf_data_loaded = False
 
         self.setup_ui()
 
@@ -98,8 +104,17 @@ class MainWindow(QMainWindow):
         # Add a separator to the file menu
         file_menu.addSeparator()
 
+        # Create the Clear Session action
+        self.clear_session_action = QAction("Clear Session", self)
+        self.clear_session_action.triggered.connect(self.clear_session)
+        # Add the clear session action to the file menu
+        file_menu.addAction(self.clear_session_action)
+
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
+        
+        # Initialize menu states
+        self._update_menu_states()
 
         # Connect the toolbar's custom signals to handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
@@ -174,6 +189,30 @@ class MainWindow(QMainWindow):
         """Show a question dialog and return the result (QMessageBox.Yes or QMessageBox.No)."""
         msg_box = self._create_message_box("question", title, text, informative_text, parent)
         return msg_box.exec()
+    
+    def _update_menu_states(self):
+        """Update menu item enabled/disabled states based on current data state."""
+        # Load Compound Data: enabled only if not yet loaded
+        self.load_compound_action.setEnabled(not self.compound_data_loaded)
+        
+        # Load CDF Data: enabled only if compound data loaded but CDF not loaded
+        self.load_cdf_action.setEnabled(self.compound_data_loaded and not self.cdf_data_loaded)
+        
+        # Clear Session: enabled if any data loaded
+        self.clear_session_action.setEnabled(self.compound_data_loaded or self.cdf_data_loaded)
+        
+        # Add tooltips to disabled items
+        if self.compound_data_loaded:
+            self.load_compound_action.setToolTip("Compound data already loaded. Use 'Clear Session' to start over.")
+        else:
+            self.load_compound_action.setToolTip("Load compound list and parameter data")
+            
+        if not self.compound_data_loaded:
+            self.load_cdf_action.setToolTip("Load compound data first before loading raw data")
+        elif self.cdf_data_loaded:
+            self.load_cdf_action.setToolTip("Raw data already loaded. Use 'Clear Session' to start over.")
+        else:
+            self.load_cdf_action.setToolTip("Load raw CDF data files")
 
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
@@ -208,6 +247,10 @@ class MainWindow(QMainWindow):
             self.compounds_data_storage = import_compound_excel(file_path)
             self.toolbar.update_label_colours(False, True)
             self.toolbar.update_compound_list(list_compound_names())
+            
+            # Update state and menu
+            self.compound_data_loaded = True
+            self._update_menu_states()
 
         except Exception as e:
             msg_box = self._create_message_box("warning", "Error", str(e))
@@ -259,6 +302,10 @@ class MainWindow(QMainWindow):
         # update samples list in toolbar
         # update to samples list in toolbar will trigger plotting
         self.toolbar.update_sample_list(active_samples)
+        
+        # Update state and menu
+        self.cdf_data_loaded = True
+        self._update_menu_states()
 
     def _import_fail(self, msg: str):
         self.progress_dialog.close()
@@ -557,3 +604,65 @@ class MainWindow(QMainWindow):
                                           f"Data regeneration failed:\n\n{error_msg}\n\n"
                                           f"Please check the log files for more details.")
         msg_box.exec()
+
+    def clear_session(self):
+        """Clear all loaded data and reset application state."""
+        reply = self._show_question_dialog(
+            "Clear Session", 
+            "This will clear all loaded data and reset the application.",
+            "All compound data, raw data, and session settings will be removed. This cannot be undone."
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                # Temporarily disconnect signals to prevent cascading events during clear
+                self.toolbar.samples_selected.disconnect()
+                self.toolbar.compound_selected.disconnect()
+                
+                # Reset UI state flags first
+                self.compound_data_loaded = False
+                self.cdf_data_loaded = False
+                
+                # Clear visual elements immediately
+                self.graph_view.clear_all_plots()
+                self.toolbar.isotopologue_ratios._clear_chart()
+                self.toolbar.total_abundance._clear_chart()
+                
+                # Force UI update to show cleared graphs
+                self.graph_view.repaint()
+                
+                # Clear data lists
+                self.toolbar.update_compound_list([])
+                self.toolbar.update_sample_list([])
+                self.toolbar.update_label_colours(False, False)
+                
+                # Clear the database
+                clear_database()
+                logger.info("Database cleared successfully")
+                
+                # Reconnect signals
+                self.toolbar.samples_selected.connect(self.on_samples_selected)
+                self.toolbar.compound_selected.connect(self.on_compound_selected)
+                
+                # Update menu states
+                self._update_menu_states()
+                
+                # Show success message
+                msg_box = self._create_message_box("information", "Session Cleared", 
+                                                  "All data has been cleared. You can now load new data.")
+                msg_box.exec()
+                
+                logger.info("Session cleared successfully")
+                
+            except Exception as e:
+                # Ensure signals are reconnected even if clearing fails
+                try:
+                    self.toolbar.samples_selected.connect(self.on_samples_selected)
+                    self.toolbar.compound_selected.connect(self.on_compound_selected)
+                except:
+                    pass  # Signals might already be connected
+                    
+                logger.error(f"Failed to clear session: {e}")
+                msg_box = self._create_message_box("critical", "Clear Session Failed", 
+                                                  f"Failed to clear session: {str(e)}")
+                msg_box.exec()

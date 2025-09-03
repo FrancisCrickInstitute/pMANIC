@@ -187,6 +187,11 @@ class Toolbar(QWidget):
 
     def fill_integration_window(self, compound_name: str):
         """Fill integration window fields with data for the specified compound"""
+        # Skip if compound_name is empty or placeholder text
+        if not compound_name or compound_name.startswith("- No") or compound_name.startswith("No "):
+            self.integration.populate_fields(None)
+            return
+            
         try:
             compound_data = read_compound(compound_name)
 

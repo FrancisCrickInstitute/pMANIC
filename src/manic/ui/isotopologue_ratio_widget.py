@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 import numpy as np
@@ -12,13 +13,16 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QMouseEvent
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.eic_reader import EIC
+from manic.processors.eic_correction_manager import read_corrected_eic
 
 from .colors import label_colors
+
+logger = logging.getLogger(__name__)
 
 
 class IsotopologueRatioWidget(QWidget):
@@ -35,12 +39,15 @@ class IsotopologueRatioWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("isotopologueRatioWidget")
 
+        # Flag to use corrected data when available
+        self.use_corrected = True
+
         # Create chart and chart view
         self.chart = QChart()
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
+
         # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
@@ -174,15 +181,30 @@ class IsotopologueRatioWidget(QWidget):
                 # Single trace - integrate directly
                 area = np.trapz(eic.intensity[mask], eic.time[mask])
                 area = max(0, area)  # Ensure non-negative
-                
+
                 # For single trace: ratio is always 1.0 (100%)
                 ratios.append(np.array([1.0]))
                 total_abundances.append(area)
             else:
-                # Multi-trace - integrate each isotopologue
+                # Multi-trace - check for corrected data if enabled
+                intensity_to_use = eic.intensity
+
+                if self.use_corrected:
+                    corrected = read_corrected_eic(eic.sample_name, compound_name)
+                    if corrected is not None:
+                        intensity_to_use = corrected
+                        logger.info(
+                            f"Using corrected data for {compound_name} in {eic.sample_name}"
+                        )
+                    else:
+                        logger.debug(
+                            f"No corrected data available for {compound_name} in {eic.sample_name}"
+                        )
+
+                # Integrate each isotopologue
                 isotope_areas = []
-                for i in range(eic.intensity.shape[0]):
-                    area = np.trapz(eic.intensity[i, mask], eic.time[mask])
+                for i in range(intensity_to_use.shape[0]):
+                    area = np.trapz(intensity_to_use[i, mask], eic.time[mask])
                     isotope_areas.append(max(0, area))  # Ensure non-negative
 
                 # Calculate total abundance (sum of all isotopologue areas)
@@ -327,32 +349,48 @@ class IsotopologueRatioWidget(QWidget):
         """Handle double-click on chart view to show popup chart."""
         if event.button() == Qt.LeftButton and self._has_data():
             self._show_popup_chart()
-    
+
     def mouseDoubleClickEvent(self, event: QMouseEvent):
         """Handle double-click on widget (but not chart view) to show popup chart."""
         if event.button() == Qt.LeftButton and self._has_data():
             self._show_popup_chart()
         super().mouseDoubleClickEvent(event)
-    
+
     def _has_data(self) -> bool:
         """Check if chart has data to display."""
-        return (self._current_ratios is not None and 
-                self._current_sample_names is not None and 
-                len(self._current_ratios) > 0)
-    
+        return (
+            self._current_ratios is not None
+            and self._current_sample_names is not None
+            and len(self._current_ratios) > 0
+        )
+
+    def set_use_corrected(self, use_corrected: bool) -> None:
+        """
+        Set whether to use corrected data when available.
+
+        Args:
+            use_corrected: If True, use natural abundance corrected data
+        """
+        logger.info(f"Setting use_corrected to {use_corrected}")
+        self.use_corrected = use_corrected
+        # Refresh current display if we have data
+        if self._current_eics and self._current_compound:
+            logger.info(f"Refreshing display for {self._current_compound}")
+            self.update_ratios(self._current_compound, self._current_eics)
+
     def _show_popup_chart(self):
         """Show enlarged chart in popup dialog."""
         try:
             from manic.ui.chart_popup_dialog import ChartPopupDialog
-            
+
             dialog = ChartPopupDialog(
                 chart_type="isotopologue_ratios",
                 title="Label Incorporation",
                 data=self._current_ratios,
                 sample_names=self._current_sample_names,
-                parent=self
+                parent=self,
             )
             dialog.exec()
-            
+
         except Exception as e:
             print(f"Failed to show popup chart: {e}")

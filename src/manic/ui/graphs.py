@@ -89,11 +89,19 @@ class GraphView(QWidget):
         # Store current compound and samples for integration window updates
         self._current_compound: str = ""
         self._current_samples: List[str] = []
+        
+        # Track whether to use corrected data
+        self.use_corrected = True  # Default to using corrected data
 
         # throttle resize events – avoids constant redraw while user resizes
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._update_graph_sizes)
+
+    def set_use_corrected(self, use_corrected: bool):
+        """Set whether to use natural abundance corrected data."""
+        self.use_corrected = use_corrected
+        logger.info(f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data")
 
     # public function
     def plot_compound(self, compound_name: str, samples: List[str]) -> None:
@@ -112,7 +120,7 @@ class GraphView(QWidget):
 
         # time db retreival for debugging
         with measure_time("get_eics_from_db"):
-            eics = get_eics_for_compound(compound_name, samples)  # new pipeline
+            eics = get_eics_for_compound(compound_name, samples, use_corrected=self.use_corrected)  # new pipeline
 
         num = len(eics)
         if num == 0:
@@ -274,6 +282,11 @@ class GraphView(QWidget):
         """Get the list of all currently displayed samples"""
         return self._current_samples.copy()
 
+    def set_use_corrected(self, use_corrected: bool):
+        """Set whether to use corrected data when reading EICs"""
+        self.use_corrected = use_corrected
+        logger.info(f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data")
+    
     def clear_selection(self):
         """Clear all plot selections"""
         for plot in self._selected_plots:

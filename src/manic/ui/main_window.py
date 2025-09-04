@@ -142,6 +142,15 @@ class MainWindow(QMainWindow):
         self.mass_tolerance_action.triggered.connect(self.show_mass_tolerance_dialog)
         settings_menu.addAction(self.mass_tolerance_action)
 
+        # Natural abundance correction toggle action
+        self.nat_abundance_toggle = QAction("Natural Abundance Correction: On", self)
+        self.nat_abundance_toggle.setCheckable(True)
+        self.nat_abundance_toggle.setChecked(True)  # On by default
+        self.nat_abundance_toggle.triggered.connect(
+            self.toggle_natural_abundance_correction
+        )
+        settings_menu.addAction(self.nat_abundance_toggle)
+
         """ Create Help Menu """
 
         help_menu = menu_bar.addMenu("Help")
@@ -155,6 +164,9 @@ class MainWindow(QMainWindow):
 
         # Initialize menu states
         self._update_menu_states()
+
+        # Initialize natural abundance correction state
+        self.toolbar.isotopologue_ratios.set_use_corrected(True)  # On by default
 
         # Connect the toolbar's custom signals to handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
@@ -1071,3 +1083,31 @@ class MainWindow(QMainWindow):
                     f"Failed to clear session: {str(e)}",
                 )
                 msg_box.exec()
+
+    def toggle_natural_abundance_correction(self):
+        """Toggle natural abundance correction on/off."""
+        is_enabled = self.nat_abundance_toggle.isChecked()
+        logger.info(
+            f"Natural abundance correction toggled: {'ON' if is_enabled else 'OFF'}"
+        )
+
+        # Update menu text
+        self.nat_abundance_toggle.setText(
+            f"Natural Abundance Correction: {'On' if is_enabled else 'Off'}"
+        )
+
+        # Update the isotopologue ratio widget
+        self.toolbar.isotopologue_ratios.set_use_corrected(is_enabled)
+        
+        # Also update the graph view to use corrected/uncorrected data
+        self.graph_view.set_use_corrected(is_enabled)
+
+        # If we have data displayed, refresh everything
+        selected_compound = self.toolbar.get_selected_compound()
+        selected_samples = self.toolbar.get_selected_samples()
+
+        if selected_compound and selected_samples:
+            # Trigger a full replot of the main graphs
+            self.on_plot_button(selected_compound, selected_samples)
+            
+            # The above replot will also update isotopologue ratios and total abundance

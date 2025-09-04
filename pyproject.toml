@@ -11,11 +11,12 @@ dependencies = [
     "netcdf4~=1.7.2",
     "xlrd~=2.0.2",
     "openpyxl~=3.1.5",
-    "numpy~=2.3.1",
+    "numpy~=2.1.0",
     "pandas~=2.3.1",
     "pydantic~=2.4.2",
     "pyqtgraph~=0.13.4",
     "matplotlib~=3.9.0",
+    "scipy~=1.14.1",
 ]
 
 [tool.hatch.build.targets.sdist]

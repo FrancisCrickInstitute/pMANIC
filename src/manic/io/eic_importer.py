@@ -243,6 +243,16 @@ def import_eics(
     if tic_count > 0 or ms_count > 0:
         logger.info(f"Stored additional data: {tic_count} TIC chromatograms, {ms_count} MS spectra sets ({total_ms_peaks:,} total peaks)")
     
+    # Automatically calculate natural abundance corrections
+    try:
+        from manic.processors.eic_correction_manager import process_all_corrections
+        logger.info("Starting automatic natural abundance correction calculation...")
+        corrections_count = process_all_corrections()
+        if corrections_count > 0:
+            logger.info(f"Successfully calculated {corrections_count} natural abundance corrections")
+    except Exception as e:
+        logger.warning(f"Failed to calculate natural abundance corrections: {e}")
+    
     return inserted
 
 
@@ -310,8 +320,9 @@ def regenerate_compound_eics(
     done = 0
     regenerated = 0
     
-    # Delete existing EIC records for this compound
+    # Delete existing EIC and corrected records for this compound
     with get_connection() as conn:
+        # Delete raw EIC records
         delete_result = conn.execute(
             "DELETE FROM eic WHERE compound_name = ? AND sample_name IN ({})".format(
                 ','.join('?' * len(sample_names))
@@ -320,6 +331,17 @@ def regenerate_compound_eics(
         )
         deleted_count = delete_result.rowcount
         logger.info(f"Deleted {deleted_count} existing EIC records for '{compound_name}'")
+        
+        # Also delete corrected EIC records
+        delete_corrected_result = conn.execute(
+            "DELETE FROM eic_corrected WHERE compound_name = ? AND sample_name IN ({})".format(
+                ','.join('?' * len(sample_names))
+            ),
+            [compound_name] + sample_names
+        )
+        deleted_corrected_count = delete_corrected_result.rowcount
+        if deleted_corrected_count > 0:
+            logger.info(f"Deleted {deleted_corrected_count} existing corrected EIC records for '{compound_name}'")
     
     # Regenerate EICs for each sample
     for sample_name, cdf_path in sample_files.items():
@@ -370,4 +392,18 @@ def regenerate_compound_eics(
     
     elapsed = time.time() - start
     logger.info(f"Regenerated {regenerated} EICs for '{compound_name}' in {elapsed:.1f} s")
+    
+    # Recalculate natural abundance corrections for this compound
+    try:
+        from manic.processors.eic_correction_manager import apply_correction_to_eic
+        logger.info(f"Recalculating natural abundance corrections for '{compound_name}'...")
+        corrections_count = 0
+        for sample_name in sample_names:
+            if apply_correction_to_eic(sample_name, compound_name):
+                corrections_count += 1
+        if corrections_count > 0:
+            logger.info(f"Successfully recalculated {corrections_count} corrections for '{compound_name}'")
+    except Exception as e:
+        logger.warning(f"Failed to recalculate corrections for '{compound_name}': {e}")
+    
     return regenerated

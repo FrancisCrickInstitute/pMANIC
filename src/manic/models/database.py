@@ -20,7 +20,7 @@ def init_db() -> None:
     """
     # Check the .manic_app directory exists
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # open db file and sql schema in a single atomic context manager
     with (
         sqlite3.connect(DB_FILE) as conn,
@@ -28,40 +28,52 @@ def init_db() -> None:
     ):
         # Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON")
-        
+
         # Run migrations first
         _run_migrations(conn)
-        
+
         # read the sql script & send to sqlite in one call
         conn.executescript(fh.read())
-        
+
     logger.info("database ready at %s", DB_FILE)
 
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
     """Run database migrations to handle schema changes"""
-    
+
     # Check if session_activity table exists and has retention_time column
     try:
         cursor = conn.execute("PRAGMA table_info(session_activity)")
         columns = [row[1] for row in cursor.fetchall()]  # row[1] is column name
-        
-        if 'session_activity' in [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]:
-            if 'retention_time' not in columns:
+
+        if "session_activity" in [
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        ]:
+            if "retention_time" not in columns:
                 logger.info("Adding retention_time column to session_activity table")
-                conn.execute("ALTER TABLE session_activity ADD COLUMN retention_time REAL")
+                conn.execute(
+                    "ALTER TABLE session_activity ADD COLUMN retention_time REAL"
+                )
                 conn.commit()
-                
+
     except sqlite3.OperationalError as e:
         # Table doesn't exist yet, will be created by schema.sql
         logger.debug(f"Migration check: {e}")
         pass
-    
+
     # Migration for TIC and MS data tables (v4.0.0)
     try:
-        existing_tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-        
-        if 'tic_data' not in existing_tables:
+        existing_tables = [
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        ]
+
+        if "tic_data" not in existing_tables:
             logger.info("Creating tic_data table for v4.0.0")
             conn.execute("""
                 CREATE TABLE tic_data (
@@ -74,11 +86,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                     UNIQUE(sample_name, time)
                 )
             """)
-            conn.execute("CREATE INDEX idx_tic_sample_time ON tic_data(sample_name, time)")
+            conn.execute(
+                "CREATE INDEX idx_tic_sample_time ON tic_data(sample_name, time)"
+            )
             conn.commit()
-            
-        if 'ms_data' not in existing_tables:
-            logger.info("Creating ms_data table for v4.0.0") 
+
+        if "ms_data" not in existing_tables:
+            logger.info("Creating ms_data table for v4.0.0")
             conn.execute("""
                 CREATE TABLE ms_data (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,11 +105,58 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                     UNIQUE(sample_name, time, mz)
                 )
             """)
-            conn.execute("CREATE INDEX idx_ms_sample_time ON ms_data(sample_name, time)")
+            conn.execute(
+                "CREATE INDEX idx_ms_sample_time ON ms_data(sample_name, time)"
+            )
             conn.commit()
-                
+
     except sqlite3.OperationalError as e:
         logger.error(f"Migration error for TIC/MS tables: {e}")
+        pass
+
+    # Migration for formula and derivatization columns in compounds table
+    try:
+        cursor = conn.execute("PRAGMA table_info(compounds)")
+        columns = [row[1] for row in cursor.fetchall()]  # row[1] is column name
+
+        if "compounds" in [
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        ]:
+            # Add formula column if missing
+            if "formula" not in columns:
+                logger.info("Adding formula column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN formula TEXT")
+                conn.commit()
+
+            # Add label_type column if missing
+            if "label_type" not in columns:
+                logger.info("Adding label_type column to compounds table")
+                conn.execute(
+                    "ALTER TABLE compounds ADD COLUMN label_type TEXT DEFAULT 'C'"
+                )
+                conn.commit()
+
+            # Add derivatization columns if missing
+            if "tbdms" not in columns:
+                logger.info("Adding tbdms column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN tbdms INTEGER DEFAULT 0")
+                conn.commit()
+
+            if "meox" not in columns:
+                logger.info("Adding meox column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN meox INTEGER DEFAULT 0")
+                conn.commit()
+
+            if "me" not in columns:
+                logger.info("Adding me column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN me INTEGER DEFAULT 0")
+                conn.commit()
+
+    except sqlite3.OperationalError as e:
+        logger.error(f"Migration error for compounds table: {e}")
         pass
 
 

@@ -7,6 +7,11 @@ CREATE TABLE IF NOT EXISTS compounds (
     roffset       REAL DEFAULT 0,
     mass0         REAL,
     label_atoms   INTEGER DEFAULT 0,
+    formula       TEXT,  -- Molecular formula for natural abundance correction
+    label_type    TEXT DEFAULT 'C',  -- Element being labeled (C, N, etc.)
+    tbdms         INTEGER DEFAULT 0,  -- Number of TBDMS derivatizations
+    meox          INTEGER DEFAULT 0,  -- Number of MeOX derivatizations
+    me            INTEGER DEFAULT 0,  -- Number of methylations
     deleted       INTEGER DEFAULT 0
 );
 
@@ -53,3 +58,21 @@ CREATE TABLE IF NOT EXISTS session_activity (
     FOREIGN KEY (sample_name)   REFERENCES samples(sample_name),
     UNIQUE(compound_name, sample_name)
 );
+
+-- Corrected EIC data ---------------------------------------------
+CREATE TABLE IF NOT EXISTS eic_corrected (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    sample_name    TEXT NOT NULL,
+    compound_name  TEXT NOT NULL,
+    x_axis         BLOB,   -- Same time points as raw EIC
+    y_axis_corrected BLOB, -- Natural abundance corrected intensities
+    correction_applied INTEGER DEFAULT 1,  -- Flag if correction was successful
+    timestamp      REAL,   -- When correction was performed
+    deleted        INTEGER DEFAULT 0,
+    FOREIGN KEY (sample_name)   REFERENCES samples(sample_name),
+    FOREIGN KEY (compound_name) REFERENCES compounds(compound_name),
+    UNIQUE(sample_name, compound_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_eic_corrected_sample_compound
+          ON eic_corrected(sample_name, compound_name);

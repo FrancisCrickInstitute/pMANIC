@@ -14,6 +14,11 @@ class Compound:
     roffset: float
     label_atoms: int
     mass0: float
+    formula: Optional[str] = None
+    label_type: str = 'C'
+    tbdms: int = 0
+    meox: int = 0
+    me: int = 0
 
 
 def read_compound(compound_name: str) -> Compound:
@@ -30,7 +35,8 @@ def read_compound(compound_name: str) -> Compound:
         LookupError: If compound not found
     """
     sql = """
-        SELECT compound_name, retention_time, loffset, roffset, label_atoms, mass0
+        SELECT compound_name, retention_time, loffset, roffset, label_atoms, mass0,
+               formula, label_type, tbdms, meox, me
         FROM   compounds
         WHERE  compound_name=? AND deleted=0
         LIMIT  1
@@ -39,14 +45,19 @@ def read_compound(compound_name: str) -> Compound:
         row = conn.execute(sql, (compound_name,)).fetchone()
         if row is None:
             raise LookupError(f"Compound not found for {compound_name}")
-
+    
     return Compound(
         compound_name=row["compound_name"],
         retention_time=row["retention_time"],
         loffset=row["loffset"],
         roffset=row["roffset"],
-        label_atoms=int(row["label_atoms"]),
+        label_atoms=int(row["label_atoms"]) if row["label_atoms"] else 0,
         mass0=row["mass0"],
+        formula=row["formula"],
+        label_type=row["label_type"] or 'C',
+        tbdms=int(row["tbdms"]) if row["tbdms"] else 0,
+        meox=int(row["meox"]) if row["meox"] else 0,
+        me=int(row["me"]) if row["me"] else 0,
     )
 
 
@@ -99,4 +110,9 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
             roffset=session_row["roffset"],  # Override with session data  
             label_atoms=base_compound.label_atoms,  # Always from base compound
             mass0=base_compound.mass0,  # Always from base compound
+            formula=base_compound.formula,  # Always from base compound
+            label_type=base_compound.label_type,  # Always from base compound
+            tbdms=base_compound.tbdms,  # Always from base compound
+            meox=base_compound.meox,  # Always from base compound
+            me=base_compound.me,  # Always from base compound
         )

@@ -43,10 +43,10 @@ class Toolbar(QWidget):
                 border-radius: 8px;
             }
         """)
-        
+
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Scroll area handles overflow on smaller screens
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -54,9 +54,9 @@ class Toolbar(QWidget):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setFrameShape(QFrame.NoFrame)
         scroll_area.setStyleSheet("""
-            QScrollArea { 
-                border: none; 
-                background-color: transparent; 
+            QScrollArea {
+                border: none;
+                background-color: transparent;
             }
             QScrollBar:vertical {
                 background-color: #f0f0f0;
@@ -76,41 +76,75 @@ class Toolbar(QWidget):
                 height: 0px;
             }
         """)
-        
+
         # Content widget holds all toolbar elements
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(10, 10, 10, 10)
         content_layout.setSpacing(8)
 
+        # Group indicators together in a compact container
+        # Minimize vertical space while maintaining visual grouping
+        indicators_container = QWidget()
+        # Remove any border styling from the container
+        indicators_container.setStyleSheet("""
+            QWidget {
+                border: none;
+                background-color: transparent;
+            }
+        """)
+        indicators_layout = QVBoxLayout(indicators_container)
+        indicators_layout.setContentsMargins(2, 2, 2, 2)  # Minimal padding
+        indicators_layout.setSpacing(4)  # Reduced spacing between indicators
+        indicators_layout.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter
+        )
+
         self.loaded_data = LoadedDataWidget()
-        content_layout.addWidget(self.loaded_data)
+        indicators_layout.addWidget(
+            self.loaded_data, alignment=Qt.AlignmentFlag.AlignCenter
+        )
+
+        # Add extra vertical spacing between data indicators and standard indicator
+        indicators_layout.addSpacing(8)  # Additional spacing
 
         self.standard = StandardIndicator()
-        content_layout.addWidget(self.standard)
+        indicators_layout.addWidget(
+            self.standard, alignment=Qt.AlignmentFlag.AlignCenter
+        )
+
+        # Compact the container to fit content size
+        indicators_container.setMaximumHeight(
+            self.loaded_data.sizeHint().height() + 
+            self.standard.sizeHint().height() + 
+            20  # Account for margins, spacing, and extra vertical gap
+        )
+
+        # Add the container to the main layout with no stretch
+        content_layout.addWidget(indicators_container, stretch=0)
 
         self.sample_list = SampleListWidget()
-        content_layout.addWidget(self.sample_list)
+        content_layout.addWidget(self.sample_list, stretch=1)  # Give sample list more space
 
         self.compound_list = CompoundListWidget()
-        content_layout.addWidget(self.compound_list)
+        content_layout.addWidget(self.compound_list, stretch=1)  # Give compound list more space
 
         self.integration = IntegrationWindow()
-        content_layout.addWidget(self.integration)
+        content_layout.addWidget(self.integration, stretch=0)  # No stretch for integration window
 
         self.isotopologue_ratios = IsotopologueRatioWidget()
-        content_layout.addWidget(self.isotopologue_ratios, stretch=1)
+        content_layout.addWidget(self.isotopologue_ratios, stretch=2)  # Increased stretch for plots
 
         self.total_abundance = TotalAbundanceWidget()
-        content_layout.addWidget(self.total_abundance, stretch=1)
+        content_layout.addWidget(self.total_abundance, stretch=2)  # Increased stretch for plots
 
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)
-        
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
-        
+
         self.setFixedWidth(222)  # Accounts for border width
         self.setLayout(main_layout)
 
@@ -150,7 +184,7 @@ class Toolbar(QWidget):
             self.fill_integration_window(selected_text)
         else:
             self.compound_selected.emit("")
-    
+
     def on_internal_standard_selected(self, compound_name: str):
         """
         Handler for when a compound is selected as internal standard.
@@ -194,7 +228,7 @@ class Toolbar(QWidget):
             return selected_items[0].text()
         else:
             return ""
-    
+
     def get_internal_standard(self):
         """
         Get the currently selected internal standard.
@@ -205,10 +239,14 @@ class Toolbar(QWidget):
     def fill_integration_window(self, compound_name: str):
         """Fill integration window fields with data for the specified compound"""
         # Skip if compound_name is empty or placeholder text
-        if not compound_name or compound_name.startswith("- No") or compound_name.startswith("No "):
+        if (
+            not compound_name
+            or compound_name.startswith("- No")
+            or compound_name.startswith("No ")
+        ):
             self.integration.populate_fields(None)
             return
-            
+
         try:
             compound_data = read_compound(compound_name)
 

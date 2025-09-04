@@ -10,6 +10,9 @@ class StandardIndicator(QLabel):
         super().__init__("-- No Standard Selected --", parent)
         self.setFont(QFont(FONT, 10))
         self.setAlignment(Qt.AlignCenter)
+        self.setFixedHeight(24)  # Reduced fixed height for more compact display
+        # Match width to the combined width of data indicators (75 + 75 + spacing)
+        self.setFixedWidth(154)  # Account for 4px spacing between indicators
         self.internal_standard = None
         self._update_appearance()
 
@@ -32,12 +35,12 @@ class StandardIndicator(QLabel):
             color = GREEN
             self.setStyleSheet(
                 f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-                f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 5px;"
+                f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
             )
         else:
             # Red when not selected - matching LoadedDataWidget style
             color = RED
             self.setStyleSheet(
                 f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-                f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 5px;"
+                f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
             )

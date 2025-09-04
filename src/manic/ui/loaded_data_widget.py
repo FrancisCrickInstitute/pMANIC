@@ -16,11 +16,12 @@ class LoadedDataWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Store references to labels for easier updates
-        self.raw_data_label = self._create_status_label("Raw Data", RED)
+        # Compounds on the left, Raw Data on the right
         self.compounds_label = self._create_status_label("Compounds", RED)
+        self.raw_data_label = self._create_status_label("Raw Data", RED)
 
-        layout.addWidget(self.raw_data_label)
         layout.addWidget(self.compounds_label)
+        layout.addWidget(self.raw_data_label)
 
     def _create_status_label(self, text: str, color) -> QLabel:
         """Create a consistently styled status label"""

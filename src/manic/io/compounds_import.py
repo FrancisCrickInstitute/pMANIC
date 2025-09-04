@@ -131,10 +131,6 @@ def import_compound_excel(filepath: str | Path) -> int:
             meox = row.get("meox", 0)
             me = row.get("me", 0)
             
-            # Debug: log formula for first few rows
-            if idx < 5:
-                logger.info(f"Row {idx}: compound={row.get('name')}, formula={formula}")
-            
             cr = CompoundRow(
                 compound_name=row["name"],
                 retention_time=row["tr"],
@@ -148,10 +144,6 @@ def import_compound_excel(filepath: str | Path) -> int:
                 meox=meox,
                 me=me,
             )
-            
-            # Debug: log normalized formula for first few rows
-            if idx < 5:
-                logger.info(f"Row {idx} after validation: compound={cr.compound_name}, formula={cr.formula}")
             params.append(
                 (
                     cr.compound_name,
@@ -206,13 +198,11 @@ def import_compound_excel(filepath: str | Path) -> int:
                 params_no_formula = [(p[0], p[1], p[2], p[3], p[4], p[5], p[11]) for p in params]
                 conn.executemany(SQL_NO_FORMULA, params_no_formula)
         
-        # Debug: verify what was actually inserted
+        # Verify formula column accessibility
         try:
-            cursor = conn.execute("SELECT compound_name, formula FROM compounds WHERE deleted=0 LIMIT 5")
-            for row in cursor:
-                logger.info(f"DB check - compound: {row[0]}, formula: {row[1]}")
+            conn.execute("SELECT compound_name, formula FROM compounds WHERE deleted=0 LIMIT 1").fetchone()
         except Exception as e:
-            logger.error(f"Cannot read formula column: {e}")
+            logger.warning(f"Formula column may not be accessible: {e}")
 
     logger.info("Imported %d compound(s) from %s", len(params), path.name)
     return len(params)

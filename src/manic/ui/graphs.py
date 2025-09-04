@@ -109,7 +109,7 @@ class GraphView(QWidget):
         Build one mini-plot per active sample for the selected *compound*.
         """
 
-        logging.info("plotting compound")
+        # Begin compound plotting - logging removed to reduce noise
         self._clear_layout()
         if not samples:
             return

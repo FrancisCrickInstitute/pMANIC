@@ -20,7 +20,7 @@ def get_eics_for_compound(
     be compared even when absolute intensity differs.
     use_corrected=True reads from the natural abundance corrected data.
     """
-    logging.info(f"retreiving eics (use_corrected={use_corrected})")
+    # EIC retrieval - logging removed to reduce noise
     eics = []
     compound_obj = read_compound(compound)
     for sample in samples:

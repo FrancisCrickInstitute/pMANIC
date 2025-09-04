@@ -17,13 +17,17 @@ class EIC:
     intensity: np.ndarray
 
 
-def read_eic(sample: str, compound: Compound, use_corrected: bool = False) -> EIC:
-    """Read EIC data from either raw or corrected table.
+def read_eic(sample: str, compound: Compound, use_corrected: bool = True) -> EIC:
+    """Read EIC data from either corrected or raw table.
+    
+    Natural abundance correction is enabled by default to provide the most accurate
+    isotopologue data for metabolic flux analysis. Raw uncorrected data can be 
+    accessed by setting use_corrected=False.
     
     Args:
         sample: Sample name
         compound: Compound object
-        use_corrected: If True, read from eic_corrected table, otherwise from eic table
+        use_corrected: If True (default), read corrected data; False for raw data
     """
     compound_name = compound.compound_name
     

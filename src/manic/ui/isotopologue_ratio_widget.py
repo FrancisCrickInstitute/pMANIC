@@ -147,6 +147,11 @@ class IsotopologueRatioWidget(QWidget):
         """
         ratios = []
         total_abundances = []
+        
+        # Track correction usage for summary logging
+        corrected_count = 0
+        uncorrected_count = 0
+        multi_trace_samples = []
 
         for eic in eics:
             # Get integration parameters (with session overrides if available)
@@ -188,18 +193,17 @@ class IsotopologueRatioWidget(QWidget):
             else:
                 # Multi-trace - check for corrected data if enabled
                 intensity_to_use = eic.intensity
+                multi_trace_samples.append(eic.sample_name)
 
                 if self.use_corrected:
                     corrected = read_corrected_eic(eic.sample_name, compound_name)
                     if corrected is not None:
                         intensity_to_use = corrected
-                        logger.info(
-                            f"Using corrected data for {compound_name} in {eic.sample_name}"
-                        )
+                        corrected_count += 1
                     else:
-                        logger.debug(
-                            f"No corrected data available for {compound_name} in {eic.sample_name}"
-                        )
+                        uncorrected_count += 1
+                else:
+                    uncorrected_count += 1
 
                 # Integrate each isotopologue
                 isotope_areas = []
@@ -216,6 +220,18 @@ class IsotopologueRatioWidget(QWidget):
                     ratios.append(np.array(isotope_areas) / total_area)
                 else:
                     ratios.append(np.zeros(len(isotope_areas)))
+
+        # Log summary of correction usage for isotopologue integration
+        if multi_trace_samples:
+            total_samples = len(multi_trace_samples)
+            if corrected_count > 0 or uncorrected_count > 0:
+                correction_status = "corrected" if self.use_corrected else "uncorrected"
+                available_corrections = corrected_count if self.use_corrected else 0
+                logger.info(
+                    f"Isotopologue integration for {compound_name}: "
+                    f"{total_samples} samples processed "
+                    f"({available_corrections}/{total_samples} with {correction_status} data)"
+                )
 
         if ratios:
             return np.array(ratios), np.array(total_abundances)

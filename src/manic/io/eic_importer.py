@@ -164,7 +164,22 @@ def import_eics(
     if not compounds:
         raise RuntimeError("Compounds table is empty.")
 
-    total_work = len(cdf_files) * len(compounds)
+    # Count compounds that will need correction
+    corrections_needed = 0
+    with get_connection() as conn:
+        # Get formula info for compounds that need correction
+        correction_sql = """
+            SELECT COUNT(DISTINCT compound_name) as count
+            FROM compounds
+            WHERE deleted = 0
+            AND formula IS NOT NULL
+            AND label_atoms > 0
+        """
+        result = conn.execute(correction_sql).fetchone()
+        correction_compounds = result["count"] if result else 0
+        corrections_needed = correction_compounds * len(cdf_files)
+
+    total_work = len(cdf_files) * len(compounds) + corrections_needed
     done = 0
     inserted = 0
     tic_count = 0
@@ -236,22 +251,28 @@ def import_eics(
 
         # logger.info("processed %s", cdf_path.name)
 
-    elapsed = time.time() - start
-    logger.info("imported %d EICs in %.1f s", inserted, elapsed)
-    
     # Report additional data storage statistics
     if tic_count > 0 or ms_count > 0:
         logger.info(f"Stored additional data: {tic_count} TIC chromatograms, {ms_count} MS spectra sets ({total_ms_peaks:,} total peaks)")
     
     # Automatically calculate natural abundance corrections
-    try:
-        from manic.processors.eic_correction_manager import process_all_corrections
-        logger.info("Starting automatic natural abundance correction calculation...")
-        corrections_count = process_all_corrections()
-        if corrections_count > 0:
-            logger.info(f"Successfully calculated {corrections_count} natural abundance corrections")
-    except Exception as e:
-        logger.warning(f"Failed to calculate natural abundance corrections: {e}")
+    if corrections_needed > 0:
+        try:
+            from manic.processors.eic_correction_manager import process_all_corrections
+            
+            # Create progress callback that continues from where EIC import left off
+            def correction_progress(current, total):
+                if progress_cb:
+                    # Map correction progress to remaining work
+                    correction_done = int((current / total) * corrections_needed)
+                    progress_cb(done + correction_done, total_work)
+            
+            corrections_count = process_all_corrections(progress_cb=correction_progress)
+        except Exception as e:
+            logger.warning(f"Failed to calculate natural abundance corrections: {e}")
+    
+    elapsed = time.time() - start
+    logger.info("imported %d EICs in %.1f s", inserted, elapsed)
     
     return inserted
 

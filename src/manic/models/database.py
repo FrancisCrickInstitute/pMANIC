@@ -196,6 +196,7 @@ def clear_database():
         # Clear in order respecting foreign key constraints
         # session_activity references both compounds and samples, so clear it first
         conn.execute("DELETE FROM session_activity")
+        conn.execute("DELETE FROM eic_corrected")  # Clear corrected data before eic
         conn.execute("DELETE FROM eic")
         # Clear TIC and MS data that reference samples
         conn.execute("DELETE FROM tic_data")

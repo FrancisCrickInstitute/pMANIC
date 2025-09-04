@@ -55,14 +55,10 @@ def apply_correction_to_eic(sample_name: str, compound_name: str) -> bool:
             logger.warning(f"No isotopologue data for {compound_name} in {sample_name}")
             return False
 
-        # Log correction attempt
-        logger.info(
-            f"Starting natural abundance correction for {compound_name} in {sample_name}"
-        )
-        logger.info(f"  Formula: {compound.formula}")
-        logger.info(f"  Label atoms: {compound.label_atoms} {compound.label_type}")
-        logger.info(
-            f"  Derivatization: TBDMS={compound.tbdms}, MeOX={compound.meox}, Me={compound.me}"
+        # Log correction attempt (only at debug level)
+        logger.debug(
+            f"Correcting {compound_name} in {sample_name}: "
+            f"{compound.formula}, {compound.label_atoms} {compound.label_type}"
         )
 
         # Apply correction
@@ -95,15 +91,9 @@ def apply_correction_to_eic(sample_name: str, compound_name: str) -> bool:
         # Store corrected data
         store_corrected_eic(sample_name, compound_name, eic.time, corrected_intensity)
 
-        # Log success with details
-        logger.info(
-            f"Successfully applied natural abundance correction to {compound_name} in {sample_name}"
-        )
-        logger.info(
-            f"  Original ratios at peak: {[f'{r:.3f}' for r in original_ratios]}"
-        )
-        logger.info(
-            f"  Corrected ratios at peak: {[f'{r:.3f}' for r in corrected_ratios]}"
+        # Log success (minimal)
+        logger.debug(
+            f"Corrected {compound_name} in {sample_name}"
         )
 
         return True
@@ -128,15 +118,9 @@ def store_corrected_eic(
         time_array: Time points (same as original)
         corrected_intensity: Corrected intensity array
     """
-    logger.debug(f"Storing corrected data for {compound_name} in {sample_name}")
-    logger.debug(f"  Time points: {len(time_array)}")
-    logger.debug(f"  Intensity shape: {corrected_intensity.shape}")
-
     # Compress arrays for storage
     time_blob = zlib.compress(time_array.tobytes())
     intensity_blob = zlib.compress(corrected_intensity.tobytes())
-
-    logger.debug(f"  Compressed size: {len(intensity_blob)} bytes")
 
     sql = """
         INSERT OR REPLACE INTO eic_corrected
@@ -199,56 +183,135 @@ def read_corrected_eic(sample_name: str, compound_name: str) -> Optional[np.ndar
         return intensity_array
 
 
-def process_all_corrections() -> int:
+def process_all_corrections(progress_cb=None) -> int:
     """
     Process natural abundance corrections for all eligible samples.
+    Optimized to batch process by compound for better performance.
 
     Returns:
         Number of corrections applied
     """
-    logger.info("Starting batch natural abundance correction processing")
-
-    sql = """
-        SELECT DISTINCT e.sample_name, e.compound_name
-        FROM eic e
-        JOIN compounds c ON e.compound_name = c.compound_name
-        WHERE e.deleted = 0
-        AND c.deleted = 0
+    import time
+    start_time = time.time()
+    
+    # Get all compounds that need correction
+    compound_sql = """
+        SELECT DISTINCT c.compound_name, c.formula, c.label_type, c.label_atoms,
+                        c.tbdms, c.meox, c.me
+        FROM compounds c
+        WHERE c.deleted = 0
         AND c.formula IS NOT NULL
         AND c.label_atoms > 0
-        AND NOT EXISTS (
-            SELECT 1 FROM eic_corrected ec
-            WHERE ec.sample_name = e.sample_name
-            AND ec.compound_name = e.compound_name
-            AND ec.deleted = 0
+        AND EXISTS (
+            SELECT 1 FROM eic e
+            WHERE e.compound_name = c.compound_name
+            AND e.deleted = 0
         )
     """
-
+    
     count = 0
     failed_count = 0
+    corrector = NaturalAbundanceCorrector()  # Reuse single instance
+    
     with get_connection() as conn:
-        rows = conn.execute(sql).fetchall()
-        total = len(rows)
-
-        logger.info(f"Found {total} compound-sample pairs requiring correction")
-
-        for idx, row in enumerate(rows, 1):
-            logger.info(
-                f"Processing {idx}/{total}: {row['compound_name']} in {row['sample_name']}"
-            )
-            if apply_correction_to_eic(row["sample_name"], row["compound_name"]):
-                count += 1
-            else:
-                failed_count += 1
-
-    logger.info("=" * 60)
-    logger.info("Natural abundance correction batch complete:")
-    logger.info(f"  Successfully corrected: {count}")
-    logger.info(f"  Failed corrections: {failed_count}")
-    logger.info(f"  Total processed: {total}")
-    logger.info("=" * 60)
-
+        compounds = conn.execute(compound_sql).fetchall()
+        
+        if not compounds:
+            logger.info("No compounds requiring correction")
+            return 0
+        
+        # Silent processing - no logging during corrections
+        
+        for compound_idx, compound_row in enumerate(compounds):
+            compound_name = compound_row["compound_name"]
+            
+            # Get all samples for this compound that need correction
+            sample_sql = """
+                SELECT e.sample_name
+                FROM eic e
+                WHERE e.compound_name = ?
+                AND e.deleted = 0
+                AND NOT EXISTS (
+                    SELECT 1 FROM eic_corrected ec
+                    WHERE ec.sample_name = e.sample_name
+                    AND ec.compound_name = e.compound_name
+                    AND ec.deleted = 0
+                )
+            """
+            samples = conn.execute(sample_sql, (compound_name,)).fetchall()
+            
+            for sample_row in samples:
+                try:
+                    # Apply correction using cached compound data
+                    if apply_correction_batch(
+                        sample_row["sample_name"],
+                        compound_name,
+                        compound_row,
+                        corrector
+                    ):
+                        count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    logger.debug(f"Failed to correct {compound_name} in {sample_row['sample_name']}: {e}")
+                    failed_count += 1
+            
+            if progress_cb:
+                progress_cb(compound_idx + 1, len(compounds))
+    
+    # Only log if there were corrections to do
+    if count > 0 or failed_count > 0:
+        elapsed = time.time() - start_time
+        logger.info(f"Natural abundance corrections: {count} successful ({elapsed:.1f}s)")
+    
     return count
+
+
+def apply_correction_batch(sample_name: str, compound_name: str, compound_row: dict, corrector: NaturalAbundanceCorrector) -> bool:
+    """
+    Apply correction using pre-fetched compound data for better performance.
+    """
+    try:
+        # Read EIC data (still need to fetch this per sample)
+        from manic.io.compound_reader import Compound
+        compound = Compound(
+            compound_name=compound_name,
+            retention_time=0,  # Not needed for correction
+            loffset=0,
+            roffset=0, 
+            label_atoms=compound_row["label_atoms"],
+            mass0=0,  # Not needed
+            formula=compound_row["formula"],
+            label_type=compound_row["label_type"],
+            tbdms=compound_row["tbdms"],
+            meox=compound_row["meox"],
+            me=compound_row["me"]
+        )
+        
+        eic = read_eic(sample_name, compound)
+        
+        # Check if we have isotopologue data
+        if eic.intensity.ndim == 1:
+            return False
+        
+        # Apply correction
+        corrected_intensity = corrector.correct_time_series(
+            eic.intensity,
+            compound_row["formula"],
+            compound_row["label_type"],
+            compound_row["label_atoms"],
+            compound_row["tbdms"],
+            compound_row["meox"],
+            compound_row["me"],
+        )
+        
+        # Store corrected data
+        store_corrected_eic(sample_name, compound_name, eic.time, corrected_intensity)
+        return True
+        
+    except Exception as e:
+        logger.debug(f"Correction failed for {compound_name} in {sample_name}: {e}")
+        return False
 
 
 def has_correction(sample_name: str, compound_name: str) -> bool:

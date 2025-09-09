@@ -1,25 +1,31 @@
+import sys
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QLabel
 
-from manic.constants import FONT, GREEN, RED
+from manic.constants import GREEN, RED, create_font
 
 
 class StandardIndicator(QLabel):
     def __init__(self, parent=None):
         super().__init__("-- No Standard Selected --", parent)
-        self.setFont(QFont(FONT, 10))
+        self.setFont(create_font(10))
         self.setAlignment(Qt.AlignCenter)
-        self.setFixedHeight(24)  # Reduced fixed height for more compact display
-        # Match width to the combined width of data indicators (75 + 75 + spacing)
-        self.setFixedWidth(154)  # Account for 4px spacing between indicators
+
+        # Platform-specific sizing to match LoadedDataWidget indicators
+        if sys.platform == "win32":
+            # Windows: Match wider labels (85 + 85 + 4px spacing)
+            self.setFixedSize(174, 22)
+        else:
+            # macOS and Linux: Match original labels (75 + 75 + 4px spacing)
+            self.setFixedSize(154, 20)
         self.internal_standard = None
         self._update_appearance()
 
     def set_internal_standard(self, compound_name: str):
         """Set the internal standard compound"""
         self.internal_standard = compound_name
-        self.setText(f"Internal Standard: {compound_name}")
+        self.setText(f"-- {compound_name} --")
         self._update_appearance()
 
     def clear_internal_standard(self):

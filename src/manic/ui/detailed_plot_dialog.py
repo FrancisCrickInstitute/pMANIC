@@ -93,7 +93,11 @@ class DetailedPlotDialog(QDialog):
         self.setSizeGripEnabled(True)  # Enable resize grip
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)  # Enable maximize button
         # Platform-adaptive sizing for better cross-platform experience
-        screen = QApplication.primaryScreen()
+        # Try to get screen where parent window is located, fall back to primary screen
+        if self.parent():
+            screen = QApplication.screenAt(self.parent().geometry().center())
+        else:
+            screen = QApplication.primaryScreen()
         screen_rect = screen.availableGeometry() if screen else None
         
         if sys.platform == "win32":
@@ -115,10 +119,25 @@ class DetailedPlotDialog(QDialog):
         self.resize(width, height)
         self.setMinimumSize(DETAILED_DIALOG_MIN_WIDTH, min_height)
         
-        # Set maximum size based on available screen space
+        # Set maximum size based on available screen space with adaptive ratio
         if screen_rect:
-            max_width = int(screen_rect.width() * DETAILED_DIALOG_SCREEN_RATIO)
-            max_height = int(screen_rect.height() * DETAILED_DIALOG_SCREEN_RATIO)
+            # Use more generous ratios for larger screens
+            screen_width = screen_rect.width()
+            screen_height = screen_rect.height()
+            
+            # Adaptive ratio: more generous on larger screens
+            if screen_width >= 2560:  # 4K+ monitors
+                width_ratio = 0.95
+                height_ratio = 0.95
+            elif screen_width >= 1920:  # 1080p+ monitors
+                width_ratio = 0.92
+                height_ratio = 0.92
+            else:  # Smaller monitors
+                width_ratio = DETAILED_DIALOG_SCREEN_RATIO
+                height_ratio = DETAILED_DIALOG_SCREEN_RATIO
+            
+            max_width = int(screen_width * width_ratio)
+            max_height = int(screen_height * height_ratio)
             self.setMaximumSize(max_width, max_height)
 
         # Configure primary layout structure

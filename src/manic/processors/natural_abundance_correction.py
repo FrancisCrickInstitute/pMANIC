@@ -36,25 +36,24 @@ class NaturalAbundances:
 class NaturalAbundanceCorrector:
     """
     High-performance natural isotope abundance corrector for mass spectrometry data.
-    
-    This implementation provides significant performance optimizations while maintaining 
+
+    This implementation provides significant performance optimizations while maintaining
     numerical accuracy and reliability:
-    
+
     PERFORMANCE FEATURES:
     - Matrix caching: Pre-computed correction matrices eliminate redundant calculations
-    - Vectorized processing: Simultaneous correction of entire chromatographic time series  
+    - Vectorized processing: Simultaneous correction of entire chromatographic time series
     - Adaptive algorithms: Automatic selection between fast direct solvers and robust optimization
     - Batch operations: Efficient processing of multiple samples per compound
-    
+
     MATHEMATICAL APPROACH:
     Uses convolution-based correction matrices to model natural isotope contributions,
-    then applies either direct linear algebra or constrained optimization to recover
-    true experimental labeling patterns from measured isotopologue distributions.
-    
+    then applies either direct linear algebra.
+
     MEMORY MANAGEMENT:
     Matrix cache is automatically managed with explicit cleanup methods. Typical memory
     usage is 1-10KB per unique compound formula, bounded by dataset compound diversity.
-    
+
     NUMERICAL SAFETY:
     - Condition number analysis prevents numerical instability
     - Automatic fallback to robust optimization for ill-conditioned problems
@@ -64,18 +63,18 @@ class NaturalAbundanceCorrector:
     def __init__(self):
         """
         Initialize corrector with natural abundance constants and empty cache.
-        
+
         The matrix cache will be populated on-demand during correction operations
         and should be explicitly cleared after batch processing to manage memory.
         """
         self.abundances = NaturalAbundances()
-        
+
         # Correction matrix cache for performance optimization
-        # Structure: {cache_key: (correction_matrix, condition_number, use_direct_solver)}  
+        # Structure: {cache_key: (correction_matrix, condition_number, use_direct_solver)}
         # Cache key: (formula, label_element, label_atoms, tbdms, meox, me)
         # Memory impact: ~1-10KB per unique compound formula combination
         self._matrix_cache = {}
-        
+
         # Performance monitoring counters
         self._cache_hits = 0
         self._cache_misses = 0
@@ -191,85 +190,117 @@ class NaturalAbundanceCorrector:
 
         return formula_str, elements
 
-    def _get_cached_correction_matrix(self, formula: str, label_element: str, label_atoms: int, 
-                                     tbdms: int = 0, meox: int = 0, me: int = 0):
+    def _get_cached_correction_matrix(
+        self,
+        formula: str,
+        label_element: str,
+        label_atoms: int,
+        tbdms: int = 0,
+        meox: int = 0,
+        me: int = 0,
+    ):
         """
-        Retrieve or compute correction matrix with intelligent caching for performance.
-        
+        Retrieve or compute a correction matrix with intelligent caching for performance.
+
         This method eliminates redundant matrix computation by caching results based on
         compound signatures. Since correction matrices depend only on molecular composition
         (not sample data), identical compounds across multiple samples can share matrices.
-        
+
         CACHING STRATEGY:
-        - Cache Key: Complete compound signature (formula + derivatization parameters)
-        - Cache Value: Pre-computed matrix + numerical condition analysis  
-        - Memory Usage: ~1-10KB per unique compound formula combination
-        - Expected Hit Rate: 90-99% for datasets with biological replicates
-        
-        NUMERICAL ANALYSIS:
-        Each cached entry includes condition number analysis to enable automatic
-        selection between fast direct linear algebra and robust iterative optimization.
-        
+        - Cache Key: Complete compound signature (formula + derivatization parameters).
+        - Cache Value: Pre-computed matrix + numerical condition analysis.
+        - Memory Usage: ~1-10KB per unique compound formula combination.
+        - Expected Hit Rate: 90-99% for datasets with biological replicates.
+
+        NUMERICAL STABILITY & ADAPTIVE ALGORITHM:
+        The core of this correction is solving the linear system A*x = b, where A is the
+        correction matrix. This docstring explains the numerical analysis performed to
+        ensure a robust and efficient solution.
+
+        The Condition Number:
+        This is a formal measure of the matrix's sensitivity to input perturbations. A high
+        condition number indicates an "ill-conditioned" system where small errors in the
+        measured data (instrument noise) can be drastically amplified in the final
+        solution, leading to unreliable results.
+
+        Causes of Ill-Conditioning:
+        This typically occurs in large molecules with many atoms of the labeled element
+        (e.g., lipids with >30 carbons). For such molecules, the theoretical isotopologue
+        patterns for adjacent labeled states (e.g., M+15 vs. M+16) become smoothed into
+        highly similar, overlapping distributions. This lack of mathematical distinctness
+        makes the matrix columns nearly linearly dependent, resulting in a high
+        condition number.
+
+        Adaptive Strategy:
+        This code assesses stability via the condition number and adapts its strategy:
+        1. Well-conditioned systems (< 1e10): A high-speed, vectorized direct linear
+        solver (np.linalg.solve) is used for maximum efficiency.
+        2. Ill-conditioned systems: The code falls back to a robust, iterative
+        constrained optimizer (SLSQP), which is slower but guarantees a stable,
+        physically meaningful result.
+
         Args:
-            formula: Base molecular formula (e.g., "C6H12O6")
-            label_element: Isotopically labeled element (typically "C", "N", or "H") 
-            label_atoms: Number of positions available for isotopic labeling
-            tbdms: Count of TBDMS (tert-butyldimethylsilyl) derivatization groups
-            meox: Count of MeOX (methoxyamine) derivatization groups  
-            me: Count of methylation modifications
-            
+            formula: Base molecular formula (e.g., "C6H12O6").
+            label_element: Isotopically labeled element (typically "C", "N", or "H").
+            label_atoms: Number of positions available for isotopic labeling.
+            tbdms: Count of TBDMS (tert-butyldimethylsilyl) derivatization groups.
+            meox: Count of MeOX (methoxyamine) derivatization groups.
+            me: Count of methylation modifications.
+
         Returns:
             tuple: (correction_matrix, condition_number, use_direct_solver_flag)
-                - correction_matrix: NumPy array for isotopologue correction
-                - condition_number: Matrix condition number for numerical stability assessment
-                - use_direct_solver_flag: Boolean indicating algorithm recommendation
+                - correction_matrix: NumPy array for isotopologue correction.
+                - condition_number: Matrix condition number for stability assessment.
+                - use_direct_solver_flag: Boolean indicating algorithm recommendation.
         """
         # Create cache key from all parameters that affect the correction matrix
         cache_key = (formula, label_element, label_atoms, tbdms, meox, me)
-        
+
         # Check cache first
         if cache_key in self._matrix_cache:
             self._cache_hits += 1
             return self._matrix_cache[cache_key]
-        
+
         # Cache miss - compute new matrix
         self._cache_misses += 1
-        
+
         # Calculate derivative formula (accounts for derivatization)
         deriv_formula, _ = self.calculate_derivative_formula(formula, tbdms, meox, me)
-        
+
         # Build correction matrix using existing algorithm
-        correction_matrix = self.build_correction_matrix(deriv_formula, label_element, label_atoms)
-        
+        correction_matrix = self.build_correction_matrix(
+            deriv_formula, label_element, label_atoms
+        )
+
         # PHASE A OPTIMIZATION 2: Analyze matrix properties for algorithm selection
         # Well-conditioned matrices (low condition number) can use fast direct solving
         # Ill-conditioned matrices need robust iterative optimization
         condition_number = np.linalg.cond(correction_matrix)
-        
+
         # Condition number threshold for algorithm selection
         # < 1e10: Well-conditioned, use direct solver (~100x faster)
         # >= 1e10: Ill-conditioned, use SLSQP optimization (robust)
         use_direct_solver = condition_number < 1e10
-        
+
         # Cache the results for future use
         cached_result = (correction_matrix, condition_number, use_direct_solver)
         self._matrix_cache[cache_key] = cached_result
-        
+
         return cached_result
 
     def clear_cache(self):
         """
         Explicitly clear the correction matrix cache to free memory.
-        
+
         This method should be called after batch processing operations to prevent
-        memory accumulation in long-running applications. The cache will be 
+        memory accumulation in long-running applications. The cache will be
         automatically repopulated on subsequent correction operations.
-        
+
         Memory Impact:
-        - Frees: ~1-10KB per cached compound formula  
+        - Frees: ~1-10KB per cached compound formula
         - Typical datasets: Frees 10KB - 1MB total
         - Negligible compared to mass spectrometry data files (500MB - 2GB)
-        
+
         Performance Impact:
         - Next correction operation will incur cache miss penalty
         - Matrix recomputation cost: ~1-10ms per unique compound
@@ -277,28 +308,30 @@ class NaturalAbundanceCorrector:
         """
         cache_size = len(self._matrix_cache)
         self._matrix_cache.clear()
-        
+
         if cache_size > 0:
             logger.debug(f"Cleared correction matrix cache ({cache_size} entries)")
-    
+
     def get_cache_statistics(self) -> dict:
         """
         Return cache performance statistics for monitoring and optimization.
-        
+
         Returns:
             dict: Performance metrics including cache hit rates and algorithm usage
         """
         total_requests = self._cache_hits + self._cache_misses
-        hit_rate = (self._cache_hits / total_requests * 100) if total_requests > 0 else 0
-        
+        hit_rate = (
+            (self._cache_hits / total_requests * 100) if total_requests > 0 else 0
+        )
+
         return {
             "cache_entries": len(self._matrix_cache),
             "cache_hits": self._cache_hits,
-            "cache_misses": self._cache_misses, 
+            "cache_misses": self._cache_misses,
             "hit_rate_percent": hit_rate,
             "direct_solves": self._direct_solves,
             "optimization_fallbacks": self._optimization_fallbacks,
-            "total_corrections": self._direct_solves + self._optimization_fallbacks
+            "total_corrections": self._direct_solves + self._optimization_fallbacks,
         }
 
     def build_correction_matrix(
@@ -474,89 +507,97 @@ class NaturalAbundanceCorrector:
     ) -> np.ndarray:
         """
         Apply natural abundance correction to chromatographic time series data.
-        
+
         This high-performance implementation provides significant speedup over traditional
         approaches through several key optimizations:
-        
+
         PERFORMANCE OPTIMIZATIONS:
         1. Matrix Caching: Correction matrices are computed once and reused across samples
         2. Vectorized Processing: All time points processed simultaneously using linear algebra
         3. Adaptive Algorithms: Automatic selection between fast direct solvers and robust optimization
-        
+
         ALGORITHM SELECTION:
         - Well-conditioned matrices (condition number < 1e10): Fast direct linear solve
         - Ill-conditioned matrices: Robust constrained optimization (SLSQP)
         - Small datasets (< 10 time points): Always use robust optimization
-        
+
         TYPICAL PERFORMANCE:
         - Large time series (1000+ points): 20-100x speedup via vectorization
         - Matrix reuse across samples: 5-10x speedup via caching
         - Combined improvement: ~50-200x faster than naive implementations
-        
+
         Args:
             intensity_2d: 2D intensity array [n_isotopologues × n_timepoints]
                          Raw measured isotopologue distributions over chromatographic time
             formula: Base molecular formula before derivatization (e.g., "C6H12O6")
             label_element: Isotopically labeled element ("C", "N", or "H")
-            label_atoms: Number of positions available for isotopic labeling  
+            label_atoms: Number of positions available for isotopic labeling
             tbdms: Count of TBDMS derivatization groups (modifies formula)
             meox: Count of MeOX derivatization groups (modifies formula)
             me: Count of methylation modifications (modifies formula)
-            
+
         Returns:
             ndarray: Corrected intensity array with same shape as input
                     Natural abundance contributions removed to reveal true labeling
         """
         # PHASE A OPTIMIZATION 1: Use cached correction matrix
-        correction_matrix, condition_number, use_direct_solver = self._get_cached_correction_matrix(
-            formula, label_element, label_atoms, tbdms, meox, me
+        correction_matrix, condition_number, use_direct_solver = (
+            self._get_cached_correction_matrix(
+                formula, label_element, label_atoms, tbdms, meox, me
+            )
         )
-        
+
         n_isotopologues, n_timepoints = intensity_2d.shape
-        
+
         # PHASE A OPTIMIZATION 2: Vectorized correction processing
         if use_direct_solver and n_timepoints > 10:
             # Fast path: Vectorized direct solve for well-conditioned matrices
             # Process all time points simultaneously using linear algebra
-            corrected_2d = self._correct_vectorized_direct(intensity_2d, correction_matrix)
+            corrected_2d = self._correct_vectorized_direct(
+                intensity_2d, correction_matrix
+            )
             self._direct_solves += 1
         else:
             # Robust path: Per-timepoint optimization for ill-conditioned matrices or small datasets
-            corrected_2d = self._correct_iterative_fallback(intensity_2d, correction_matrix)
+            corrected_2d = self._correct_iterative_fallback(
+                intensity_2d, correction_matrix
+            )
             self._optimization_fallbacks += 1
-            
+
         return corrected_2d
 
-    def _correct_vectorized_direct(self, intensity_2d: np.ndarray, correction_matrix: np.ndarray) -> np.ndarray:
+    def _correct_vectorized_direct(
+        self, intensity_2d: np.ndarray, correction_matrix: np.ndarray
+    ) -> np.ndarray:
         """
         High-performance vectorized correction using direct linear algebra.
-        
+
         This method leverages NumPy's optimized linear algebra routines to process entire
         chromatographic time series simultaneously, rather than iterating through individual
         time points. This approach is mathematically equivalent to per-point optimization
         but dramatically faster for well-conditioned correction matrices.
-        
+
         MATHEMATICAL BASIS:
         Natural abundance correction can be formulated as a linear system:
             correction_matrix × true_abundances = measured_abundances
-        
+
         For well-conditioned matrices, direct inversion via np.linalg.solve() provides
         the same solution as constrained optimization but with ~50-100x speedup.
-        
+
         NUMERICAL REQUIREMENTS:
         - Matrix condition number < 1e10 (automatically verified by caller)
         - Non-singular correction matrix (physically guaranteed by natural abundance theory)
         - Sufficient numerical precision for direct inversion
-        
+
         PERFORMANCE CHARACTERISTICS:
         - Time complexity: O(n³ + n²×t) vs O(n³×t) for iterative approach
         - Memory usage: Constant additional overhead
         - Typical speedup: 50-100x for chromatographic time series (1000+ time points)
-        
+
         Args:
             intensity_2d: Raw measured isotopologue intensities [n_isotopologues × n_timepoints]
             correction_matrix: Pre-computed natural abundance correction matrix [n × n]
-            
+
         Returns:
             ndarray: Corrected isotopologue intensities [n_isotopologues × n_timepoints]
                     with natural abundance contributions removed
@@ -565,34 +606,36 @@ class NaturalAbundanceCorrector:
             # Vectorized linear solve: C × corrected = measured
             # Where C is the correction matrix, solve for corrected intensities
             corrected_2d = np.linalg.solve(correction_matrix, intensity_2d)
-            
+
             # Apply non-negativity constraint (natural abundance corrections should be positive)
             corrected_2d = np.maximum(corrected_2d, 0.0)
-            
+
             return corrected_2d
-            
+
         except np.linalg.LinAlgError:
             # Fallback to robust optimization if direct solve fails
             logger.warning("Direct solver failed, falling back to optimization")
             return self._correct_iterative_fallback(intensity_2d, correction_matrix)
 
-    def _correct_iterative_fallback(self, intensity_2d: np.ndarray, correction_matrix: np.ndarray) -> np.ndarray:
+    def _correct_iterative_fallback(
+        self, intensity_2d: np.ndarray, correction_matrix: np.ndarray
+    ) -> np.ndarray:
         """
         Robust fallback correction using per-timepoint optimization.
-        
+
         This method maintains the original SLSQP optimization approach for cases where
         the direct solver is inappropriate (ill-conditioned matrices, numerical issues).
-        
+
         Args:
             intensity_2d: Raw measured intensities
             correction_matrix: Pre-computed correction matrix
-            
+
         Returns:
             Corrected intensity array
         """
         n_isotopologues, n_timepoints = intensity_2d.shape
         corrected_2d = np.zeros_like(intensity_2d)
-        
+
         # Apply correction at each time point using original optimization method
         for t in range(n_timepoints):
             measured = intensity_2d[:, t]

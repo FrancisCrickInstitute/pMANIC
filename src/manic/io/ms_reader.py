@@ -187,8 +187,9 @@ def store_ms_data(sample_name: str, time: float, mz_values: np.ndarray, intensit
             ]
             
             if data_to_insert:
+                # Use INSERT OR REPLACE to handle potential duplicates gracefully
                 conn.executemany("""
-                    INSERT INTO ms_data (sample_name, time, mz, intensity, deleted)
+                    INSERT OR REPLACE INTO ms_data (sample_name, time, mz, intensity, deleted)
                     VALUES (?, ?, ?, ?, ?)
                 """, data_to_insert)
                 
@@ -230,8 +231,14 @@ def store_ms_data_batch(sample_name: str, ms_data_points: List[tuple], conn=None
 
 
 def _store_ms_data_batch_with_conn(conn, sample_name: str, ms_data_points: List[tuple]):
-    """Helper function to store MS batch data with an existing connection."""
-    # Clear all existing MS data for this sample
+    """
+    Helper function to store MS batch data with an existing connection.
+    
+    Uses INSERT OR REPLACE to handle duplicate entries gracefully when the same
+    CDF files are imported multiple times with different filenames. This allows
+    the application to process identical sample data without constraint violations.
+    """
+    # Clear all existing MS data for this sample to start fresh
     conn.execute("""
         UPDATE ms_data SET deleted = 1 
         WHERE sample_name = ?
@@ -249,8 +256,10 @@ def _store_ms_data_batch_with_conn(conn, sample_name: str, ms_data_points: List[
                 all_data.append((sample_name, float(time), float(mz), float(intensity), 0))
     
     if all_data:
+        # Use INSERT OR REPLACE to handle duplicate (sample_name, time, mz) entries
+        # This allows importing the same CDF file multiple times without constraint violations
         conn.executemany("""
-            INSERT INTO ms_data (sample_name, time, mz, intensity, deleted)
+            INSERT OR REPLACE INTO ms_data (sample_name, time, mz, intensity, deleted)
             VALUES (?, ?, ?, ?, ?)
         """, all_data)
         

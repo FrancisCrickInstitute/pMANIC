@@ -26,7 +26,7 @@ from manic.io.compounds_import import import_compound_excel
 from manic.io.data_exporter import DataExporter
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
-from manic.models.database import clear_database
+from manic.models.database import clear_database, get_connection
 from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
@@ -375,6 +375,9 @@ class MainWindow(QMainWindow):
             self.toolbar.update_label_colours(False, True)
             self.toolbar.update_compound_list(list_compound_names())
 
+            # Auto-select scyllo-inositol as internal standard if available
+            self._auto_select_scyllo_inositol()
+
             # Update state and menu
             self.compound_data_loaded = True
             self._update_menu_states()
@@ -515,6 +518,31 @@ class MainWindow(QMainWindow):
     def on_samples_selected(self, samples_selected):
         compound = self.toolbar.get_selected_compound()
         self.on_plot_button(compound, samples_selected)
+
+    def _auto_select_scyllo_inositol(self):
+        """
+        Automatically select scyllo-inositol as internal standard if available
+        and it has a non-zero internal standard amount.
+        """
+        with get_connection() as conn:
+            # Look for scyllo-inositol with non-zero internal standard amount
+            row = conn.execute("""
+                SELECT compound_name
+                FROM compounds
+                WHERE compound_name LIKE '%scyllo%ins%'
+                AND int_std_amount IS NOT NULL
+                AND int_std_amount > 0
+                AND deleted = 0
+                LIMIT 1
+            """).fetchone()
+
+            if row:
+                compound_name = row["compound_name"]
+                # Auto-select it as internal standard (this will emit the signal and update the indicator)
+                self.toolbar.on_internal_standard_selected(compound_name)
+                print(f"Auto-selected {compound_name} as internal standard")  # Debug
+                return True
+        return False
 
     def on_internal_standard_selected(self, internal_standard):
         """

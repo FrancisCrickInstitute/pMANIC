@@ -115,8 +115,8 @@ def get_system_font():
     No size multipliers are applied to maintain identical appearance across platforms.
     """
     if sys.platform == "win32":
-        # Windows: Use Arial for consistency with scientific applications
-        return "Arial", 1.0  # family, size_multiplier
+        # Windows: Use Arial with smaller scaling for better density
+        return "Arial", 0.85  # family, size_multiplier (15% smaller)
     elif sys.platform == "darwin":
         # macOS: Use SF Pro Text (system font) or Helvetica
         return "SF Pro Text", 1.0

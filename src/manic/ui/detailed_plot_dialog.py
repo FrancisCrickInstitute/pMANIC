@@ -104,20 +104,21 @@ class DetailedPlotDialog(QDialog):
             # Windows: Account for title bar, taskbar, and DPI scaling
             width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.85) if screen_rect else DETAILED_DIALOG_WIDTH)
             height = min(DETAILED_DIALOG_HEIGHT + 150, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
-            min_height = DETAILED_DIALOG_MIN_HEIGHT + 100  # Extra height for Windows
         elif sys.platform == "darwin":
             # macOS: Account for menu bar and dock
             width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.9) if screen_rect else DETAILED_DIALOG_WIDTH)
             height = min(DETAILED_DIALOG_HEIGHT, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
-            min_height = DETAILED_DIALOG_MIN_HEIGHT
         else:
             # Linux: Conservative sizing
             width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.85) if screen_rect else DETAILED_DIALOG_WIDTH)
             height = min(DETAILED_DIALOG_HEIGHT, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
-            min_height = DETAILED_DIALOG_MIN_HEIGHT
         
         self.resize(width, height)
-        self.setMinimumSize(DETAILED_DIALOG_MIN_WIDTH, min_height)
+        
+        # Set more reasonable minimum size for small screens (allow scrolling)
+        min_width = min(600, int(screen_rect.width() * 0.5) if screen_rect else 600)
+        min_height = min(500, int(screen_rect.height() * 0.4) if screen_rect else 500)
+        self.setMinimumSize(min_width, min_height)
         
         # Set maximum size based on available screen space with adaptive ratio
         if screen_rect:
@@ -160,14 +161,18 @@ class DetailedPlotDialog(QDialog):
         # Initialize scrollable container for plot widgets
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # Allow horizontal scroll if needed
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Ensure scroll area can shrink to fit in small windows
+        scroll_area.setMinimumSize(400, 300)  # Reasonable minimum for plot visibility
+        scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # Configure scroll area content widget
         scroll_widget = QWidget()
         scroll_widget.setStyleSheet("background-color: white;")
         scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setContentsMargins(5, 5, 5, 5)
 
         # Initialize resizable splitter for plot arrangement
         splitter = QSplitter(Qt.Vertical)
@@ -179,7 +184,10 @@ class DetailedPlotDialog(QDialog):
             x_label="Time (min)",
             y_label="Intensity",
         )
-        self.eic_plot.setMinimumHeight(DETAILED_EIC_MIN_HEIGHT)  # Minimum height for usability
+        # Adaptive minimum heights for small screens
+        min_plot_height = min(200, int(screen_rect.height() * 0.15) if screen_rect else 200)
+        
+        self.eic_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
 
@@ -189,7 +197,7 @@ class DetailedPlotDialog(QDialog):
             x_label="Time (min)",
             y_label="Total Intensity",
         )
-        self.tic_plot.setMinimumHeight(DETAILED_TIC_MIN_HEIGHT)  # Minimum height for usability
+        self.tic_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.tic_plot)
 
@@ -197,7 +205,7 @@ class DetailedPlotDialog(QDialog):
         self.ms_plot = MatplotlibPlotWidget(
             title="Mass Spectrum", x_label="m/z", y_label="Intensity"
         )
-        self.ms_plot.setMinimumHeight(DETAILED_MS_MIN_HEIGHT)  # Slightly smaller minimum for MS
+        self.ms_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
         self.ms_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.ms_plot)
 

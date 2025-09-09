@@ -125,7 +125,7 @@ class DataExporter:
         # Get all compounds and their metadata in order
         with get_connection() as conn:
             compounds_query = """
-                SELECT compound_name, label_atoms, mass0, retention_time
+                SELECT compound_name, label_atoms, mass0, retention_time, mm_files
                 FROM compounds 
                 WHERE deleted=0 
                 ORDER BY id
@@ -226,7 +226,7 @@ class DataExporter:
         # Get all compounds and their metadata in order
         with get_connection() as conn:
             compounds_query = """
-                SELECT compound_name, label_atoms, mass0, retention_time
+                SELECT compound_name, label_atoms, mass0, retention_time, mm_files
                 FROM compounds 
                 WHERE deleted=0 
                 ORDER BY id
@@ -321,12 +321,12 @@ class DataExporter:
         Takes the Corrected Values data and normalizes it so all isotopologues 
         for a given compound sum to 1.0, showing the fractional distribution of the label.
         """
-        worksheet = workbook.add_worksheet('Isotope Ratio')  # Note: singular "Ratio" to match reference
+        worksheet = workbook.add_worksheet('Isotope Ratio')
         
         # Get all compounds and their metadata in order
         with get_connection() as conn:
             compounds_query = """
-                SELECT compound_name, label_atoms, mass0, retention_time
+                SELECT compound_name, label_atoms, mass0, retention_time, mm_files
                 FROM compounds 
                 WHERE deleted=0 
                 ORDER BY id
@@ -720,21 +720,28 @@ class DataExporter:
         """
         background_ratios = {}
         
-        # Get MM file samples (standard mixture samples)
-        with get_connection() as conn:
-            mm_samples = [row['sample_name'] for row in 
-                         conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE '%MM%' AND deleted=0")]
-        
-        if not mm_samples:
-            logger.warning("No MM files found for background correction calculation")
-            return background_ratios
-        
-        logger.info(f"Found {len(mm_samples)} MM files for background correction: {mm_samples}")
-        
-        # Calculate background ratio for each compound
+        # Calculate background ratio for each compound using its specific MM files
         for compound_row in compounds:
             compound_name = compound_row['compound_name']
             label_atoms = compound_row['label_atoms'] or 0
+            mm_files_pattern = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
+            
+            # Get compound-specific MM file samples using the mm_files pattern
+            if not mm_files_pattern:
+                logger.warning(f"No MM files pattern specified for compound {compound_name}")
+                background_ratios[compound_name] = 0.0
+                continue
+                
+            with get_connection() as conn:
+                mm_samples = [row['sample_name'] for row in 
+                             conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE ? AND deleted=0", (f"%{mm_files_pattern}%",))]
+            
+            if not mm_samples:
+                logger.warning(f"No MM files found for compound {compound_name} with pattern '{mm_files_pattern}'")
+                background_ratios[compound_name] = 0.0
+                continue
+                
+            logger.info(f"Found {len(mm_samples)} MM files for {compound_name} with pattern '{mm_files_pattern}': {mm_samples}")
             
             if label_atoms == 0:
                 # No isotopologues, no background correction needed
@@ -789,13 +796,15 @@ class DataExporter:
         """
         mrrf_values = {}
         
-        # Get MM file samples (standard mixture samples)
-        with get_connection() as conn:
-            mm_samples = [row['sample_name'] for row in 
-                         conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE '%MM%' AND deleted=0")]
+        # Get internal standard's MM files pattern first
+        internal_std_mm_pattern = None
+        for compound_row in compounds:
+            if compound_row['compound_name'] == internal_standard_compound:
+                internal_std_mm_pattern = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
+                break
         
-        if not mm_samples:
-            logger.warning("No MM files found for MRRF calculation")
+        if not internal_std_mm_pattern:
+            logger.warning(f"No MM files pattern found for internal standard {internal_standard_compound}")
             # Return all 1.0 values as fallback
             for compound_row in compounds:
                 compound_name = compound_row['compound_name']
@@ -803,14 +812,27 @@ class DataExporter:
                     mrrf_values[compound_name] = 1.0
             return mrrf_values
         
-        logger.info(f"Calculating MRRF values using {len(mm_samples)} MM files")
+        # Get internal standard MM files using its specific pattern
+        with get_connection() as conn:
+            internal_std_mm_samples = [row['sample_name'] for row in 
+                                     conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE ? AND deleted=0", 
+                                                (f"%{internal_std_mm_pattern}%",))]
         
-        # Get internal standard signals from MM files
+        if not internal_std_mm_samples:
+            logger.warning(f"No MM files found for internal standard {internal_standard_compound} with pattern '{internal_std_mm_pattern}'")
+            # Return all 1.0 values as fallback
+            for compound_row in compounds:
+                compound_name = compound_row['compound_name']
+                if compound_name != internal_standard_compound:
+                    mrrf_values[compound_name] = 1.0
+            return mrrf_values
+        
+        logger.info(f"Calculating MRRF values using {len(internal_std_mm_samples)} MM files for internal standard")
+        
+        # Get internal standard signals from its MM files
         internal_std_signals = []
-        for mm_sample in mm_samples:
+        for mm_sample in internal_std_mm_samples:
             sample_data = self._get_sample_corrected_data(mm_sample)
-            # Debug: log what compounds are available in MM files
-            logger.info(f"MM sample {mm_sample} has compounds: {list(sample_data.keys())[:10]}...")  # Show first 10
             
             internal_std_data = sample_data.get(internal_standard_compound, [0.0])
             # Use M+0 signal for internal standard
@@ -858,9 +880,26 @@ class DataExporter:
                 mrrf_values[compound_name] = 1.0
                 continue
             
-            # Get metabolite signals from MM files
+            # Get compound-specific MM files for this metabolite
+            compound_mm_pattern = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
+            if not compound_mm_pattern:
+                logger.warning(f"No MM files pattern specified for compound {compound_name}")
+                mrrf_values[compound_name] = 1.0
+                continue
+            
+            with get_connection() as conn:
+                compound_mm_samples = [row['sample_name'] for row in 
+                                     conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE ? AND deleted=0", 
+                                                (f"%{compound_mm_pattern}%",))]
+            
+            if not compound_mm_samples:
+                logger.warning(f"No MM files found for compound {compound_name} with pattern '{compound_mm_pattern}'")
+                mrrf_values[compound_name] = 1.0
+                continue
+                
+            # Get metabolite signals from its specific MM files
             metabolite_signals = []
-            for mm_sample in mm_samples:
+            for mm_sample in compound_mm_samples:
                 sample_data = self._get_sample_corrected_data(mm_sample)
                 isotopologue_data = sample_data.get(compound_name, [0.0])
                 # Sum all isotopologues for total signal
@@ -893,7 +932,8 @@ class DataExporter:
         
         return mrrf_values
     
-    def _calculate_peak_areas(self, time_data: np.ndarray, intensity_data: np.ndarray, label_atoms: int) -> List[float]:
+    def _calculate_peak_areas(self, time_data: np.ndarray, intensity_data: np.ndarray, label_atoms: int, 
+                              retention_time: float = None, loffset: float = None, roffset: float = None) -> List[float]:
         """
         Calculate integrated peak areas for each isotopologue from EIC data.
         
@@ -901,16 +941,59 @@ class DataExporter:
             time_data: Array of retention times
             intensity_data: Array of intensities (may be multi-dimensional for isotopologues)
             label_atoms: Number of labeled atoms (determines isotopologue count)
+            retention_time: Compound retention time (minutes)
+            loffset: Left integration boundary offset (minutes)  
+            roffset: Right integration boundary offset (minutes)
             
         Returns:
             List of integrated peak areas for M+0, M+1, M+2, etc.
         """
+        # Helper function to apply integration boundaries
+        def apply_integration_boundaries(time_data, intensity_data):
+            if retention_time is not None and loffset is not None and roffset is not None:
+                l_boundary = retention_time - loffset
+                r_boundary = retention_time + roffset
+                
+                # Debug logging to understand integration window sizes
+                original_points = len(time_data)
+                time_range = (time_data.max() - time_data.min()) if len(time_data) > 0 else 0
+                window_size = r_boundary - l_boundary
+                
+                # Create mask for integration boundaries using strict inequalities
+                # This ensures precise boundary exclusion for accurate peak area calculation
+                integration_mask = (time_data > l_boundary) & (time_data < r_boundary)
+                points_in_window = np.sum(integration_mask)
+                
+                logger.debug(f"Integration boundaries: rt={retention_time:.3f}, loffset={loffset:.3f}, roffset={roffset:.3f}")
+                logger.debug(f"Boundaries: {l_boundary:.3f} to {r_boundary:.3f} (window={window_size:.3f} min)")
+                logger.debug(f"Data points: {points_in_window}/{original_points} in window (time_range={time_range:.3f} min)")
+                
+                # Apply mask to trim data to integration window
+                if np.any(integration_mask):
+                    time_data = time_data[integration_mask]
+                    if intensity_data.ndim == 1:
+                        intensity_data = intensity_data[integration_mask]
+                    else:
+                        # For multi-dimensional data, apply mask to time axis (last dimension)
+                        intensity_data = intensity_data[..., integration_mask]
+                    return time_data, intensity_data
+                else:
+                    # No data in integration window - return empty arrays
+                    logger.warning(f"No data points in integration window {l_boundary:.3f} to {r_boundary:.3f}")
+                    return np.array([]), np.array([])
+            return time_data, intensity_data
+            
         num_isotopologues = label_atoms + 1
         
         # Check if this compound has isotopologues (labeled atoms > 0)
         if label_atoms == 0:
             # Unlabeled compound - single trace
-            peak_area = np.trapz(intensity_data, time_data)  # Trapezoidal integration
+            # Apply integration boundaries
+            time_data, intensity_data = apply_integration_boundaries(time_data, intensity_data)
+            if len(time_data) == 0:
+                return [0.0]
+            # Time-based trapezoidal integration (scientifically correct)
+            peak_area = np.trapz(intensity_data, time_data)  # Uses actual time intervals
             return [float(peak_area)]
         else:
             # Labeled compound - multiple isotopologue traces
@@ -918,13 +1001,18 @@ class DataExporter:
             num_time_points = len(time_data)
             
             try:
-                # Reshape intensity data for isotopologues
+                # Reshape intensity data for isotopologues FIRST
                 intensity_reshaped = intensity_data.reshape(num_isotopologues, num_time_points)
                 
-                # Calculate area for each isotopologue trace
+                # THEN apply integration boundaries to the reshaped data
+                time_data, intensity_reshaped = apply_integration_boundaries(time_data, intensity_reshaped)
+                if len(time_data) == 0:
+                    return [0.0] * num_isotopologues
+                
+                # Time-based trapezoidal integration for each isotopologue (scientifically correct)
                 peak_areas = []
                 for i in range(num_isotopologues):
-                    peak_area = np.trapz(intensity_reshaped[i], time_data)
+                    peak_area = np.trapz(intensity_reshaped[i], time_data)  # Uses actual time intervals
                     peak_areas.append(float(peak_area))
                 return peak_areas
                 
@@ -964,9 +1052,9 @@ class DataExporter:
             available_compounds = [row['compound_name'] for row in compound_check]
             logger.info(f"Raw EIC compounds in {sample_name}: {available_compounds[:10]}...")  # Show first 10
             
-            # Get all EIC data for this sample, ordered by compound name
+            # Get all EIC data for this sample with integration boundaries
             eic_query = """
-                SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms
+                SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, c.loffset, c.roffset
                 FROM eic e
                 JOIN compounds c ON e.compound_name = c.compound_name
                 WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0
@@ -976,13 +1064,16 @@ class DataExporter:
             for row in conn.execute(eic_query, (sample_name,)):
                 compound_name = row['compound_name']
                 label_atoms = row['label_atoms']
+                retention_time = row['retention_time']
+                loffset = row['loffset']
+                roffset = row['roffset']
                 
                 # Decompress and integrate the raw EIC data
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis']), dtype=np.float64)
                 
-                # Calculate integrated peak areas for each isotopologue
-                peak_areas = self._calculate_peak_areas(time_data, intensity_data, label_atoms)
+                # Calculate integrated peak areas using compound-specific integration boundaries
+                peak_areas = self._calculate_peak_areas(time_data, intensity_data, label_atoms, retention_time, loffset, roffset)
                 sample_data[compound_name] = peak_areas
                 
                 # Special debugging for internal standard - compare raw vs corrected
@@ -1012,9 +1103,9 @@ class DataExporter:
             available_corrected = [row['compound_name'] for row in corrected_check]
             logger.info(f"Corrected EIC compounds in {sample_name}: {available_corrected[:10]}...")  # Show first 10
             
-            # Get all corrected EIC data for this sample, ordered by compound name
+            # Get all corrected EIC data for this sample with integration boundaries
             corrected_query = """
-                SELECT ec.compound_name, ec.x_axis, ec.y_axis_corrected, c.label_atoms
+                SELECT ec.compound_name, ec.x_axis, ec.y_axis_corrected, c.label_atoms, c.retention_time, c.loffset, c.roffset
                 FROM eic_corrected ec
                 JOIN compounds c ON ec.compound_name = c.compound_name
                 WHERE ec.sample_name = ? AND ec.deleted = 0 AND c.deleted = 0
@@ -1024,13 +1115,16 @@ class DataExporter:
             for row in conn.execute(corrected_query, (sample_name,)):
                 compound_name = row['compound_name']
                 label_atoms = row['label_atoms']
+                retention_time = row['retention_time']
+                loffset = row['loffset']
+                roffset = row['roffset']
                 
                 # Decompress and integrate the corrected EIC data
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 corrected_intensity = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
                 
-                # Calculate integrated peak areas for each corrected isotopologue
-                peak_areas = self._calculate_peak_areas(time_data, corrected_intensity, label_atoms)
+                # Calculate integrated peak areas using compound-specific integration boundaries
+                peak_areas = self._calculate_peak_areas(time_data, corrected_intensity, label_atoms, retention_time, loffset, roffset)
                 sample_data[compound_name] = peak_areas
                 
                 # Special debugging for internal standard

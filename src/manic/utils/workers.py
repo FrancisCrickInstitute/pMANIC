@@ -9,15 +9,17 @@ class CdfImportWorker(QObject):
     finished = Signal(int)  # rows inserted
     failed = Signal(str)
 
-    def __init__(self, directory: str):
+    def __init__(self, directory: str, mass_tolerance: float = 0.2):
         super().__init__()
         self._directory = directory
+        self._mass_tolerance = mass_tolerance
 
     @Slot()
     def run(self):
         try:
             count = import_eics(
                 self._directory,
+                mass_tol=self._mass_tolerance,
                 progress_cb=self.progress.emit,  # <- hand in the signal
             )
             self.finished.emit(count)

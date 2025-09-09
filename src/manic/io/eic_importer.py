@@ -76,15 +76,16 @@ def _extract_all_eics_for_file(cdf_data, compounds, mass_tol, rt_window, progres
     2. Batches all extracted data for single database transaction
     3. Maintains compatibility with existing progress reporting
     
-    Performance Impact:
-    - Previous: N file reads + N time conversions + N database INSERTs
-    - Current:  1 file read + 1 time conversion + 1 database executemany()
-    - Expected speedup: 3-10x for files with many compounds
+    Performance Characteristics:
+    - Single file read operation per CDF file
+    - Single time conversion operation per file
+    - Batch database insertion using executemany()
+    - Optimized for files containing multiple compounds
     
     Args:
         cdf_data: Pre-loaded CDF file data (optimization: no repeated file I/O)
         compounds: List of (name, rt, mz, label_atoms) tuples to process
-        mass_tol: Mass tolerance for peak matching (±Da)
+        mass_tol: Mass tolerance offset for MANIC's asymmetric matching method (Da)
         rt_window: Retention time window (±minutes) 
         progress_cb: Optional callback for GUI progress reporting
         done_so_far: Number of compounds already processed (for progress calc)
@@ -96,10 +97,8 @@ def _extract_all_eics_for_file(cdf_data, compounds, mass_tol, rt_window, progres
     eic_batch = []
     skipped_count = 0
     
-    # OPTIMIZATION 3: Vectorized time array computation
     # Calculate scan times in minutes once, reuse for all compounds in this file
-    # Previous: Each extract_eic() call computed this independently
-    # Impact: ~20-30% reduction in redundant array operations
+    # This vectorized approach eliminates redundant array operations
     times = cdf_data.scan_time / 60.0
     
     # Process each compound using cached CDF data and pre-computed time array
@@ -156,7 +155,7 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
         target_mz: Target m/z for M+0 isotopologue
         cdf: Pre-loaded CDF file data structure
         times: PRE-COMPUTED scan times in minutes (optimization parameter)
-        mass_tol: Mass tolerance for peak matching (±Da)
+        mass_tol: Mass tolerance offset for MANIC's asymmetric matching method (Da)
         rt_window: Retention time search window (±minutes)
         label_atoms: Number of labeled atoms for isotopologue analysis
         
@@ -216,8 +215,12 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
     
     for label in label_ions:
         label_mz = target_mzs[label]
-        # Create boolean mask for peaks within mass tolerance
-        mask = (all_relevant_mass >= label_mz - mass_tol) & (all_relevant_mass <= label_mz + mass_tol)
+        # MANIC's asymmetric mass tolerance method: offset + rounding
+        # This creates an asymmetric tolerance window shifted toward lower masses
+        # to correct for systematic mass calibration drift in GC-MS data
+        offset_masses = all_relevant_mass - mass_tol  # Subtract offset (e.g., 0.2 Da)
+        rounded_masses = np.round(offset_masses)      # Round to nearest integer
+        mask = rounded_masses == int(round(label_mz)) # Match target mass
         
         # Sum intensities per scan using vectorized bincount operation
         # This efficiently groups intensities by scan index and sums them
@@ -328,7 +331,7 @@ def import_eics(
     directory : str | Path
         Folder containing CDF files for mass spectrometry data import.
     mass_tol : float
-        Mass tolerance for peak matching (±Da). Default: 0.25
+        Mass tolerance offset for MANIC's asymmetric matching method (Da). Default: 0.25
     rt_window : float
         Retention time search window (±min). Default: 0.2
     progress_cb : Callable[[done, total], None] | None
@@ -390,21 +393,19 @@ def import_eics(
     # 2. Batch Database Operations: Single executemany() vs individual INSERTs  
     # 3. Vectorized Extraction: Reuse computed arrays across compounds
     # 
-    # Memory Management: Peak RAM usage remains unchanged - only one CDF file
-    # is loaded at a time, then explicitly cleared before processing next file.
+    # Memory efficient: loads one CDF file at a time, processes all compounds,
+    # then explicitly clears data before loading the next file.
     # ============================================================================
     
     import gc  # Required for explicit memory management
     
     for cdf_path in cdf_files:
-        # OPTIMIZATION 1: Load CDF file once per file (not once per compound)
-        # Previous: Read CDF → Process compound → Read CDF again → Process next compound
-        # Current:  Read CDF → Process ALL compounds → Clear CDF from memory
+        # Load CDF file once per file, then process all compounds
+        # This approach minimizes file I/O operations
         cdf_data = read_cdf_file(cdf_path)
         
         try:
-            # OPTIMIZATION 2 & 3: Batch extraction with vectorized operations
-            # Extract all EICs for this file using cached CDF data and optimized algorithms
+            # Extract all EICs for this file using batch processing and vectorized operations
             eic_batch, skipped_count = _extract_all_eics_for_file(
                 cdf_data, compounds, mass_tol, rt_window, progress_cb, done, total_work
             )
@@ -433,9 +434,8 @@ def import_eics(
                         ms_count += 1
                         total_ms_peaks += sum(len(mz_vals) for _, mz_vals, _ in ms_data_points)
 
-                # OPTIMIZATION 2: Batch database insert for all EICs from this file
-                # Previous: Individual INSERT for each compound (N database calls)
-                # Current:  Single executemany() for all compounds (1 database call)
+                # Batch database insert for all EICs from this file
+                # Uses executemany() for efficient database operations
                 if eic_batch:
                     conn.executemany(
                         """
@@ -505,7 +505,7 @@ def regenerate_compound_eics(
     sample_names : list
         List of sample names to regenerate
     mass_tol : float
-        ± m/z tolerance used during extraction (Da)
+        Mass tolerance offset for MANIC's asymmetric matching method (Da)
     progress_cb : Callable[[done, total], None] | None
         Optional callback for GUI progress bars
         

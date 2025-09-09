@@ -393,7 +393,7 @@ class MainWindow(QMainWindow):
         self.progress_dialog.show()
 
         self._thread = QThread(self)  # background thread
-        self._worker = CdfImportWorker(directory)  # heavy lifting
+        self._worker = CdfImportWorker(directory, self.mass_tolerance)  # heavy lifting
         self._worker.moveToThread(self._thread)
 
         # progress updates

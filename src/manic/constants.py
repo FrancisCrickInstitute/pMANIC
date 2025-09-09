@@ -111,12 +111,12 @@ def get_system_font():
     """
     Get the appropriate system font for cross-platform consistency.
     
-    Returns the optimal font family and scaling factors for the current platform
-    to ensure consistent appearance across Windows, macOS, and Linux.
+    Returns the optimal font family for the current platform with consistent sizing.
+    No size multipliers are applied to maintain identical appearance across platforms.
     """
     if sys.platform == "win32":
-        # Windows: Use Segoe UI with slightly larger sizes
-        return "Segoe UI", 1.1  # family, size_multiplier
+        # Windows: Use Arial for consistency with scientific applications
+        return "Arial", 1.0  # family, size_multiplier
     elif sys.platform == "darwin":
         # macOS: Use SF Pro Text (system font) or Helvetica
         return "SF Pro Text", 1.0

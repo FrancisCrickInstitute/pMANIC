@@ -17,6 +17,8 @@ dependencies = [
     "pyqtgraph~=0.13.4",
     "matplotlib~=3.9.0",
     "scipy~=1.14.1",
+    "xlsxwriter~=3.2.0",
+    "markdown~=3.7.0",
 ]
 
 [tool.hatch.build.targets.sdist]

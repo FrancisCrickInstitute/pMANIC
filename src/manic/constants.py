@@ -118,8 +118,8 @@ def get_system_font():
         # Windows: Use Arial with smaller scaling for better density
         return "Arial", 0.85  # family, size_multiplier (15% smaller)
     elif sys.platform == "darwin":
-        # macOS: Use SF Pro Text (system font) or Helvetica
-        return "SF Pro Text", 1.0
+        # macOS: Use Helvetica as it's always available on macOS
+        return "Helvetica", 1.0
     else:
         # Linux: Use DejaVu Sans or system default
         return "DejaVu Sans", 1.0

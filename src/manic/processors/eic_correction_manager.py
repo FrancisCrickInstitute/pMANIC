@@ -44,8 +44,10 @@ def apply_correction_to_eic(sample_name: str, compound_name: str) -> bool:
 
         # Check if this is multi-isotopologue data
         if compound.label_atoms == 0:
-            logger.info(f"No labeled atoms for {compound_name}, skipping correction")
-            return False
+            logger.info(f"No labeled atoms for {compound_name}, copying raw data as 'corrected' (internal standard)")
+            # For internal standards, copy raw data directly to corrected table
+            store_corrected_eic(sample_name, compound_name, eic.time, eic.intensity)
+            return True
 
         # Read EIC data (raw uncorrected data for correction processing)
         eic = read_eic(sample_name, compound, use_corrected=False)
@@ -204,13 +206,13 @@ def process_all_corrections(progress_cb=None) -> int:
     start_time = time.time()
     
     # Get all compounds that need correction with full metadata
+    # Include both labeled compounds (label_atoms > 0) AND internal standards (label_atoms = 0)
     compound_sql = """
         SELECT DISTINCT c.compound_name, c.formula, c.label_type, c.label_atoms,
                         c.tbdms, c.meox, c.me
         FROM compounds c
         WHERE c.deleted = 0
         AND c.formula IS NOT NULL
-        AND c.label_atoms > 0
         AND EXISTS (
             SELECT 1 FROM eic e
             WHERE e.compound_name = c.compound_name
@@ -324,29 +326,46 @@ def _process_compound_batch_corrections(compound_name: str, compound_row: dict,
             intensity_bytes = zlib.decompress(eic_row["y_axis"])
             intensity_array = np.frombuffer(intensity_bytes, dtype=np.float64)
             
-            # Reshape intensity data for isotopologues
+            # Handle both labeled compounds and internal standards
             label_atoms = compound_row["label_atoms"]
+            n_timepoints = len(time_array)
+            
             if label_atoms > 0:
+                # Labeled compound: needs natural abundance correction
                 n_isotopologues = label_atoms + 1
-                n_timepoints = len(time_array)
                 if len(intensity_array) == n_isotopologues * n_timepoints:
                     intensity_2d = intensity_array.reshape(n_isotopologues, n_timepoints)
                 else:
                     # Handle 1D case (no isotopologue data)
                     continue
-            else:
-                continue
+                    
+                # Apply vectorized correction using cached matrices
+                corrected_intensity_2d = corrector.correct_time_series(
+                    intensity_2d,
+                    compound_row["formula"],
+                    compound_row["label_type"],
+                    compound_row["label_atoms"],
+                    compound_row["tbdms"],
+                    compound_row["meox"],
+                    compound_row["me"]
+                )
                 
-            # Apply vectorized correction using cached matrices
-            corrected_intensity_2d = corrector.correct_time_series(
-                intensity_2d,
-                compound_row["formula"],
-                compound_row["label_type"],
-                compound_row["label_atoms"],
-                compound_row["tbdms"],
-                compound_row["meox"],
-                compound_row["me"]
-            )
+            else:
+                # Internal standard: copy raw data as corrected (no natural abundance correction needed)
+                if len(intensity_array) == n_timepoints:
+                    # 1D data - just copy as-is
+                    corrected_intensity_2d = intensity_array.reshape(1, n_timepoints)
+                elif len(intensity_array) == 1 * n_timepoints:
+                    # Already reshaped 1D data 
+                    corrected_intensity_2d = intensity_array.reshape(1, n_timepoints)
+                else:
+                    # Try to reshape assuming single isotopologue
+                    try:
+                        corrected_intensity_2d = intensity_array.reshape(1, -1)
+                        if corrected_intensity_2d.shape[1] != n_timepoints:
+                            continue  # Skip if dimensions don't match
+                    except ValueError:
+                        continue
             
             # Prepare corrected data for batch insertion
             corrected_flat = corrected_intensity_2d.ravel()

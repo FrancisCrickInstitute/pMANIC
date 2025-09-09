@@ -29,6 +29,9 @@ class CompoundRow(BaseModel):
     tbdms: int = 0  # TBDMS derivatization count
     meox: int = 0   # MeOX derivatization count
     me: int = 0     # Methylation count
+    amount_in_std_mix: Optional[float] = None  # Known concentration in standard mixture (for MRRF calculation)
+    int_std_amount: Optional[float] = None     # Amount of internal standard added to each sample
+    mm_files: Optional[str] = None             # Comma-separated list of MM file patterns
     deleted: int = 0  # soft-delete flag
 
     # pydantic auto checks all functions decorated
@@ -124,12 +127,17 @@ def import_compound_excel(filepath: str | Path) -> int:
     params: list[tuple] = []
     for idx, row in df.iterrows():
         try:
-            # Get optional fields with defaults
-            formula = row.get("formula", None)
-            label_type = row.get("labeltype", "C")
-            tbdms = row.get("tbdms", 0)
-            meox = row.get("meox", 0)
-            me = row.get("me", 0)
+            # Get optional fields with defaults using pandas Series safe access
+            formula = row["formula"] if "formula" in row and pd.notna(row["formula"]) else None
+            label_type = row["labeltype"] if "labeltype" in row and pd.notna(row["labeltype"]) else "C"
+            tbdms = int(row["tbdms"]) if "tbdms" in row and pd.notna(row["tbdms"]) else 0
+            meox = int(row["meox"]) if "meox" in row and pd.notna(row["meox"]) else 0
+            me = int(row["me"]) if "me" in row and pd.notna(row["me"]) else 0
+            
+            # Get new MRRF and MM file fields
+            amount_in_std_mix = float(row["amountinstdmix"]) if "amountinstdmix" in row and pd.notna(row["amountinstdmix"]) else None
+            int_std_amount = float(row["intstdamount"]) if "intstdamount" in row and pd.notna(row["intstdamount"]) else None  
+            mm_files = row["mmfiles"] if "mmfiles" in row and pd.notna(row["mmfiles"]) else None
             
             cr = CompoundRow(
                 compound_name=row["name"],
@@ -143,6 +151,9 @@ def import_compound_excel(filepath: str | Path) -> int:
                 tbdms=tbdms,
                 meox=meox,
                 me=me,
+                amount_in_std_mix=amount_in_std_mix,
+                int_std_amount=int_std_amount,
+                mm_files=mm_files,
             )
             params.append(
                 (
@@ -157,6 +168,9 @@ def import_compound_excel(filepath: str | Path) -> int:
                     cr.tbdms,
                     cr.meox,
                     cr.me,
+                    cr.amount_in_std_mix,
+                    cr.int_std_amount,
+                    cr.mm_files,
                     cr.deleted,
                 )
             )
@@ -171,8 +185,8 @@ def import_compound_excel(filepath: str | Path) -> int:
     SQL = """
     INSERT OR IGNORE INTO compounds
         (compound_name, retention_time, mass0, loffset, roffset, label_atoms, 
-         formula, label_type, tbdms, meox, me, deleted)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+         formula, label_type, tbdms, meox, me, amount_in_std_mix, int_std_amount, mm_files, deleted)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
 
     # insert compound into the db

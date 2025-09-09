@@ -155,6 +155,22 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                 conn.execute("ALTER TABLE compounds ADD COLUMN me INTEGER DEFAULT 0")
                 conn.commit()
 
+            # Add MRRF and MM file metadata columns if missing
+            if "amount_in_std_mix" not in columns:
+                logger.info("Adding amount_in_std_mix column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN amount_in_std_mix REAL")
+                conn.commit()
+
+            if "int_std_amount" not in columns:
+                logger.info("Adding int_std_amount column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN int_std_amount REAL")
+                conn.commit()
+
+            if "mm_files" not in columns:
+                logger.info("Adding mm_files column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN mm_files TEXT")
+                conn.commit()
+
     except sqlite3.OperationalError as e:
         logger.error(f"Migration error for compounds table: {e}")
         pass

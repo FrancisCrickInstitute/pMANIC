@@ -1,5 +1,6 @@
 import logging
 import math
+import warnings
 from typing import List, Set
 
 import numpy as np
@@ -515,13 +516,15 @@ class GraphView(QWidget):
             chart_view.set_selected(False)
             
             # Disconnect existing signals to avoid multiple connections
-            # Use try/except with more specific error handling to avoid warnings
-            if hasattr(chart_view, '_signal_connected'):
+            # Suppress RuntimeWarnings about failed disconnections
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning, 
+                                      message="Failed to disconnect.*")
                 try:
                     chart_view.clicked.disconnect(self._on_plot_clicked)
                     chart_view.right_clicked.disconnect(self._on_plot_right_clicked)
-                except (TypeError, RuntimeError):
-                    pass  # Signals weren't connected to these specific slots
+                except Exception:
+                    pass  # Signals weren't connected
             
             # Mark that we'll connect signals (for future disconnections)
             chart_view._signal_connected = True

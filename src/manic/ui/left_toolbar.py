@@ -25,6 +25,9 @@ class Toolbar(QWidget):
 
     # Signal for the currently selected compound
     compound_selected = Signal(str)
+    
+    # Signal for when internal standard is selected
+    internal_standard_selected = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -188,9 +191,10 @@ class Toolbar(QWidget):
     def on_internal_standard_selected(self, compound_name: str):
         """
         Handler for when a compound is selected as internal standard.
-        Updates the standard indicator widget.
+        Updates the standard indicator widget and emits signal.
         """
         self.standard.set_internal_standard(compound_name)
+        self.internal_standard_selected.emit(compound_name)
 
     # --- Public Methods ---
     def update_label_colours(self, raw_data_loaded, compound_list_loaded):

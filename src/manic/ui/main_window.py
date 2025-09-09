@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, Qt, QThread
 from PySide6.QtGui import QAction, QIcon, QPixmap
@@ -22,9 +23,11 @@ from PySide6.QtWidgets import (
 
 from manic.__version__ import APP_NAME, __version__
 from manic.io.compounds_import import import_compound_excel
+from manic.io.data_exporter import DataExporter
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.models.database import clear_database
+from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.utils.utils import load_stylesheet
@@ -48,6 +51,7 @@ class MainWindow(QMainWindow):
         self.load_cdf_action = None
         self.load_compound_action = None
         self.export_method_action = None
+        self.export_data_action = None
         self.import_session_action = None
         self.clear_session_action = None
         self.about_action = None
@@ -68,6 +72,9 @@ class MainWindow(QMainWindow):
         # Connect the toolbar's custom signals to a handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
         self.toolbar.compound_selected.connect(self.on_compound_selected)
+        self.toolbar.internal_standard_selected.connect(
+            self.on_internal_standard_selected
+        )
 
     def setup_ui(self):
         """
@@ -125,14 +132,19 @@ class MainWindow(QMainWindow):
         self.import_session_action.triggered.connect(self.import_session)
         file_menu.addAction(self.import_session_action)
 
-        # Add another separator
-        file_menu.addSeparator()
-
         # Create the Clear Session action
         self.clear_session_action = QAction("Clear Session", self)
         self.clear_session_action.triggered.connect(self.clear_session)
         # Add the clear session action to the file menu
         file_menu.addAction(self.clear_session_action)
+
+        # Add separator before export data
+        file_menu.addSeparator()
+
+        # Create export data action
+        self.export_data_action = QAction("Export Data...", self)
+        self.export_data_action.triggered.connect(self.export_data)
+        file_menu.addAction(self.export_data_action)
 
         """ Create Settings Menu """
 
@@ -150,6 +162,11 @@ class MainWindow(QMainWindow):
             self.toggle_natural_abundance_correction
         )
         settings_menu.addAction(self.nat_abundance_toggle)
+
+        """ Create Documentation Menu """
+
+        docs_menu = menu_bar.addMenu("Documentation")
+        self._create_documentation_menu(docs_menu)
 
         """ Create Help Menu """
 
@@ -271,6 +288,15 @@ class MainWindow(QMainWindow):
 
         # Export Session: enabled if compound data loaded
         self.export_method_action.setEnabled(self.compound_data_loaded)
+
+        # Export Data: enabled only if compound data, CDF data loaded, AND internal standard selected
+        internal_standard = self.toolbar.get_internal_standard()
+        has_internal_standard = (
+            internal_standard is not None and internal_standard != ""
+        )
+        self.export_data_action.setEnabled(
+            self.compound_data_loaded and self.cdf_data_loaded and has_internal_standard
+        )
 
         # Import Session: enabled only if both compound and CDF data loaded
         self.import_session_action.setEnabled(
@@ -489,6 +515,14 @@ class MainWindow(QMainWindow):
     def on_samples_selected(self, samples_selected):
         compound = self.toolbar.get_selected_compound()
         self.on_plot_button(compound, samples_selected)
+
+    def on_internal_standard_selected(self, internal_standard):
+        """
+        Handle internal standard selection changes.
+        Updates menu states when internal standard is selected/deselected.
+        """
+        # Update menu states to enable/disable Export Data based on internal standard selection
+        self._update_menu_states()
 
     def on_plot_selection_changed(self, selected_samples):
         """Handle when plots are selected/deselected"""
@@ -994,6 +1028,55 @@ class MainWindow(QMainWindow):
                     )
                     msg.exec()
 
+    def _create_documentation_menu(self, docs_menu):
+        """Create documentation menu with available markdown files."""
+        # Get the docs directory path
+        # From src/manic/ui/main_window.py, go up to project root, then to docs
+        docs_dir = Path(__file__).parent.parent.parent.parent / "docs"
+
+        if not docs_dir.exists():
+            no_docs_action = QAction("No documentation available", self)
+            no_docs_action.setEnabled(False)
+            docs_menu.addAction(no_docs_action)
+            return
+
+        # Find all markdown files in the docs directory
+        md_files = list(docs_dir.glob("*.md"))
+
+        if not md_files:
+            no_files_action = QAction("No documentation files found", self)
+            no_files_action.setEnabled(False)
+            docs_menu.addAction(no_files_action)
+            return
+
+        # Sort files - put getting_started first, then alphabetical
+        md_files.sort(key=lambda f: (f.name != "getting_started.md", f.name.lower()))
+
+        # Create menu actions for each markdown file
+        for md_file in md_files:
+            # Create a nice display name from the filename
+            display_name = md_file.stem.replace("_", " ").title()
+
+            action = QAction(display_name, self)
+            # Use lambda with default argument to capture the file path
+            action.triggered.connect(
+                lambda checked, file_path=md_file: self._show_documentation(file_path)
+            )
+            docs_menu.addAction(action)
+
+    def _show_documentation(self, file_path: Path):
+        """Show a documentation file in the viewer dialog."""
+        try:
+            show_documentation_file(self, file_path)
+        except Exception as e:
+            logger.error(f"Failed to show documentation {file_path}: {e}")
+            msg_box = self._create_message_box(
+                "critical",
+                "Documentation Error",
+                f"Failed to open documentation file:\n{str(e)}",
+            )
+            msg_box.exec()
+
     def show_about(self):
         """Show About dialog with version information."""
         from manic.__version__ import APP_DESCRIPTION
@@ -1047,6 +1130,15 @@ class MainWindow(QMainWindow):
                 self.toolbar.update_sample_list([])
                 self.toolbar.update_label_colours(False, False)
 
+                # Clear internal standard
+                self.toolbar.standard.clear_internal_standard()
+
+                # Clear integration window
+                self.toolbar.integration.populate_fields(None)
+
+                # Clear graphs
+                self.graph_view.clear_all_plots()
+
                 # Clear the database
                 clear_database()
                 logger.info("Database cleared successfully")
@@ -1098,7 +1190,7 @@ class MainWindow(QMainWindow):
 
         # Update the isotopologue ratio widget
         self.toolbar.isotopologue_ratios.set_use_corrected(is_enabled)
-        
+
         # Also update the graph view to use corrected/uncorrected data
         self.graph_view.set_use_corrected(is_enabled)
 
@@ -1109,5 +1201,87 @@ class MainWindow(QMainWindow):
         if selected_compound and selected_samples:
             # Trigger a full replot of the main graphs
             self.on_plot_button(selected_compound, selected_samples)
-            
-            # The above replot will also update isotopologue ratios and total abundance
+
+    def export_data(self):
+        """Export processed data to Excel with 5 worksheets."""
+        try:
+            # Get export file path
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Data to Excel",
+                "manic_data_export.xlsx",
+                "Excel Files (*.xlsx);;All Files (*)",
+            )
+
+            if not file_path:
+                return  # User cancelled
+
+            # Ensure .xlsx extension
+            if not file_path.lower().endswith(".xlsx"):
+                file_path += ".xlsx"
+
+            # Get current internal standard selection from toolbar
+            internal_standard = self.toolbar.get_internal_standard()
+
+            # Create progress dialog
+            progress_dialog = QProgressDialog(
+                "Exporting data to Excel...", "Cancel", 0, 100, self
+            )
+            progress_dialog.setWindowTitle("Data Export")
+            progress_dialog.setMinimumDuration(0)  # Show immediately
+            progress_dialog.setModal(True)
+            progress_dialog.setValue(0)
+
+            # Create exporter and set internal standard
+            exporter = DataExporter()
+            exporter.set_internal_standard(internal_standard)
+
+            # Progress callback function
+            def update_progress(value):
+                progress_dialog.setValue(value)
+                QCoreApplication.processEvents()  # Keep UI responsive
+                return not progress_dialog.wasCanceled()  # Return False if cancelled
+
+            # Show progress dialog
+            progress_dialog.show()
+            QCoreApplication.processEvents()
+
+            # Perform export
+            success = exporter.export_to_excel(file_path, update_progress)
+
+            # Close progress dialog
+            progress_dialog.close()
+
+            if success:
+                # Show success message
+                msg_box = self._create_message_box(
+                    "information",
+                    "Data Export Successful",
+                    f"Data exported successfully to:\n{file_path}\n\n"
+                    f"The Excel file contains 5 worksheets:\n"
+                    f"• Raw Values - Direct instrument signals\n"
+                    f"• Corrected Values - Natural isotope corrected signals\n"
+                    f"• Isotope Ratios - Normalized corrected values\n"
+                    f"• Abundances - Absolute metabolite concentrations\n"
+                    f"• % Label Incorporation - Experimental label percentages",
+                )
+                msg_box.exec()
+                logger.info(f"Data exported successfully to {file_path}")
+            else:
+                # Show error message
+                msg_box = self._create_message_box(
+                    "critical",
+                    "Export Failed",
+                    "Data export was cancelled or failed. Check logs for details.",
+                )
+                msg_box.exec()
+                logger.warning("Data export was cancelled or failed")
+
+        except Exception as e:
+            logger.error(f"Data export error: {e}")
+            msg_box = self._create_message_box(
+                "critical",
+                "Export Error",
+                f"An error occurred during data export:\n{str(e)}",
+            )
+            msg_box.exec()

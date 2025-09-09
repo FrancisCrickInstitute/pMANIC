@@ -1,0 +1,1053 @@
+"""
+Excel data export functionality for MANIC.
+
+Exports mass spectrometry data to Excel with 5 worksheets:
+1. Raw Values - Direct instrument signals (uncorrected peak areas)
+2. Corrected Values - Natural isotope abundance corrected signals  
+3. Isotope Ratios - Normalized corrected values (sum to 1.0)
+4. % Label Incorporation - Percentage of experimental label incorporation
+5. Abundances - Absolute metabolite concentrations via internal standard calibration (final sheet)
+
+Uses streaming approach for optimal memory usage and performance.
+"""
+
+import logging
+import zlib
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import xlsxwriter
+
+from manic.io.compound_reader import read_compound
+from manic.models.database import get_connection
+
+logger = logging.getLogger(__name__)
+
+
+class DataExporter:
+    """
+    Streaming Excel exporter for mass spectrometry data.
+    
+    Processes data in small batches to minimize RAM usage while maintaining
+    high performance through direct database queries and efficient calculations.
+    """
+    
+    def __init__(self):
+        """Initialize the data exporter."""
+        self.internal_standard_compound = None  # Set by UI before export
+        
+    def set_internal_standard(self, compound_name: Optional[str]):
+        """Set the internal standard compound for abundance calculations."""
+        self.internal_standard_compound = compound_name
+        
+    def export_to_excel(self, filepath: str, progress_callback=None) -> bool:
+        """
+        Export all data to Excel with 5 worksheets.
+        
+        Args:
+            filepath: Output Excel file path
+            progress_callback: Optional function to report progress (0-100)
+            
+        Returns:
+            True if export successful, False otherwise
+            
+        Raises:
+            Exception: If export fails due to database or file system errors
+        """
+        try:
+            logger.info(f"Starting Excel export to {filepath}")
+            
+            # Create Excel workbook with optimization settings
+            workbook = xlsxwriter.Workbook(filepath, {
+                'constant_memory': True,  # Optimize for low RAM usage
+                'use_zip64': True,       # Handle large files
+            })
+            
+            # Create all worksheets
+            progress = 0
+            if progress_callback:
+                progress_callback(progress)
+                
+            # Sheet 1: Raw Values (20% of work)
+            self._export_raw_values_sheet(workbook, progress_callback, 0, 20)
+            
+            # Sheet 2: Corrected Values (20% of work)
+            self._export_corrected_values_sheet(workbook, progress_callback, 20, 40)
+            
+            # Sheet 3: Isotope Ratios (20% of work)
+            self._export_isotope_ratios_sheet(workbook, progress_callback, 40, 60)
+            
+            # Sheet 4: % Label Incorporation (20% of work)
+            try:
+                self._export_label_incorporation_sheet(workbook, progress_callback, 60, 80)
+            except Exception as e:
+                logger.error(f"Error in % Label Incorporation sheet: {e}")
+                raise
+            
+            # Sheet 5: Abundances (20% of work) - Final sheet for easy access
+            self._export_abundances_sheet(workbook, progress_callback, 80, 100)
+            
+            workbook.close()
+            
+            if progress_callback:
+                progress_callback(100)
+                
+            logger.info(f"Excel export completed successfully: {filepath}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Excel export failed: {str(e)}")
+            # Clean up partial file if it exists
+            try:
+                Path(filepath).unlink(missing_ok=True)
+            except:
+                pass
+            raise
+    
+    def _export_raw_values_sheet(self, workbook, progress_callback, start_progress, end_progress):
+        """
+        Export Raw Values sheet - direct instrument signals (uncorrected peak areas).
+        
+        Format matches the reference xlsx exactly:
+        Row 1: Compound Name | None | [Compound names repeated for each isotopologue]
+        Row 2: Mass | None | [Mass values repeated for each isotopologue]  
+        Row 3: Isotope | None | [0, 1, 2, 3... for each isotopologue]
+        Row 4: tR | None | [Retention times repeated for each isotopologue]
+        Row 5+: None | [Sample names] | [Data values]
+        
+        This is the starting point data: direct, uncorrected signal intensity from the 
+        instrument including all natural isotope abundance, baseline noise, and 
+        experimental artifacts.
+        """
+        worksheet = workbook.add_worksheet('Raw Values')
+        
+        # Get all compounds and their metadata in order
+        with get_connection() as conn:
+            compounds_query = """
+                SELECT compound_name, label_atoms, mass0, retention_time
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY id
+            """
+            compounds = list(conn.execute(compounds_query))
+            
+            samples = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+        
+        # Build column structure - each compound creates multiple columns for isotopologues
+        compound_names = []
+        masses = []
+        isotopes = []
+        retention_times = []
+        
+        for compound_row in compounds:
+            compound_name = compound_row['compound_name']
+            label_atoms = compound_row['label_atoms'] or 0
+            mass0 = compound_row['mass0'] or 0
+            rt = compound_row['retention_time'] or 0
+            
+            num_isotopologues = label_atoms + 1
+            
+            for isotope_idx in range(num_isotopologues):
+                compound_names.append(compound_name)
+                masses.append(mass0)
+                isotopes.append(isotope_idx)
+                retention_times.append(rt)
+        
+        # Write the 4 header rows exactly as in the reference file
+        
+        # Row 1: Compound Name | None | [Compound names]
+        worksheet.write(0, 0, 'Compound Name')
+        worksheet.write(0, 1, None)
+        for col, compound_name in enumerate(compound_names):
+            worksheet.write(0, col + 2, compound_name)
+        
+        # Row 2: Mass | None | [Mass values]
+        worksheet.write(1, 0, 'Mass')
+        worksheet.write(1, 1, None)
+        for col, mass in enumerate(masses):
+            worksheet.write(1, col + 2, mass)
+        
+        # Row 3: Isotope | None | [Isotope indices]
+        worksheet.write(2, 0, 'Isotope')
+        worksheet.write(2, 1, None)
+        for col, isotope in enumerate(isotopes):
+            worksheet.write(2, col + 2, isotope)
+        
+        # Row 4: tR | None | [Retention times]
+        worksheet.write(3, 0, 'tR')
+        worksheet.write(3, 1, None)
+        for col, rt in enumerate(retention_times):
+            worksheet.write(3, col + 2, rt)
+        
+        # Rows 5+: None | [Sample names] | [Data values]
+        for sample_idx, sample_name in enumerate(samples):
+            row = 4 + sample_idx
+            worksheet.write(row, 0, None)
+            worksheet.write(row, 1, sample_name)
+            
+            # Get all raw data for this sample
+            sample_data = self._get_sample_raw_data(sample_name)
+            
+            # Write data values in column order
+            col = 2
+            for compound_row in compounds:
+                compound_name = compound_row['compound_name']
+                label_atoms = compound_row['label_atoms'] or 0
+                num_isotopologues = label_atoms + 1
+                
+                # Get isotopologue data for this compound
+                isotopologue_data = sample_data.get(compound_name, [0.0] * num_isotopologues)
+                
+                # Write each isotopologue value
+                for isotope_idx in range(num_isotopologues):
+                    area_value = isotopologue_data[isotope_idx] if isotope_idx < len(isotopologue_data) else 0.0
+                    worksheet.write(row, col, area_value)
+                    col += 1
+            
+            # Update progress
+            if progress_callback and (sample_idx + 1) % 5 == 0:
+                progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)
+                progress_callback(int(progress))
+    
+    def _export_corrected_values_sheet(self, workbook, progress_callback, start_progress, end_progress):
+        """
+        Export Corrected Values sheet - natural isotope abundance corrected signals.
+        
+        Format matches the reference xlsx exactly (same as Raw Values).
+        
+        This data has the predictable signal from naturally occurring isotopes 
+        mathematically removed using the compound's chemical formula correction matrix.
+        This is the clean, deconvoluted signal representing true experimental labeling.
+        """
+        worksheet = workbook.add_worksheet('Corrected Values')
+        
+        # Get all compounds and their metadata in order
+        with get_connection() as conn:
+            compounds_query = """
+                SELECT compound_name, label_atoms, mass0, retention_time
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY id
+            """
+            compounds = list(conn.execute(compounds_query))
+            
+            samples = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+        
+        # Build column structure - same as Raw Values
+        compound_names = []
+        masses = []
+        isotopes = []
+        retention_times = []
+        
+        for compound_row in compounds:
+            compound_name = compound_row['compound_name']
+            label_atoms = compound_row['label_atoms'] or 0
+            mass0 = compound_row['mass0'] or 0
+            rt = compound_row['retention_time'] or 0
+            
+            num_isotopologues = label_atoms + 1
+            
+            for isotope_idx in range(num_isotopologues):
+                compound_names.append(compound_name)
+                masses.append(mass0)
+                isotopes.append(isotope_idx)
+                retention_times.append(rt)
+        
+        # Write the 4 header rows exactly as in the reference file
+        
+        # Row 1: Compound Name | None | [Compound names]
+        worksheet.write(0, 0, 'Compound Name')
+        worksheet.write(0, 1, None)
+        for col, compound_name in enumerate(compound_names):
+            worksheet.write(0, col + 2, compound_name)
+        
+        # Row 2: Mass | None | [Mass values]
+        worksheet.write(1, 0, 'Mass')
+        worksheet.write(1, 1, None)
+        for col, mass in enumerate(masses):
+            worksheet.write(1, col + 2, mass)
+        
+        # Row 3: Isotope | None | [Isotope indices]
+        worksheet.write(2, 0, 'Isotope')
+        worksheet.write(2, 1, None)
+        for col, isotope in enumerate(isotopes):
+            worksheet.write(2, col + 2, isotope)
+        
+        # Row 4: tR | None | [Retention times]
+        worksheet.write(3, 0, 'tR')
+        worksheet.write(3, 1, None)
+        for col, rt in enumerate(retention_times):
+            worksheet.write(3, col + 2, rt)
+        
+        # Rows 5+: None | [Sample names] | [Corrected data values]
+        for sample_idx, sample_name in enumerate(samples):
+            row = 4 + sample_idx
+            worksheet.write(row, 0, None)
+            worksheet.write(row, 1, sample_name)
+            
+            # Get all corrected data for this sample
+            sample_data = self._get_sample_corrected_data(sample_name)
+            
+            # Write data values in column order
+            col = 2
+            for compound_row in compounds:
+                compound_name = compound_row['compound_name']
+                label_atoms = compound_row['label_atoms'] or 0
+                num_isotopologues = label_atoms + 1
+                
+                # Get isotopologue data for this compound
+                isotopologue_data = sample_data.get(compound_name, [0.0] * num_isotopologues)
+                
+                # Write each isotopologue value
+                for isotope_idx in range(num_isotopologues):
+                    area_value = isotopologue_data[isotope_idx] if isotope_idx < len(isotopologue_data) else 0.0
+                    worksheet.write(row, col, area_value)
+                    col += 1
+            
+            # Update progress
+            if progress_callback and (sample_idx + 1) % 5 == 0:
+                progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)
+                progress_callback(int(progress))
+    
+    def _export_isotope_ratios_sheet(self, workbook, progress_callback, start_progress, end_progress):
+        """
+        Export Isotope Ratios sheet - normalized corrected values (sum to 1.0).
+        
+        Format matches the reference xlsx exactly (same structure as Raw Values and Corrected Values).
+        
+        Takes the Corrected Values data and normalizes it so all isotopologues 
+        for a given compound sum to 1.0, showing the fractional distribution of the label.
+        """
+        worksheet = workbook.add_worksheet('Isotope Ratio')  # Note: singular "Ratio" to match reference
+        
+        # Get all compounds and their metadata in order
+        with get_connection() as conn:
+            compounds_query = """
+                SELECT compound_name, label_atoms, mass0, retention_time
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY id
+            """
+            compounds = list(conn.execute(compounds_query))
+            
+            samples = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+        
+        # Build column structure - same as Raw Values and Corrected Values
+        compound_names = []
+        masses = []
+        isotopes = []
+        retention_times = []
+        
+        for compound_row in compounds:
+            compound_name = compound_row['compound_name']
+            label_atoms = compound_row['label_atoms'] or 0
+            mass0 = compound_row['mass0'] or 0
+            rt = compound_row['retention_time'] or 0
+            
+            num_isotopologues = label_atoms + 1
+            
+            for isotope_idx in range(num_isotopologues):
+                compound_names.append(compound_name)
+                masses.append(mass0)
+                isotopes.append(isotope_idx)
+                retention_times.append(rt)
+        
+        # Write the 4 header rows exactly as in the reference file
+        
+        # Row 1: Compound Name | None | [Compound names]
+        worksheet.write(0, 0, 'Compound Name')
+        worksheet.write(0, 1, None)
+        for col, compound_name in enumerate(compound_names):
+            worksheet.write(0, col + 2, compound_name)
+        
+        # Row 2: Mass | None | [Mass values]
+        worksheet.write(1, 0, 'Mass')
+        worksheet.write(1, 1, None)
+        for col, mass in enumerate(masses):
+            worksheet.write(1, col + 2, mass)
+        
+        # Row 3: Isotope | None | [Isotope indices]
+        worksheet.write(2, 0, 'Isotope')
+        worksheet.write(2, 1, None)
+        for col, isotope in enumerate(isotopes):
+            worksheet.write(2, col + 2, isotope)
+        
+        # Row 4: tR | None | [Retention times]
+        worksheet.write(3, 0, 'tR')
+        worksheet.write(3, 1, None)
+        for col, rt in enumerate(retention_times):
+            worksheet.write(3, col + 2, rt)
+        
+        # Rows 5+: None | [Sample names] | [Isotope ratio values]
+        for sample_idx, sample_name in enumerate(samples):
+            row = 4 + sample_idx
+            worksheet.write(row, 0, None)
+            worksheet.write(row, 1, sample_name)
+            
+            # Get all corrected data for this sample
+            sample_data = self._get_sample_corrected_data(sample_name)
+            
+            # Write normalized data values in column order
+            col = 2
+            for compound_row in compounds:
+                compound_name = compound_row['compound_name']
+                label_atoms = compound_row['label_atoms'] or 0
+                num_isotopologues = label_atoms + 1
+                
+                # Get isotopologue data for this compound
+                isotopologue_data = sample_data.get(compound_name, [0.0] * num_isotopologues)
+                
+                # Normalize isotopologue data to sum = 1.0
+                total_area = sum(isotopologue_data)
+                if total_area > 0:
+                    ratios = [area / total_area for area in isotopologue_data]
+                else:
+                    ratios = [0.0] * num_isotopologues
+                
+                # Write each normalized ratio
+                for isotope_idx in range(num_isotopologues):
+                    ratio_value = ratios[isotope_idx] if isotope_idx < len(ratios) else 0.0
+                    worksheet.write(row, col, ratio_value)
+                    col += 1
+            
+            # Update progress
+            if progress_callback and (sample_idx + 1) % 5 == 0:
+                progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)
+                progress_callback(int(progress))
+    
+    def _export_abundances_sheet(self, workbook, progress_callback, start_progress, end_progress):
+        """
+        Export Abundances sheet - absolute metabolite concentrations.
+        
+        Format matches reference xlsx exactly:
+        - Only M+0 isotopologue for each compound (total abundance)
+        - Includes Units row after tR row
+        - Uses compound-based structure (not isotopologue-based)
+        
+        Uses internal standard calibration to convert corrected signals into 
+        absolute biological quantities.
+        """
+        worksheet = workbook.add_worksheet('Abundances')
+        
+        # Get all compounds and their metadata in order
+        with get_connection() as conn:
+            compounds_query = """
+                SELECT compound_name, mass0, retention_time, amount_in_std_mix, int_std_amount, mm_files
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY id
+            """
+            compounds = list(conn.execute(compounds_query))
+            
+            samples = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+        
+        # Build column structure - only M+0 for each compound (total abundance)
+        compound_names = []
+        masses = []
+        retention_times = []
+        
+        for compound_row in compounds:
+            compound_name = compound_row['compound_name']
+            mass0 = compound_row['mass0'] or 0
+            rt = compound_row['retention_time'] or 0
+            
+            compound_names.append(compound_name)
+            masses.append(mass0)
+            retention_times.append(rt)
+        
+        # Write the 5 header rows (Abundances has an extra Units row)
+        
+        # Row 1: Compound Name | None | [Compound names]
+        worksheet.write(0, 0, 'Compound Name')
+        worksheet.write(0, 1, None)
+        for col, compound_name in enumerate(compound_names):
+            worksheet.write(0, col + 2, compound_name)
+        
+        # Row 2: Mass | None | [Mass values]
+        worksheet.write(1, 0, 'Mass')
+        worksheet.write(1, 1, None)
+        for col, mass in enumerate(masses):
+            worksheet.write(1, col + 2, mass)
+        
+        # Row 3: Isotope | None | [All zeros - only M+0 for abundances]
+        worksheet.write(2, 0, 'Isotope')
+        worksheet.write(2, 1, None)
+        for col in range(len(compound_names)):
+            worksheet.write(2, col + 2, 0)
+        
+        # Row 4: tR | None | [Retention times]
+        worksheet.write(3, 0, 'tR')
+        worksheet.write(3, 1, None)
+        for col, rt in enumerate(retention_times):
+            worksheet.write(3, col + 2, rt)
+        
+        # Row 5: Units | None | [Unit labels - "nmol" for all compounds]
+        worksheet.write(4, 0, 'Units')
+        worksheet.write(4, 1, None)
+        for col in range(len(compound_names)):
+            worksheet.write(4, col + 2, 'nmol')  # Default unit
+        
+        # Pre-calculate MRRF values using MM files and internal standard
+        if not self.internal_standard_compound:
+            logger.warning("No internal standard selected - using raw abundance values")
+            mrrf_values = {}
+            internal_std_amount = 1.0  # Default fallback
+        else:
+            logger.info(f"Calculating MRRF values using internal standard: {self.internal_standard_compound}")
+            mrrf_values = self._calculate_mrrf_values(compounds, self.internal_standard_compound)
+            
+            # Get internal standard amount from compound metadata
+            with get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT int_std_amount FROM compounds WHERE compound_name = ? AND deleted = 0",
+                    (self.internal_standard_compound,)
+                )
+                row = cursor.fetchone()
+                try:
+                    internal_std_amount = row['int_std_amount'] if row and row['int_std_amount'] is not None else 1.0
+                except (KeyError, TypeError):
+                    internal_std_amount = 1.0
+                    logger.debug(f"int_std_amount not found for {self.internal_standard_compound}, using default 1.0")
+        
+        # Rows 6+: None | [Sample names] | [Calibrated abundance values]
+        for sample_idx, sample_name in enumerate(samples):
+            row = 5 + sample_idx
+            worksheet.write(row, 0, None)
+            worksheet.write(row, 1, sample_name)
+            
+            # Get all corrected data for this sample
+            sample_data = self._get_sample_corrected_data(sample_name)
+            
+            # Get internal standard signal in this sample (M+0 only)
+            if self.internal_standard_compound:
+                internal_std_data = sample_data.get(self.internal_standard_compound, [0.0])
+                internal_std_signal = internal_std_data[0] if internal_std_data else 0.0
+                logger.info(f"Sample {sample_name}: Internal standard '{self.internal_standard_compound}' signal = {internal_std_signal}")
+                if internal_std_signal == 0.0:
+                    # Check if internal standard exists in this sample at all
+                    if self.internal_standard_compound in sample_data:
+                        logger.info(f"Internal standard exists in {sample_name} but has zero M+0 signal: {internal_std_data}")
+                    else:
+                        logger.info(f"Internal standard '{self.internal_standard_compound}' not found in {sample_name}")
+                        # Show some available compounds for debugging
+                        available_compounds = list(sample_data.keys())[:5]
+                        logger.info(f"Available compounds in {sample_name}: {available_compounds}...")
+            else:
+                internal_std_signal = 1.0  # Avoid division by zero
+            
+            # Write calibrated abundance values
+            for col, compound_row in enumerate(compounds):
+                compound_name = compound_row['compound_name']
+                
+                # Get isotopologue data and sum for total abundance
+                isotopologue_data = sample_data.get(compound_name, [0.0])
+                total_signal = sum(isotopologue_data)  # Sum all isotopologues
+                
+                if self.internal_standard_compound and compound_name != self.internal_standard_compound:
+                    # Apply MRRF calibration to get abundance in nmol
+                    # Abundance = Total_Signal_In_Sample * (IntStd_Amount / IntStd_Signal_In_Sample) * (1 / MRRF)
+                    mrrf = mrrf_values.get(compound_name, 1.0)
+                    
+                    if internal_std_signal > 0 and mrrf > 0:
+                        # Calculate final abundance in nmol
+                        calibrated_abundance = total_signal * (internal_std_amount / internal_std_signal) * (1 / mrrf)
+                        logger.debug(f"Abundance for {compound_name}: total_signal={total_signal:.1f}, "
+                                   f"int_std_amount={internal_std_amount}, int_std_signal={internal_std_signal:.1f}, "
+                                   f"mrrf={mrrf:.3f}, result={calibrated_abundance:.3f} nmol")
+                    else:
+                        calibrated_abundance = 0.0  # No valid calibration data
+                        logger.debug(f"No valid calibration for {compound_name} (int_std_signal={internal_std_signal:.3f}, mrrf={mrrf:.3f})")
+                elif self.internal_standard_compound and compound_name == self.internal_standard_compound:
+                    # For internal standard itself, the abundance should be the known amount added
+                    calibrated_abundance = internal_std_amount if internal_std_amount > 0 else 0.0
+                    logger.debug(f"Internal standard {compound_name} abundance: {calibrated_abundance} nmol (known amount)")
+                else:
+                    # No internal standard calibration - return raw signal or 0
+                    calibrated_abundance = 0.0
+                    logger.debug(f"No internal standard calibration available for {compound_name}")
+                
+                worksheet.write(row, col + 2, calibrated_abundance)
+            
+            # Update progress
+            if progress_callback and (sample_idx + 1) % 5 == 0:
+                progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)
+                progress_callback(int(progress))
+        
+        if self.internal_standard_compound:
+            logger.info("Abundances sheet created with MRRF calibration applied")
+        else:
+            logger.info("Abundances sheet created with raw abundance values (no internal standard)")
+    
+    def _export_label_incorporation_sheet(self, workbook, progress_callback, start_progress, end_progress):
+        """
+        Export % Label Incorporation sheet - percentage of experimental label incorporation.
+        
+        Format matches reference xlsx exactly:
+        - Only M+0 isotopologue for each compound (base for calculation)
+        - Same structure as Abundances but without Units row
+        - Uses compound-based structure (not isotopologue-based)
+        
+        Calculates the true percentage of metabolite that has incorporated the 
+        experimental label, correcting for experimental artifacts using background 
+        ratios from standard samples.
+        """
+        worksheet = workbook.add_worksheet('% Label Incorporation')
+        
+        # Get all compounds and their metadata in order
+        with get_connection() as conn:
+            compounds_query = """
+                SELECT compound_name, mass0, retention_time, label_atoms, amount_in_std_mix, int_std_amount, mm_files
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY id
+            """
+            compounds = list(conn.execute(compounds_query))
+            
+            samples = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+        
+        # Build column structure - only compounds with labeling (M+0 base)
+        compound_names = []
+        masses = []
+        retention_times = []
+        
+        for compound_row in compounds:
+            compound_name = compound_row['compound_name']
+            mass0 = compound_row['mass0'] or 0
+            rt = compound_row['retention_time'] or 0
+            
+            compound_names.append(compound_name)
+            masses.append(mass0)
+            retention_times.append(rt)
+        
+        # Write the 4 header rows (same as Raw Values, Corrected Values, Isotope Ratio)
+        
+        # Row 1: Compound Name | None | [Compound names]
+        worksheet.write(0, 0, 'Compound Name')
+        worksheet.write(0, 1, None)
+        for col, compound_name in enumerate(compound_names):
+            worksheet.write(0, col + 2, compound_name)
+        
+        # Row 2: Mass | None | [Mass values]
+        worksheet.write(1, 0, 'Mass')
+        worksheet.write(1, 1, None)
+        for col, mass in enumerate(masses):
+            worksheet.write(1, col + 2, mass)
+        
+        # Row 3: Isotope | None | [All zeros - only M+0 for % label calculation]
+        worksheet.write(2, 0, 'Isotope')
+        worksheet.write(2, 1, None)
+        for col in range(len(compound_names)):
+            worksheet.write(2, col + 2, 0)
+        
+        # Row 4: tR | None | [Retention times]
+        worksheet.write(3, 0, 'tR')
+        worksheet.write(3, 1, None)
+        for col, rt in enumerate(retention_times):
+            worksheet.write(3, col + 2, rt)
+        
+        # Pre-calculate background ratios from MM files (standard samples)
+        logger.info("Calculating background ratios from MM files for % label incorporation...")
+        background_ratios = self._calculate_background_ratios(compounds)
+        
+        # Rows 5+: None | [Sample names] | [% Label Incorporation values]
+        for sample_idx, sample_name in enumerate(samples):
+            row = 4 + sample_idx
+            worksheet.write(row, 0, None)
+            worksheet.write(row, 1, sample_name)
+            
+            # Get all corrected data for this sample
+            sample_data = self._get_sample_corrected_data(sample_name)
+            
+            # Write % label incorporation values
+            for col, compound_row in enumerate(compounds):
+                try:
+                    compound_name = compound_row['compound_name']
+                except (KeyError, IndexError) as e:
+                    logger.error(f"Error accessing compound_name for compound {col}: {e}")
+                    continue
+                
+                # Get isotopologue data for this compound
+                isotopologue_data = sample_data.get(compound_name, [0.0])
+                
+                # Calculate % label incorporation with background correction
+                if len(isotopologue_data) > 1:
+                    m0_signal = isotopologue_data[0]  # Unlabeled (M+0)
+                    raw_labeled_signal = sum(isotopologue_data[1:])  # Sum of M+1, M+2, etc.
+                    
+                    # Apply background correction using MM files
+                    background_ratio = background_ratios.get(compound_name, 0.0)
+                    corrected_labeled_signal = raw_labeled_signal - (background_ratio * m0_signal)
+                    
+                    # Ensure corrected signal is not negative
+                    corrected_labeled_signal = max(0.0, corrected_labeled_signal)
+                    
+                    total_signal = m0_signal + corrected_labeled_signal
+                    
+                    if total_signal > 0:
+                        label_percentage = (corrected_labeled_signal / total_signal) * 100
+                    else:
+                        label_percentage = 0.0
+                else:
+                    # No isotopologues, no labeling possible
+                    label_percentage = 0.0
+                
+                worksheet.write(row, col + 2, label_percentage)
+            
+            # Update progress
+            if progress_callback and (sample_idx + 1) % 5 == 0:
+                progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)
+                progress_callback(int(progress))
+        
+        logger.info("% Label Incorporation sheet created with background correction applied")
+    
+    def _calculate_background_ratios(self, compounds) -> Dict[str, float]:
+        """
+        Calculate background ratios from MM files (standard mixture samples).
+        
+        Background_Ratio = Mean_Labelled_Signal_in_Standards / Mean_Unlabelled_Signal_in_Standards
+        
+        Args:
+            compounds: List of compound database rows
+            
+        Returns:
+            Dictionary mapping compound names to background ratios
+        """
+        background_ratios = {}
+        
+        # Get MM file samples (standard mixture samples)
+        with get_connection() as conn:
+            mm_samples = [row['sample_name'] for row in 
+                         conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE '%MM%' AND deleted=0")]
+        
+        if not mm_samples:
+            logger.warning("No MM files found for background correction calculation")
+            return background_ratios
+        
+        logger.info(f"Found {len(mm_samples)} MM files for background correction: {mm_samples}")
+        
+        # Calculate background ratio for each compound
+        for compound_row in compounds:
+            compound_name = compound_row['compound_name']
+            label_atoms = compound_row['label_atoms'] or 0
+            
+            if label_atoms == 0:
+                # No isotopologues, no background correction needed
+                background_ratios[compound_name] = 0.0
+                continue
+            
+            mm_unlabeled_signals = []
+            mm_labeled_signals = []
+            
+            # Get data from all MM files for this compound
+            for mm_sample in mm_samples:
+                sample_data = self._get_sample_corrected_data(mm_sample)
+                isotopologue_data = sample_data.get(compound_name, [0.0] * (label_atoms + 1))
+                
+                if len(isotopologue_data) > 1:
+                    unlabeled_signal = isotopologue_data[0]  # M+0
+                    labeled_signal = sum(isotopologue_data[1:])  # M+1, M+2, etc.
+                    
+                    mm_unlabeled_signals.append(unlabeled_signal)
+                    mm_labeled_signals.append(labeled_signal)
+            
+            # Calculate mean signals and background ratio
+            if mm_unlabeled_signals and mm_labeled_signals:
+                mean_unlabeled = sum(mm_unlabeled_signals) / len(mm_unlabeled_signals)
+                mean_labeled = sum(mm_labeled_signals) / len(mm_labeled_signals)
+                
+                if mean_unlabeled > 0:
+                    background_ratio = mean_labeled / mean_unlabeled
+                else:
+                    background_ratio = 0.0
+                
+                background_ratios[compound_name] = background_ratio
+                logger.debug(f"Background ratio for {compound_name}: {background_ratio:.6f}")
+            else:
+                background_ratios[compound_name] = 0.0
+        
+        return background_ratios
+    
+    def _calculate_mrrf_values(self, compounds, internal_standard_compound: str) -> Dict[str, float]:
+        """
+        Calculate MRRF (Metabolite Response Ratio Factor) values using MM files.
+        
+        MRRF = (Metabolite_Standard_Signal / Metabolite_Standard_Concentration) / 
+               (Internal_Standard_Signal / Internal_Standard_Concentration)
+        
+        Args:
+            compounds: List of compound database rows
+            internal_standard_compound: Name of internal standard compound
+            
+        Returns:
+            Dictionary mapping compound names to MRRF values
+        """
+        mrrf_values = {}
+        
+        # Get MM file samples (standard mixture samples)
+        with get_connection() as conn:
+            mm_samples = [row['sample_name'] for row in 
+                         conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE '%MM%' AND deleted=0")]
+        
+        if not mm_samples:
+            logger.warning("No MM files found for MRRF calculation")
+            # Return all 1.0 values as fallback
+            for compound_row in compounds:
+                compound_name = compound_row['compound_name']
+                if compound_name != internal_standard_compound:
+                    mrrf_values[compound_name] = 1.0
+            return mrrf_values
+        
+        logger.info(f"Calculating MRRF values using {len(mm_samples)} MM files")
+        
+        # Get internal standard signals from MM files
+        internal_std_signals = []
+        for mm_sample in mm_samples:
+            sample_data = self._get_sample_corrected_data(mm_sample)
+            # Debug: log what compounds are available in MM files
+            logger.info(f"MM sample {mm_sample} has compounds: {list(sample_data.keys())[:10]}...")  # Show first 10
+            
+            internal_std_data = sample_data.get(internal_standard_compound, [0.0])
+            # Use M+0 signal for internal standard
+            internal_std_signal = internal_std_data[0] if internal_std_data else 0.0
+            internal_std_signals.append(internal_std_signal)
+            logger.info(f"Internal standard {internal_standard_compound} signal in {mm_sample}: {internal_std_signal}")
+            if internal_std_signal == 0.0:
+                logger.info(f"Looking for internal standard '{internal_standard_compound}' in MM sample compounds...")
+                matching_compounds = [name for name in sample_data.keys() if 'scyllo' in name.lower() or 'ins' in name.lower()]
+                if matching_compounds:
+                    logger.info(f"Potential matches for internal standard: {matching_compounds}")
+                else:
+                    logger.info("No compounds containing 'scyllo' or 'ins' found in MM sample")
+        
+        mean_internal_std_signal = sum(internal_std_signals) / len(internal_std_signals) if internal_std_signals else 1.0
+        
+        # If internal standard signal is effectively zero, we can't do MRRF calculation
+        if mean_internal_std_signal <= 0.001:  # Effectively zero
+            logger.warning(f"Internal standard {internal_standard_compound} has no/minimal signal in MM files ({mean_internal_std_signal:.6f}). Using MRRF=1.0 for all compounds.")
+            for compound_row in compounds:
+                compound_name = compound_row['compound_name']
+                if compound_name != internal_standard_compound:
+                    mrrf_values[compound_name] = 1.0
+            return mrrf_values
+        
+        # Get internal standard concentration from compound metadata 
+        with get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT amount_in_std_mix FROM compounds WHERE compound_name = ? AND deleted = 0",
+                (internal_standard_compound,)
+            )
+            row = cursor.fetchone()
+            try:
+                internal_std_concentration = row['amount_in_std_mix'] if row and row['amount_in_std_mix'] is not None else 1.0
+            except (KeyError, TypeError):
+                internal_std_concentration = 1.0
+                logger.debug(f"amount_in_std_mix not found for internal standard {internal_standard_compound}, using default 1.0")
+        
+        # Calculate MRRF for each compound
+        for compound_row in compounds:
+            compound_name = compound_row['compound_name']
+            
+            if compound_name == internal_standard_compound:
+                # Internal standard has MRRF = 1.0 by definition
+                mrrf_values[compound_name] = 1.0
+                continue
+            
+            # Get metabolite signals from MM files
+            metabolite_signals = []
+            for mm_sample in mm_samples:
+                sample_data = self._get_sample_corrected_data(mm_sample)
+                isotopologue_data = sample_data.get(compound_name, [0.0])
+                # Sum all isotopologues for total signal
+                total_signal = sum(isotopologue_data) if isotopologue_data else 0.0
+                metabolite_signals.append(total_signal)
+            
+            mean_metabolite_signal = sum(metabolite_signals) / len(metabolite_signals) if metabolite_signals else 0.0
+            
+            # Get metabolite standard concentration from compound metadata
+            try:
+                amount_in_std_mix = compound_row['amount_in_std_mix']
+                metabolite_std_concentration = amount_in_std_mix if amount_in_std_mix is not None else 1.0
+            except (KeyError, IndexError):
+                metabolite_std_concentration = 1.0
+                logger.debug(f"amount_in_std_mix not found for {compound_name}, using default 1.0")
+            
+            # Calculate MRRF
+            if mean_metabolite_signal > 0 and metabolite_std_concentration > 0 and mean_internal_std_signal > 0 and internal_std_concentration > 0:
+                mrrf = (mean_metabolite_signal / metabolite_std_concentration) / (mean_internal_std_signal / internal_std_concentration)
+                mrrf_values[compound_name] = mrrf
+                logger.debug(f"MRRF for {compound_name}: {mrrf:.6f}")
+            else:
+                # Fallback to 1.0 if calculation fails
+                mrrf_values[compound_name] = 1.0
+                logger.warning(f"Could not calculate MRRF for {compound_name}, using 1.0. "
+                             f"mean_metabolite_signal={mean_metabolite_signal:.3f}, "
+                             f"metabolite_std_concentration={metabolite_std_concentration}, "
+                             f"mean_internal_std_signal={mean_internal_std_signal:.3f}, "
+                             f"internal_std_concentration={internal_std_concentration}")
+        
+        return mrrf_values
+    
+    def _calculate_peak_areas(self, time_data: np.ndarray, intensity_data: np.ndarray, label_atoms: int) -> List[float]:
+        """
+        Calculate integrated peak areas for each isotopologue from EIC data.
+        
+        Args:
+            time_data: Array of retention times
+            intensity_data: Array of intensities (may be multi-dimensional for isotopologues)
+            label_atoms: Number of labeled atoms (determines isotopologue count)
+            
+        Returns:
+            List of integrated peak areas for M+0, M+1, M+2, etc.
+        """
+        num_isotopologues = label_atoms + 1
+        
+        # Check if this compound has isotopologues (labeled atoms > 0)
+        if label_atoms == 0:
+            # Unlabeled compound - single trace
+            peak_area = np.trapz(intensity_data, time_data)  # Trapezoidal integration
+            return [float(peak_area)]
+        else:
+            # Labeled compound - multiple isotopologue traces
+            # Intensity data should be reshaped to (num_isotopologues, num_time_points)
+            num_time_points = len(time_data)
+            
+            try:
+                # Reshape intensity data for isotopologues
+                intensity_reshaped = intensity_data.reshape(num_isotopologues, num_time_points)
+                
+                # Calculate area for each isotopologue trace
+                peak_areas = []
+                for i in range(num_isotopologues):
+                    peak_area = np.trapz(intensity_reshaped[i], time_data)
+                    peak_areas.append(float(peak_area))
+                return peak_areas
+                
+            except ValueError as e:
+                # If reshaping fails, log the issue and return zeros
+                logger.warning(f"Failed to reshape intensity data for isotopologue integration. "
+                             f"Expected shape: ({num_isotopologues}, {num_time_points}), "
+                             f"Got total elements: {len(intensity_data)}. Error: {e}")
+                # Return zero areas for all isotopologues
+                return [0.0] * num_isotopologues
+    
+    def _get_total_sample_count(self) -> int:
+        """Get total number of active samples for progress calculation."""
+        with get_connection() as conn:
+            result = conn.execute("SELECT COUNT(*) FROM samples WHERE deleted=0").fetchone()
+            return result[0] if result else 0
+    
+    
+    def _get_sample_raw_data(self, sample_name: str) -> Dict[str, List[float]]:
+        """
+        Get integrated raw EIC data for all compounds in a sample.
+        
+        Args:
+            sample_name: Name of the sample
+            
+        Returns:
+            Dictionary mapping compound names to lists of isotopologue peak areas
+        """
+        sample_data = {}
+        
+        with get_connection() as conn:
+            # Debug: Check what compounds exist in this sample
+            compound_check = conn.execute(
+                "SELECT DISTINCT e.compound_name FROM eic e WHERE e.sample_name = ? AND e.deleted = 0 ORDER BY e.compound_name", 
+                (sample_name,)
+            ).fetchall()
+            available_compounds = [row['compound_name'] for row in compound_check]
+            logger.info(f"Raw EIC compounds in {sample_name}: {available_compounds[:10]}...")  # Show first 10
+            
+            # Get all EIC data for this sample, ordered by compound name
+            eic_query = """
+                SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms
+                FROM eic e
+                JOIN compounds c ON e.compound_name = c.compound_name
+                WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0
+                ORDER BY e.compound_name
+            """
+            
+            for row in conn.execute(eic_query, (sample_name,)):
+                compound_name = row['compound_name']
+                label_atoms = row['label_atoms']
+                
+                # Decompress and integrate the raw EIC data
+                time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
+                intensity_data = np.frombuffer(zlib.decompress(row['y_axis']), dtype=np.float64)
+                
+                # Calculate integrated peak areas for each isotopologue
+                peak_areas = self._calculate_peak_areas(time_data, intensity_data, label_atoms)
+                sample_data[compound_name] = peak_areas
+                
+                # Special debugging for internal standard - compare raw vs corrected
+                if 'scyllo' in compound_name.lower() or 'ins' in compound_name.lower():
+                    logger.info(f"Found potential internal standard '{compound_name}' in {sample_name} RAW DATA: peak_areas = {peak_areas}")
+        
+        return sample_data
+    
+    def _get_sample_corrected_data(self, sample_name: str) -> Dict[str, List[float]]:
+        """
+        Get integrated corrected EIC data for all compounds in a sample.
+        
+        Args:
+            sample_name: Name of the sample
+            
+        Returns:
+            Dictionary mapping compound names to lists of corrected isotopologue peak areas
+        """
+        sample_data = {}
+        
+        with get_connection() as conn:
+            # Debug: Check what corrected compounds exist in this sample  
+            corrected_check = conn.execute(
+                "SELECT DISTINCT ec.compound_name FROM eic_corrected ec WHERE ec.sample_name = ? AND ec.deleted = 0 ORDER BY ec.compound_name", 
+                (sample_name,)
+            ).fetchall()
+            available_corrected = [row['compound_name'] for row in corrected_check]
+            logger.info(f"Corrected EIC compounds in {sample_name}: {available_corrected[:10]}...")  # Show first 10
+            
+            # Get all corrected EIC data for this sample, ordered by compound name
+            corrected_query = """
+                SELECT ec.compound_name, ec.x_axis, ec.y_axis_corrected, c.label_atoms
+                FROM eic_corrected ec
+                JOIN compounds c ON ec.compound_name = c.compound_name
+                WHERE ec.sample_name = ? AND ec.deleted = 0 AND c.deleted = 0
+                ORDER BY ec.compound_name
+            """
+            
+            for row in conn.execute(corrected_query, (sample_name,)):
+                compound_name = row['compound_name']
+                label_atoms = row['label_atoms']
+                
+                # Decompress and integrate the corrected EIC data
+                time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
+                corrected_intensity = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
+                
+                # Calculate integrated peak areas for each corrected isotopologue
+                peak_areas = self._calculate_peak_areas(time_data, corrected_intensity, label_atoms)
+                sample_data[compound_name] = peak_areas
+                
+                # Special debugging for internal standard
+                if 'scyllo' in compound_name.lower() or 'ins' in compound_name.lower():
+                    logger.info(f"Found potential internal standard '{compound_name}' in {sample_name}: peak_areas = {peak_areas}")
+                    
+                    # Check the compound metadata that affects natural abundance correction
+                    with get_connection() as debug_conn:
+                        metadata_query = debug_conn.execute(
+                            "SELECT formula, label_atoms, label_type, tbdms, meox, me FROM compounds WHERE compound_name = ?",
+                            (compound_name,)
+                        ).fetchone()
+                        if metadata_query:
+                            logger.info(f"Compound '{compound_name}' metadata: formula='{metadata_query['formula']}', "
+                                       f"label_atoms={metadata_query['label_atoms']}, label_type='{metadata_query['label_type']}', "
+                                       f"tbdms={metadata_query['tbdms']}, meox={metadata_query['meox']}, me={metadata_query['me']}")
+                        else:
+                            logger.info(f"No metadata found for compound '{compound_name}'")
+        
+        return sample_data

@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS compounds (
     tbdms         INTEGER DEFAULT 0,  -- Number of TBDMS derivatizations
     meox          INTEGER DEFAULT 0,  -- Number of MeOX derivatizations
     me            INTEGER DEFAULT 0,  -- Number of methylations
+    amount_in_std_mix REAL,  -- Known concentration in standard mixture (for MRRF calculation)
+    int_std_amount REAL,     -- Amount of internal standard added to each sample
+    mm_files      TEXT,      -- Comma-separated list of MM file patterns (e.g., "*_MM_01*,*_MM_02*")
     deleted       INTEGER DEFAULT 0
 );
 

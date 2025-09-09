@@ -108,79 +108,153 @@ class DocumentationViewer(QDialog):
                     ]
                 )
                 
-                # Apply simple CSS for clean white background with black text
+                # Apply elegant CSS for clean, readable documentation
                 styled_html = f"""
                 <html>
                 <head>
                 <style>
                 body {{ 
                     background-color: white;
-                    color: black;
-                    font-family: Arial, Helvetica; 
+                    color: #333;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+                    font-size: 15px;
+                    line-height: 1.7; 
+                    max-width: 900px;
+                    margin: 0 auto;
+                    padding: 40px;
+                }}
+                h1 {{ 
+                    color: #1a1a1a;
+                    font-size: 32px;
+                    font-weight: 700;
+                    margin: 0 0 24px 0;
+                    padding-bottom: 12px;
+                    border-bottom: 3px solid #e1e4e8;
+                }}
+                h2 {{ 
+                    color: #24292e;
+                    font-size: 24px;
+                    font-weight: 600;
+                    margin: 36px 0 16px 0;
+                    padding-bottom: 8px;
+                    border-bottom: 1px solid #e1e4e8;
+                }}
+                h3 {{ 
+                    color: #24292e;
+                    font-size: 20px;
+                    font-weight: 600;
+                    margin: 28px 0 12px 0;
+                }}
+                h4 {{ 
+                    color: #24292e;
+                    font-size: 16px;
+                    font-weight: 600;
+                    margin: 24px 0 8px 0;
+                }}
+                h5, h6 {{ 
+                    color: #24292e;
                     font-size: 14px;
-                    line-height: 1.6; 
-                    margin: 20px;
+                    font-weight: 600;
+                    margin: 20px 0 8px 0;
                 }}
-                h1, h2, h3, h4, h5, h6 {{ 
-                    color: black;
-                    margin-top: 1.5em;
-                    margin-bottom: 0.5em;
+                p {{ 
+                    color: #333;
+                    margin: 0 0 16px 0;
                 }}
-                h1 {{ font-size: 24px; border-bottom: 2px solid #333; padding-bottom: 0.3em; }}
-                h2 {{ font-size: 20px; border-bottom: 1px solid #666; padding-bottom: 0.3em; }}
-                h3 {{ font-size: 18px; }}
-                h4 {{ font-size: 16px; }}
                 code {{ 
-                    background-color: #f5f5f5; 
-                    color: black;
-                    padding: 2px 4px; 
-                    border-radius: 3px;
-                    font-family: Monaco, Consolas, 'DejaVu Sans Mono';
-                    font-size: 13px;
+                    background-color: #f6f8fa;
+                    color: #24292e;
+                    padding: 3px 6px;
+                    border-radius: 6px;
+                    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Monaco, "Courier New", monospace;
+                    font-size: 85%;
+                    border: 1px solid #e1e4e8;
                 }}
                 pre {{ 
-                    background-color: #f5f5f5; 
-                    color: black;
-                    padding: 16px; 
-                    border-radius: 6px;
-                    border-left: 4px solid #333;
+                    background-color: #f6f8fa;
+                    color: #24292e;
+                    padding: 20px;
+                    border-radius: 8px;
+                    border: 1px solid #e1e4e8;
                     overflow-x: auto;
-                    font-size: 13px;
+                    font-size: 14px;
+                    line-height: 1.45;
+                    margin: 16px 0;
                 }}
                 pre code {{
                     background-color: transparent;
-                    color: black;
+                    color: inherit;
                     padding: 0;
-                    font-family: Monaco, Consolas, 'DejaVu Sans Mono';
+                    border: none;
+                    font-size: inherit;
                 }}
                 table {{ 
                     border-collapse: collapse; 
                     width: 100%;
-                    margin: 1em 0;
+                    margin: 20px 0;
                     background-color: white;
-                }}
-                th, td {{ 
-                    border: 1px solid #333; 
-                    padding: 8px; 
-                    text-align: left;
-                    background-color: white;
-                    color: black;
+                    border: 1px solid #d0d7de;
+                    border-radius: 6px;
+                    overflow: hidden;
                 }}
                 th {{ 
-                    background-color: #f0f0f0; 
-                    font-weight: bold;
-                    color: black;
+                    background-color: #f6f8fa;
+                    color: #24292e;
+                    font-weight: 600;
+                    padding: 12px 16px;
+                    text-align: left;
+                    border-bottom: 1px solid #d0d7de;
+                }}
+                td {{ 
+                    padding: 12px 16px;
+                    border-bottom: 1px solid #d0d7de;
+                    color: #333;
+                }}
+                tr:last-child td {{
+                    border-bottom: none;
+                }}
+                tr:nth-child(even) {{
+                    background-color: #f9f9f9;
                 }}
                 blockquote {{
-                    border-left: 4px solid #333;
-                    margin: 0;
-                    padding-left: 16px;
-                    color: #333;
-                    background-color: white;
+                    border-left: 4px solid #d0d7de;
+                    margin: 16px 0;
+                    padding: 0 16px;
+                    color: #656d76;
+                    background-color: #f6f8fa;
+                    border-radius: 0 6px 6px 0;
                 }}
-                ul, ol {{ margin: 1em 0; padding-left: 2em; color: black; }}
-                li {{ margin: 0.5em 0; color: black; }}
-                p {{ color: black; }}
+                ul, ol {{ 
+                    margin: 16px 0;
+                    padding-left: 32px;
+                    color: #333;
+                }}
+                li {{ 
+                    margin: 8px 0;
+                    line-height: 1.6;
+                }}
+                strong {{ 
+                    color: #24292e;
+                    font-weight: 600;
+                }}
+                em {{ 
+                    color: #333;
+                    font-style: italic;
+                }}
+                hr {{
+                    border: none;
+                    height: 1px;
+                    background-color: #e1e4e8;
+                    margin: 32px 0;
+                }}
+                /* Special styling for warnings/notes */
+                p:has(strong:first-child) {{
+                    background-color: #fff8dc;
+                    border-left: 4px solid #f0ad4e;
+                    padding: 12px 16px;
+                    margin: 16px 0;
+                    border-radius: 0 6px 6px 0;
+                }}
                 </style>
                 </head>
                 <body>

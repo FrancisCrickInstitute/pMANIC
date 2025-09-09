@@ -5,7 +5,8 @@ This module consolidates existing magic numbers and configuration
 parameters used throughout the application.
 """
 
-from PySide6.QtGui import QColor
+import sys
+from PySide6.QtGui import QColor, QFont
 
 # ============================================================================
 # Plotting Constants  
@@ -47,10 +48,10 @@ PLOT_AXIS_SPINE_WIDTH = 0.5
 
 # DetailedPlotDialog dimensions
 DETAILED_DIALOG_WIDTH = 1400
-DETAILED_DIALOG_HEIGHT = 1100
+DETAILED_DIALOG_HEIGHT = 1200  # Increased default height
 DETAILED_DIALOG_MIN_WIDTH = 800
-DETAILED_DIALOG_MIN_HEIGHT = 600
-DETAILED_DIALOG_SCREEN_RATIO = 0.95  # Maximum percentage of screen size
+DETAILED_DIALOG_MIN_HEIGHT = 700  # Increased minimum height for Windows
+DETAILED_DIALOG_SCREEN_RATIO = 0.9  # Reduced to leave more space for taskbars/menus
 
 # Plot heights in detailed view
 DETAILED_EIC_HEIGHT = 450
@@ -102,7 +103,62 @@ GUIDELINE_ALPHA = 0.5  # Transparency for guide lines
 # ============================================================================
 
 # Font family
-FONT = "Verdana"
+# ============================================================================
+# Cross-Platform Font Configuration
+# ============================================================================
+
+def get_system_font():
+    """
+    Get the appropriate system font for cross-platform consistency.
+    
+    Returns the optimal font family and scaling factors for the current platform
+    to ensure consistent appearance across Windows, macOS, and Linux.
+    """
+    if sys.platform == "win32":
+        # Windows: Use Segoe UI with slightly larger sizes
+        return "Segoe UI", 1.1  # family, size_multiplier
+    elif sys.platform == "darwin":
+        # macOS: Use SF Pro Text (system font) or Helvetica
+        return "SF Pro Text", 1.0
+    else:
+        # Linux: Use DejaVu Sans or system default
+        return "DejaVu Sans", 1.0
+
+def create_font(base_size: int, weight: QFont.Weight = QFont.Weight.Normal, family: str = None) -> QFont:
+    """
+    Create a QFont with cross-platform compatibility.
+    
+    Args:
+        base_size: Base font size (will be adjusted per platform)
+        weight: Font weight (Normal, Bold, etc.)
+        family: Optional specific font family override
+        
+    Returns:
+        QFont configured for the current platform
+    """
+    if family is None:
+        font_family, size_multiplier = get_system_font()
+    else:
+        font_family = family
+        _, size_multiplier = get_system_font()
+    
+    # Adjust size for platform
+    adjusted_size = int(base_size * size_multiplier)
+    
+    font = QFont(font_family, adjusted_size)
+    font.setWeight(weight)
+    
+    # Platform-specific rendering hints
+    if sys.platform == "win32":
+        font.setHintingPreference(QFont.HintingPreference.PreferDefaultHinting)
+    elif sys.platform == "darwin":
+        font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+    
+    return font
+
+# Legacy font constant for backward compatibility
+FONT_FAMILY, FONT_SIZE_MULTIPLIER = get_system_font()
+FONT = FONT_FAMILY
 
 # Status indicator colors
 RED = QColor(215, 50, 50, 128)

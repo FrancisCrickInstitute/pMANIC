@@ -11,9 +11,11 @@ Features responsive layout adaptation and professional scientific notation.
 
 import logging
 
+import sys
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QScreen
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -86,15 +88,34 @@ class DetailedPlotDialog(QDialog):
             f"Detailed View - {self.compound_name} ({self.sample_name})"
         )
         self.setModal(True)
-        self.resize(DETAILED_DIALOG_WIDTH, DETAILED_DIALOG_HEIGHT)  # Larger default size
-        self.setMinimumSize(DETAILED_DIALOG_MIN_WIDTH, DETAILED_DIALOG_MIN_HEIGHT)  # Smaller minimum to allow for smaller screens
+        # Platform-adaptive sizing for better cross-platform experience
+        screen = QApplication.primaryScreen()
+        screen_rect = screen.availableGeometry() if screen else None
         
-        # Calculate optimal window size based on screen dimensions
-        from PySide6.QtGui import QGuiApplication
-        screen = QGuiApplication.primaryScreen()
-        if screen:
-            screen_rect = screen.availableGeometry()
-            self.setMaximumSize(int(screen_rect.width() * DETAILED_DIALOG_SCREEN_RATIO), int(screen_rect.height() * DETAILED_DIALOG_SCREEN_RATIO))
+        if sys.platform == "win32":
+            # Windows: Account for title bar, taskbar, and DPI scaling
+            width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.85) if screen_rect else DETAILED_DIALOG_WIDTH)
+            height = min(DETAILED_DIALOG_HEIGHT + 100, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
+            min_height = DETAILED_DIALOG_MIN_HEIGHT + 50  # Extra height for Windows
+        elif sys.platform == "darwin":
+            # macOS: Account for menu bar and dock
+            width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.9) if screen_rect else DETAILED_DIALOG_WIDTH)
+            height = min(DETAILED_DIALOG_HEIGHT, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
+            min_height = DETAILED_DIALOG_MIN_HEIGHT
+        else:
+            # Linux: Conservative sizing
+            width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.85) if screen_rect else DETAILED_DIALOG_WIDTH)
+            height = min(DETAILED_DIALOG_HEIGHT, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
+            min_height = DETAILED_DIALOG_MIN_HEIGHT
+        
+        self.resize(width, height)
+        self.setMinimumSize(DETAILED_DIALOG_MIN_WIDTH, min_height)
+        
+        # Set maximum size based on available screen space
+        if screen_rect:
+            max_width = int(screen_rect.width() * DETAILED_DIALOG_SCREEN_RATIO)
+            max_height = int(screen_rect.height() * DETAILED_DIALOG_SCREEN_RATIO)
+            self.setMaximumSize(max_width, max_height)
 
         # Configure primary layout structure
         layout = QVBoxLayout(self)

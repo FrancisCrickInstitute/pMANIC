@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.timer import measure_time
+from manic.constants import create_font
 
 logger = logging.getLogger(__name__)
 
@@ -470,7 +471,7 @@ class GraphView(QWidget):
         # Create caption label with adaptive sizing for large datasets
         caption = QLabel(eic.sample_name)
         caption.setAlignment(Qt.AlignCenter)
-        caption.setFont(QFont("Arial", 8, QFont.Bold))
+        caption.setFont(create_font(8, QFont.Weight.Bold))  # Cross-platform font
         caption.setStyleSheet("color: black; padding: 1px;")
         caption.setWordWrap(True)  # Allow text wrapping for long sample names
         caption.setMinimumHeight(15)  # Ensure minimum visibility
@@ -649,7 +650,7 @@ class GraphView(QWidget):
                 html_text = f'×10<span style="font-size: 14pt;">{superscript(scale_exp)}</span>'
                 scale_text = QGraphicsTextItem()
                 scale_text.setHtml(html_text)
-                scale_text.setFont(QFont("Arial", 10))
+                scale_text.setFont(create_font(10))  # Cross-platform font
                 scale_text.setDefaultTextColor(QColor(80, 80, 80))
                 scale_text.setPos(10, 10)
                 chart.scene().addItem(scale_text)
@@ -722,7 +723,7 @@ class GraphView(QWidget):
         scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
 
         # Create reusable font and dark red pen
-        font = QFont("Arial", 8)
+        font = create_font(8)  # Cross-platform font
         dark_red_pen = QPen(dark_red_colour, 2)
 
         # Create axes
@@ -821,7 +822,7 @@ class GraphView(QWidget):
             )
             scale_text = QGraphicsTextItem()
             scale_text.setHtml(html_text)
-            scale_text.setFont(QFont("Arial", 10))  # Base font size for ×10
+            scale_text.setFont(create_font(10))  # Cross-platform base font for ×10
             scale_text.setDefaultTextColor(QColor(80, 80, 80))
             scale_text.setPos(10, 10)  # Top-left corner
             chart.scene().addItem(scale_text)

@@ -13,12 +13,14 @@ Uses streaming approach for optimal memory usage and performance.
 
 import logging
 import zlib
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import xlsxwriter
 
+from manic.__version__ import __version__
 from manic.io.compound_reader import read_compound
 from manic.models.database import get_connection
 
@@ -40,6 +42,120 @@ class DataExporter:
     def set_internal_standard(self, compound_name: Optional[str]):
         """Set the internal standard compound for abundance calculations."""
         self.internal_standard_compound = compound_name
+
+    def _generate_changelog(self, export_filepath: str) -> None:
+        """
+        Generate a comprehensive changelog.md file detailing the export session.
+        
+        Args:
+            export_filepath: Path to the Excel export file (changelog will be created in same directory)
+        """
+        export_path = Path(export_filepath)
+        changelog_path = export_path.parent / "changelog.md"
+        
+        # Get session information from database
+        with get_connection() as conn:
+            # Get compounds info
+            compounds_query = """
+                SELECT compound_name, retention_time, loffset, roffset, mass0, 
+                       label_atoms, formula, label_type, tbdms, meox, me,
+                       amount_in_std_mix, int_std_amount, mm_files
+                FROM compounds 
+                WHERE deleted = 0 
+                ORDER BY compound_name
+            """
+            compounds = conn.execute(compounds_query).fetchall()
+            
+            # Get samples info
+            samples_query = """
+                SELECT sample_name, file_name 
+                FROM samples 
+                WHERE deleted = 0 
+                ORDER BY sample_name
+            """
+            samples = conn.execute(samples_query).fetchall()
+            
+            # Get session activity (parameter overrides)
+            session_query = """
+                SELECT compound_name, sample_name, retention_time, loffset, roffset
+                FROM session_activity 
+                WHERE sample_deleted = 0
+                ORDER BY compound_name, sample_name
+            """
+            session_overrides = conn.execute(session_query).fetchall()
+
+        # Generate changelog content
+        changelog_content = f"""# MANIC Export Session Changelog
+
+## Export Information
+- **Export Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- **MANIC Version:** {__version__}
+- **Export File:** {export_path.name}
+- **Internal Standard:** {self.internal_standard_compound or 'None selected'}
+
+## Processing Settings
+- **Mass Tolerance Method:** Asymmetric offset + rounding (MANIC original method)
+- **Integration Method:** Time-based integration (scientifically accurate)
+- **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0
+- **Internal Standard Handling:** Raw values copied directly for label_atoms = 0
+
+## Data Summary
+- **Total Compounds:** {len(compounds)}
+- **Total Samples:** {len(samples)}
+- **Session Parameter Overrides:** {len(session_overrides)}
+
+## Compounds Processed
+| Compound Name | RT (min) | L Offset | R Offset | Mass (m/z) | Label Atoms | Formula | Internal Std Amount |
+|---------------|----------|----------|----------|------------|-------------|---------|-------------------|
+"""
+        
+        for compound in compounds:
+            int_std = compound['int_std_amount'] if compound['int_std_amount'] else 'N/A'
+            changelog_content += f"| {compound['compound_name']} | {compound['retention_time']:.3f} | {compound['loffset']:.3f} | {compound['roffset']:.3f} | {compound['mass0']:.4f} | {compound['label_atoms']} | {compound['formula'] or 'N/A'} | {int_std} |\n"
+        
+        changelog_content += f"\n## Sample Files Processed\n"
+        for sample in samples:
+            file_name = sample['file_name'] if sample['file_name'] else 'N/A'
+            changelog_content += f"- **{sample['sample_name']}**: {file_name}\n"
+        
+        if session_overrides:
+            changelog_content += f"\n## Session Parameter Overrides\n"
+            changelog_content += f"The following compounds had their parameters modified during the session:\n\n"
+            changelog_content += f"| Compound | Sample | RT Override | L Offset Override | R Offset Override |\n"
+            changelog_content += f"|----------|--------|-------------|-------------------|-------------------|\n"
+            
+            for override in session_overrides:
+                changelog_content += f"| {override['compound_name']} | {override['sample_name']} | {override['retention_time']:.3f} | {override['loffset']:.3f} | {override['roffset']:.3f} |\n"
+        
+        changelog_content += f"""
+## Export Sheets Generated
+1. **Raw Values** - Direct instrument signals (uncorrected peak areas using time-based integration)
+2. **Corrected Values** - Natural isotope abundance corrected signals
+3. **Isotope Ratios** - Normalized corrected values (fractions sum to 1.0)  
+4. **% Label Incorporation** - Percentage of experimental label incorporation
+5. **Abundances** - Absolute metabolite concentrations via internal standard calibration
+
+## Key Processing Notes
+- Integration boundaries determined by compound-specific loffset/roffset values
+- Strict inequality boundaries (time > l_boundary & time < r_boundary) for precise peak area calculation
+- Compound-specific MM file patterns used for standard mixture identification
+- Time-based integration produces physically meaningful results with proper units
+- Natural isotope correction applied using high-performance algorithms for accuracy
+
+## Session Changes Made
+This export represents the final state of all data processing and parameter adjustments made during the session. All parameter overrides and corrections have been applied to generate the most accurate quantitative results possible.
+
+---
+*Generated automatically by MANIC v{__version__}*
+"""
+
+        # Write changelog file
+        try:
+            with open(changelog_path, 'w', encoding='utf-8') as f:
+                f.write(changelog_content)
+            logger.info(f"Changelog generated: {changelog_path}")
+        except Exception as e:
+            logger.error(f"Failed to generate changelog: {e}")
         
     def export_to_excel(self, filepath: str, progress_callback=None) -> bool:
         """
@@ -94,6 +210,10 @@ class DataExporter:
                 progress_callback(100)
                 
             logger.info(f"Excel export completed successfully: {filepath}")
+            
+            # Generate changelog
+            self._generate_changelog(filepath)
+            
             return True
             
         except Exception as e:

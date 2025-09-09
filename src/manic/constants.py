@@ -48,9 +48,9 @@ PLOT_AXIS_SPINE_WIDTH = 0.5
 
 # DetailedPlotDialog dimensions
 DETAILED_DIALOG_WIDTH = 1400
-DETAILED_DIALOG_HEIGHT = 1200  # Increased default height
+DETAILED_DIALOG_HEIGHT = 1300  # Further increased default height for Windows
 DETAILED_DIALOG_MIN_WIDTH = 800
-DETAILED_DIALOG_MIN_HEIGHT = 700  # Increased minimum height for Windows
+DETAILED_DIALOG_MIN_HEIGHT = 800  # Further increased minimum height for Windows
 DETAILED_DIALOG_SCREEN_RATIO = 0.9  # Reduced to leave more space for taskbars/menus
 
 # Plot heights in detailed view

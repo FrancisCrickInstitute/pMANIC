@@ -1,8 +1,9 @@
+import sys
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from manic.constants import FONT, GREEN, RED
+from manic.constants import FONT, GREEN, RED, create_font
 
 
 class LoadedDataWidget(QWidget):
@@ -24,12 +25,20 @@ class LoadedDataWidget(QWidget):
         layout.addWidget(self.raw_data_label)
 
     def _create_status_label(self, text: str, color) -> QLabel:
-        """Create a consistently styled status label"""
+        """Create a consistently styled status label with platform-specific sizing"""
         label = QLabel(text)
         label.setAlignment(Qt.AlignCenter)
         label.setAutoFillBackground(True)
-        label.setFont(QFont(FONT, 10))
-        label.setFixedSize(75, 20)
+        label.setFont(create_font(10))  # Use cross-platform font
+        
+        # Platform-specific sizing for better text fit
+        if sys.platform == "win32":
+            # Windows needs more horizontal space due to Arial font width
+            label.setFixedSize(85, 22)  # Wider and slightly taller
+        else:
+            # macOS and Linux use original dimensions
+            label.setFixedSize(75, 20)
+        
         self._apply_color(label, color)
         return label
 

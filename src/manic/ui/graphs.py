@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import sys
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.timer import measure_time
@@ -158,18 +159,16 @@ class GraphView(QWidget):
                     container.chart_view.clicked.connect(self._on_plot_clicked)
                     container.chart_view.right_clicked.connect(self._on_plot_right_clicked)
 
-            # Add to layout with all containers hidden initially to prevent flashing
+            # Add to layout efficiently with atomic visibility handling
+            # Hide all containers first, add to layout, then show all at once
+            # This prevents visual flashing and is more efficient than processEvents()
             for i, container in enumerate(plot_containers):
                 row = i // cols
                 col = i % cols
                 container.hide()  # Ensure hidden before adding to layout
                 self._layout.addWidget(container, row, col)
             
-            # Process any pending Qt events to ensure layout is complete
-            from PySide6.QtCore import QCoreApplication
-            QCoreApplication.processEvents()
-            
-            # Now show all containers at once for smooth appearance
+            # Show all containers at once for smooth appearance
             for container in plot_containers:
                 container.show()
 
@@ -829,7 +828,14 @@ class GraphView(QWidget):
 
         # Remove chart title to maximize space
         chart.setTitle("")
-        chart.setMargins(QMargins(-13, -10, -13, -15))
+        
+        # Platform-specific margins to prevent text cutoff on Windows
+        if sys.platform == "win32":
+            # Windows needs more bottom margin due to font rendering differences
+            chart.setMargins(QMargins(-13, -10, -13, -5))
+        else:
+            # macOS and Linux can use tighter margins
+            chart.setMargins(QMargins(-13, -10, -13, -15))
 
         return chart_view
 

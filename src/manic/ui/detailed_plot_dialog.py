@@ -88,6 +88,10 @@ class DetailedPlotDialog(QDialog):
             f"Detailed View - {self.compound_name} ({self.sample_name})"
         )
         self.setModal(True)
+        
+        # Ensure the dialog is resizable on all platforms
+        self.setSizeGripEnabled(True)  # Enable resize grip
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)  # Enable maximize button
         # Platform-adaptive sizing for better cross-platform experience
         screen = QApplication.primaryScreen()
         screen_rect = screen.availableGeometry() if screen else None
@@ -95,8 +99,8 @@ class DetailedPlotDialog(QDialog):
         if sys.platform == "win32":
             # Windows: Account for title bar, taskbar, and DPI scaling
             width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.85) if screen_rect else DETAILED_DIALOG_WIDTH)
-            height = min(DETAILED_DIALOG_HEIGHT + 100, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
-            min_height = DETAILED_DIALOG_MIN_HEIGHT + 50  # Extra height for Windows
+            height = min(DETAILED_DIALOG_HEIGHT + 150, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
+            min_height = DETAILED_DIALOG_MIN_HEIGHT + 100  # Extra height for Windows
         elif sys.platform == "darwin":
             # macOS: Account for menu bar and dock
             width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.9) if screen_rect else DETAILED_DIALOG_WIDTH)

@@ -131,10 +131,12 @@ MRRF[metabolite] = (Signal_Metabolite_Standard / Concentration_Metabolite_Standa
 ```
 
 Where:
-- `Signal_Metabolite_Standard`: Mean total corrected signal for target metabolite in MM files
+- `Signal_Metabolite_Standard`: Mean total corrected signal for target metabolite in its specified MM files
 - `Concentration_Metabolite_Standard`: Known concentration in standard mixture (AmountInStdMix)
-- `Signal_Internal_Standard`: Mean M+0 corrected signal of internal standard in MM files  
+- `Signal_Internal_Standard`: Mean total corrected signal of internal standard in its specified MM files  
 - `Concentration_Internal_Standard`: Known concentration of internal standard in MM files
+
+**MM File Selection**: Each compound uses its own MM file pattern (specified in compound database). Patterns support comma-separation and wildcards (e.g., "*MM_01*,*MM_02*").
 
 **Step 2: Calculate Sample Concentrations**
 ```
@@ -145,7 +147,7 @@ Abundance[sample] = (Total_Corrected_Signal[sample] × Internal_Standard_Amount)
 Where:
 - `Total_Corrected_Signal[sample]`: Sum of all corrected isotopologues for the metabolite
 - `Internal_Standard_Amount`: Amount of internal standard added to each sample (IntStdAmount)
-- `Internal_Standard_Signal[sample]`: M+0 corrected signal of internal standard in sample
+- `Internal_Standard_Signal[sample]`: Total corrected signal of internal standard in sample (sum of all isotopologues)
 - `MRRF[metabolite]`: Pre-calculated response ratio factor
 
 **Scientific Rationale**:

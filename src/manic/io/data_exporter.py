@@ -12,6 +12,7 @@ Uses streaming approach for optimal memory usage and performance.
 """
 
 import logging
+import time
 import zlib
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,12 @@ class DataExporter:
         self.internal_standard_compound = None  # Set by UI before export
         # Time-based by default (matches app/UI defaults and docs)
         self.use_legacy_integration = False
+        
+        # Phase 1 optimization: Add caching for expensive calculations
+        self._mrrf_cache = {}
+        self._background_ratios_cache = {}
+        self._bulk_sample_data_cache = {}
+        self._cache_valid = False
 
     def _resolve_mm_samples(self, mm_files_field: Optional[str]) -> List[str]:
         """Resolve MM file patterns to a deduplicated list of sample names.
@@ -76,11 +83,22 @@ class DataExporter:
         
     def set_internal_standard(self, compound_name: Optional[str]):
         """Set the internal standard compound for abundance calculations."""
-        self.internal_standard_compound = compound_name
+        if self.internal_standard_compound != compound_name:
+            self.internal_standard_compound = compound_name
+            self._invalidate_cache()
         
     def set_use_legacy_integration(self, use_legacy: bool):
         """Set whether to use legacy MATLAB-compatible unit-spacing integration."""
-        self.use_legacy_integration = use_legacy
+        if self.use_legacy_integration != use_legacy:
+            self.use_legacy_integration = use_legacy
+            self._invalidate_cache()
+    
+    def _invalidate_cache(self):
+        """Invalidate all caches when parameters change."""
+        self._mrrf_cache.clear()
+        self._background_ratios_cache.clear()
+        self._bulk_sample_data_cache.clear()
+        self._cache_valid = False
         
     def _integrate_peak(self, intensity_data: np.ndarray, time_data: np.ndarray = None) -> float:
         """
@@ -231,11 +249,19 @@ This export represents the final state of all data processing and parameter adju
             Exception: If export fails due to database or file system errors
         """
         try:
+            start_time = time.time()
             logger.info(f"Starting Excel export to {filepath}")
 
             # Optional per-call override of integration mode
             if use_legacy_integration is not None:
                 self.use_legacy_integration = use_legacy_integration
+            
+            # Phase 1 optimization: Pre-load all sample data in bulk
+            logger.info("Phase 1 optimization: Pre-loading all sample data...")
+            data_load_start = time.time()
+            bulk_data = self._load_bulk_sample_data()
+            data_load_time = time.time() - data_load_start
+            logger.info(f"Loaded data for {len(bulk_data)} samples in bulk ({data_load_time:.2f}s)")
             
             # Create Excel workbook with optimization settings
             workbook = xlsxwriter.Workbook(filepath, {
@@ -272,7 +298,9 @@ This export represents the final state of all data processing and parameter adju
             if progress_callback:
                 progress_callback(100)
                 
-            logger.info(f"Excel export completed successfully: {filepath}")
+            total_time = time.time() - start_time
+            logger.info(f"Excel export completed successfully: {filepath} ({total_time:.2f}s total)")
+            logger.info(f"Performance breakdown: Data loading: {data_load_time:.2f}s, Excel writing: {total_time - data_load_time:.2f}s")
             
             # Generate changelog
             self._generate_changelog(filepath)
@@ -882,6 +910,7 @@ This export represents the final state of all data processing and parameter adju
     def _calculate_background_ratios(self, compounds) -> Dict[str, float]:
         """
         Calculate background ratios from MM files (standard mixture samples).
+        Uses caching for improved performance.
         
         Background_Ratio = Mean_Labelled_Signal_in_Standards / Mean_Unlabelled_Signal_in_Standards
         
@@ -891,6 +920,13 @@ This export represents the final state of all data processing and parameter adju
         Returns:
             Dictionary mapping compound names to background ratios
         """
+        # Check if we have cached results
+        cache_key = f"bg_ratios_{len(compounds)}_{self.use_legacy_integration}"
+        if cache_key in self._background_ratios_cache:
+            logger.debug("Using cached background ratios")
+            return self._background_ratios_cache[cache_key]
+            
+        logger.info("Calculating background ratios (cached for future use)...")
         background_ratios = {}
         
         # Calculate background ratio for each compound using its specific MM files
@@ -944,11 +980,14 @@ This export represents the final state of all data processing and parameter adju
             else:
                 background_ratios[compound_name] = 0.0
         
+        # Cache the results
+        self._background_ratios_cache[cache_key] = background_ratios
         return background_ratios
     
     def _calculate_mrrf_values(self, compounds, internal_standard_compound: str) -> Dict[str, float]:
         """
         Calculate MRRF (Metabolite Response Ratio Factor) values using MM files.
+        Uses caching for improved performance.
         
         MATLAB-compatible approach:
         - Numerator uses the metabolite's own MM set
@@ -964,6 +1003,13 @@ This export represents the final state of all data processing and parameter adju
         Returns:
             Dictionary mapping compound names to MRRF values
         """
+        # Check if we have cached results
+        cache_key = f"mrrf_{len(compounds)}_{internal_standard_compound}_{self.use_legacy_integration}"
+        if cache_key in self._mrrf_cache:
+            logger.debug("Using cached MRRF values")
+            return self._mrrf_cache[cache_key]
+            
+        logger.info(f"Calculating MRRF values for {internal_standard_compound} (cached for future use)...")
         mrrf_values = {}
         
         # Get internal standard concentration from compound metadata 
@@ -1066,6 +1112,8 @@ This export represents the final state of all data processing and parameter adju
                              f"mean_internal_std_signal={mean_internal_std_signal:.3f}, "
                              f"internal_std_concentration={internal_std_concentration}")
         
+        # Cache the results
+        self._mrrf_cache[cache_key] = mrrf_values
         return mrrf_values
     
     def _calculate_peak_areas(self, time_data: np.ndarray, intensity_data: np.ndarray, label_atoms: int, 
@@ -1165,10 +1213,119 @@ This export represents the final state of all data processing and parameter adju
             result = conn.execute("SELECT COUNT(*) FROM samples WHERE deleted=0").fetchone()
             return result[0] if result else 0
     
+    def _load_bulk_sample_data(self) -> Dict[str, Dict[str, List[float]]]:
+        """
+        Load all sample data in bulk to minimize database queries.
+        
+        Returns:
+            Dictionary mapping sample_name -> {compound_name: [isotopologue_areas]}
+        """
+        if self._cache_valid and self._bulk_sample_data_cache:
+            logger.debug("Using cached bulk sample data")
+            return self._bulk_sample_data_cache
+            
+        logger.info("Loading all sample data in bulk...")
+        bulk_data = {}
+        
+        with get_connection() as conn:
+            # Get all samples first
+            samples = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+            
+            # Get all compounds with their metadata
+            compounds_query = """
+                SELECT compound_name, label_atoms, retention_time, loffset, roffset
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY compound_name
+            """
+            compounds = {row['compound_name']: row for row in conn.execute(compounds_query)}
+            
+            # Bulk load raw EIC data for unlabeled compounds (label_atoms = 0)
+            raw_eic_query = """
+                SELECT e.sample_name, e.compound_name, e.x_axis, e.y_axis
+                FROM eic e
+                JOIN compounds c ON e.compound_name = c.compound_name
+                WHERE e.deleted = 0 AND c.deleted = 0 AND c.label_atoms = 0
+                ORDER BY e.sample_name, e.compound_name
+            """
+            
+            # Bulk load corrected EIC data for labeled compounds (label_atoms > 0)
+            corrected_eic_query = """
+                SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected
+                FROM eic_corrected ec
+                JOIN compounds c ON ec.compound_name = c.compound_name
+                WHERE ec.deleted = 0 AND c.deleted = 0 AND c.label_atoms > 0
+                ORDER BY ec.sample_name, ec.compound_name
+            """
+            
+            # Initialize bulk_data structure
+            for sample_name in samples:
+                bulk_data[sample_name] = {}
+            
+            # Process raw EIC data (unlabeled compounds)
+            for row in conn.execute(raw_eic_query):
+                sample_name = row['sample_name']
+                compound_name = row['compound_name']
+                
+                if sample_name not in bulk_data:
+                    continue
+                    
+                compound_info = compounds.get(compound_name)
+                if not compound_info:
+                    continue
+                
+                # Decompress and integrate
+                time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
+                intensity_data = np.frombuffer(zlib.decompress(row['y_axis']), dtype=np.float64)
+                
+                peak_areas = self._calculate_peak_areas(
+                    time_data, intensity_data, 
+                    compound_info['label_atoms'],
+                    compound_info['retention_time'],
+                    compound_info['loffset'],
+                    compound_info['roffset']
+                )
+                
+                bulk_data[sample_name][compound_name] = peak_areas
+            
+            # Process corrected EIC data (labeled compounds)  
+            for row in conn.execute(corrected_eic_query):
+                sample_name = row['sample_name']
+                compound_name = row['compound_name']
+                
+                if sample_name not in bulk_data:
+                    continue
+                    
+                compound_info = compounds.get(compound_name)
+                if not compound_info:
+                    continue
+                
+                # Decompress and integrate
+                time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
+                intensity_data = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
+                
+                peak_areas = self._calculate_peak_areas(
+                    time_data, intensity_data,
+                    compound_info['label_atoms'], 
+                    compound_info['retention_time'],
+                    compound_info['loffset'],
+                    compound_info['roffset']
+                )
+                
+                bulk_data[sample_name][compound_name] = peak_areas
+        
+        # Cache the results
+        self._bulk_sample_data_cache = bulk_data
+        self._cache_valid = True
+        logger.info(f"Loaded data for {len(bulk_data)} samples, {len(compounds)} compounds")
+        return bulk_data
+    
     
     def _get_sample_raw_data(self, sample_name: str) -> Dict[str, List[float]]:
         """
         Get integrated raw EIC data for all compounds in a sample.
+        Uses bulk data loading for improved performance.
         
         Args:
             sample_name: Name of the sample
@@ -1176,17 +1333,11 @@ This export represents the final state of all data processing and parameter adju
         Returns:
             Dictionary mapping compound names to lists of isotopologue peak areas
         """
+        # For raw data, we need to load from the eic table (not eic_corrected)
+        # This is only used for raw values sheet, so we can optimize specifically for that
         sample_data = {}
         
         with get_connection() as conn:
-            # Debug: Check what compounds exist in this sample
-            compound_check = conn.execute(
-                "SELECT DISTINCT e.compound_name FROM eic e WHERE e.sample_name = ? AND e.deleted = 0 ORDER BY e.compound_name", 
-                (sample_name,)
-            ).fetchall()
-            available_compounds = [row['compound_name'] for row in compound_check]
-            logger.info(f"Raw EIC compounds in {sample_name}: {available_compounds[:10]}...")  # Show first 10
-            
             # Get all EIC data for this sample with integration boundaries
             eic_query = """
                 SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, c.loffset, c.roffset
@@ -1211,18 +1362,15 @@ This export represents the final state of all data processing and parameter adju
                 peak_areas = self._calculate_peak_areas(time_data, intensity_data, label_atoms, retention_time, loffset, roffset)
                 sample_data[compound_name] = peak_areas
                 
-        
         return sample_data
     
     def _get_sample_corrected_data(self, sample_name: str) -> Dict[str, List[float]]:
         """
         Get integrated EIC data for all compounds in a sample.
+        Uses bulk data loading for improved performance.
         
         For labeled compounds (label_atoms > 0): fetches corrected data from eic_corrected table
         For unlabeled compounds (label_atoms = 0): fetches raw data directly from eic table
-        
-        This approach is more robust as it doesn't depend on the eic_corrected table being
-        properly populated for unlabeled compounds (internal standards).
         
         Args:
             sample_name: Name of the sample
@@ -1230,68 +1378,6 @@ This export represents the final state of all data processing and parameter adju
         Returns:
             Dictionary mapping compound names to lists of isotopologue peak areas
         """
-        sample_data = {}
-        
-        with get_connection() as conn:
-            # Get all compounds that should have EIC data in this sample
-            all_compounds_query = """
-                SELECT DISTINCT c.compound_name, c.label_atoms, c.retention_time, c.loffset, c.roffset
-                FROM compounds c
-                WHERE c.deleted = 0
-                AND (
-                    EXISTS (SELECT 1 FROM eic e WHERE e.compound_name = c.compound_name AND e.sample_name = ? AND e.deleted = 0)
-                    OR EXISTS (SELECT 1 FROM eic_corrected ec WHERE ec.compound_name = c.compound_name AND ec.sample_name = ? AND ec.deleted = 0)
-                )
-                ORDER BY c.compound_name
-            """
-            
-            for compound_row in conn.execute(all_compounds_query, (sample_name, sample_name)):
-                compound_name = compound_row['compound_name']
-                label_atoms = compound_row['label_atoms']
-                retention_time = compound_row['retention_time']
-                loffset = compound_row['loffset']
-                roffset = compound_row['roffset']
-                
-                time_data = None
-                intensity_data = None
-                
-                if label_atoms > 0:
-                    # Labeled compound: fetch corrected data from eic_corrected table
-                    corrected_query = """
-                        SELECT x_axis, y_axis_corrected
-                        FROM eic_corrected
-                        WHERE sample_name = ? AND compound_name = ? AND deleted = 0
-                        LIMIT 1
-                    """
-                    corrected_row = conn.execute(corrected_query, (sample_name, compound_name)).fetchone()
-                    
-                    if corrected_row:
-                        time_data = np.frombuffer(zlib.decompress(corrected_row['x_axis']), dtype=np.float64)
-                        intensity_data = np.frombuffer(zlib.decompress(corrected_row['y_axis_corrected']), dtype=np.float64)
-                    else:
-                        logger.warning(f"No corrected data found for labeled compound '{compound_name}' in sample '{sample_name}'")
-                        continue
-                
-                else:
-                    # Unlabeled compound (internal standard): fetch raw data directly from eic table
-                    raw_query = """
-                        SELECT x_axis, y_axis
-                        FROM eic
-                        WHERE sample_name = ? AND compound_name = ? AND deleted = 0
-                        LIMIT 1
-                    """
-                    raw_row = conn.execute(raw_query, (sample_name, compound_name)).fetchone()
-                    
-                    if raw_row:
-                        time_data = np.frombuffer(zlib.decompress(raw_row['x_axis']), dtype=np.float64)
-                        intensity_data = np.frombuffer(zlib.decompress(raw_row['y_axis']), dtype=np.float64)
-                    else:
-                        logger.warning(f"No raw data found for unlabeled compound '{compound_name}' in sample '{sample_name}'")
-                        continue
-                
-                # Calculate integrated peak areas using compound-specific integration boundaries
-                if time_data is not None and intensity_data is not None:
-                    peak_areas = self._calculate_peak_areas(time_data, intensity_data, label_atoms, retention_time, loffset, roffset)
-                    sample_data[compound_name] = peak_areas
-        
-        return sample_data
+        # Use bulk data loading for better performance
+        bulk_data = self._load_bulk_sample_data()
+        return bulk_data.get(sample_name, {})

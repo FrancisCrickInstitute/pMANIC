@@ -206,6 +206,65 @@ def get_connection():
             conn.close()
 
 
+def soft_delete_compound(compound_name: str) -> bool:
+    """
+    Soft delete a compound by setting deleted = 1.
+    Returns True if compound was found and deleted.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE compounds SET deleted = 1 WHERE compound_name = ? AND deleted = 0",
+            (compound_name,)
+        )
+        success = cursor.rowcount > 0
+        if success:
+            logger.info(f"Soft deleted compound: {compound_name}")
+        # Don't log warning for compounds not found - they may already be deleted
+        return success
+
+
+def restore_compound(compound_name: str) -> bool:
+    """
+    Restore a soft-deleted compound by setting deleted = 0.
+    Returns True if compound was found and restored.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE compounds SET deleted = 0 WHERE compound_name = ? AND deleted = 1",
+            (compound_name,)
+        )
+        success = cursor.rowcount > 0
+        if success:
+            logger.info(f"Restored compound: {compound_name}")
+        else:
+            logger.warning(f"Deleted compound not found for restoration: {compound_name}")
+        return success
+
+
+def get_deleted_compounds():
+    """
+    Get list of soft-deleted compound names.
+    Returns list of compound names.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT compound_name FROM compounds WHERE deleted = 1 ORDER BY compound_name"
+        ).fetchall()
+        return [row["compound_name"] for row in rows]
+
+
+def restore_all_compounds() -> int:
+    """
+    Restore all soft-deleted compounds.
+    Returns number of compounds restored.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute("UPDATE compounds SET deleted = 0 WHERE deleted = 1")
+        count = cursor.rowcount
+        logger.info(f"Restored {count} compounds")
+        return count
+
+
 def clear_database():
     """Clear all data from the database (keep schema)."""
     with get_connection() as conn:

@@ -30,10 +30,11 @@ from manic.io.compounds_import import import_compound_excel
 from manic.io.data_exporter import DataExporter
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
-from manic.models.database import clear_database, get_connection
+from manic.models.database import clear_database, get_connection, soft_delete_compound
 from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
+from manic.ui.recovery_dialog import RecoveryDialog
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import CdfImportWorker, EicRegenerationWorker
 from src.manic.utils.timer import measure_time
@@ -46,6 +47,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} v{__version__}")
         self.setObjectName("mainWindow")
+        
+        # Flag to prevent cascading compound deletion events
+        self._deleting_compound = False
 
         # Set window icon
         self._set_window_icon()
@@ -85,6 +89,7 @@ class MainWindow(QMainWindow):
         self.toolbar.internal_standard_selected.connect(
             self.on_internal_standard_selected
         )
+        self.toolbar.compound_deleted.connect(self.on_compound_deleted)
 
     def setup_ui(self):
         """
@@ -148,6 +153,14 @@ class MainWindow(QMainWindow):
         # Add the clear session action to the file menu
         file_menu.addAction(self.clear_session_action)
 
+        # Add separator before recovery and export
+        file_menu.addSeparator()
+        
+        # Recovery dialog action
+        self.recovery_action = QAction("Recover Deleted Compounds...", self)
+        self.recovery_action.triggered.connect(self.show_recovery_dialog)
+        file_menu.addAction(self.recovery_action)
+
         # Add separator before export data
         file_menu.addSeparator()
 
@@ -185,6 +198,7 @@ class MainWindow(QMainWindow):
             self.toggle_legacy_integration_mode
         )
         settings_menu.addAction(self.legacy_integration_toggle)
+        
 
         """ Create Documentation Menu """
 
@@ -597,6 +611,48 @@ class MainWindow(QMainWindow):
         """
         samples = self.toolbar.get_selected_samples()
         self.on_plot_button(compound_selected, samples)
+
+    def on_compound_deleted(self, compound_name: str):
+        """
+        This method will be called when a compound is deleted.
+        Updates the compound list and selects the next available compound.
+        """
+        # Prevent cascading deletion events
+        if self._deleting_compound:
+            return
+            
+        self._deleting_compound = True
+        
+        try:
+            # Perform soft delete in database
+            if soft_delete_compound(compound_name):
+                # Get updated compound list
+                active_compounds = list_compound_names()
+                
+                # Clear the graph view first before updating the list
+                self.graph_view.clear_all_plots()
+                
+                # Force complete UI refresh to eliminate any visual artifacts
+                from PySide6.QtCore import QCoreApplication
+                QCoreApplication.processEvents()
+                self.graph_view.update()
+                self.graph_view.repaint()
+                QCoreApplication.processEvents()
+                
+                # Update compound list (signals are blocked during update)
+                self.toolbar.update_compound_list(active_compounds)
+                
+                logger.info(f"Compound '{compound_name}' deleted successfully.")
+                
+                if not active_compounds:
+                    logger.info("No compounds remaining after deletion.")
+            else:
+                logger.error(f"Failed to delete compound '{compound_name}' from database")
+        except Exception as e:
+            logger.error(f"Error during compound deletion: {e}")
+        finally:
+            # Always reset the flag
+            self._deleting_compound = False
 
     def on_samples_selected(self, samples_selected):
         compound = self.toolbar.get_selected_compound()
@@ -1215,6 +1271,21 @@ class MainWindow(QMainWindow):
                     if current_compound and current_samples:
                         self.on_plot_button(current_compound, current_samples)
 
+    def show_recovery_dialog(self):
+        """Show dialog to recover deleted compounds."""
+        dialog = RecoveryDialog(self)
+        result = dialog.exec()
+        
+        if result == QDialog.DialogCode.Accepted:
+            # Refresh compound list in case compounds were restored
+            active_compounds = list_compound_names()
+            self.toolbar.update_compound_list(active_compounds)
+            
+            # Auto-select first compound if available
+            if active_compounds:
+                self.toolbar.compound_list.setCurrentRow(0)
+                logger.info("Compound list refreshed after recovery")
+
     def _create_documentation_menu(self, docs_menu):
         """Create documentation menu with available markdown files."""
         # Get the docs directory path
@@ -1299,6 +1370,7 @@ class MainWindow(QMainWindow):
                 # Temporarily disconnect signals to prevent cascading events during clear
                 self.toolbar.samples_selected.disconnect()
                 self.toolbar.compound_selected.disconnect()
+                self.toolbar.compound_deleted.disconnect()
 
                 # Reset UI state flags first
                 self.compound_data_loaded = False
@@ -1333,6 +1405,7 @@ class MainWindow(QMainWindow):
                 # Reconnect signals
                 self.toolbar.samples_selected.connect(self.on_samples_selected)
                 self.toolbar.compound_selected.connect(self.on_compound_selected)
+                self.toolbar.compound_deleted.connect(self.on_compound_deleted)
 
                 # Update menu states
                 self._update_menu_states()
@@ -1352,6 +1425,7 @@ class MainWindow(QMainWindow):
                 try:
                     self.toolbar.samples_selected.connect(self.on_samples_selected)
                     self.toolbar.compound_selected.connect(self.on_compound_selected)
+                    self.toolbar.compound_deleted.connect(self.on_compound_deleted)
                 except:
                     pass  # Signals might already be connected
 

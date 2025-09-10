@@ -9,6 +9,7 @@ from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QMargins, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QGraphicsTextItem,
     QGridLayout,
     QLabel,
@@ -361,13 +362,23 @@ class GraphView(QWidget):
         self._selected_plots.clear()
         self.selection_changed.emit([])
 
-    def clear_all_plots(self):
-        """Clear all plots from the graph view"""
+    def clear_all_plots(self, force_destroy: bool = True):
+        """Clear all plots from the graph view
+        
+        Args:
+            force_destroy: If True, completely destroy widgets (slower but prevents artifacts).
+                          If False, use pooling (faster but may have visual artifacts).
+        """
         self.clear_selection()
-        self._current_plots.clear()
         self._current_compound = ""
         self._current_samples = []
-        self._clear_layout()
+        # Note: _current_plots will be cleared in _clear_layout
+        self._clear_layout(force_destroy=force_destroy)
+        
+        # Force immediate update to prevent visual artifacts
+        self.update()
+        self.repaint()
+        QApplication.processEvents()
 
     def select_all_plots(self):
         """Select all currently displayed plots"""
@@ -729,6 +740,13 @@ class GraphView(QWidget):
         for plot in self._current_plots:
             # Clear selection state
             plot.set_selected(False)
+            
+            # Clear the chart data completely
+            plot.chart().removeAllSeries()
+            plot.chart().setTitle("")
+            
+            # Force the chart to update
+            plot.update()
 
             # Find the parent container for this chart view
             container = plot.parent()
@@ -736,6 +754,11 @@ class GraphView(QWidget):
                 container = container.parent()
 
             if container and container in self._container_pool:
+                # Clear the caption
+                if hasattr(container, "caption"):
+                    container.caption.setText("")
+                    container.caption.update()
+                
                 # Disconnect signals to prevent stale connections
                 if hasattr(plot, "_signal_connected"):
                     try:
@@ -944,28 +967,57 @@ class GraphView(QWidget):
                 }
             """)
 
-    def _clear_layout(self) -> None:
+    def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:
             return
 
-        # Return containers to pool for reuse instead of deleting them
-        self._return_containers_to_pool()
-
-        # Remove all widgets from layout
-        while self._layout.count():
-            item = self._layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                # Check if widget is a pooled container before deletion
-                if widget in self._container_pool:
-                    # Don't delete pooled containers, they're already handled by _return_containers_to_pool
-                    pass
-                else:
-                    # Safe to delete non-pooled widgets
+        if force_destroy:
+            # Complete destruction mode - used for deletion to prevent artifacts
+            # First, clear the current plots tracking
+            self._current_plots.clear()
+            self._selected_plots.clear()
+            
+            # Remove and delete ALL widgets from layout completely
+            while self._layout.count():
+                item = self._layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    # Completely delete the widget to ensure no visual artifacts
+                    widget.setParent(None)
                     widget.deleteLater()
+            
+            # Clear the container pool completely - we'll rebuild it as needed
+            for container in self._container_pool:
+                if container and container.parent():
+                    container.setParent(None)
+                container.deleteLater()
+            
+            self._container_pool.clear()
+            self._available_containers.clear()
+        else:
+            # Normal clearing with pooling - fast for regular operations
+            # Return containers to pool for reuse
+            self._return_containers_to_pool()
+            
+            # Remove all widgets from layout
+            while self._layout.count():
+                item = self._layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    # Check if widget is a pooled container before deletion
+                    if widget in self._container_pool:
+                        # Don't delete pooled containers, they're already handled
+                        pass
+                    else:
+                        # Safe to delete non-pooled widgets
+                        widget.deleteLater()
 
         # Clear any stretch factors from previous layouts
         for i in range(self._layout.columnCount()):
             self._layout.setColumnStretch(i, 0)
         for i in range(self._layout.rowCount()):
             self._layout.setRowStretch(i, 0)
+            
+        # Force complete repaint of the widget
+        self.update()
+        self.repaint()

@@ -91,6 +91,9 @@ DEFAULT_RT_WINDOW = 0.2  # minutes (half-window)
 # Peak height validation
 DEFAULT_MIN_PEAK_HEIGHT_RATIO = 0.05  # Fraction of internal standard height for minimum peak validation
 
+# Integration method options
+DEFAULT_USE_LEGACY_INTEGRATION = False  # Time-based by default (scientifically accurate)
+
 # ============================================================================
 # Performance Constants
 # ============================================================================

@@ -38,10 +38,33 @@ class DataExporter:
     def __init__(self):
         """Initialize the data exporter."""
         self.internal_standard_compound = None  # Set by UI before export
+        self.use_legacy_integration = False  # Use time-based by default
         
     def set_internal_standard(self, compound_name: Optional[str]):
         """Set the internal standard compound for abundance calculations."""
         self.internal_standard_compound = compound_name
+        
+    def set_use_legacy_integration(self, use_legacy: bool):
+        """Set whether to use legacy MATLAB-compatible unit-spacing integration."""
+        self.use_legacy_integration = use_legacy
+        
+    def _integrate_peak(self, intensity_data: np.ndarray, time_data: np.ndarray = None) -> float:
+        """
+        Integrate peak using either time-based or legacy unit-spacing method.
+        
+        Args:
+            intensity_data: Peak intensity values
+            time_data: Time points (optional, ignored in legacy mode)
+            
+        Returns:
+            Integrated peak area
+        """
+        if self.use_legacy_integration or time_data is None:
+            # MATLAB-style: unit spacing (produces ~100× larger values)
+            return np.trapz(intensity_data)
+        else:
+            # Scientific: time-based integration (physically meaningful)
+            return np.trapz(intensity_data, time_data)
 
     def _generate_changelog(self, export_filepath: str) -> None:
         """
@@ -95,7 +118,8 @@ class DataExporter:
 
 ## Processing Settings
 - **Mass Tolerance Method:** Asymmetric offset + rounding (MANIC original method)
-- **Integration Method:** Time-based integration (scientifically accurate)
+- **Integration Method:** {"Legacy Unit-Spacing (MATLAB Compatible)" if self.use_legacy_integration else "Time-based integration (scientifically accurate)"}
+- **Expected Value Scale:** {"~100× larger than time-based method" if self.use_legacy_integration else "Physically meaningful units"}
 - **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0
 - **Internal Standard Handling:** Raw values copied directly for label_atoms = 0
 
@@ -129,7 +153,7 @@ class DataExporter:
         
         changelog_content += f"""
 ## Export Sheets Generated
-1. **Raw Values** - Direct instrument signals (uncorrected peak areas using time-based integration)
+1. **Raw Values** - Direct instrument signals (uncorrected peak areas using {"legacy unit-spacing" if self.use_legacy_integration else "time-based"} integration)
 2. **Corrected Values** - Natural isotope abundance corrected signals
 3. **Isotope Ratios** - Normalized corrected values (fractions sum to 1.0)  
 4. **% Label Incorporation** - Percentage of experimental label incorporation
@@ -139,7 +163,7 @@ class DataExporter:
 - Integration boundaries determined by compound-specific loffset/roffset values
 - Strict inequality boundaries (time > l_boundary & time < r_boundary) for precise peak area calculation
 - Compound-specific MM file patterns used for standard mixture identification
-- Time-based integration produces physically meaningful results with proper units
+- {"Legacy unit-spacing integration matches MATLAB MANIC (larger numerical values)" if self.use_legacy_integration else "Time-based integration produces physically meaningful results with proper units"}
 - Natural isotope correction applied using high-performance algorithms for accuracy
 
 ## Session Changes Made
@@ -1112,8 +1136,8 @@ This export represents the final state of all data processing and parameter adju
             time_data, intensity_data = apply_integration_boundaries(time_data, intensity_data)
             if len(time_data) == 0:
                 return [0.0]
-            # Time-based trapezoidal integration (scientifically correct)
-            peak_area = np.trapz(intensity_data, time_data)  # Uses actual time intervals
+            # Integrate using selected method (time-based or legacy unit-spacing)
+            peak_area = self._integrate_peak(intensity_data, time_data)
             return [float(peak_area)]
         else:
             # Labeled compound - multiple isotopologue traces
@@ -1129,10 +1153,10 @@ This export represents the final state of all data processing and parameter adju
                 if len(time_data) == 0:
                     return [0.0] * num_isotopologues
                 
-                # Time-based trapezoidal integration for each isotopologue (scientifically correct)
+                # Integrate each isotopologue using selected method
                 peak_areas = []
                 for i in range(num_isotopologues):
-                    peak_area = np.trapz(intensity_reshaped[i], time_data)  # Uses actual time intervals
+                    peak_area = self._integrate_peak(intensity_reshaped[i], time_data)
                     peak_areas.append(float(peak_area))
                 return peak_areas
                 

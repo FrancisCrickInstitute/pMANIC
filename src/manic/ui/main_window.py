@@ -65,6 +65,9 @@ class MainWindow(QMainWindow):
         
         # Minimum peak height setting (as ratio of internal standard height)
         self.min_peak_height_ratio = 0.05
+        
+        # Integration method setting
+        self.use_legacy_integration = False  # Time-based by default
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -171,6 +174,15 @@ class MainWindow(QMainWindow):
             self.toggle_natural_abundance_correction
         )
         settings_menu.addAction(self.nat_abundance_toggle)
+        
+        # Legacy integration mode toggle action
+        self.legacy_integration_toggle = QAction("Legacy Integration Mode: Off", self)
+        self.legacy_integration_toggle.setCheckable(True)
+        self.legacy_integration_toggle.setChecked(False)  # Off by default
+        self.legacy_integration_toggle.triggered.connect(
+            self.toggle_legacy_integration_mode
+        )
+        settings_menu.addAction(self.legacy_integration_toggle)
 
         """ Create Documentation Menu """
 
@@ -1364,6 +1376,34 @@ class MainWindow(QMainWindow):
         # Update the isotopologue ratio widget
         self.toolbar.isotopologue_ratios.set_use_corrected(is_enabled)
 
+    def toggle_legacy_integration_mode(self):
+        """Toggle legacy MATLAB-compatible integration mode on/off."""
+        is_enabled = self.legacy_integration_toggle.isChecked()
+        self.use_legacy_integration = is_enabled
+        
+        logger.info(
+            f"Legacy integration mode toggled: {'ON' if is_enabled else 'OFF'}"
+        )
+
+        # Update menu text
+        self.legacy_integration_toggle.setText(
+            f"Legacy Integration Mode: {'On' if is_enabled else 'Off'}"
+        )
+        
+        # Show information dialog about the change
+        mode_name = "Legacy Unit-Spacing" if is_enabled else "Time-Based"
+        value_info = "~100× larger values (MATLAB compatible)" if is_enabled else "Scientifically accurate"
+        
+        msg = self._create_message_box(
+            "info",
+            "Integration Mode Changed",
+            f"Integration method changed to: {mode_name}",
+            f"This mode produces {value_info}. "
+            f"The change will apply to new data exports. "
+            f"See documentation for detailed information about integration methods."
+        )
+        msg.exec()
+
         # Also update the graph view to use corrected/uncorrected data
         self.graph_view.set_use_corrected(is_enabled)
 
@@ -1405,9 +1445,10 @@ class MainWindow(QMainWindow):
             progress_dialog.setModal(True)
             progress_dialog.setValue(0)
 
-            # Create exporter and set internal standard
+            # Create exporter and set internal standard and integration mode
             exporter = DataExporter()
             exporter.set_internal_standard(internal_standard)
+            exporter.set_use_legacy_integration(self.use_legacy_integration)
 
             # Progress callback function
             def update_progress(value):

@@ -64,30 +64,59 @@ The correction solves the linear system: **A × x = b**
 - Cannot assess total metabolite pool changes
 
 ### % Label Incorporation
-**Scientific Definition**: Percentage of metabolite molecules containing experimental isotope label, corrected for background contamination.
+**Scientific Definition**: Percentage of metabolite molecules containing experimental isotope label, corrected for natural abundance contamination.
 
-**Mathematical Calculation**:
-1. **Background Ratio Determination** (per compound, using standard mixture files):
+**Detailed Calculation Process**:
+
+1. **Identify Standard Mixture Files**: For each compound, locate MM (standard mixture) files using pattern matching from the compound's `mm_files` column.
+
+2. **Calculate Background Ratio from Standards**:
    ```
-   Background_Ratio = Mean(Labeled_Peaks_in_Standards) / Mean(M+0_in_Standards)
+   Background_Ratio = Mean(Sum_of_Labeled_Isotopologues_in_Standards / M+0_Signal_in_Standards)
+   ```
+   - This represents the natural abundance "contamination" of heavier isotopes
+   - Uses only MM files which contain unlabeled metabolites
+   - Accounts for natural ¹³C, ¹⁵N, ³⁴S contamination in M+1, M+2, etc.
+
+3. **Apply Background Correction to All Samples**:
+   ```
+   Expected_Natural_Abundance = Background_Ratio × Sample_M+0_Signal
+   Corrected_Labeled_Signal = Raw_Labeled_Signal - Expected_Natural_Abundance
+   ```
+   - Removes the portion of M+1, M+2, etc. that comes from natural isotopes
+   - Applied to every sample using the mean background ratio
+
+4. **Calculate % Label Incorporation**:
+   ```
+   % Label = (Corrected_Labeled_Signal / Total_Signal) × 100
+   
+   where:
+   - Total_Signal = M+0_Signal + Corrected_Labeled_Signal  
    ```
 
-2. **Sample Correction** (per sample):
-   ```
-   Corrected_Labeled_Signal = Raw_Labeled_Signal - (Background_Ratio × M+0_Signal)
-   
-   % Label Incorporation = (Corrected_Labeled_Signal / Total_Signal) × 100
-   
-   where Total_Signal = M+0_Signal + Corrected_Labeled_Signal
-   ```
+**Complete Mathematical Formula**:
+```
+Background_Ratio = Mean(Labeled_in_Standards / M0_in_Standards)
+Corrected_Labeled = Raw_Labeled - (Background_Ratio × Sample_M0)
+% Label = (Corrected_Labeled / Total_Signal) × 100
+```
+
+**Worked Example**:
+- MM standards show M+1/M+0 = 0.1 (10% natural abundance background)
+- Sample has M+0 = 1000 units, Raw M+1 = 300 units
+- Expected natural M+1 = 0.1 × 1000 = 100 units
+- Corrected M+1 = 300 - 100 = 200 units (true experimental labeling)
+- Total signal = 1000 + 200 = 1200 units
+- % Label = (200 / 1200) × 100 = 16.7%
 
 **Appropriate Use Cases**:
-- Measuring metabolic pathway activity
+- Measuring metabolic pathway activity and flux
 - Assessing substrate utilization efficiency  
 - Time-course studies of isotope incorporation
+- Comparing labeling between different experimental conditions
 
 **Requirements**:
-- Standard mixture (MM) files containing unlabeled metabolites
+- Standard mixture (MM) files containing unlabeled metabolites for background correction
 - Sufficient signal in both labeled and unlabeled isotopologues
 
 ### Abundances (Quantitative Results)

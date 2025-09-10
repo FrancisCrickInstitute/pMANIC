@@ -1358,7 +1358,7 @@ class MainWindow(QMainWindow):
         msg_box.exec()
 
     def clear_session(self):
-        """Clear all loaded data and reset application state."""
+        """Clear all loaded data and reset application state with progress tracking."""
         reply = self._show_question_dialog(
             "Clear Session",
             "This will clear all loaded data and reset the application.",
@@ -1366,15 +1366,38 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
+            # Create and show progress dialog
+            progress = QProgressDialog(
+                "Preparing to clear session...", 
+                "Cancel", 
+                0, 
+                100, 
+                self
+            )
+            progress.setWindowTitle("Clearing Session")
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)  # Show immediately
+            progress.setValue(0)
+            progress.show()
+            QCoreApplication.processEvents()  # Ensure dialog appears
+            
             try:
                 # Temporarily disconnect signals to prevent cascading events during clear
                 self.toolbar.samples_selected.disconnect()
                 self.toolbar.compound_selected.disconnect()
                 self.toolbar.compound_deleted.disconnect()
 
+                progress.setValue(10)
+                progress.setLabelText("Clearing UI state...")
+                QCoreApplication.processEvents()
+
                 # Reset UI state flags first
                 self.compound_data_loaded = False
                 self.cdf_data_loaded = False
+
+                progress.setValue(20)
+                progress.setLabelText("Clearing visual elements...")
+                QCoreApplication.processEvents()
 
                 # Clear visual elements immediately
                 self.graph_view.clear_all_plots()
@@ -1383,6 +1406,10 @@ class MainWindow(QMainWindow):
 
                 # Force UI update to show cleared graphs
                 self.graph_view.repaint()
+
+                progress.setValue(30)
+                progress.setLabelText("Clearing data lists...")
+                QCoreApplication.processEvents()
 
                 # Clear data lists
                 self.toolbar.update_compound_list([])
@@ -1395,12 +1422,35 @@ class MainWindow(QMainWindow):
                 # Clear integration window
                 self.toolbar.integration.populate_fields(None)
 
-                # Clear graphs
-                self.graph_view.clear_all_plots()
+                progress.setValue(40)
+                progress.setLabelText("Clearing database...")
+                QCoreApplication.processEvents()
 
-                # Clear the database
-                clear_database()
-                logger.info("Database cleared successfully")
+                # Define progress callback for database clearing
+                def db_progress_callback(current, total, operation):
+                    if progress.wasCanceled():
+                        return
+                    
+                    # Map database progress to 40-90% of total progress
+                    db_progress_percent = int(40 + (current / total) * 50)
+                    progress.setValue(db_progress_percent)
+                    progress.setLabelText(operation)
+                    
+                    # OPTIMIZATION: Reduce UI update frequency for better performance
+                    # Only update UI every 25% or on operation changes
+                    if current == 0 or current == total or db_progress_percent % 25 == 0:
+                        QCoreApplication.processEvents()
+
+                # Clear the database with progress tracking (fast mode enabled by default)
+                clear_database(progress_callback=db_progress_callback)
+                
+                if progress.wasCanceled():
+                    progress.close()
+                    return
+
+                progress.setValue(90)
+                progress.setLabelText("Reconnecting signals...")
+                QCoreApplication.processEvents()
 
                 # Reconnect signals
                 self.toolbar.samples_selected.connect(self.on_samples_selected)
@@ -1409,6 +1459,13 @@ class MainWindow(QMainWindow):
 
                 # Update menu states
                 self._update_menu_states()
+
+                progress.setValue(100)
+                progress.setLabelText("Session clearing complete")
+                QCoreApplication.processEvents()
+                
+                # Close progress dialog
+                progress.close()
 
                 # Show success message
                 msg_box = self._create_message_box(
@@ -1421,6 +1478,9 @@ class MainWindow(QMainWindow):
                 logger.info("Session cleared successfully")
 
             except Exception as e:
+                # Close progress dialog
+                progress.close()
+                
                 # Ensure signals are reconnected even if clearing fails
                 try:
                     self.toolbar.samples_selected.connect(self.on_samples_selected)

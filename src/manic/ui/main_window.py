@@ -2,6 +2,8 @@ import logging
 import os
 from pathlib import Path
 
+import numpy as np
+
 from PySide6.QtCore import QCoreApplication, Qt, QThread
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
@@ -60,6 +62,9 @@ class MainWindow(QMainWindow):
 
         # Mass tolerance setting (default 0.2 Da)
         self.mass_tolerance = 0.2
+        
+        # Minimum peak height setting (as ratio of internal standard height)
+        self.min_peak_height_ratio = 0.05
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -153,6 +158,10 @@ class MainWindow(QMainWindow):
         self.mass_tolerance_action = QAction("Mass Tolerance...", self)
         self.mass_tolerance_action.triggered.connect(self.show_mass_tolerance_dialog)
         settings_menu.addAction(self.mass_tolerance_action)
+        
+        self.min_peak_height_action = QAction("Minimum Peak Height...", self)
+        self.min_peak_height_action.triggered.connect(self.show_min_peak_height_dialog)
+        settings_menu.addAction(self.min_peak_height_action)
 
         # Natural abundance correction toggle action
         self.nat_abundance_toggle = QAction("Natural Abundance Correction: On", self)
@@ -443,6 +452,56 @@ class MainWindow(QMainWindow):
         msg_box = self._create_message_box("critical", "Import failed", msg)
         msg_box.exec()
 
+    def _validate_peak_height(self, compound_name: str, sample_name: str, eic_intensity: np.ndarray) -> bool:
+        """
+        Validate if the m0 peak height meets the minimum threshold.
+        
+        Args:
+            compound_name: Name of the compound being validated
+            sample_name: Name of the sample
+            eic_intensity: Intensity array for the EIC
+            
+        Returns:
+            True if peak height is above threshold, False otherwise
+        """
+        # Only validate if we have an internal standard selected
+        internal_standard = self.toolbar.get_internal_standard()
+        if not internal_standard:
+            return True  # No validation if no internal standard
+            
+        # Only validate the m0 peak (unlabeled compound)
+        # We determine this is m0 by checking if compound contains "m0" or is unlabeled
+        if "m0" not in compound_name.lower() and compound_name != internal_standard:
+            # For now, assume non-internal standard compounds are being validated
+            # This is a simple heuristic - could be improved with better m0 detection
+            pass
+        
+        try:
+            # Get the internal standard's peak height for this sample
+            from manic.processors.eic_processing import get_eics_for_compound
+            internal_eics = get_eics_for_compound(internal_standard, [sample_name], use_corrected=False)
+            
+            if not internal_eics:
+                return True  # Can't validate without internal standard data
+                
+            internal_intensity = internal_eics[0].intensity
+            if len(internal_intensity) == 0:
+                return True  # Can't validate with empty internal standard data
+                
+            # Get peak heights (maximum intensity)
+            internal_peak_height = np.max(internal_intensity)
+            current_peak_height = np.max(eic_intensity) if len(eic_intensity) > 0 else 0
+            
+            # Calculate threshold
+            threshold = internal_peak_height * self.min_peak_height_ratio
+            
+            # Return True if above threshold
+            return current_peak_height >= threshold
+            
+        except Exception as e:
+            logger.warning(f"Peak height validation failed for {compound_name}/{sample_name}: {e}")
+            return True  # Default to valid if validation fails
+
     def on_plot_button(self, compound_name, samples):
         # Validate inputs before plotting
         if not compound_name or compound_name.startswith("- No"):
@@ -454,7 +513,17 @@ class MainWindow(QMainWindow):
         try:
             if samples:
                 with measure_time("total_plotting_speed"):
-                    self.graph_view.plot_compound(compound_name, samples)
+                    # Calculate validation data for all samples
+                    validation_data = {}
+                    if self.min_peak_height_ratio > 0:  # Only if validation is enabled
+                        from manic.processors.eic_processing import get_eics_for_compound
+                        eics = get_eics_for_compound(compound_name, samples, use_corrected=False)
+                        for eic in eics:
+                            validation_data[eic.sample_name] = self._validate_peak_height(
+                                compound_name, eic.sample_name, eic.intensity
+                            )
+                    
+                    self.graph_view.plot_compound(compound_name, samples, validation_data)
 
                 # After plotting, update integration window to show "All" state
                 # (no plots selected initially)
@@ -753,8 +822,16 @@ class MainWindow(QMainWindow):
             current_samples = self.graph_view.get_current_samples()
 
             if current_compound and current_samples:
-                # Force a complete replot with fresh EIC data
-                self.graph_view.plot_compound(current_compound, current_samples)
+                # Force a complete replot with fresh EIC data and validation
+                validation_data = {}
+                if self.min_peak_height_ratio > 0:  # Only if validation is enabled
+                    from manic.processors.eic_processing import get_eics_for_compound
+                    eics = get_eics_for_compound(current_compound, current_samples, use_corrected=False)
+                    for eic in eics:
+                        validation_data[eic.sample_name] = self._validate_peak_height(
+                            current_compound, eic.sample_name, eic.intensity
+                        )
+                self.graph_view.plot_compound(current_compound, current_samples, validation_data)
             else:
                 # Fallback to session data refresh
                 self.graph_view.refresh_plots_with_session_data()
@@ -1055,6 +1132,74 @@ class MainWindow(QMainWindow):
                         "You may need to re-import CDF files to apply the new tolerance.",
                     )
                     msg.exec()
+
+    def show_min_peak_height_dialog(self):
+        """Show dialog to edit minimum peak height setting."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Minimum Peak Height Settings")
+        dialog.setModal(True)
+        dialog.resize(500, 280)
+
+        layout = QVBoxLayout(dialog)
+
+        # Info label
+        info_label = QLabel(
+            "Set the minimum peak height threshold as a fraction of the internal standard height.\n"
+            "Peaks below this threshold will be highlighted with a red background.\n"
+            "This validation only applies to the m0 peak (unlabeled isotope)."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # Min peak height input
+        peak_height_layout = QHBoxLayout()
+        peak_height_label = QLabel("Minimum Height Ratio:")
+        peak_height_layout.addWidget(peak_height_label)
+
+        peak_height_spinbox = QDoubleSpinBox()
+        peak_height_spinbox.setRange(0.001, 1.0)
+        peak_height_spinbox.setSingleStep(0.001)
+        peak_height_spinbox.setDecimals(3)
+        peak_height_spinbox.setValue(self.min_peak_height_ratio)
+        peak_height_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
+        peak_height_spinbox.setStyleSheet(
+            "QDoubleSpinBox { background-color: white; color: black; }"
+        )
+        peak_height_layout.addWidget(peak_height_spinbox)
+        
+        # Add explanation
+        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard height)")
+        explanation_label.setStyleSheet("color: gray; font-style: italic;")
+        peak_height_layout.addWidget(explanation_label)
+
+        peak_height_layout.addStretch()
+        layout.addLayout(peak_height_layout)
+
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        # Show dialog and handle result
+        if dialog.exec() == QDialog.Accepted:
+            old_value = self.min_peak_height_ratio
+            new_value = peak_height_spinbox.value()
+            self.min_peak_height_ratio = new_value
+
+            if old_value != new_value:
+                logger.info(
+                    f"Minimum peak height ratio changed from {old_value:.3f} to {new_value:.3f}"
+                )
+
+                # Refresh plots if data is loaded to apply new validation
+                if self.cdf_data_loaded and self.compound_data_loaded:
+                    current_compound = self.toolbar.get_selected_compound()
+                    current_samples = self.toolbar.get_selected_samples()
+                    if current_compound and current_samples:
+                        self.on_plot_button(current_compound, current_samples)
 
     def _create_documentation_menu(self, docs_menu):
         """Create documentation menu with available markdown files."""

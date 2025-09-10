@@ -1,7 +1,8 @@
 import logging
 import math
+import sys
 import warnings
-from typing import List, Set
+from typing import Dict, List, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -17,11 +18,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import sys
+from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.timer import measure_time
-from manic.constants import create_font
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,9 @@ class ClickableChartView(QChartView):
     """Custom QChartView that can be selected"""
 
     clicked = Signal(object)  # Signal to emit when clicked
-    right_clicked = Signal(object, object)  # Signal to emit when right-clicked (view, position)
+    right_clicked = Signal(
+        object, object
+    )  # Signal to emit when right-clicked (view, position)
 
     def __init__(self, chart, sample_name, compound_name="", parent=None):
         super().__init__(chart, parent)
@@ -92,13 +94,15 @@ class GraphView(QWidget):
         # Store current compound and samples for integration window updates
         self._current_compound: str = ""
         self._current_samples: List[str] = []
-        
+
         # Track whether to use corrected data
         self.use_corrected = True  # Default to using corrected data
 
         # Chart object pooling for performance optimization
         # Maintains reusable chart containers to avoid expensive creation/destruction cycles
-        self._container_pool: List[QWidget] = []  # Complete plot containers with captions
+        self._container_pool: List[
+            QWidget
+        ] = []  # Complete plot containers with captions
         self._available_containers: List[QWidget] = []
 
         # throttle resize events – avoids constant redraw while user resizes
@@ -109,10 +113,17 @@ class GraphView(QWidget):
     def set_use_corrected(self, use_corrected: bool):
         """Set whether to use natural abundance corrected data."""
         self.use_corrected = use_corrected
-        logger.info(f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data")
+        logger.info(
+            f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data"
+        )
 
     # public function
-    def plot_compound(self, compound_name: str, samples: List[str]) -> None:
+    def plot_compound(
+        self,
+        compound_name: str,
+        samples: List[str],
+        validation_data: Dict[str, bool] = None,
+    ) -> None:
         """
         Build one mini-plot per active sample for the selected *compound*.
         """
@@ -128,7 +139,9 @@ class GraphView(QWidget):
 
         # time db retreival for debugging
         with measure_time("get_eics_from_db"):
-            eics = get_eics_for_compound(compound_name, samples, use_corrected=self.use_corrected)  # new pipeline
+            eics = get_eics_for_compound(
+                compound_name, samples, use_corrected=self.use_corrected
+            )  # new pipeline
 
         num = len(eics)
         if num == 0:
@@ -145,7 +158,16 @@ class GraphView(QWidget):
         # time plot building for debugging
         with measure_time("build_plots_and_add_to_layout"):
             # Build all plots with captions using chart pooling for performance
-            plot_containers = [self._build_plot_with_caption(eic) for eic in eics]
+            # Pass validation data to determine background color
+            plot_containers = [
+                self._build_plot_with_caption(
+                    eic,
+                    is_valid=validation_data.get(eic.sample_name, True)
+                    if validation_data
+                    else True,
+                )
+                for eic in eics
+            ]
 
             # Extract chart views for click handling
             self._current_plots = [
@@ -158,7 +180,9 @@ class GraphView(QWidget):
                 if container not in self._container_pool:
                     # This is a newly created container, connect signals
                     container.chart_view.clicked.connect(self._on_plot_clicked)
-                    container.chart_view.right_clicked.connect(self._on_plot_right_clicked)
+                    container.chart_view.right_clicked.connect(
+                        self._on_plot_right_clicked
+                    )
 
             # Add to layout efficiently with atomic visibility handling
             # Hide all containers first, add to layout, then show all at once
@@ -168,7 +192,7 @@ class GraphView(QWidget):
                 col = i % cols
                 container.hide()  # Ensure hidden before adding to layout
                 self._layout.addWidget(container, row, col)
-            
+
             # Show all containers at once for smooth appearance
             for container in plot_containers:
                 container.show()
@@ -216,17 +240,17 @@ class GraphView(QWidget):
     def _show_context_menu(self, global_pos, clicked_plot=None):
         """
         Show consolidated context menu with appropriate options.
-        
+
         The context menu automatically dismisses when clicking outside or when
         actions are triggered, providing a clean user experience.
         """
         # Close any existing context menu first
-        if hasattr(self, '_active_context_menu') and self._active_context_menu:
+        if hasattr(self, "_active_context_menu") and self._active_context_menu:
             self._active_context_menu.close()
-            
+
         context_menu = QMenu(self)
         self._active_context_menu = context_menu  # Store reference for cleanup
-        
+
         # Set menu style to ensure black text on white background
         context_menu.setStyleSheet("""
             QMenu {
@@ -247,61 +271,65 @@ class GraphView(QWidget):
                 color: #a0a0a0;
             }
         """)
-        
+
         # Ensure menu disappears when clicking outside or after actions
         context_menu.setAttribute(Qt.WA_DeleteOnClose)
         context_menu.aboutToHide.connect(self._on_context_menu_closed)
-        
+
         # Add select all/deselect actions (always available)
         select_all_action = context_menu.addAction("Select All")
         select_all_action.triggered.connect(self.select_all_plots)
-        
+
         deselect_all_action = context_menu.addAction("Deselect All")
         deselect_all_action.triggered.connect(self.clear_selection)
-        
+
         # Add separator before detailed view option
         context_menu.addSeparator()
-        
+
         # Add detailed view action (only if single plot clicked and none or one selected)
         if clicked_plot is not None and len(self._selected_plots) <= 1:
             detailed_action = context_menu.addAction("View Detailed...")
             detailed_action.triggered.connect(
-                lambda: self._show_detailed_view(clicked_plot.compound_name, clicked_plot.sample_name)
+                lambda: self._show_detailed_view(
+                    clicked_plot.compound_name, clicked_plot.sample_name
+                )
             )
         elif clicked_plot is None and len(self._selected_plots) == 1:
             # If right-clicked on empty space but exactly one plot is selected
             selected_plot = next(iter(self._selected_plots))
             detailed_action = context_menu.addAction("View Detailed...")
             detailed_action.triggered.connect(
-                lambda: self._show_detailed_view(selected_plot.compound_name, selected_plot.sample_name)
+                lambda: self._show_detailed_view(
+                    selected_plot.compound_name, selected_plot.sample_name
+                )
             )
         else:
             # Add disabled detailed view action to show it's not available
             detailed_action = context_menu.addAction("View Detailed...")
             detailed_action.setEnabled(False)
             detailed_action.setToolTip("Available only with single plot selection")
-        
+
         # Show menu at position - use popup() instead of exec() for better behavior
         context_menu.popup(global_pos)
-    
+
     def _on_context_menu_closed(self):
         """Handle context menu cleanup when it closes."""
         self._active_context_menu = None
-    
+
     def _show_detailed_view(self, compound_name: str, sample_name: str):
         """Show detailed plot dialog for compound-sample combination"""
         try:
             from manic.ui.detailed_plot_dialog import DetailedPlotDialog
-            
+
             dialog = DetailedPlotDialog(
-                compound_name=compound_name,
-                sample_name=sample_name,
-                parent=self
+                compound_name=compound_name, sample_name=sample_name, parent=self
             )
             dialog.exec()
-            
+
         except Exception as e:
-            logger.error(f"Failed to show detailed view for {compound_name}/{sample_name}: {e}")
+            logger.error(
+                f"Failed to show detailed view for {compound_name}/{sample_name}: {e}"
+            )
             # Show error message to user
             error_msg = QLabel(f"Error opening detailed view: {str(e)}")
             error_msg.setStyleSheet("color: red; padding: 10px;")
@@ -322,15 +350,17 @@ class GraphView(QWidget):
     def set_use_corrected(self, use_corrected: bool):
         """Set whether to use corrected data when reading EICs"""
         self.use_corrected = use_corrected
-        logger.info(f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data")
-    
+        logger.info(
+            f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data"
+        )
+
     def clear_selection(self):
         """Clear all plot selections"""
         for plot in self._selected_plots:
             plot.set_selected(False)
         self._selected_plots.clear()
         self.selection_changed.emit([])
-    
+
     def clear_all_plots(self):
         """Clear all plots from the graph view"""
         self.clear_selection()
@@ -345,7 +375,7 @@ class GraphView(QWidget):
             if not plot.is_selected:
                 plot.set_selected(True)
                 self._selected_plots.add(plot)
-        
+
         # Emit signal with all selected sample names
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
@@ -359,18 +389,18 @@ class GraphView(QWidget):
     def contextMenuEvent(self, event):
         """
         Handle right-click context menu for plot selection.
-        
+
         This method is automatically called by Qt when:
         - User right-clicks anywhere in the graph window
-        - User presses the context menu key on keyboard  
+        - User presses the context menu key on keyboard
         - User performs platform-specific context menu gesture
-        
+
         Qt's QWidget base class automatically detects right-click events
         and converts them to context menu events, then calls this override.
         """
         if not self._current_plots:
             return
-        
+
         # Use consolidated context menu (no specific plot clicked)
         self._show_context_menu(event.globalPos(), clicked_plot=None)
 
@@ -423,18 +453,18 @@ class GraphView(QWidget):
             except:
                 pass  # Don't cascade failures
 
-    def _get_container_from_pool(self, eic) -> QWidget:
+    def _get_container_from_pool(self, eic, is_valid: bool = True) -> QWidget:
         """
         Retrieve a complete plot container from the pool or create a new one.
-        
+
         Container pooling improves performance by reusing complete plot widgets
         (including chart view and caption) rather than creating new ones. This
         maintains proper Qt parent-child relationships and avoids deletion issues.
         Updates are applied before showing to prevent visual flashing.
-        
+
         Args:
             eic: EIC object containing the data to display
-            
+
         Returns:
             QWidget container with chart_view attribute configured with EIC data
         """
@@ -442,26 +472,26 @@ class GraphView(QWidget):
             # Reuse existing container from pool
             container = self._available_containers.pop()
             # Update data atomically (container update handles visibility)
-            self._update_container_data(container, eic)
+            self._update_container_data(container, eic, is_valid)
             # Container will be shown by _update_container_data after update is complete
             return container
         else:
             # Pool exhausted, create new container and add to pool tracking
-            container = self._create_plot_container(eic)
+            container = self._create_plot_container(eic, is_valid)
             self._container_pool.append(container)
             return container
-    
-    def _create_plot_container(self, eic) -> QWidget:
+
+    def _create_plot_container(self, eic, is_valid: bool = True) -> QWidget:
         """
         Create a new plot container with chart view and caption.
-        
+
         This method creates the complete widget structure needed for a plot,
         including the chart view and sample name caption, maintaining the
         same structure as the original _build_plot_with_caption method.
-        
+
         Args:
             eic: EIC object containing the data to display
-            
+
         Returns:
             QWidget container with chart_view attribute
         """
@@ -488,109 +518,118 @@ class GraphView(QWidget):
         # Store references for easy access
         container.chart_view = chart_view
         container.caption = caption
-        
+
+        # Apply validation styling
+        self._apply_validation_styling(container, is_valid)
+
         return container
-    
-    def _update_container_data(self, container: QWidget, eic):
+
+    def _update_container_data(self, container: QWidget, eic, is_valid: bool = True):
         """
         Update an existing container with new EIC data.
-        
+
         This method efficiently reuses container widgets by updating both
         the chart view data and the caption text without recreating the
         widget structure. Updates are performed atomically to prevent visual flashing.
-        
+
         Args:
             container: Existing container widget to update
             eic: New EIC data to display
         """
         # Keep container hidden during update to prevent visual flashing
         container.hide()
-        
+
         # Immediately clear any stale content to prevent flashing
         chart_view = container.chart_view
         chart_view.chart().removeAllSeries()  # Clear chart data
         container.caption.setText("")  # Clear caption text
-        
+
         try:
             # Ensure the chart view is properly reset and not selected
             chart_view.set_selected(False)
-            
+
             # Disconnect existing signals to avoid multiple connections
             # Suppress RuntimeWarnings about failed disconnections
             with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=RuntimeWarning, 
-                                      message="Failed to disconnect.*")
+                warnings.filterwarnings(
+                    "ignore", category=RuntimeWarning, message="Failed to disconnect.*"
+                )
                 try:
                     chart_view.clicked.disconnect(self._on_plot_clicked)
                     chart_view.right_clicked.disconnect(self._on_plot_right_clicked)
                 except Exception:
                     pass  # Signals weren't connected
-            
+
             # Mark that we'll connect signals (for future disconnections)
             chart_view._signal_connected = True
-            
+
             # Update the chart with new data (chart will handle its own visibility)
             self._update_chart_data(chart_view, eic)
-            
+
             # Update the caption
             container.caption.setText(eic.sample_name)
-            
+
+            # Apply validation styling
+            self._apply_validation_styling(container, is_valid)
+
             # Reconnect signals for this specific usage
             chart_view.clicked.connect(self._on_plot_clicked)
             chart_view.right_clicked.connect(self._on_plot_right_clicked)
-            
+
         finally:
             # Container visibility is managed at the layout level for smoother updates
             pass
-    
+
     def _update_chart_data(self, chart_view: ClickableChartView, eic):
         """
         Update an existing chart with new EIC data without recreating Qt objects.
-        
+
         This method efficiently reuses chart components by clearing existing series
         and repopulating with new data, preserving axes and other chart infrastructure.
         Updates are performed atomically to prevent visual flashing during updates.
-        
+
         Args:
             chart_view: Existing ClickableChartView to update
             eic: New EIC data to display
         """
         chart = chart_view.chart()
-        
+
         # Chart visibility is handled at the container level, no need to manage it here
         try:
             # Update chart view metadata
             chart_view.sample_name = eic.sample_name
             chart_view.compound_name = eic.compound_name
             chart_view.set_selected(False)  # Reset selection state
-            
+
             # Clear existing series but preserve chart structure
             chart.removeAllSeries()
-            
+
             # Clear any existing text items (scale factors) from previous data
             for item in chart.scene().items():
                 if isinstance(item, QGraphicsTextItem):
                     chart.scene().removeItem(item)
-            
+
             # Use session data if available, otherwise use default compound data
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
-            
+
             eic_intensity = eic.intensity
             multi_trace = eic_intensity.ndim > 1
-            
+
             # Compute y_max and scaling (with edge case handling)
             all_intensities = eic_intensity.flatten() if multi_trace else eic_intensity
             unscaled_y_max = float(np.max(all_intensities))
-            scale_exp = int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
+            scale_exp = (
+                int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
+            )
             scale_factor = 10**scale_exp
             scaled_intensity = eic_intensity / scale_factor
             scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
-            
+
             # Reuse existing axes
             axes = chart.axes()
             x_axis = axes[0] if axes else None
             y_axis = axes[1] if len(axes) > 1 else None
-            
+
             # Create new series with updated data
             if multi_trace:
                 # Pre-create pens for multi-trace to reuse
@@ -598,7 +637,7 @@ class GraphView(QWidget):
                     QPen(label_colors[i % len(label_colors)], 2)
                     for i in range(len(scaled_intensity))
                 ]
-                
+
                 for i, intensity in enumerate(scaled_intensity):
                     series = QLineSeries()
                     for x, y in zip(eic.time, intensity):
@@ -619,7 +658,7 @@ class GraphView(QWidget):
                 if x_axis and y_axis:
                     series.attachAxis(x_axis)
                     series.attachAxis(y_axis)
-            
+
             # Update axis ranges
             if x_axis and y_axis:
                 rt = compound.retention_time
@@ -627,45 +666,62 @@ class GraphView(QWidget):
                 x_max = float(np.max(eic.time))
                 x_axis.setRange(x_min, x_max)
                 y_axis.setRange(0, scaled_y_max)
-                
+
                 # Re-add guide lines
-                self._add_guide_line(chart, x_axis, y_axis, rt, 0, scaled_y_max, QColor(0, 0, 0))
-                
+                self._add_guide_line(
+                    chart, x_axis, y_axis, rt, 0, scaled_y_max, QColor(0, 0, 0)
+                )
+
                 left_line_pos = rt - compound.loffset
                 right_line_pos = rt + compound.roffset
-                
+
                 self._add_guide_line(
-                    chart, x_axis, y_axis, left_line_pos, 0, scaled_y_max,
-                    steel_blue_colour, dashed=True
+                    chart,
+                    x_axis,
+                    y_axis,
+                    left_line_pos,
+                    0,
+                    scaled_y_max,
+                    steel_blue_colour,
+                    dashed=True,
                 )
                 self._add_guide_line(
-                    chart, x_axis, y_axis, right_line_pos, 0, scaled_y_max,
-                    steel_blue_colour, dashed=True
+                    chart,
+                    x_axis,
+                    y_axis,
+                    right_line_pos,
+                    0,
+                    scaled_y_max,
+                    steel_blue_colour,
+                    dashed=True,
                 )
-            
+
             # Add scale factor text if needed
             if scale_exp != 0:
+
                 def superscript(n):
                     sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
                     return str(n).translate(sup_map)
-                
-                html_text = f'×10<span style="font-size: 14pt;">{superscript(scale_exp)}</span>'
+
+                html_text = (
+                    f'×10<span style="font-size: 14pt;">{superscript(scale_exp)}</span>'
+                )
                 scale_text = QGraphicsTextItem()
                 scale_text.setHtml(html_text)
                 scale_text.setFont(create_font(10))  # Cross-platform font
                 scale_text.setDefaultTextColor(QColor(80, 80, 80))
                 scale_text.setPos(10, 10)
                 chart.scene().addItem(scale_text)
-                
+
         except Exception as e:
             # Log any chart update errors but don't let them break the container update
             logger.error(f"Error updating chart data: {e}")
             # Container will still be shown, just with potentially stale data
-    
+
     def _return_containers_to_pool(self):
         """
         Return all current plot containers to the available pool for reuse.
-        
+
         This method efficiently recycles complete plot containers by clearing their
         selection state and properly cleaning up signals. Containers retain their
         Qt structure for fast reuse in subsequent plot operations.
@@ -673,33 +729,33 @@ class GraphView(QWidget):
         for plot in self._current_plots:
             # Clear selection state
             plot.set_selected(False)
-            
+
             # Find the parent container for this chart view
             container = plot.parent()
-            while container and not hasattr(container, 'chart_view'):
+            while container and not hasattr(container, "chart_view"):
                 container = container.parent()
-            
+
             if container and container in self._container_pool:
                 # Disconnect signals to prevent stale connections
-                if hasattr(plot, '_signal_connected'):
+                if hasattr(plot, "_signal_connected"):
                     try:
                         plot.clicked.disconnect(self._on_plot_clicked)
                         plot.right_clicked.disconnect(self._on_plot_right_clicked)
                         plot._signal_connected = False  # Mark as disconnected
                     except (TypeError, RuntimeError):
                         pass  # Signals weren't connected to these specific slots
-                
+
                 container.hide()  # Hide but don't delete
                 self._available_containers.append(container)
-        
+
         self._current_plots.clear()
         self._selected_plots.clear()
 
     #  internal functions
-    def _build_plot_with_caption(self, eic) -> QWidget:
+    def _build_plot_with_caption(self, eic, is_valid: bool = True) -> QWidget:
         """Create a widget containing a plot with sample name caption below."""
         # Create the plot container using pooling for performance
-        return self._get_container_from_pool(eic)
+        return self._get_container_from_pool(eic, is_valid)
 
     def _build_plot(self, eic) -> ClickableChartView:
         """Create a ClickableChartView with EIC data and guide lines."""
@@ -831,7 +887,7 @@ class GraphView(QWidget):
 
         # Remove chart title to maximize space
         chart.setTitle("")
-        
+
         # Platform-specific margins to prevent text cutoff on Windows
         if sys.platform == "win32":
             # Windows needs more bottom margin due to font rendering differences
@@ -868,6 +924,25 @@ class GraphView(QWidget):
             parent.updateGeometry()
             parent.update()
             parent.repaint()
+
+    def _apply_validation_styling(self, container: QWidget, is_valid: bool):
+        """
+        Apply visual styling to indicate peak height validation status.
+
+        Args:
+            container: The plot container widget
+            is_valid: True if peak meets minimum height threshold, False otherwise
+        """
+        if is_valid:
+            # Valid peak - use default styling
+            container.setStyleSheet("")
+        else:
+            # Invalid peak - apply light red background
+            container.setStyleSheet("""
+                QWidget {
+                    background-color: rgba(255, 200, 200, 120);
+                }
+            """)
 
     def _clear_layout(self) -> None:
         if not self._layout:

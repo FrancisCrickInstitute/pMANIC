@@ -88,6 +88,9 @@ MS_TIME_TOLERANCE = 0.1  # minutes for MS extraction
 # Time windows  
 DEFAULT_RT_WINDOW = 0.2  # minutes (half-window)
 
+# Peak height validation
+DEFAULT_MIN_PEAK_HEIGHT_RATIO = 0.05  # Fraction of internal standard height for minimum peak validation
+
 # ============================================================================
 # Performance Constants
 # ============================================================================

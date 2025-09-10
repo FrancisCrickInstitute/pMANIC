@@ -38,7 +38,41 @@ class DataExporter:
     def __init__(self):
         """Initialize the data exporter."""
         self.internal_standard_compound = None  # Set by UI before export
-        self.use_legacy_integration = False  # Use time-based by default
+        # Time-based by default (matches app/UI defaults and docs)
+        self.use_legacy_integration = False
+
+    def _resolve_mm_samples(self, mm_files_field: Optional[str]) -> List[str]:
+        """Resolve MM file patterns to a deduplicated list of sample names.
+
+        Behavior:
+        - Split by commas into multiple patterns
+        - Trim whitespace
+        - Strip '*' characters from each token
+        - Match each token as a substring (SQL LIKE %token%)
+        - Union matches across tokens (dedupe overlaps)
+        """
+        if not mm_files_field:
+            return []
+
+        # Prepare tokens
+        raw_tokens = [t.strip() for t in mm_files_field.split(',') if t.strip()]
+        tokens = [t.replace('*', '') for t in raw_tokens]
+        tokens = [t for t in tokens if t]  # drop empties after stripping
+
+        if not tokens:
+            return []
+
+        matched: set = set()
+        with get_connection() as conn:
+            for token in tokens:
+                like = f"%{token}%"
+                for row in conn.execute(
+                    "SELECT sample_name FROM samples WHERE sample_name LIKE ? AND deleted=0",
+                    (like,),
+                ):
+                    matched.add(row["sample_name"])
+
+        return sorted(matched)
         
     def set_internal_standard(self, compound_name: Optional[str]):
         """Set the internal standard compound for abundance calculations."""
@@ -161,7 +195,7 @@ class DataExporter:
 
 ## Key Processing Notes
 - Integration boundaries determined by compound-specific loffset/roffset values
-- Strict inequality boundaries (time > l_boundary & time < r_boundary) for precise peak area calculation
+- Inclusive boundaries (time >= l_boundary & time <= r_boundary) to match MATLAB exports
 - Compound-specific MM file patterns used for standard mixture identification
 - {"Legacy unit-spacing integration matches MATLAB MANIC (larger numerical values)" if self.use_legacy_integration else "Time-based integration produces physically meaningful results with proper units"}
 - Natural isotope correction applied using high-performance algorithms for accuracy
@@ -181,13 +215,14 @@ This export represents the final state of all data processing and parameter adju
         except Exception as e:
             logger.error(f"Failed to generate changelog: {e}")
         
-    def export_to_excel(self, filepath: str, progress_callback=None) -> bool:
+    def export_to_excel(self, filepath: str, progress_callback=None, use_legacy_integration: Optional[bool] = None) -> bool:
         """
         Export all data to Excel with 5 worksheets.
         
         Args:
             filepath: Output Excel file path
             progress_callback: Optional function to report progress (0-100)
+            use_legacy_integration: If provided, overrides the integration mode for this export
             
         Returns:
             True if export successful, False otherwise
@@ -197,6 +232,10 @@ This export represents the final state of all data processing and parameter adju
         """
         try:
             logger.info(f"Starting Excel export to {filepath}")
+
+            # Optional per-call override of integration mode
+            if use_legacy_integration is not None:
+                self.use_legacy_integration = use_legacy_integration
             
             # Create Excel workbook with optimization settings
             workbook = xlsxwriter.Workbook(filepath, {
@@ -667,20 +706,10 @@ This export represents the final state of all data processing and parameter adju
             # Get all corrected data for this sample
             sample_data = self._get_sample_corrected_data(sample_name)
             
-            # Get internal standard signal in this sample (M+0 only)
+            # Get internal standard signal in this sample (total signal - sum of all isotopologues)
             if self.internal_standard_compound:
                 internal_std_data = sample_data.get(self.internal_standard_compound, [0.0])
-                internal_std_signal = internal_std_data[0] if internal_std_data else 0.0
-                logger.info(f"Sample {sample_name}: Internal standard '{self.internal_standard_compound}' signal = {internal_std_signal}")
-                if internal_std_signal == 0.0:
-                    # Check if internal standard exists in this sample at all
-                    if self.internal_standard_compound in sample_data:
-                        logger.info(f"Internal standard exists in {sample_name} but has zero M+0 signal: {internal_std_data}")
-                    else:
-                        logger.info(f"Internal standard '{self.internal_standard_compound}' not found in {sample_name}")
-                        # Show some available compounds for debugging
-                        available_compounds = list(sample_data.keys())[:5]
-                        logger.info(f"Available compounds in {sample_name}: {available_compounds}...")
+                internal_std_signal = sum(internal_std_data) if internal_std_data else 0.0
             else:
                 internal_std_signal = 1.0  # Avoid division by zero
             
@@ -868,24 +897,17 @@ This export represents the final state of all data processing and parameter adju
         for compound_row in compounds:
             compound_name = compound_row['compound_name']
             label_atoms = compound_row['label_atoms'] or 0
-            mm_files_pattern = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
-            
-            # Get compound-specific MM file samples using the mm_files pattern
-            if not mm_files_pattern:
-                logger.warning(f"No MM files pattern specified for compound {compound_name}")
-                background_ratios[compound_name] = 0.0
-                continue
-                
-            with get_connection() as conn:
-                mm_samples = [row['sample_name'] for row in 
-                             conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE ? AND deleted=0", (f"%{mm_files_pattern}%",))]
-            
+            mm_files_field = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
+
+            # Resolve samples from possibly multiple mm_files patterns
+            mm_samples = self._resolve_mm_samples(mm_files_field)
+
             if not mm_samples:
-                logger.warning(f"No MM files found for compound {compound_name} with pattern '{mm_files_pattern}'")
+                logger.warning(f"No MM files found for compound {compound_name} with patterns '{mm_files_field}'")
                 background_ratios[compound_name] = 0.0
                 continue
-                
-            logger.info(f"Found {len(mm_samples)} MM files for {compound_name} with pattern '{mm_files_pattern}': {mm_samples}")
+
+            logger.info(f"Found {len(mm_samples)} MM files for {compound_name} with patterns '{mm_files_field}': {mm_samples}")
             
             if label_atoms == 0:
                 # No isotopologues, no background correction needed
@@ -928,6 +950,10 @@ This export represents the final state of all data processing and parameter adju
         """
         Calculate MRRF (Metabolite Response Ratio Factor) values using MM files.
         
+        MATLAB-compatible approach:
+        - Numerator uses the metabolite's own MM set
+        - Denominator uses the internal standard's own MM set
+        
         MRRF = (Metabolite_Standard_Signal / Metabolite_Standard_Concentration) / 
                (Internal_Standard_Signal / Internal_Standard_Concentration)
         
@@ -939,68 +965,6 @@ This export represents the final state of all data processing and parameter adju
             Dictionary mapping compound names to MRRF values
         """
         mrrf_values = {}
-        
-        # Get internal standard's MM files pattern first
-        internal_std_mm_pattern = None
-        for compound_row in compounds:
-            if compound_row['compound_name'] == internal_standard_compound:
-                internal_std_mm_pattern = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
-                break
-        
-        if not internal_std_mm_pattern:
-            logger.warning(f"No MM files pattern found for internal standard {internal_standard_compound}")
-            # Return all 1.0 values as fallback
-            for compound_row in compounds:
-                compound_name = compound_row['compound_name']
-                if compound_name != internal_standard_compound:
-                    mrrf_values[compound_name] = 1.0
-            return mrrf_values
-        
-        # Get internal standard MM files using its specific pattern
-        with get_connection() as conn:
-            internal_std_mm_samples = [row['sample_name'] for row in 
-                                     conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE ? AND deleted=0", 
-                                                (f"%{internal_std_mm_pattern}%",))]
-        
-        if not internal_std_mm_samples:
-            logger.warning(f"No MM files found for internal standard {internal_standard_compound} with pattern '{internal_std_mm_pattern}'")
-            # Return all 1.0 values as fallback
-            for compound_row in compounds:
-                compound_name = compound_row['compound_name']
-                if compound_name != internal_standard_compound:
-                    mrrf_values[compound_name] = 1.0
-            return mrrf_values
-        
-        logger.info(f"Calculating MRRF values using {len(internal_std_mm_samples)} MM files for internal standard")
-        
-        # Get internal standard signals from its MM files
-        internal_std_signals = []
-        for mm_sample in internal_std_mm_samples:
-            sample_data = self._get_sample_corrected_data(mm_sample)
-            
-            internal_std_data = sample_data.get(internal_standard_compound, [0.0])
-            # Use M+0 signal for internal standard
-            internal_std_signal = internal_std_data[0] if internal_std_data else 0.0
-            internal_std_signals.append(internal_std_signal)
-            logger.info(f"Internal standard {internal_standard_compound} signal in {mm_sample}: {internal_std_signal}")
-            if internal_std_signal == 0.0:
-                logger.info(f"Looking for internal standard '{internal_standard_compound}' in MM sample compounds...")
-                matching_compounds = [name for name in sample_data.keys() if 'scyllo' in name.lower() or 'ins' in name.lower()]
-                if matching_compounds:
-                    logger.info(f"Potential matches for internal standard: {matching_compounds}")
-                else:
-                    logger.info("No compounds containing 'scyllo' or 'ins' found in MM sample")
-        
-        mean_internal_std_signal = sum(internal_std_signals) / len(internal_std_signals) if internal_std_signals else 1.0
-        
-        # If internal standard signal is effectively zero, we can't do MRRF calculation
-        if mean_internal_std_signal <= 0.001:  # Effectively zero
-            logger.warning(f"Internal standard {internal_standard_compound} has no/minimal signal in MM files ({mean_internal_std_signal:.6f}). Using MRRF=1.0 for all compounds.")
-            for compound_row in compounds:
-                compound_name = compound_row['compound_name']
-                if compound_name != internal_standard_compound:
-                    mrrf_values[compound_name] = 1.0
-            return mrrf_values
         
         # Get internal standard concentration from compound metadata 
         with get_connection() as conn:
@@ -1014,8 +978,23 @@ This export represents the final state of all data processing and parameter adju
             except (KeyError, TypeError):
                 internal_std_concentration = 1.0
                 logger.debug(f"amount_in_std_mix not found for internal standard {internal_standard_compound}, using default 1.0")
-        
-        # Calculate MRRF for each compound
+
+        # Resolve internal standard's MM sample set once
+        internal_std_mm_field: Optional[str] = None
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT mm_files FROM compounds WHERE compound_name = ? AND deleted = 0",
+                (internal_standard_compound,),
+            ).fetchone()
+            if row is not None:
+                try:
+                    internal_std_mm_field = row["mm_files"]
+                except Exception:
+                    internal_std_mm_field = None
+        internal_std_mm_samples = self._resolve_mm_samples(internal_std_mm_field)
+
+        # Calculate MRRF for each compound using metabolite's MM set (numerator)
+        # and the internal standard's own MM set (denominator)
         for compound_row in compounds:
             compound_name = compound_row['compound_name']
             
@@ -1024,33 +1003,46 @@ This export represents the final state of all data processing and parameter adju
                 mrrf_values[compound_name] = 1.0
                 continue
             
-            # Get compound-specific MM files for this metabolite
-            compound_mm_pattern = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
-            if not compound_mm_pattern:
+            # Get compound-specific MM files 
+            compound_mm_field = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
+            if not compound_mm_field:
                 logger.warning(f"No MM files pattern specified for compound {compound_name}")
                 mrrf_values[compound_name] = 1.0
                 continue
             
-            with get_connection() as conn:
-                compound_mm_samples = [row['sample_name'] for row in 
-                                     conn.execute("SELECT sample_name FROM samples WHERE sample_name LIKE ? AND deleted=0", 
-                                                (f"%{compound_mm_pattern}%",))]
-            
+            compound_mm_samples = self._resolve_mm_samples(compound_mm_field)
+
             if not compound_mm_samples:
-                logger.warning(f"No MM files found for compound {compound_name} with pattern '{compound_mm_pattern}'")
+                logger.warning(f"No MM files found for compound {compound_name} with patterns '{compound_mm_field}'")
                 mrrf_values[compound_name] = 1.0
                 continue
-                
-            # Get metabolite signals from its specific MM files
+            
+            # Numerator: metabolite mean over its own MM sample set
             metabolite_signals = []
             for mm_sample in compound_mm_samples:
                 sample_data = self._get_sample_corrected_data(mm_sample)
+                
+                # Get metabolite signal from this MM sample
                 isotopologue_data = sample_data.get(compound_name, [0.0])
-                # Sum all isotopologues for total signal
-                total_signal = sum(isotopologue_data) if isotopologue_data else 0.0
-                metabolite_signals.append(total_signal)
-            
-            mean_metabolite_signal = sum(metabolite_signals) / len(metabolite_signals) if metabolite_signals else 0.0
+                metabolite_signal = sum(isotopologue_data) if isotopologue_data else 0.0
+                metabolite_signals.append(metabolite_signal)
+
+            # Denominator: internal standard mean over ITS OWN MM sample set
+            internal_std_signals = []
+            for mm_sample in internal_std_mm_samples:
+                sample_data = self._get_sample_corrected_data(mm_sample)
+                internal_std_data = sample_data.get(internal_standard_compound, [0.0])
+                internal_std_signal = sum(internal_std_data) if internal_std_data else 0.0
+                internal_std_signals.append(internal_std_signal)
+
+            # Use MEANS (Python legacy behavior)
+            mean_metabolite_signal = (sum(metabolite_signals) / len(metabolite_signals)) if metabolite_signals else 0.0
+            mean_internal_std_signal = (sum(internal_std_signals) / len(internal_std_signals)) if internal_std_signals else 0.0
+
+            logger.debug(
+                f"MRRF calc for {compound_name}: mean_metabolite={mean_metabolite_signal:.3f} (n={len(metabolite_signals)}), "
+                f"mean_internal_std={mean_internal_std_signal:.3f} (n={len(internal_std_signals)})"
+            )
             
             # Get metabolite standard concentration from compound metadata
             try:
@@ -1060,11 +1052,11 @@ This export represents the final state of all data processing and parameter adju
                 metabolite_std_concentration = 1.0
                 logger.debug(f"amount_in_std_mix not found for {compound_name}, using default 1.0")
             
-            # Calculate MRRF
+            # Calculate MRRF using MEANS
             if mean_metabolite_signal > 0 and metabolite_std_concentration > 0 and mean_internal_std_signal > 0 and internal_std_concentration > 0:
                 mrrf = (mean_metabolite_signal / metabolite_std_concentration) / (mean_internal_std_signal / internal_std_concentration)
                 mrrf_values[compound_name] = mrrf
-                logger.debug(f"MRRF for {compound_name}: {mrrf:.6f}")
+                logger.debug(f"MRRF for {compound_name}: {mrrf:.6f} (using MEANS)")
             else:
                 # Fallback to 1.0 if calculation fails
                 mrrf_values[compound_name] = 1.0
@@ -1103,9 +1095,8 @@ This export represents the final state of all data processing and parameter adju
                 time_range = (time_data.max() - time_data.min()) if len(time_data) > 0 else 0
                 window_size = r_boundary - l_boundary
                 
-                # Create mask for integration boundaries using strict inequalities
-                # This ensures precise boundary exclusion for accurate peak area calculation
-                integration_mask = (time_data > l_boundary) & (time_data < r_boundary)
+                # Inclusive boundaries to match MATLAB behavior
+                integration_mask = (time_data >= l_boundary) & (time_data <= r_boundary)
                 points_in_window = np.sum(integration_mask)
                 
                 logger.debug(f"Integration boundaries: rt={retention_time:.3f}, loffset={loffset:.3f}, roffset={roffset:.3f}")
@@ -1220,72 +1211,87 @@ This export represents the final state of all data processing and parameter adju
                 peak_areas = self._calculate_peak_areas(time_data, intensity_data, label_atoms, retention_time, loffset, roffset)
                 sample_data[compound_name] = peak_areas
                 
-                # Special debugging for internal standard - compare raw vs corrected
-                if 'scyllo' in compound_name.lower() or 'ins' in compound_name.lower():
-                    logger.info(f"Found potential internal standard '{compound_name}' in {sample_name} RAW DATA: peak_areas = {peak_areas}")
         
         return sample_data
     
     def _get_sample_corrected_data(self, sample_name: str) -> Dict[str, List[float]]:
         """
-        Get integrated corrected EIC data for all compounds in a sample.
+        Get integrated EIC data for all compounds in a sample.
+        
+        For labeled compounds (label_atoms > 0): fetches corrected data from eic_corrected table
+        For unlabeled compounds (label_atoms = 0): fetches raw data directly from eic table
+        
+        This approach is more robust as it doesn't depend on the eic_corrected table being
+        properly populated for unlabeled compounds (internal standards).
         
         Args:
             sample_name: Name of the sample
             
         Returns:
-            Dictionary mapping compound names to lists of corrected isotopologue peak areas
+            Dictionary mapping compound names to lists of isotopologue peak areas
         """
         sample_data = {}
         
         with get_connection() as conn:
-            # Debug: Check what corrected compounds exist in this sample  
-            corrected_check = conn.execute(
-                "SELECT DISTINCT ec.compound_name FROM eic_corrected ec WHERE ec.sample_name = ? AND ec.deleted = 0 ORDER BY ec.compound_name", 
-                (sample_name,)
-            ).fetchall()
-            available_corrected = [row['compound_name'] for row in corrected_check]
-            logger.info(f"Corrected EIC compounds in {sample_name}: {available_corrected[:10]}...")  # Show first 10
-            
-            # Get all corrected EIC data for this sample with integration boundaries
-            corrected_query = """
-                SELECT ec.compound_name, ec.x_axis, ec.y_axis_corrected, c.label_atoms, c.retention_time, c.loffset, c.roffset
-                FROM eic_corrected ec
-                JOIN compounds c ON ec.compound_name = c.compound_name
-                WHERE ec.sample_name = ? AND ec.deleted = 0 AND c.deleted = 0
-                ORDER BY ec.compound_name
+            # Get all compounds that should have EIC data in this sample
+            all_compounds_query = """
+                SELECT DISTINCT c.compound_name, c.label_atoms, c.retention_time, c.loffset, c.roffset
+                FROM compounds c
+                WHERE c.deleted = 0
+                AND (
+                    EXISTS (SELECT 1 FROM eic e WHERE e.compound_name = c.compound_name AND e.sample_name = ? AND e.deleted = 0)
+                    OR EXISTS (SELECT 1 FROM eic_corrected ec WHERE ec.compound_name = c.compound_name AND ec.sample_name = ? AND ec.deleted = 0)
+                )
+                ORDER BY c.compound_name
             """
             
-            for row in conn.execute(corrected_query, (sample_name,)):
-                compound_name = row['compound_name']
-                label_atoms = row['label_atoms']
-                retention_time = row['retention_time']
-                loffset = row['loffset']
-                roffset = row['roffset']
+            for compound_row in conn.execute(all_compounds_query, (sample_name, sample_name)):
+                compound_name = compound_row['compound_name']
+                label_atoms = compound_row['label_atoms']
+                retention_time = compound_row['retention_time']
+                loffset = compound_row['loffset']
+                roffset = compound_row['roffset']
                 
-                # Decompress and integrate the corrected EIC data
-                time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
-                corrected_intensity = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
+                time_data = None
+                intensity_data = None
+                
+                if label_atoms > 0:
+                    # Labeled compound: fetch corrected data from eic_corrected table
+                    corrected_query = """
+                        SELECT x_axis, y_axis_corrected
+                        FROM eic_corrected
+                        WHERE sample_name = ? AND compound_name = ? AND deleted = 0
+                        LIMIT 1
+                    """
+                    corrected_row = conn.execute(corrected_query, (sample_name, compound_name)).fetchone()
+                    
+                    if corrected_row:
+                        time_data = np.frombuffer(zlib.decompress(corrected_row['x_axis']), dtype=np.float64)
+                        intensity_data = np.frombuffer(zlib.decompress(corrected_row['y_axis_corrected']), dtype=np.float64)
+                    else:
+                        logger.warning(f"No corrected data found for labeled compound '{compound_name}' in sample '{sample_name}'")
+                        continue
+                
+                else:
+                    # Unlabeled compound (internal standard): fetch raw data directly from eic table
+                    raw_query = """
+                        SELECT x_axis, y_axis
+                        FROM eic
+                        WHERE sample_name = ? AND compound_name = ? AND deleted = 0
+                        LIMIT 1
+                    """
+                    raw_row = conn.execute(raw_query, (sample_name, compound_name)).fetchone()
+                    
+                    if raw_row:
+                        time_data = np.frombuffer(zlib.decompress(raw_row['x_axis']), dtype=np.float64)
+                        intensity_data = np.frombuffer(zlib.decompress(raw_row['y_axis']), dtype=np.float64)
+                    else:
+                        logger.warning(f"No raw data found for unlabeled compound '{compound_name}' in sample '{sample_name}'")
+                        continue
                 
                 # Calculate integrated peak areas using compound-specific integration boundaries
-                peak_areas = self._calculate_peak_areas(time_data, corrected_intensity, label_atoms, retention_time, loffset, roffset)
-                sample_data[compound_name] = peak_areas
-                
-                # Special debugging for internal standard
-                if 'scyllo' in compound_name.lower() or 'ins' in compound_name.lower():
-                    logger.info(f"Found potential internal standard '{compound_name}' in {sample_name}: peak_areas = {peak_areas}")
-                    
-                    # Check the compound metadata that affects natural abundance correction
-                    with get_connection() as debug_conn:
-                        metadata_query = debug_conn.execute(
-                            "SELECT formula, label_atoms, label_type, tbdms, meox, me FROM compounds WHERE compound_name = ?",
-                            (compound_name,)
-                        ).fetchone()
-                        if metadata_query:
-                            logger.info(f"Compound '{compound_name}' metadata: formula='{metadata_query['formula']}', "
-                                       f"label_atoms={metadata_query['label_atoms']}, label_type='{metadata_query['label_type']}', "
-                                       f"tbdms={metadata_query['tbdms']}, meox={metadata_query['meox']}, me={metadata_query['me']}")
-                        else:
-                            logger.info(f"No metadata found for compound '{compound_name}'")
+                if time_data is not None and intensity_data is not None:
+                    peak_areas = self._calculate_peak_areas(time_data, intensity_data, label_atoms, retention_time, loffset, roffset)
+                    sample_data[compound_name] = peak_areas
         
         return sample_data

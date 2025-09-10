@@ -38,6 +38,13 @@ The default method provides both intensity and time arrays to calculate true are
 
 **Result**: "True Area" - physically meaningful values with proper units (intensity × time).
 
+### Integration Window Endpoints
+- In both modes, integration windows use inclusive endpoints: points at exactly the left or right boundary are included in the area.
+
+### Per-Export Selection
+- You can choose the integration method at export time via the Export Options popup.
+- The popup defaults to the current setting under Settings → Legacy Integration Mode.
+
 ## Choosing the Right Method
 
 ### Use Time-Based Integration (Default) When:

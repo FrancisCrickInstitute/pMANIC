@@ -42,15 +42,15 @@ def apply_correction_to_eic(sample_name: str, compound_name: str) -> bool:
             logger.warning(f"No formula for {compound_name}, skipping correction")
             return False
 
+        # Read EIC data (raw uncorrected data for correction processing)
+        eic = read_eic(sample_name, compound, use_corrected=False)
+
         # Check if this is multi-isotopologue data
         if compound.label_atoms == 0:
             logger.info(f"No labeled atoms for {compound_name}, copying raw data as 'corrected' (internal standard)")
             # For internal standards, copy raw data directly to corrected table
             store_corrected_eic(sample_name, compound_name, eic.time, eic.intensity)
             return True
-
-        # Read EIC data (raw uncorrected data for correction processing)
-        eic = read_eic(sample_name, compound, use_corrected=False)
 
         # Check if we have isotopologue data
         if eic.intensity.ndim == 1:

@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
+    QCheckBox,
+    QRadioButton,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -1433,6 +1435,39 @@ class MainWindow(QMainWindow):
             if not file_path.lower().endswith(".xlsx"):
                 file_path += ".xlsx"
 
+            # Export options popup: choose integration mode
+            options_dialog = QDialog(self)
+            options_dialog.setWindowTitle("Export Options")
+            vbox = QVBoxLayout(options_dialog)
+            info_label = QLabel(
+                "Choose integration method for this export (can also be changed in Settings → Legacy Integration Mode):"
+            )
+            vbox.addWidget(info_label)
+            # Force black text for label and radio buttons regardless of theme
+            options_dialog.setStyleSheet("QLabel, QRadioButton { color: black; }")
+
+            radio_time = QRadioButton("Time-based (recommended)")
+            radio_legacy = QRadioButton("Legacy (MATLAB-compatible unit spacing)")
+            vbox.addWidget(radio_time)
+            vbox.addWidget(radio_legacy)
+
+            # Default selection depends on current settings toggle
+            if self.use_legacy_integration:
+                radio_legacy.setChecked(True)
+            else:
+                radio_time.setChecked(True)
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            vbox.addWidget(buttons)
+            buttons.accepted.connect(options_dialog.accept)
+            buttons.rejected.connect(options_dialog.reject)
+
+            if options_dialog.exec() != QDialog.Accepted:
+                return  # user cancelled
+
+            # Read selection and persist to window state
+            chosen_use_legacy = radio_legacy.isChecked()
+            self.use_legacy_integration = chosen_use_legacy
+
             # Get current internal standard selection from toolbar
             internal_standard = self.toolbar.get_internal_standard()
 
@@ -1461,7 +1496,11 @@ class MainWindow(QMainWindow):
             QCoreApplication.processEvents()
 
             # Perform export
-            success = exporter.export_to_excel(file_path, update_progress)
+            success = exporter.export_to_excel(
+                file_path,
+                update_progress,
+                use_legacy_integration=self.use_legacy_integration,
+            )
 
             # Close progress dialog
             progress_dialog.close()

@@ -414,6 +414,11 @@ class NaturalAbundanceCorrector:
             else:
                 correction_matrix[: len(column), n_labeled] = column
 
+        # Debug: log correction matrix structure
+        logger.debug(f"Correction matrix shape: {correction_matrix.shape}")
+        logger.debug(f"Correction matrix:\n{correction_matrix}")
+        logger.debug(f"Diagonal elements: {np.diag(correction_matrix)}")
+        
         return correction_matrix
 
     def correct_isotopologue_distribution(
@@ -607,6 +612,15 @@ class NaturalAbundanceCorrector:
             # Where C is the correction matrix, solve for corrected intensities
             corrected_2d = np.linalg.solve(correction_matrix, intensity_2d)
 
+            # Apply diagonal division step (MATLAB compatibility)
+            # This scales corrected values by the inverse of diagonal elements to compensate 
+            # for the "dilution" effect of natural abundance on detection efficiency
+            diagonal_elements = np.diag(correction_matrix)
+            
+            for i in range(len(diagonal_elements)):
+                if diagonal_elements[i] > 0:  # Avoid division by zero
+                    corrected_2d[i, :] = corrected_2d[i, :] / diagonal_elements[i]
+
             # Apply non-negativity constraint (natural abundance corrections should be positive)
             corrected_2d = np.maximum(corrected_2d, 0.0)
 
@@ -650,6 +664,14 @@ class NaturalAbundanceCorrector:
                 corrected = self.correct_isotopologue_distribution(
                     measured, correction_matrix, preserve_total=True
                 )
+                
+                # Apply diagonal division step (MATLAB compatibility)
+                diagonal_elements = np.diag(correction_matrix)
+                
+                for i in range(len(diagonal_elements)):
+                    if diagonal_elements[i] > 0:  # Avoid division by zero
+                        corrected[i] = corrected[i] / diagonal_elements[i]
+                        
                 corrected_2d[:, t] = corrected
             except Exception as e:
                 logger.warning(f"Correction failed at time point {t}: {e}")

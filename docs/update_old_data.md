@@ -1,48 +1,75 @@
-## Update Old Data (Approximate Mode)
+# Update Old Data
 
-This tool rebuilds a MANIC Excel export from two external inputs without reading the internal database:
+## Overview
 
-- Compounds list (Excel/CSV): same columns as the normal importer
-- Raw Values workbook (Excel): identical structure to MANIC’s Raw Values sheet
+Reconstructs complete MANIC exports from Raw Values when CDF files are unavailable. Uses approximate mode that applies natural abundance correction to integrated totals rather than per-timepoint data.
 
-It generates all five sheets (Raw Values, Corrected Values, Isotope Ratios, % Label Incorporation, Abundances) and is intended for legacy or partial datasets.
+## Required Input
 
-### How It Differs From The Normal Export
+1. **Compound Definition File** (Excel/CSV)
+   - Same structure as standard import
+   - Must include formula, labelatoms, derivatization parameters
 
-The standard Export Data uses per‑timepoint EIC data from the database:
-- Corrects natural isotope abundance at each timepoint
-- Applies non‑negativity constraints per timepoint and may use constrained optimization for ill‑conditioned cases
-- Integrates the corrected time series to obtain totals
+2. **Raw Values Worksheet** (Excel)
+   - From previous MANIC export
+   - Column headers: compound names with isotopologue suffixes
+   - Sample names must match exactly
 
-Update Old Data operates on integrated totals from the Raw Values sheet:
-- Computes “Corrected Values” from the integrated isotopologue areas using the direct linear solve when suitable
-- Falls back to a constrained optimizer only when the correction matrix is ill‑conditioned
-- Because per‑timepoint constraints are not applied, “correct the sum” may differ from “sum of per‑timepoint corrections”
+## Processing Difference
 
-As a result, small upstream differences can appear and may be amplified in downstream quantities (especially Abundances via MRRF).
+**Standard Processing:**
+```
+CDF Files
+  → Extract raw EICs (time series for each m/z)
+  → Natural abundance correction on each timepoint
+  → Store corrected time series in database
+  → Integration of raw EICs → Raw Values sheet
+  → Integration of corrected time series → Corrected Values sheet
+  → Calculate ratios, % label, abundances
+```
 
-### MRRF and Abundances In Approximate Mode
+**Approximate Processing:**
+```
+Raw Values (integrated raw EICs, no correction)
+  → Natural abundance correction on integrated totals
+  → Corrected Values (approximate)
+  → Calculate ratios, % label, abundances
+```
 
-- MRRF uses the same MATLAB‑compatible convention:
-  - Numerator: mean corrected signal for each metabolite over its own MM sample set (from that compound’s `mmfiles`)
-  - Denominator: mean corrected signal for the internal standard over its own MM sample set (from the ISTD’s `mmfiles`)
-  - Concentrations come from `amount_in_std_mix` (for both metabolite and ISTD)
-- Update Old Data resolves MM samples only from the Raw Values workbook sample names using case‑insensitive substring matching of `mmfiles` tokens.
-- If the workbook does not contain the required MM samples or concentrations are missing, MRRF may fall back to 1.0, which changes Abundances.
+The key difference: Standard mode corrects thousands of individual timepoints in the chromatogram, then integrates. Approximate mode takes already-integrated values and corrects those single sums. This changes how constraints (like non-negativity) are applied and accumulates different rounding errors.
 
-### When To Use Each
+## Expected Differences
 
-- Use Export Data (normal) when you want exact reproducibility based on the stored EICs and per‑timepoint corrections.
-- Use Update Old Data when you only have a compounds list and a Raw Values export and need a best‑effort rebuild of downstream sheets.
+| Data Type | Typical Difference |
+|-----------|-------------------|
+| Corrected Values | 0.5-1% |
+| Isotope Ratios | < 0.5% |
+| % Label | 1-2% |
+| Abundances | 2-3% |
 
-### Practical Tips
+## Use Cases
 
-- Ensure the Raw Values workbook includes the MM samples referenced in `mmfiles` and that names match the tokens.
-- Ensure the compounds file includes `amount_in_std_mix` for the internal standard and each metabolite, and `int_std_amount` for the internal standard.
-- Expect minor differences in Corrected Values and derived quantities; larger differences typically trace back to missing/unequal MM coverage or concentrations.
+### Appropriate
+- Legacy data recovery
 
-### Why Corrected Totals Can Be Zero
+### Inappropriate
+- When CDF files are available
 
-In approximate mode, correction is applied to the integrated isotopologue vector (the totals from Raw Values), not to each timepoint. If that integrated vector is well explained by natural abundance under the chemistry model (or the system is ill‑conditioned), the best non‑negative corrected vector can legitimately be near zero. This differs from the normal export, where some timepoints may carry labeling and survive per‑timepoint constraints; integrating those timepoints stays non‑zero.
+## Implementation
 
-Zeros in Update Old Data therefore do not necessarily indicate an error — they reflect the limitation of correcting integrated vectors. If zeros occur unexpectedly, verify formula/label metadata in the compounds file and that isotopologue columns match `label_atoms + 1` for each compound.
+The approximation arises from:
+- Non-negativity constraints applied once vs. per timepoint
+- Different numerical precision accumulation
+- Single correction vs. multiple corrections
+
+## MRRF in Approximate Mode
+
+MRRF calculation uses available samples in Raw Values:
+- Identifies MM samples by pattern matching
+- Calculates from integrated totals
+- Same mathematical approach as standard mode
+
+## Changes from MANIC v3.3.0 and Below
+
+- **Previous**: Use approximate approach for standard processing as well. Resulted in lower accuracy.
+- **Current**: Full reconstruction from Raw Values export

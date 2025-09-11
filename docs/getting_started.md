@@ -1,91 +1,120 @@
-# Getting Started with MANIC
+# Getting Started
 
-## Overview
+## Workflow
 
-MANIC (Mass Analyzer for Natural Isotope Correction) processes isotope-labeled mass spectrometry data through natural isotope correction and internal standard calibration. This guide covers the essential workflow for generating quantitative results.
+### Step 1: Load Compound Definitions
 
-## Quick Start
+File → Load Compounds/Parameter List
 
-### 1. Load Your Data
-1. **File → Load Compound List**: Load your compound library (Excel/CSV file)
-2. **File → Load EIC Data**: Load your chromatographic data files
-3. Wait for natural isotope corrections to complete
-
-### 2. Select Internal Standard
-1. In the left panel, find your internal standard compound
-2. Right-click and select "Set as Internal Standard"
-3. Verify the internal standard indicator shows your selection
-
-### 3. Export Results
-1. **File → Export Data**
-2. Choose output location
-3. Open the Excel file - your final results are in the **Abundances** sheet (last tab)
-
-## Output Structure
-
-MANIC generates an Excel file with 5 worksheets representing different processing stages. The **Abundances** sheet (final tab) contains your quantitative results.
-
-*For detailed explanations of each worksheet and the underlying calculations, see the [Data Interpretation Guide](data_interpretation.md).*
-
-## Troubleshooting
-
-### "Abundances are all zero"
-- **Check internal standard**: Is it selected and detected in your samples?
-- **Check MM files**: Are they properly identified in your compound library?
-- **Check concentrations**: Do you have AmountInStdMix and IntStdAmount values?
-
-### "Corrected values are zero"
-- **Check compound configuration**: Internal standards should have `labelatoms = 0`
-- **Check formula**: Make sure molecular formulas are correct
-- **Check derivatization**: Verify TBDMS, MeOX, and methylation counts
-
-### "Raw data missing"
-- **File format**: Make sure EIC files are in the expected format
-- **Compound names**: Verify compound names match between library and data files
-- **Integration**: Check that peaks were properly integrated
-
-## File Formats
-
-### Compound Library
-Required columns:
+Required Excel/CSV columns:
 - `name`: Compound identifier
-- `tr`: Retention time
-- `mass0`: Base mass
-- `loffset`, `roffset`: Integration windows
-- `labelatoms`: Number of labelable positions (0 for internal standards)
+- `tr`: Retention time (minutes)
+- `mass0`: Base m/z value
+- `loffset`: Left integration offset (minutes)
+- `roffset`: Right integration offset (minutes)
+- `tr_window`: RT extraction window (±minutes)
+- `labelatoms`: Number of labelable positions
 - `formula`: Molecular formula
-- `AmountInStdMix`: Concentration in standard mixture
-- `IntStdAmount`: Internal standard amount added to samples
-- `MMFiles`: Pattern to identify standard mixture files
+- `tbdms`: TBDMS groups
+- `meox`: Methoxyamine groups
+- `me`: Methyl groups
+- `amount_in_std_mix`: Concentration in standards
+- `int_std_amount`: Internal standard amount
+- `mmfiles`: Standard mixture pattern
 
-### EIC Data Files
-- Chromatographic peak areas for each isotopologue
-- File names should match patterns in compound library
-- Standard mixture files should be identifiable by MMFiles patterns
+### Step 2: Import Mass Spectrometry Data
 
-## Best Practices
+File → Load Raw Data (CDF)
 
-1. **Always use an internal standard** - Required for absolute quantification
-2. **Include standard mixtures** - Needed for accurate calibration
-3. **Check natural abundance correction** - Verify corrected values look reasonable  
-4. **Validate with known samples** - Test with samples of known concentration
-5. **Keep backups** - MANIC clears previous data when loading new files
+The import process:
+1. Reads CDF files
+2. Extracts ion chromatograms for each compound
+3. Stores EICs in database
+4. Applies natural abundance correction
 
-## Additional Resources
+### Step 3: Configure Internal Standard
 
-- **[Data Interpretation Guide](data_interpretation.md)**: Scientific explanations of all output worksheets
-- **[Export Calculations](export_calculations.md)**: Mathematical details and formulas
-- **[Mass Tolerance Settings](mass_tolerance.md)**: Optimizing peak matching parameters
-- **[Natural Isotope Correction](natural_isotope_correction.md)**: Technical correction details
+1. Right-click internal standard compound in left panel
+2. Select "Set as Internal Standard"
+3. Verify indicator shows selected compound
 
-## Support
+Requirements:
+- Internal standard must have `labelatoms = 0`
+- Must be present in all samples
+- Requires `int_std_amount > 0` for quantification
 
-For technical issues:
-- Check console output for error messages
-- Verify file formats match expected structure
-- Ensure compound library contains all required columns
-- Validate that standard mixture files are properly identified
+### Step 4: Review Integration
 
----
+1. Select samples and compound
+2. Check integration boundaries (blue dashed lines)
+3. Adjust offsets if needed
+4. Click "Apply" to update
 
-*This workflow guide focuses on the essential steps for data processing. For scientific interpretation of results, consult the Data Interpretation Guide.*
+Integration boundaries:
+- Start: tr - loffset
+- End: tr + roffset
+
+### Step 5: Export Results
+
+File → Export Data
+
+Creates Excel workbook with five sheets:
+- **Raw Values**: Uncorrected peak areas
+- **Corrected Values**: Natural abundance-corrected
+- **Isotope Ratios**: Normalized distributions
+- **% Label Incorporation**: Background-corrected labeling
+- **Abundances**: Absolute concentrations
+
+## Visual Indicators
+
+- **Peak validation**: m0 peaks below 5% of internal standard are highlighted in red
+- **Integration boundaries**: Blue dashed lines show integration window
+- **Selection**: Steel blue border indicates selected plots
+
+## Advanced Features
+
+### Session Management
+
+**Export Session:** File → Export Session
+- Saves compound definitions and integration parameters
+- Does not include raw data
+
+**Import Session:** File → Import Session
+- Load compounds and raw data first
+- Applies saved parameters
+
+### Detailed View
+
+Right-click any plot and click "view detailed" to see:
+- Full chromatogram with integration boundaries
+- Total ion chromatogram
+- Mass spectrum at retention time
+
+Double-click either of the left-toolbar summary plots to see and expanded view.
+
+## Settings
+
+### Mass Tolerance
+Settings → Mass Tolerance
+- Default: 0.2 Da
+- Affects EIC extraction
+- Requires data re-import after change
+
+### Legacy Integration Mode
+Settings → Legacy Integration Mode
+- Off: Time-based integration (default)
+- On: Unit-spacing integration (MATLAB compatible)
+
+## Changes from MANIC v3.3.0 and Below
+
+### Integration Method
+- **Previous**: Unit-spacing produced values ~100× larger
+- **Current**: Time-based integration (physically meaningful)
+
+### Natural Abundance Correction
+- **Previous**: Applied after integration
+- **Current**: Per-timepoint correction before integration
+
+### User Interface
+- **Previous**: No visual quality indicators
+- **Current**: Automatic peak validation with red highlighting

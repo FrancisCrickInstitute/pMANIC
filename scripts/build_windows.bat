@@ -7,7 +7,7 @@ where uv >nul 2>&1
 if %ERRORLEVEL%==0 (
   echo Detected uv; using uv for build
   REM Ensure project deps are synced into .venv
-  uv venv || goto :error
+  uv venv --clear || goto :error
   uv sync || goto :error
   REM Use uvx to run PyInstaller without polluting the venv
   uvx pyinstaller MANIC.spec || goto :error

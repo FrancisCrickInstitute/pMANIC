@@ -14,7 +14,7 @@ hiddenimports = [
 
 a = Analysis(
     ['src/manic/main.py'],
-    pathex=[],
+    pathex=['src'],
     binaries=[],
     datas=[
         ('src/manic/resources/*', 'src/manic/resources'),

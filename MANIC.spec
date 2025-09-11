@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys, os
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
@@ -11,6 +11,13 @@ hiddenimports = [
     'markdown.extensions.codehilite',
     'markdown.extensions.toc',
 ]
+hiddenimports += collect_submodules('PySide6')
+
+datas_extra = []
+try:
+    datas_extra += collect_data_files('PySide6')
+except Exception:
+    pass
 
 a = Analysis(
     ['src/manic/main.py'],
@@ -19,7 +26,7 @@ a = Analysis(
     datas=[
         ('src/manic/resources/*', 'src/manic/resources'),
         ('docs/*.md', 'docs'),
-    ],
+    ] + datas_extra,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

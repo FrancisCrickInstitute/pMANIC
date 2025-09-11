@@ -9,9 +9,10 @@ if %ERRORLEVEL%==0 (
   REM Ensure project deps are synced into .venv
   uv venv --clear || goto :error
   uv sync || goto :error
-  REM Use uvx to run PyInstaller without polluting the venv
+  REM Install PyInstaller into the project environment and run within it
+  uv pip install pyinstaller || goto :error
   REM If icon is missing, PyInstaller will run without it (handled in spec)
-  uvx pyinstaller -y --clean MANIC.spec || goto :error
+  uv run pyinstaller -y --clean MANIC.spec || goto :error
 ) else (
   echo uv not found; falling back to pip
   if not exist .venv (

@@ -239,6 +239,21 @@ or
 uv run python -m src.manic.main
 ```
 
+### Update Old Data (Approximate)
+
+Use File → Update Old Data… to rebuild a MANIC export from:
+
+- A compounds list (Excel/CSV; same columns as the normal importer)
+- A Raw Values workbook (Excel; identical to MANIC's Raw Values sheet)
+
+This tool generates all five sheets (Raw, Corrected, Isotope Ratios, % Label, Abundances) without reading the database. It is designed for legacy or partial data scenarios and intentionally operated in an approximate mode:
+
+- Correction from integrated areas: Corrected Values are computed from integrated isotopologue totals (the Raw Values columns), not from per-timepoint EICs. The normal export corrects each timepoint and then integrates. Because natural abundance correction applies non‑negativity and may fall back to constrained optimization for ill‑conditioned cases, “correcting the sum” is not mathematically identical to “sum of per‑timepoint corrections”. This can introduce small differences.
+- Background ratios and MRRF: These are computed against the provided samples using the same calibrated formulas, but rely on the approximate corrected totals above. Internal standard amount and MM sample identification are drawn from the provided compounds and sample names.
+- Abundances: Calculated with the same formula as the normal export, but based on approximate corrected totals and MRRF built from those totals. Differences may be amplified compared to the normal export.
+
+When exact reproducibility is needed, use the standard Export Data flow (which uses per‑timepoint corrections from the database). Update Old Data is maintained separately (with an in‑memory data provider) to keep the main export path predictable and to make the legacy flow self‑contained.
+
 ### Run tests
 
 Use the helper script:

@@ -8,7 +8,7 @@ from manic.models.database import get_connection
 logger = logging.getLogger(__name__)
 
 
-def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int) -> None:
+def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None) -> None:
     """
     Write the '% Label Incorporation' sheet.
 
@@ -16,18 +16,20 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     """
     worksheet = workbook.add_worksheet('% Label Incorporation')
 
-    # Get all compounds and their metadata in order
-    with get_connection() as conn:
-        compounds_query = """
-            SELECT compound_name, mass0, retention_time, label_atoms, amount_in_std_mix, int_std_amount, mm_files
-            FROM compounds 
-            WHERE deleted=0 
-            ORDER BY id
-        """
-        compounds = list(conn.execute(compounds_query))
-
-        samples: List[str] = [row['sample_name'] for row in 
-                  conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+    if provider is None:
+        with get_connection() as conn:
+            compounds_query = """
+                SELECT compound_name, mass0, retention_time, label_atoms, amount_in_std_mix, int_std_amount, mm_files
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY id
+            """
+            compounds = list(conn.execute(compounds_query))
+            samples: List[str] = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+    else:
+        compounds = provider.get_all_compounds()
+        samples = provider.get_all_samples()
 
     # Build column structure - only compounds with labeling (M+0 base)
     compound_names = []
@@ -66,7 +68,8 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
 
     # Background ratios from MM files
     logger.info("Calculating background ratios from MM files for % label incorporation...")
-    background_ratios = exporter._calculate_background_ratios(compounds)
+    background_ratios = (provider.get_background_ratios(compounds) if provider is not None
+                         else exporter._calculate_background_ratios(compounds))
 
     # Rows 5+: values per sample
     for sample_idx, sample_name in enumerate(samples):
@@ -74,7 +77,8 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
         worksheet.write(row, 0, None)
         worksheet.write(row, 1, sample_name)
 
-        sample_data = exporter._get_sample_corrected_data(sample_name)
+        sample_data = (provider.get_sample_corrected_data(sample_name) if provider is not None
+                       else exporter._get_sample_corrected_data(sample_name))
 
         for col, compound_row in enumerate(compounds):
             try:
@@ -105,4 +109,3 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
             progress_callback(int(progress))
 
     logger.info("% Label Incorporation sheet created with background correction applied")
-

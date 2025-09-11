@@ -169,6 +169,12 @@ class MainWindow(QMainWindow):
         self.export_data_action.triggered.connect(self.export_data)
         file_menu.addAction(self.export_data_action)
 
+        # Add separator and Update Old Data action
+        file_menu.addSeparator()
+        self.update_old_data_action = QAction("Update Old Data...", self)
+        self.update_old_data_action.triggered.connect(self.update_old_data)
+        file_menu.addAction(self.update_old_data_action)
+
         """ Create Settings Menu """
 
         settings_menu = menu_bar.addMenu("Settings")
@@ -1124,6 +1130,66 @@ class MainWindow(QMainWindow):
                 f"An error occurred during session import:\n{str(e)}",
             )
             msg_box.exec()
+
+    def update_old_data(self):
+        """Rebuild an export from a legacy compounds file and Raw Values workbook."""
+        from PySide6.QtWidgets import QFileDialog, QProgressDialog
+        from PySide6.QtCore import Qt
+        from manic.ui.update_old_data_dialog import UpdateOldDataDialog
+        from manic.io.legacy_rebuild import rebuild_export_from_files
+
+        dlg = UpdateOldDataDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        compounds_path, raw_values_path = dlg.get_paths()
+        if not compounds_path or not raw_values_path:
+            return
+        internal_standard = dlg.get_internal_standard()
+
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Rebuilt Export",
+            "manic_data_export.xlsx",
+            "Excel Workbook (*.xlsx);;All files (*.*)",
+        )
+        if not out_path:
+            return
+
+        progress_dialog = QProgressDialog("Rebuilding data export...", "Cancel", 0, 100, self)
+        progress_dialog.setWindowTitle("Update Old Data")
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+
+        def progress_cb(val):
+            progress_dialog.setValue(int(val))
+            QCoreApplication.processEvents()
+
+        try:
+            success = rebuild_export_from_files(
+                compounds_path,
+                raw_values_path,
+                out_path,
+                internal_standard=internal_standard or self.internal_standard,
+                use_legacy_integration=self.use_legacy_integration,
+                progress_callback=progress_cb,
+            )
+            progress_dialog.setValue(100)
+            if success:
+                msg = self._create_message_box(
+                    "information",
+                    "Update Complete",
+                    f"Export rebuilt successfully to:\n{out_path}",
+                )
+                msg.exec()
+        except Exception as e:
+            logger.error(f"Update Old Data error: {e}")
+            progress_dialog.setValue(0)
+            msg = self._create_message_box(
+                "critical",
+                "Update Failed",
+                f"Failed to rebuild export.\n{e}",
+            )
+            msg.exec()
 
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""

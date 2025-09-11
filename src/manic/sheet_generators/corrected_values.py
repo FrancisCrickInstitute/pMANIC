@@ -8,7 +8,7 @@ from manic.models.database import get_connection
 logger = logging.getLogger(__name__)
 
 
-def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int) -> None:
+def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None) -> None:
     """
     Write the 'Corrected Values' sheet.
 
@@ -16,18 +16,20 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     """
     worksheet = workbook.add_worksheet('Corrected Values')
 
-    # Get all compounds and their metadata in order
-    with get_connection() as conn:
-        compounds_query = """
-            SELECT compound_name, label_atoms, mass0, retention_time, mm_files
-            FROM compounds 
-            WHERE deleted=0 
-            ORDER BY id
-        """
-        compounds = list(conn.execute(compounds_query))
-
-        samples: List[str] = [row['sample_name'] for row in 
-                  conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+    if provider is None:
+        with get_connection() as conn:
+            compounds_query = """
+                SELECT compound_name, label_atoms, mass0, retention_time, mm_files
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY id
+            """
+            compounds = list(conn.execute(compounds_query))
+            samples: List[str] = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+    else:
+        compounds = provider.get_all_compounds()
+        samples = provider.get_all_samples()
 
     # Build column structure - same as Raw Values
     compound_names = []
@@ -77,7 +79,8 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
         worksheet.write(row, 1, sample_name)
 
         # Get all corrected data for this sample
-        sample_data = exporter._get_sample_corrected_data(sample_name)
+        sample_data = (provider.get_sample_corrected_data(sample_name) if provider is not None
+                       else exporter._get_sample_corrected_data(sample_name))
 
         # Write data values in column order
         col = 2
@@ -96,4 +99,3 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
         if progress_callback and (sample_idx + 1) % 5 == 0:
             progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)
             progress_callback(int(progress))
-

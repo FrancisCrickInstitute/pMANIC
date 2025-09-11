@@ -8,7 +8,7 @@ from manic.models.database import get_connection
 logger = logging.getLogger(__name__)
 
 
-def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int) -> None:
+def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None) -> None:
     """
     Write the 'Abundances' sheet.
 
@@ -16,18 +16,20 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     """
     worksheet = workbook.add_worksheet('Abundances')
 
-    # Get all compounds and their metadata in order
-    with get_connection() as conn:
-        compounds_query = """
-            SELECT compound_name, mass0, retention_time, amount_in_std_mix, int_std_amount, mm_files
-            FROM compounds 
-            WHERE deleted=0 
-            ORDER BY id
-        """
-        compounds = list(conn.execute(compounds_query))
-
-        samples: List[str] = [row['sample_name'] for row in 
-                  conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+    if provider is None:
+        with get_connection() as conn:
+            compounds_query = """
+                SELECT compound_name, mass0, retention_time, amount_in_std_mix, int_std_amount, mm_files
+                FROM compounds 
+                WHERE deleted=0 
+                ORDER BY id
+            """
+            compounds = list(conn.execute(compounds_query))
+            samples: List[str] = [row['sample_name'] for row in 
+                      conn.execute("SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name")]
+    else:
+        compounds = provider.get_all_compounds()
+        samples = provider.get_all_samples()
 
     # Build column structure - only M+0 for each compound (total abundance)
     compound_names = []
@@ -70,32 +72,31 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
         worksheet.write(4, col + 2, 'nmol')
 
     # Pre-calculate MRRF values using MM files and internal standard
-    if not exporter.internal_standard_compound:
+    if not getattr(exporter, 'internal_standard_compound', None):
         logger.warning("No internal standard selected - using raw abundance values")
         mrrf_values: Dict[str, float] = {}
         internal_std_amount = 1.0
     else:
-        logger.info(
-            f"Calculating MRRF values using internal standard: {exporter.internal_standard_compound}"
-        )
-        mrrf_values = exporter._calculate_mrrf_values(compounds, exporter.internal_standard_compound)
+        logger.info(f"Calculating MRRF values using internal standard: {exporter.internal_standard_compound}")
+        mrrf_values = (provider.get_mrrf_values(compounds, exporter.internal_standard_compound) if provider is not None
+                       else exporter._calculate_mrrf_values(compounds, exporter.internal_standard_compound))
 
         # Get internal standard amount from compound metadata
-        with get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT int_std_amount FROM compounds WHERE compound_name = ? AND deleted = 0",
-                (exporter.internal_standard_compound,),
-            )
-            row = cursor.fetchone()
+        def _row_get(row, key):
             try:
-                internal_std_amount = (
-                    row['int_std_amount'] if row and row['int_std_amount'] is not None else 1.0
-                )
-            except (KeyError, TypeError):
-                internal_std_amount = 1.0
-                logger.debug(
-                    f"int_std_amount not found for {exporter.internal_standard_compound}, using default 1.0"
-                )
+                return row[key]
+            except Exception:
+                try:
+                    return row.get(key)
+                except Exception:
+                    return None
+
+        intstd_rows = [c for c in compounds if _row_get(c, 'compound_name') == exporter.internal_standard_compound]
+        if intstd_rows:
+            val = _row_get(intstd_rows[0], 'int_std_amount')
+            internal_std_amount = val if (val is not None) else 1.0
+        else:
+            internal_std_amount = 1.0
 
     # Rows 6+: values per sample
     for sample_idx, sample_name in enumerate(samples):
@@ -103,7 +104,8 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
         worksheet.write(row, 0, None)
         worksheet.write(row, 1, sample_name)
 
-        sample_data = exporter._get_sample_corrected_data(sample_name)
+        sample_data = (provider.get_sample_corrected_data(sample_name) if provider is not None
+                       else exporter._get_sample_corrected_data(sample_name))
 
         if exporter.internal_standard_compound:
             internal_std_data = sample_data.get(exporter.internal_standard_compound, [0.0])
@@ -150,8 +152,7 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
             progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)
             progress_callback(int(progress))
 
-    if exporter.internal_standard_compound:
-        logger.info("Abundances sheet created with MRRF calibration applied")
-    else:
-        logger.info("Abundances sheet created with raw abundance values (no internal standard)")
-
+        if getattr(exporter, 'internal_standard_compound', None):
+            logger.info("Abundances sheet created with MRRF calibration applied")
+        else:
+            logger.info("Abundances sheet created with raw abundance values (no internal standard)")

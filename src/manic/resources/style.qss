@@ -374,3 +374,30 @@ QDialog QLabel {
     font-size: 14px;
     padding: 10px;
 }
+
+/* Inputs: ensure light backgrounds with dark text */
+QLineEdit, QTextEdit, QPlainTextEdit {
+    background-color: white;
+    color: #212529;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+}
+
+QLineEdit:read-only {
+    background-color: #fafafa;
+    color: #212529;
+}
+
+QComboBox {
+    background-color: white;
+    color: #212529;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: white;
+    color: #212529;
+    selection-background-color: #e6f0ff;
+    selection-color: #212529;
+}

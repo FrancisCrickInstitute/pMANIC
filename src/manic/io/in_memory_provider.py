@@ -67,9 +67,8 @@ class InMemoryDataProvider:
             )
             if use_direct:
                 corr2d = self._corrector._correct_vectorized_direct(vec, cm)
-                corrected[name] = corr2d[:, 0].tolist()
+                corr_vec = corr2d[:, 0]
             else:
-                # Fall back to robust optimization path
                 corr = self._corrector.correct_time_series(
                     vec,
                     comp.get('formula') or '',
@@ -79,7 +78,18 @@ class InMemoryDataProvider:
                     int(comp.get('meox') or 0),
                     int(comp.get('me') or 0),
                 )
-                corrected[name] = corr[:, 0].tolist()
+                corr_vec = corr[:, 0]
+
+            # Log if the approximate correction yields near-zero while raw has signal
+            raw_total = float(np.sum(vec))
+            corr_total = float(np.sum(corr_vec))
+            if raw_total > 1e-6 and corr_total <= 1e-9:
+                logger.debug(
+                    f"UpdateOldData: corrected total ~0 for {name} in {sample_name} (raw_total={raw_total:.6g}). "
+                    "This can occur in approximate mode when correcting integrated vectors."
+                )
+
+            corrected[name] = corr_vec.astype(float).tolist()
 
         self._corrected_cache[sample_name] = corrected
         return corrected

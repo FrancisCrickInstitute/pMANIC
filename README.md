@@ -239,6 +239,21 @@ or
 uv run python -m src.manic.main
 ```
 
+### Run tests
+
+Use the helper script:
+
+```bash
+./tests.sh
+```
+
+- Prefers `uv` if installed: runs `uv run pytest -q`
+- Falls back to `.venv` or system Python: runs `python -m pytest -q`
+
+The suite covers core math and calibration modules:
+- Integration: peak area computation and windowing behavior
+- Calibration: background ratios and MRRF calculations (using stubbed providers)
+
 ## Session Export/Import
 
 MANIC implements a session-centric approach to analytical sharing that prioritizes scientific reproducibility and data integrity. The export/import functionality separates analytical methodology from processed data, ensuring transparent and verifiable workflows.

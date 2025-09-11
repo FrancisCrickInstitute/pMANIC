@@ -184,7 +184,7 @@ class IsotopologueRatioWidget(QWidget):
             # Check if single or multi-trace
             if eic.intensity.ndim == 1:
                 # Single trace - integrate directly
-                area = np.trapz(eic.intensity[mask], eic.time[mask])
+                area = np.trapezoid(eic.intensity[mask], eic.time[mask])
                 area = max(0, area)  # Ensure non-negative
 
                 # For single trace: ratio is always 1.0 (100%)
@@ -208,7 +208,7 @@ class IsotopologueRatioWidget(QWidget):
                 # Integrate each isotopologue
                 isotope_areas = []
                 for i in range(intensity_to_use.shape[0]):
-                    area = np.trapz(intensity_to_use[i, mask], eic.time[mask])
+                    area = np.trapezoid(intensity_to_use[i, mask], eic.time[mask])
                     isotope_areas.append(max(0, area))  # Ensure non-negative
 
                 # Calculate total abundance (sum of all isotopologue areas)

@@ -7,6 +7,10 @@ from typing import Optional
 
 from manic.__version__ import __version__
 from manic.models.database import get_connection
+from manic.io.changelog_sections import (
+    format_compounds_table_for_data_export,
+    format_overrides_section_for_data_export,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,41 +70,19 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
 - **Total Samples:** {len(samples)}
 - **Session Parameter Overrides:** {len(session_overrides)}
 
-## Compounds Processed
-| Compound Name | RT (min) | L Offset | R Offset | Mass (m/z) | Label Atoms | Formula | Internal Std Amount |
-|---------------|----------|----------|----------|------------|-------------|---------|-------------------|
 """
 
-    for compound in compounds:
-        int_std = compound['int_std_amount'] if compound['int_std_amount'] else 'N/A'
-        changelog_content += (
-            f"| {compound['compound_name']} | {compound['retention_time']:.3f} | {compound['loffset']:.3f} | "
-            f"{compound['roffset']:.3f} | {compound['mass0']:.4f} | {compound['label_atoms']} | "
-            f"{compound['formula'] or 'N/A'} | {int_std} |\n"
-        )
+    # Compounds table
+    changelog_content += format_compounds_table_for_data_export(compounds) + "\n"
 
     changelog_content += f"\n## Sample Files Processed\n"
     for sample in samples:
         file_name = sample['file_name'] if sample['file_name'] else 'N/A'
         changelog_content += f"- **{sample['sample_name']}**: {file_name}\n"
 
+    # Overrides section (if any)
     if session_overrides:
-        changelog_content += f"\n## Session Parameter Overrides\n"
-        changelog_content += (
-            "The following compounds had their parameters modified during the session:\n\n"
-        )
-        changelog_content += (
-            "| Compound | Sample | RT Override | L Offset Override | R Offset Override |\n"
-        )
-        changelog_content += (
-            "|----------|--------|-------------|-------------------|-------------------|\n"
-        )
-
-        for override in session_overrides:
-            changelog_content += (
-                f"| {override['compound_name']} | {override['sample_name']} | {override['retention_time']:.3f} | "
-                f"{override['loffset']:.3f} | {override['roffset']:.3f} |\n"
-            )
+        changelog_content += "\n" + format_overrides_section_for_data_export(session_overrides) + "\n"
 
     changelog_content += f"""
 ## Export Sheets Generated
@@ -130,4 +112,3 @@ This export represents the final state of all data processing and parameter adju
         logger.info(f"Changelog generated: {changelog_path}")
     except Exception as e:
         logger.error(f"Failed to generate changelog: {e}")
-

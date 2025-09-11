@@ -14,6 +14,10 @@ from typing import Any, Dict, Optional
 
 from manic.models.database import get_connection
 from manic.__version__ import __version__, APP_NAME
+from manic.io.changelog_sections import (
+    format_compounds_table_for_session_export,
+    format_overrides_section_for_session_export,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -374,82 +378,13 @@ def _generate_changelog(method_data: dict, changelog_path: Path) -> None:
 
             f.write("---\n\n")
 
-            # Compounds section
+            # Compounds section (shared formatter)
             compounds = method_data.get("compounds", [])
-            f.write(f"## Compound Definitions ({len(compounds)} compounds)\n\n")
+            f.write(format_compounds_table_for_session_export(compounds))
 
-            if compounds:
-                f.write(
-                    "| Compound Name | Retention Time (min) | Left Offset | Right Offset | Mass (m/z) | Label Atoms |\n"
-                )
-                f.write(
-                    "|---------------|---------------------|-------------|--------------|------------|-------------|\n"
-                )
-
-                for compound in compounds:
-                    name = compound.get("compound_name", "Unknown")
-                    rt = compound.get("retention_time", 0)
-                    loffset = compound.get("loffset", 0)
-                    roffset = compound.get("roffset", 0)
-                    mass = compound.get("mass0", 0)
-                    label_atoms = compound.get("label_atoms", 0)
-
-                    f.write(
-                        f"| {name} | {rt:.3f} | {loffset:.3f} | {roffset:.3f} | {mass:.4f} | {label_atoms} |\n"
-                    )
-            else:
-                f.write("*No compounds defined.*\n")
-
-            f.write("\n")
-
-            # Session activity section
+            # Session activity section (shared formatter)
             session_overrides = method_data.get("session_overrides", [])
-            f.write(
-                f"## Session Integration Overrides ({len(session_overrides)} overrides)\n\n"
-            )
-
-            if session_overrides:
-                f.write(
-                    "These represent manual adjustments to integration boundaries made during analysis.\n\n"
-                )
-
-                # Group overrides by compound for better readability
-                overrides_by_compound = {}
-                for override in session_overrides:
-                    compound_name = override.get("compound_name", "Unknown")
-                    if compound_name not in overrides_by_compound:
-                        overrides_by_compound[compound_name] = []
-                    overrides_by_compound[compound_name].append(override)
-
-                for compound_name, compound_overrides in sorted(
-                    overrides_by_compound.items()
-                ):
-                    f.write(f"### {compound_name}\n\n")
-                    f.write(
-                        "| Sample Name | Retention Time (min) | Left Offset | Right Offset |\n"
-                    )
-                    f.write(
-                        "|-------------|---------------------|-------------|-------------|\n"
-                    )
-
-                    for override in sorted(
-                        compound_overrides, key=lambda x: x.get("sample_name", "")
-                    ):
-                        sample_name = override.get("sample_name", "Unknown")
-                        rt = override.get("retention_time", 0)
-                        loffset = override.get("loffset", 0)
-                        roffset = override.get("roffset", 0)
-
-                        f.write(
-                            f"| {sample_name} | {rt:.3f} | {loffset:.3f} | {roffset:.3f} |\n"
-                        )
-
-                    f.write("\n")
-            else:
-                f.write("*No session-specific integration overrides were made.*\n\n")
-                f.write(
-                    "This indicates that all compounds used their default integration parameters across all samples.\n"
-                )
+            f.write(format_overrides_section_for_session_export(session_overrides))
 
             f.write("\n---\n\n")
 

@@ -53,11 +53,11 @@ class DocumentationViewer(QDialog):
         
         # Use platform-appropriate font with larger size
         if sys.platform == "win32":
-            display_font = QFont("Arial", 12)
+            display_font = QFont("Arial", 11)
         elif sys.platform == "darwin": 
-            display_font = QFont("Helvetica", 12)
+            display_font = QFont("Helvetica", 11)
         else:
-            display_font = QFont("DejaVu Sans", 12)
+            display_font = QFont("DejaVu Sans", 11)
         self.text_display.setFont(display_font)
         
         # Enable word wrap
@@ -94,183 +94,179 @@ class DocumentationViewer(QDialog):
             # Read the markdown content
             content = file_path.read_text(encoding='utf-8')
             
+            # Ensure proper line endings for markdown parsing
+            # This fixes issues with lists not being recognized after previous lines
+            content = content.replace('\r\n', '\n').replace('\r', '\n')
+            
+            # Ensure blank lines before lists for proper parsing
+            import re
+            # Add blank line before lists that come after non-list content
+            content = re.sub(r'([^\n])\n([-*]|\d+\.)\s', r'\1\n\n\2 ', content)
+            
             if HAS_MARKDOWN:
-                # Convert markdown to HTML with extensions for better formatting and TOC
+                # Convert markdown to HTML with proper extensions for lists and formatting
                 md = markdown.Markdown(extensions=[
-                    'markdown.extensions.tables',
-                    'markdown.extensions.fenced_code',
+                    'markdown.extensions.extra',  # Includes tables, fenced code, and more
                     'markdown.extensions.codehilite',
-                    'markdown.extensions.toc'
+                    'markdown.extensions.sane_lists',  # Better list handling
+                    'markdown.extensions.nl2br'  # Convert newlines to <br> tags where appropriate
+                    # Removed 'markdown.extensions.toc' to prevent auto-generated TOC
                 ])
                 html_content = md.convert(content)
-                toc_html = md.toc or ""
                 
-                # Apply elegant CSS for clean, readable documentation
-                # Build final HTML with optional TOC
+                # Apply GitHub-like CSS styling
                 styled_html = f"""
                 <html>
                 <head>
                 <style>
                 body {{ 
-                    background-color: white;
-                    color: #333;
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-                    font-size: 15px;
-                    line-height: 1.7;
-                    max-width: 900px;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+                    font-size: 16px;
+                    line-height: 1.5;
+                    color: #1f2328;
+                    background-color: #ffffff;
+                    padding: 20px;
+                    max-width: 980px;
                     margin: 0 auto;
-                    padding: 40px;
                 }}
-                a {{ color: #0d6efd; text-decoration: none; }}
-                a:hover {{ text-decoration: underline; }}
                 h1 {{ 
-                    color: #1a1a1a;
-                    font-size: 32px;
-                    font-weight: 700;
-                    margin: 0 0 24px 0;
-                    padding-bottom: 12px;
-                    border-bottom: 3px solid #e1e4e8;
+                    padding-bottom: .3em;
+                    font-size: 2em;
+                    font-weight: 600;
+                    border-bottom: 1px solid #d1d9e0;
+                    margin-top: 24px;
+                    margin-bottom: 16px;
+                    line-height: 1.25;
                 }}
                 h2 {{ 
-                    color: #24292e;
-                    font-size: 24px;
+                    padding-bottom: .3em;
+                    font-size: 1.5em;
                     font-weight: 600;
-                    margin: 36px 0 16px 0;
-                    padding-bottom: 8px;
-                    border-bottom: 1px solid #e1e4e8;
+                    border-bottom: 1px solid #d1d9e0;
+                    margin-top: 24px;
+                    margin-bottom: 16px;
+                    line-height: 1.25;
                 }}
                 h3 {{ 
-                    color: #24292e;
-                    font-size: 20px;
+                    font-size: 1.25em;
                     font-weight: 600;
-                    margin: 28px 0 12px 0;
+                    margin-top: 24px;
+                    margin-bottom: 16px;
+                    line-height: 1.25;
                 }}
                 h4 {{ 
-                    color: #24292e;
-                    font-size: 16px;
+                    font-size: 1em;
                     font-weight: 600;
-                    margin: 24px 0 8px 0;
-                }}
-                h5, h6 {{ 
-                    color: #24292e;
-                    font-size: 14px;
-                    font-weight: 600;
-                    margin: 20px 0 8px 0;
+                    margin-top: 24px;
+                    margin-bottom: 16px;
+                    line-height: 1.25;
                 }}
                 p {{ 
-                    color: #333;
-                    margin: 0 0 16px 0;
+                    margin-top: 0;
+                    margin-bottom: 16px;
+                }}
+                a {{ 
+                    color: #0969da;
+                    text-decoration: none;
+                }}
+                a:hover {{ 
+                    text-decoration: underline;
                 }}
                 code {{ 
-                    background-color: #f6f8fa;
-                    color: #24292e;
-                    padding: 3px 6px;
-                    border-radius: 6px;
-                    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Monaco, "Courier New", monospace;
+                    padding: .2em .4em;
+                    margin: 0;
                     font-size: 85%;
-                    border: 1px solid #e1e4e8;
+                    white-space: break-spaces;
+                    background-color: rgba(175,184,193,0.2);
+                    border-radius: 6px;
+                    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, Courier, monospace;
                 }}
                 pre {{ 
-                    background-color: #f6f8fa;
-                    color: #24292e;
-                    padding: 20px;
-                    border-radius: 8px;
-                    border: 1px solid #e1e4e8;
-                    overflow-x: auto;
-                    font-size: 14px;
+                    padding: 16px;
+                    overflow: auto;
+                    font-size: 85%;
                     line-height: 1.45;
-                    margin: 16px 0;
-                }}
-                pre code {{
-                    background-color: transparent;
-                    color: inherit;
-                    padding: 0;
-                    border: none;
-                    font-size: inherit;
-                }}
-                table {{ 
-                    border-collapse: collapse; 
-                    width: 100%;
-                    margin: 20px 0;
-                    background-color: white;
-                    border: 1px solid #d0d7de;
+                    color: #1f2328;
+                    background-color: #f6f8fa;
                     border-radius: 6px;
-                    overflow: hidden;
+                    margin-top: 0;
+                    margin-bottom: 16px;
                 }}
-                th {{ 
-                    background-color: #f6f8fa;
-                    color: #24292e;
-                    font-weight: 600;
-                    padding: 12px 16px;
-                    text-align: left;
-                    border-bottom: 1px solid #d0d7de;
+                pre code {{ 
+                    padding: 0;
+                    margin: 0;
+                    background-color: transparent;
+                    border: 0;
+                    font-size: 100%;
                 }}
-                td {{ 
-                    padding: 12px 16px;
-                    border-bottom: 1px solid #d0d7de;
-                    color: #333;
-                }}
-                tr:last-child td {{
-                    border-bottom: none;
-                }}
-                tr:nth-child(even) {{
-                    background-color: #f9f9f9;
-                }}
-                blockquote {{
-                    border-left: 4px solid #d0d7de;
-                    margin: 16px 0;
-                    padding: 0 16px;
-                    color: #656d76;
-                    background-color: #f6f8fa;
-                    border-radius: 0 6px 6px 0;
+                blockquote {{ 
+                    padding: 0 1em;
+                    color: #59636e;
+                    border-left: .25em solid #d1d9e0;
+                    margin: 0 0 16px 0;
                 }}
                 ul, ol {{ 
-                    margin: 16px 0;
-                    padding-left: 32px;
-                    color: #333;
+                    margin-top: 0;
+                    margin-bottom: 16px;
+                    padding-left: 2em;
+                }}
+                ul ul, ul ol, ol ul, ol ol {{
+                    margin-top: 0;
+                    margin-bottom: 0;
                 }}
                 li {{ 
-                    margin: 8px 0;
-                    line-height: 1.6;
+                    margin-top: .25em;
+                }}
+                li + li {{
+                    margin-top: .25em;
+                }}
+                li > p {{
+                    margin-top: 16px;
+                }}
+                table {{ 
+                    display: block;
+                    width: max-content;
+                    max-width: 100%;
+                    overflow: auto;
+                    border-spacing: 0;
+                    border-collapse: collapse;
+                    margin-top: 0;
+                    margin-bottom: 16px;
+                }}
+                table th {{ 
+                    font-weight: 600;
+                    padding: 6px 13px;
+                    border: 1px solid #d1d9e0;
+                    background-color: #f6f8fa;
+                }}
+                table td {{ 
+                    padding: 6px 13px;
+                    border: 1px solid #d1d9e0;
+                }}
+                table tr {{
+                    background-color: #ffffff;
+                    border-top: 1px solid #d1d9e0;
+                }}
+                table tr:nth-child(2n) {{
+                    background-color: #f6f8fa;
+                }}
+                hr {{ 
+                    height: 1px;
+                    padding: 0;
+                    margin: 24px 0;
+                    background-color: transparent;
+                    border: 0;
+                    border-bottom: 1px solid #d1d9e0;
                 }}
                 strong {{ 
-                    color: #24292e;
                     font-weight: 600;
                 }}
                 em {{ 
-                    color: #333;
                     font-style: italic;
-                }}
-                hr {{
-                    border: none;
-                    height: 1px;
-                    background-color: #e1e4e8;
-                    margin: 32px 0;
-                }}
-                img {{ max-width: 100%; height: auto; display: block; margin: 16px auto; }}
-                /* Table of contents styling */
-                .toc {{
-                    background: #ffffff;
-                    border: 1px solid #e1e4e8;
-                    border-radius: 8px;
-                    padding: 12px 16px;
-                    margin: 0 0 24px 0;
-                }}
-                .toc ul {{ margin: 0; padding-left: 20px; }}
-                .toc a {{ color: #0d6efd; text-decoration: none; }}
-                .toc a:hover {{ text-decoration: underline; }}
-                /* Special styling for warnings/notes */
-                p:has(strong:first-child) {{
-                    background-color: #fff8dc;
-                    border-left: 4px solid #f0ad4e;
-                    padding: 12px 16px;
-                    margin: 16px 0;
-                    border-radius: 0 6px 6px 0;
                 }}
                 </style>
                 </head>
                 <body>
-                {('<h2>On this page</h2>' + toc_html) if toc_html.strip() else ''}
                 {html_content}
                 </body>
                 </html>
@@ -278,32 +274,43 @@ class DocumentationViewer(QDialog):
                 
                 self.text_display.setHtml(styled_html)
             else:
-                # Fallback to plain text if markdown is not available
+                # Fallback to plain text if markdown library not available
                 self.text_display.setPlainText(content)
-                logger.warning("Markdown library not available, displaying as plain text")
                 
-            # Update window title with filename
-            self.setWindowTitle(f"MANIC Documentation - {file_path.name}")
+            # Set window title to include file name
+            self.setWindowTitle(f"MANIC Documentation - {file_path.stem.replace('_', ' ').title()}")
             
             return True
             
         except Exception as e:
-            error_msg = f"Error loading {file_path}: {str(e)}"
-            logger.error(error_msg)
-            self.text_display.setPlainText(error_msg)
+            logger.error(f"Error loading markdown file: {e}")
+            self.text_display.setPlainText(f"Error loading file: {str(e)}")
             return False
+    
+    def show_documentation(self, doc_name: str) -> None:
+        """
+        Show a specific documentation file.
+        
+        Args:
+            doc_name: Name of the documentation file (without .md extension)
+        """
+        from manic.utils.paths import get_docs_path
+        
+        docs_path = get_docs_path()
+        file_path = docs_path / f"{doc_name}.md"
+        
+        if self.load_markdown_file(file_path):
+            self.exec()
 
 
-def show_documentation_file(parent, file_path: Path):
+def show_documentation_file(parent, file_path: Path) -> None:
     """
     Convenience function to show a documentation file in a dialog.
     
     Args:
-        parent: Parent widget
+        parent: Parent widget for the dialog
         file_path: Path to the markdown file to display
     """
-    dialog = DocumentationViewer(parent)
-    if dialog.load_markdown_file(file_path):
-        dialog.exec()
-    else:
-        logger.error(f"Failed to load documentation file: {file_path}")
+    viewer = DocumentationViewer(parent)
+    if viewer.load_markdown_file(file_path):
+        viewer.exec()

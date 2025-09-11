@@ -1,5 +1,17 @@
 # MANIC: Mass Analyzer for Natural Isotope Correction
 
+## Table of Contents
+- [Overview](#overview)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Data Processing](#data-processing)
+- [Export Structure](#export-structure)
+- [Advanced Features](#advanced-features)
+- [Development](#development)
+- [Changes from MANIC v3.3.0 and Below](#changes-from-manic-v330-and-below)
+- [Technical Details](#technical-details)
+- [Documentation](#documentation)
+
 ## Overview
 
 MANIC processes isotopically-labeled mass spectrometry data through natural isotope abundance correction, peak integration, and metabolite quantification. The application reads CDF files from GC-MS and LC-MS instruments and generates Excel workbooks containing five analysis stages: Raw Values, Corrected Values, Isotope Ratios, % Label Incorporation, and Abundances.

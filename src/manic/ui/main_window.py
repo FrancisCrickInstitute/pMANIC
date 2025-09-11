@@ -83,9 +83,7 @@ class MainWindow(QMainWindow):
         stylesheet = load_stylesheet("src/manic/resources/style.qss")
         self.setStyleSheet(stylesheet)
 
-        # Connect the toolbar's custom signals to a handler methods
-        self.toolbar.samples_selected.connect(self.on_samples_selected)
-        self.toolbar.compound_selected.connect(self.on_compound_selected)
+        # Connect toolbar signals (avoid duplicate connections; others are set in setup_ui)
         self.toolbar.internal_standard_selected.connect(
             self.on_internal_standard_selected
         )

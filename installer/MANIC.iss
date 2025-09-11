@@ -1,6 +1,6 @@
 [Setup]
 AppName=MANIC
-AppVersion=1.0.0
+AppVersion=4.0.0
 DefaultDirName={pf}\MANIC
 DefaultGroupName=MANIC
 OutputDir=..\dist

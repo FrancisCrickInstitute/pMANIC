@@ -25,6 +25,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('src/manic/resources/*', 'src/manic/resources'),
+        ('src/manic/models/schema.sql', 'src/manic/models'),
         ('docs/*.md', 'docs'),
     ] + datas_extra,
     hiddenimports=hiddenimports,

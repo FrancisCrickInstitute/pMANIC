@@ -4,13 +4,14 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from manic.utils.paths import resource_path
 
 logger = logging.getLogger(__name__)
 
 # adds hidden directory containing the db file to the user's home directory
 DB_FILE = Path.home() / ".manic_app" / "manic.db"
-# create a reference to the schema file regardless of app packaging (e.g. as a .exe )
-SCHEMA_SQL = pkg_resources.files(__package__).joinpath("schema.sql")
+# Path to schema.sql that works in both dev and frozen builds
+SCHEMA_SQL_PATH = Path(resource_path('models', 'schema.sql'))
 
 
 def init_db() -> None:
@@ -23,18 +24,14 @@ def init_db() -> None:
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     # open db file and sql schema in a single atomic context manager
-    with (
-        sqlite3.connect(DB_FILE) as conn,
-        SCHEMA_SQL.open("r", encoding="utf-8") as fh,
-    ):
+    with sqlite3.connect(DB_FILE) as conn:
         # Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON")
-
         # Run migrations first
         _run_migrations(conn)
-
-        # read the sql script & send to sqlite in one call
-        conn.executescript(fh.read())
+        # Apply base schema
+        with SCHEMA_SQL_PATH.open("r", encoding="utf-8") as fh:
+            conn.executescript(fh.read())
 
     logger.info("database ready at %s", DB_FILE)
 

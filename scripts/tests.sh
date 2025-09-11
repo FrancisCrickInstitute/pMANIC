@@ -19,3 +19,4 @@ fi
 
 echo "Running: python -m pytest -q"
 python -m pytest -q
+

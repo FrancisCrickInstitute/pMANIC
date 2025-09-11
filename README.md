@@ -230,7 +230,7 @@ uv run python your_script.py
 There are two ways to run the project:
 
 ```bash
-./run.sh
+./scripts/run.sh
 ```
 
 or
@@ -320,7 +320,7 @@ When exact reproducibility is needed, use the standard Export Data flow (which u
 Use the helper script:
 
 ```bash
-./tests.sh
+./scripts/tests.sh
 ```
 
 - Prefers `uv` if installed: runs `uv run pytest -q`

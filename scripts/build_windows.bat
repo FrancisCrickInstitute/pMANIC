@@ -11,7 +11,7 @@ if %ERRORLEVEL%==0 (
   uv sync || goto :error
   REM Use uvx to run PyInstaller without polluting the venv
   REM If icon is missing, PyInstaller will run without it (handled in spec)
-  uvx pyinstaller MANIC.spec || goto :error
+  uvx pyinstaller -y --clean MANIC.spec || goto :error
 ) else (
   echo uv not found; falling back to pip
   if not exist .venv (
@@ -21,7 +21,7 @@ if %ERRORLEVEL%==0 (
   pip install --upgrade pip || goto :error
   pip install -r requirements.txt pyinstaller || goto :error
   REM If icon is missing, PyInstaller will run without it (handled in spec)
-  pyinstaller MANIC.spec || goto :error
+  pyinstaller -y --clean MANIC.spec || goto :error
 )
 
 echo.

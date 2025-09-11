@@ -1,4 +1,4 @@
-# MANIC: Mass Analyzer for Natural Isotope Correction
+# MANIC
 
 ## Table of Contents
 - [Overview](#overview)

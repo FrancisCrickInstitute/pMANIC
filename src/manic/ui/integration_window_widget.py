@@ -15,6 +15,7 @@ from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.session_activity import SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.utils import load_stylesheet
+from manic.utils.paths import resource_path
 
 
 class IntegrationWindow(QGroupBox):
@@ -50,7 +51,7 @@ class IntegrationWindow(QGroupBox):
         self._setup_apply_button_state()
 
         # Load and apply the stylesheet
-        stylesheet = load_stylesheet("src/manic/resources/integration_window.qss")
+        stylesheet = load_stylesheet(resource_path('resources', 'integration_window.qss'))
         self.setStyleSheet(stylesheet)
         
         font = self.font()

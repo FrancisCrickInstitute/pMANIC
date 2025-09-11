@@ -239,6 +239,66 @@ or
 uv run python -m src.manic.main
 ```
 
+### Package for Windows (EXE + Installer)
+
+This section describes how to “freeze” MANIC (bundle Python + app into a standalone EXE) and create a Windows installer.
+
+Prereqs:
+- Windows 10/11
+- Python 3.12 (64-bit)
+- Inno Setup (optional; for the installer)
+
+Steps:
+1. Preferred (uv):
+   ```bat
+   uv venv
+   uv sync
+   uvx pyinstaller MANIC.spec
+   ```
+   Fallback (pip):
+   ```bat
+   py -3.12 -m venv .venv
+   .venv\Scripts\activate
+   pip install --upgrade pip
+   pip install -r requirements.txt pyinstaller
+   pyinstaller MANIC.spec
+   ```
+   - Output: `dist\MANIC\MANIC.exe` (plus support files)
+   - The spec includes resources (QSS/images) and `docs/*.md` so the Documentation menu works offline.
+3. (Optional) Build the installer with Inno Setup:
+   ```bat
+   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\MANIC.iss
+   ```
+   - Output: `dist\MANIC-Setup.exe`
+
+Convenience script:
+```bat
+scripts\build_windows.bat
+```
+
+Notes:
+- The app uses helper functions in `manic.utils.paths` to resolve resources (QSS/images/docs) in both dev and frozen builds.
+- If you add new assets, include them in `MANIC.spec` datas or pass `--add-data` to PyInstaller.
+- If PyInstaller misses a plugin/module, add a hidden import in `MANIC.spec` (we already include markdown extensions).
+
+### Code Signing (Optional)
+
+Sign the EXE and installer to reduce SmartScreen warnings:
+```bat
+signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist\MANIC\MANIC.exe
+signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist\MANIC-Setup.exe
+```
+
+### User Installation (Windows)
+
+1. Download `MANIC-Setup.exe` from your distribution location (website, file share).
+2. Double‑click to run the installer. Choose an install location (defaults to `C:\Program Files\MANIC`).
+3. Finish and launch MANIC from the Start Menu or the desktop shortcut.
+
+First‑run notes:
+- SmartScreen may warn on unsigned installers; choose “More info” → “Run anyway” if you trust the source, or use signed builds.
+- MANIC installs locally and does not require a separate Python install.
+
 ### Update Old Data (Approximate)
 
 Use File → Update Old Data… to rebuild a MANIC export from:

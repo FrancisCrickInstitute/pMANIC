@@ -36,6 +36,7 @@ from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.recovery_dialog import RecoveryDialog
 from manic.utils.utils import load_stylesheet
+from manic.utils.paths import resource_path, docs_path
 from manic.utils.workers import CdfImportWorker, EicRegenerationWorker
 from src.manic.utils.timer import measure_time
 
@@ -80,7 +81,7 @@ class MainWindow(QMainWindow):
         self.setup_ui()
 
         # Load and apply the stylesheet
-        stylesheet = load_stylesheet("src/manic/resources/style.qss")
+        stylesheet = load_stylesheet(resource_path('resources', 'style.qss'))
         self.setStyleSheet(stylesheet)
 
         # Connect toolbar signals (avoid duplicate connections; others are set in setup_ui)
@@ -247,8 +248,7 @@ class MainWindow(QMainWindow):
     def _get_logo_path(self) -> str:
         """Get the path to the MANIC logo."""
         # Try to find the logo relative to this file
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logo_path = os.path.join(base_dir, "resources", "manic_logo.png")
+        logo_path = resource_path('resources', 'manic_logo.png')
         if os.path.exists(logo_path):
             return logo_path
         return ""
@@ -1354,7 +1354,7 @@ class MainWindow(QMainWindow):
         """Create documentation menu with available markdown files."""
         # Get the docs directory path
         # From src/manic/ui/main_window.py, go up to project root, then to docs
-        docs_dir = Path(__file__).parent.parent.parent.parent / "docs"
+        docs_dir = Path(docs_path())
 
         if not docs_dir.exists():
             no_docs_action = QAction("No documentation available", self)

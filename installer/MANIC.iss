@@ -3,7 +3,7 @@ AppName=MANIC
 AppVersion=1.0.0
 DefaultDirName={pf}\MANIC
 DefaultGroupName=MANIC
-OutputDir=dist
+OutputDir=..\dist
 OutputBaseFilename=MANIC-Setup
 Compression=lzma
 SolidCompression=yes
@@ -12,7 +12,7 @@ DisableDirPage=no
 DisableProgramGroupPage=no
 
 [Files]
-Source: "dist\MANIC\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+Source: "..\\dist\\MANIC\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\MANIC"; Filename: "{app}\MANIC.exe"
@@ -23,4 +23,3 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 
 [Run]
 Filename: "{app}\MANIC.exe"; Description: "Launch MANIC"; Flags: nowait postinstall skipifsilent
-

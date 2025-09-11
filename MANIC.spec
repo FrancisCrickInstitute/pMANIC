@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import sys
+import sys, os
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
@@ -33,6 +33,10 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+icon_file = 'src/manic/resources/manic_logo.ico'
+if not os.path.exists(icon_file):
+    icon_file = None
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -44,7 +48,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon='src/manic/resources/manic_logo.ico'
+    icon=icon_file
 )
 
 coll = COLLECT(
@@ -57,4 +61,3 @@ coll = COLLECT(
     upx_exclude=[],
     name='MANIC'
 )
-

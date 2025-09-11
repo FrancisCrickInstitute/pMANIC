@@ -280,6 +280,7 @@ Notes:
 - The app uses helper functions in `manic.utils.paths` to resolve resources (QSS/images/docs) in both dev and frozen builds.
 - If you add new assets, include them in `MANIC.spec` datas or pass `--add-data` to PyInstaller.
 - If PyInstaller misses a plugin/module, add a hidden import in `MANIC.spec` (we already include markdown extensions).
+- If you want a custom app icon, add `src/manic/resources/manic_logo.ico` (ICO format). If it's missing, the build proceeds with the default icon.
 
 ### Code Signing (Optional)
 

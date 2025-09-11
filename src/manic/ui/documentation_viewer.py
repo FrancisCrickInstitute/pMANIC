@@ -10,13 +10,11 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QDialog, 
-    QVBoxLayout, 
-    QTextEdit, 
-    QPushButton, 
+    QDialog,
+    QVBoxLayout,
+    QTextBrowser,
+    QPushButton,
     QHBoxLayout,
-    QScrollArea,
-    QSizePolicy
 )
 
 try:
@@ -46,9 +44,9 @@ class DocumentationViewer(QDialog):
         """Set up the dialog UI."""
         layout = QVBoxLayout(self)
         
-        # Text display area with scroll
-        self.text_display = QTextEdit()
-        self.text_display.setReadOnly(True)
+        # Text display area with scroll and clickable links
+        self.text_display = QTextBrowser()
+        self.text_display.setOpenExternalLinks(True)
         
         # Remove border from text display
         self.text_display.setStyleSheet("QTextEdit { border: none; }")
@@ -63,7 +61,7 @@ class DocumentationViewer(QDialog):
         self.text_display.setFont(display_font)
         
         # Enable word wrap
-        self.text_display.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.text_display.setLineWrapMode(QTextBrowser.LineWrapMode.WidgetWidth)
         
         layout.addWidget(self.text_display)
         
@@ -97,18 +95,18 @@ class DocumentationViewer(QDialog):
             content = file_path.read_text(encoding='utf-8')
             
             if HAS_MARKDOWN:
-                # Convert markdown to HTML with extensions for better formatting
-                html_content = markdown.markdown(
-                    content, 
-                    extensions=[
-                        'markdown.extensions.tables',
-                        'markdown.extensions.fenced_code',
-                        'markdown.extensions.codehilite',
-                        'markdown.extensions.toc'
-                    ]
-                )
+                # Convert markdown to HTML with extensions for better formatting and TOC
+                md = markdown.Markdown(extensions=[
+                    'markdown.extensions.tables',
+                    'markdown.extensions.fenced_code',
+                    'markdown.extensions.codehilite',
+                    'markdown.extensions.toc'
+                ])
+                html_content = md.convert(content)
+                toc_html = md.toc or ""
                 
                 # Apply elegant CSS for clean, readable documentation
+                # Build final HTML with optional TOC
                 styled_html = f"""
                 <html>
                 <head>
@@ -118,11 +116,13 @@ class DocumentationViewer(QDialog):
                     color: #333;
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
                     font-size: 15px;
-                    line-height: 1.7; 
+                    line-height: 1.7;
                     max-width: 900px;
                     margin: 0 auto;
                     padding: 40px;
                 }}
+                a {{ color: #0d6efd; text-decoration: none; }}
+                a:hover {{ text-decoration: underline; }}
                 h1 {{ 
                     color: #1a1a1a;
                     font-size: 32px;
@@ -247,6 +247,18 @@ class DocumentationViewer(QDialog):
                     background-color: #e1e4e8;
                     margin: 32px 0;
                 }}
+                img {{ max-width: 100%; height: auto; display: block; margin: 16px auto; }}
+                /* Table of contents styling */
+                .toc {{
+                    background: #ffffff;
+                    border: 1px solid #e1e4e8;
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    margin: 0 0 24px 0;
+                }}
+                .toc ul {{ margin: 0; padding-left: 20px; }}
+                .toc a {{ color: #0d6efd; text-decoration: none; }}
+                .toc a:hover {{ text-decoration: underline; }}
                 /* Special styling for warnings/notes */
                 p:has(strong:first-child) {{
                     background-color: #fff8dc;
@@ -258,6 +270,7 @@ class DocumentationViewer(QDialog):
                 </style>
                 </head>
                 <body>
+                {('<h2>On this page</h2>' + toc_html) if toc_html.strip() else ''}
                 {html_content}
                 </body>
                 </html>

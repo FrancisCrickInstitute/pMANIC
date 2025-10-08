@@ -13,15 +13,15 @@ MRRF = (Signal_met/Conc_met) / (Signal_IS/Conc_IS)
 ```
 
 Where:
-- Signal_met = Mean metabolite signal in MM samples
+- Signal_met = Mean metabolite total corrected signal in MM samples
 - Conc_met = Known concentration (`amount_in_std_mix`)
-- Signal_IS = Mean internal standard signal in MM samples
+- Signal_IS = Mean internal standard M+0 signal in MM samples
 - Conc_IS = Internal standard concentration
 
 ## Sample Quantification
 
 ```
-Abundance = (Signal_sample × IS_amount) / (Signal_IS_sample × MRRF)
+Abundance = (Total_Corrected_sample × IS_amount) / (IS_M0_sample × MRRF)
 ```
 
 Where:
@@ -53,20 +53,22 @@ mm_samples = provider.resolve_mm_samples(mm_files_field)
 ```
 
 Patterns support:
-- Wildcards: `*MM*`
-- Multiple patterns: `*MM_01*,*MM_02*,*standard*`
+- Wildcards: `*` anywhere (translated to SQL LIKE `%`)
+- Multiple patterns separated by comma/semicolon/newline
+- Case-insensitive matching
+- Special characters (`%`, `_`) are treated literally
 
 ### Current vs. Historical Calculation
 
 **Current (Python MANIC):**
-- Calculates mean signals first
-- Treats each measurement equally
+- Calculates mean signals first (per your configuration)
+- Uses IS M+0 only
 
 **Historical (MATLAB MANIC v3.3.0):**
-- Sums all signals, then divides
-- Weights by signal contribution
+- Sum-based calculation
+- IS M+0 only
 
-Both approaches are equivalent when standard concentrations are uniform.
+Note: Mean vs. sum aggregation can differ if MM sample counts vary or contain outliers.
 
 ## Changes from MANIC v3.3.0 and Below
 

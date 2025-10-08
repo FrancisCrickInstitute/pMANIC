@@ -45,12 +45,7 @@ def apply_correction_to_eic(sample_name: str, compound_name: str) -> bool:
         # Read EIC data (raw uncorrected data for correction processing)
         eic = read_eic(sample_name, compound, use_corrected=False)
 
-        # Check if this is multi-isotopologue data
-        if compound.label_atoms == 0:
-            logger.info(f"No labeled atoms for {compound_name}, copying raw data as 'corrected' (internal standard)")
-            # For internal standards, copy raw data directly to corrected table
-            store_corrected_eic(sample_name, compound_name, eic.time, eic.intensity)
-            return True
+        # Apply NA correction for all compounds (including unlabeled) for GVISO parity
 
         # Check if we have isotopologue data
         if eic.intensity.ndim == 1:
@@ -330,42 +325,26 @@ def _process_compound_batch_corrections(compound_name: str, compound_row: dict,
             label_atoms = compound_row["label_atoms"]
             n_timepoints = len(time_array)
             
-            if label_atoms > 0:
-                # Labeled compound: needs natural abundance correction
-                n_isotopologues = label_atoms + 1
-                if len(intensity_array) == n_isotopologues * n_timepoints:
-                    intensity_2d = intensity_array.reshape(n_isotopologues, n_timepoints)
-                else:
-                    # Handle 1D case (no isotopologue data)
-                    continue
-                    
-                # Apply vectorized correction using cached matrices
-                corrected_intensity_2d = corrector.correct_time_series(
-                    intensity_2d,
-                    compound_row["formula"],
-                    compound_row["label_type"],
-                    compound_row["label_atoms"],
-                    compound_row["tbdms"],
-                    compound_row["meox"],
-                    compound_row["me"]
-                )
-                
+            # Natural abundance correction for all compounds (label_atoms >= 0)
+            n_isotopologues = label_atoms + 1
+            if len(intensity_array) == n_isotopologues * n_timepoints:
+                intensity_2d = intensity_array.reshape(n_isotopologues, n_timepoints)
+            elif len(intensity_array) == n_timepoints and n_isotopologues == 1:
+                # Single isotopologue case stored as 1D
+                intensity_2d = intensity_array.reshape(1, n_timepoints)
             else:
-                # Internal standard: copy raw data as corrected (no natural abundance correction needed)
-                if len(intensity_array) == n_timepoints:
-                    # 1D data - just copy as-is
-                    corrected_intensity_2d = intensity_array.reshape(1, n_timepoints)
-                elif len(intensity_array) == 1 * n_timepoints:
-                    # Already reshaped 1D data 
-                    corrected_intensity_2d = intensity_array.reshape(1, n_timepoints)
-                else:
-                    # Try to reshape assuming single isotopologue
-                    try:
-                        corrected_intensity_2d = intensity_array.reshape(1, -1)
-                        if corrected_intensity_2d.shape[1] != n_timepoints:
-                            continue  # Skip if dimensions don't match
-                    except ValueError:
-                        continue
+                # Dimension mismatch; skip this EIC
+                continue
+
+            corrected_intensity_2d = corrector.correct_time_series(
+                intensity_2d,
+                compound_row["formula"],
+                compound_row["label_type"],
+                compound_row["label_atoms"],
+                compound_row["tbdms"],
+                compound_row["meox"],
+                compound_row["me"]
+            )
             
             # Prepare corrected data for batch insertion
             corrected_flat = corrected_intensity_2d.ravel()

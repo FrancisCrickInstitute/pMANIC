@@ -15,32 +15,27 @@ Elements in biological molecules contain:
 
 ## Mathematical Method
 
-The correction solves: **A × x = b**
+We solve a linear system: `A × x = b`
 
 Where:
-- **A** = Correction matrix (theoretical isotope patterns)
-- **x** = True isotopologue distribution
-- **b** = Measured isotopologue distribution
+- `A` = Correction matrix built by convolving elemental isotope distributions (MATLAB-aligned derivatization)
+- `x` = True isotopologue distribution (fractions)
+- `b` = Measured isotopologue distribution (normalized per timepoint)
 
 ## Algorithm Implementation
 
-### Well-Conditioned Matrices (condition number < 10¹⁰)
-- Uses direct linear algebra (numpy.linalg.solve)
-- ~100× faster than optimization
-- Typical for molecules < 20 carbons
+### Solver (Direct Only)
+- Normalize each timepoint so intensities sum to 1
+- Solve `A × x = b` via direct linear algebra (no optimization path)
+- Rescale by the original total intensity
+- Divide each isotopologue by the diagonal element of `A`
+- Clamp negatives to 0
 
-**Matrix conditioning**: A well-conditioned matrix has values that are numerically stable to solve. When the condition number is low, small changes in input produce small changes in output.
+We report condition numbers for diagnostics, but always use the direct solver for parity with MATLAB GVISO and performance.
 
-### Ill-Conditioned Matrices
-- Uses constrained optimization (SLSQP)
-- Enforces non-negativity and mass conservation
-- Required for large molecules or complex derivatization
-
-**Why matrices become ill-conditioned**: As molecules get larger, the correction matrix rows become increasingly similar (many isotope combinations produce similar patterns), making the system harder to solve uniquely.
-
-### Performance Optimization
-- Matrix caching: 5-10× speedup
-- Vectorized time series processing: 20-100× speedup
+### Performance
+- Matrix caching (reuse per compound/derivatization)
+- Vectorized time series processing
 
 ## Compound Configuration
 
@@ -53,10 +48,10 @@ Where:
 **Molecular Formula** (`formula`):
 - Standard notation (e.g., C6H12O6)
 
-**Derivatization**:
-- `tbdms`: Number of TBDMS groups (adds C₆H₁₅Si per group)
-- `meox`: Number of methoxyamine groups (adds CH₃ON per group)
-- `me`: Number of methyl groups (adds CH₂ per site)
+**Derivatization (MATLAB-aligned)**:
+- `tbdms`: `C += (t−1)*6 + 2`, `H += (t−1)*15 + 6 − t`, `Si += t`
+- `meox`: `N += m`, `C += m`, `H += 3m` (no O term)
+- `me`: `C += e`, `H += 2e`
 
 ### Example Configuration
 
@@ -69,27 +64,38 @@ meox: 1
 me: 0
 ```
 
-Total formula after derivatization: C₃₇H₈₈O₇NSi₅
+Total formula after derivatization follows the rules above (matches MATLAB GVISO).
 
 ## Common Issues
 
 ### All Corrected Values Are Zero
-- Internal standard has `labelatoms > 0`
-- Solution: Set `labelatoms = 0` for internal standards
+- Check `labelatoms` and formula/derivatization settings
 
 ### Negative Corrected Values
-- Incorrect formula or derivatization parameters
-- Solution: Verify compound configuration
+- Caused by parameter mismatch; verify compound configuration
+
+## How MM Files Factor In
+
+Natural abundance correction itself does not use MM files. MM files are used afterwards to estimate and subtract background labeling for the “% Label Incorporation” sheet:
+
+1) Compute background ratio from MM samples (using corrected signals):
+   `background = mean( (Σ labeled) / M0 )`
+
+2) For each sample:
+   `corrected_labeled = (Σ labeled) − background × M0`
+
+3) `% label = corrected_labeled / (M0 + corrected_labeled) × 100`
+
+This makes `% label` robust to systematic background signal observed in standards.
 
 ## Changes from MANIC v3.3.0 and Below
 
 ### Algorithm
-- **Previous**: Variable implementations
-- **Current**: Adaptive selection based on matrix conditioning
+- **Previous**: Mixed direct/optimization paths, conventional derivatization
+- **Current**: Direct solver only; MATLAB-aligned derivatization
 
-### Timing
-- **Previous**: Correction after integration
-- **Current**: Per-timepoint correction before integration
+### Scope
+- NA correction is applied to all compounds (including unlabeled) for GVISO parity.
 
 ### Performance
 - **Previous**: Matrix recalculated for each sample

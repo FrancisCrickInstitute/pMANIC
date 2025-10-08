@@ -6,21 +6,23 @@
 
 File → Load Compounds/Parameter List
 
-Required Excel/CSV columns:
+Required Excel/CSV columns (header variants accepted; spaces/underscores ignored):
 - `name`: Compound identifier
 - `tr`: Retention time (minutes)
 - `mass0`: Base m/z value
 - `loffset`: Left integration offset (minutes)
 - `roffset`: Right integration offset (minutes)
-- `tr_window`: RT extraction window (±minutes)
 - `labelatoms`: Number of labelable positions
 - `formula`: Molecular formula
+- `labeltype`: Labeled element (e.g., C)
 - `tbdms`: TBDMS groups
 - `meox`: Methoxyamine groups
 - `me`: Methyl groups
 - `amount_in_std_mix`: Concentration in standards
 - `int_std_amount`: Internal standard amount
-- `mmfiles`: Standard mixture pattern
+- `mmfiles`: Standard mixture patterns (supports `*`, multiple separated by comma/semicolon)
+
+If any required column is missing, the import is cancelled with an on-screen alert.
 
 ### Step 2: Import Mass Spectrometry Data
 
@@ -30,7 +32,7 @@ The import process:
 1. Reads CDF files
 2. Extracts ion chromatograms for each compound
 3. Stores EICs in database
-4. Applies natural abundance correction
+4. Applies natural abundance correction (all compounds)
 
 ### Step 3: Configure Internal Standard
 

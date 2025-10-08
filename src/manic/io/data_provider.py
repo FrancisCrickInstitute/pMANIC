@@ -139,7 +139,7 @@ class DataProvider:
             corrected_eic_query = (
                 "SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected "
                 "FROM eic_corrected ec JOIN compounds c ON ec.compound_name = c.compound_name "
-                "WHERE ec.deleted = 0 AND c.deleted = 0 AND c.label_atoms > 0 "
+                "WHERE ec.deleted = 0 AND c.deleted = 0 "
                 "ORDER BY ec.sample_name, ec.compound_name"
             )
 

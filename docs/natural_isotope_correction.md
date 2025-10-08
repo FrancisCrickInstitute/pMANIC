@@ -33,6 +33,9 @@ Where:
 
 We report condition numbers for diagnostics, but always use the direct solver for parity with MATLAB GVISO and performance.
 
+### Unlabeled (1×1) Case
+- For compounds with `labelatoms = 0` (single isotopologue), the normalized constrained MATLAB solution reduces to `cordist = 1`, so the corrected intensity equals the original total before a single diagonal division. The implementation special‑cases this 1×1 case to match MATLAB behavior.
+
 ### Performance
 - Matrix caching (reuse per compound/derivatization)
 - Vectorized time series processing

@@ -69,6 +69,8 @@ Percentage of molecules containing experimental label after background correctio
 
 **Requirements**: Standard mixture files
 
+Note: Integration method (Time‑based vs Legacy) can influence background‑subtracted fractions. For strict MATLAB GVISO parity, enable Legacy Integration Mode before export.
+
 ## Abundances
 
 Absolute concentrations calculated through internal standard calibration.

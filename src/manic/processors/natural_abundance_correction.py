@@ -518,20 +518,26 @@ class NaturalAbundanceCorrector:
             # Store total intensity for each time point
             totals = np.sum(intensity_2d, axis=0)
 
-            # Create normalized copy (don't modify input!)
-            intensity_normalized = np.zeros_like(intensity_2d)
-            for t in range(n_timepoints):
-                if totals[t] > 1e-10:
-                    intensity_normalized[:, t] = intensity_2d[:, t] / totals[t]
-                else:
-                    intensity_normalized[:, t] = 0
+            # Special-case 1×1 matrices (unlabeled compounds):
+            # Under MATLAB's sum-to-one constraint, cordist = [1]. Then corRaw = totals.
+            # Finally divide by diagonal once. Avoid double division by C seen in naive solve.
+            if n_isotopologues == 1 and correction_matrix.shape == (1, 1):
+                corrected_2d[0, :] = totals  # cordist=1 → corRaw = totals
+            else:
+                # Create normalized copy (don't modify input!)
+                intensity_normalized = np.zeros_like(intensity_2d)
+                for t in range(n_timepoints):
+                    if totals[t] > 1e-10:
+                        intensity_normalized[:, t] = intensity_2d[:, t] / totals[t]
+                    else:
+                        intensity_normalized[:, t] = 0
 
-            # Vectorized linear solve on normalized data: C × cordist = measured_normalized
-            cordist_2d = np.linalg.solve(correction_matrix, intensity_normalized)
+                # Vectorized linear solve on normalized data: C × cordist = measured_normalized
+                cordist_2d = np.linalg.solve(correction_matrix, intensity_normalized)
 
-            # Scale back by total intensity (corRaw = cordist * total)
-            for t in range(n_timepoints):
-                corrected_2d[:, t] = cordist_2d[:, t] * totals[t]
+                # Scale back by total intensity (corRaw = cordist * total)
+                for t in range(n_timepoints):
+                    corrected_2d[:, t] = cordist_2d[:, t] * totals[t]
 
             # Apply diagonal division (MATLAB: corRaw(:, kIon) = corRaw(:, kIon) ./ cormat(kIon, kIon))
             diagonal_elements = np.diag(correction_matrix)

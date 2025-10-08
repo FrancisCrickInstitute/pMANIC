@@ -63,6 +63,7 @@ Patterns support:
 **Current (Python MANIC):**
 - Calculates mean signals first (per your configuration)
 - Uses IS M+0 only
+- Uses corrected EICs for all compounds (including unlabeled)
 
 **Historical (MATLAB MANIC v3.3.0):**
 - Sum-based calculation

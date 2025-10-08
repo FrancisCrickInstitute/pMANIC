@@ -20,7 +20,7 @@ def extract_eic(
     t_r: float,
     target_mz: float,
     cdf: CdfFileData,
-    mass_tol: float = 0.25,
+    mass_tol: float = 0.20,
     rt_window: float = 0.2,
     label_atoms: int = 0,
 ) -> EIC:
@@ -90,12 +90,18 @@ def extract_eic(
     # array of target mzs
     target_mzs = target_mz + label_ions  # (e.g. 174, 175, 176, 177 for Pyruvate)
 
+    # MATLAB-style asymmetric matching via offset-and-round
+    # Compute integer targets for each label state
+    target_mzs_int = np.round(target_mzs).astype(int)
+
+    # Precompute rounded masses: round(mass - offset) with half-up behavior
+    # Use floor(x + 0.5) since masses are positive
+    rounded_masses = np.floor((all_relevent_mass - mass_tol) + 0.5).astype(int)
+
     for label in label_ions:
-        label_mz = target_mzs[label]
+        target_int = target_mzs_int[label]
         # Vectorized mask across ALL data points (no loop over scans)
-        mask = (all_relevent_mass >= label_mz - mass_tol) & (
-            all_relevent_mass <= label_mz + mass_tol
-        )
+        mask = (rounded_masses == target_int)
 
         # Sum intensities per scan (for all falling in mass range) using bincount (vectorized grouping/summation)
         # minlength ensures all scans are covered (even if sum is 0)

@@ -49,8 +49,8 @@ def calculate_peak_areas(
             time_range = (td.max() - td.min()) if len(td) > 0 else 0
             window_size = r_boundary - l_boundary
 
-            # Inclusive boundaries to match MATLAB behavior
-            integration_mask = (td >= l_boundary) & (td <= r_boundary)
+            # Strict boundaries to match MATLAB GVISO behavior (exclude endpoints)
+            integration_mask = (td > l_boundary) & (td < r_boundary)
             points_in_window = int(np.sum(integration_mask))
 
             logger.debug(

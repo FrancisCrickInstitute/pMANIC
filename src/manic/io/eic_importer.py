@@ -213,14 +213,15 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
     label_ions = np.arange(num_labels)
     target_mzs = target_mz + label_ions  # e.g., [174.0, 175.0, 176.0] for pyruvate
     
+    # Precompute MATLAB-aligned half-up rounding of (mass - offset)
+    offset_masses = all_relevant_mass - mass_tol
+    rounded_masses = np.floor(offset_masses + 0.5).astype(int)
+    target_mzs_int = np.round(target_mzs).astype(int)
+
     for label in label_ions:
-        label_mz = target_mzs[label]
-        # MANIC's asymmetric mass tolerance method: offset + rounding
-        # This creates an asymmetric tolerance window shifted toward lower masses
-        # to correct for systematic mass calibration drift in GC-MS data
-        offset_masses = all_relevant_mass - mass_tol  # Subtract offset (e.g., 0.2 Da)
-        rounded_masses = np.round(offset_masses)      # Round to nearest integer
-        mask = rounded_masses == int(round(label_mz)) # Match target mass
+        target_int = target_mzs_int[label]
+        # MANIC's asymmetric mass tolerance method: offset + half-up rounding
+        mask = (rounded_masses == target_int)
         
         # Sum intensities per scan using vectorized bincount operation
         # This efficiently groups intensities by scan index and sums them

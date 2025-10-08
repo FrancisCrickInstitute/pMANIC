@@ -12,9 +12,10 @@ def calculate_background_ratios(provider, compounds: List[dict]) -> Dict[str, fl
     """
     Calculate background ratios from MM files (standard mixture samples).
 
-    Background_Ratio = Mean_Labelled_Signal_in_Standards / Mean_Unlabelled_Signal_in_Standards
+    Background ratio is computed as the mean of per-sample ratios:
+        background = mean( labelled_sum_i / m0_i ) over matched MM files i
 
-    Mirrors the original DataExporter._calculate_background_ratios logic.
+    This mirrors MATLAB GVISO's mean(backgrounds) behavior (not ratio of means).
     """
     background_ratios: Dict[str, float] = {}
 
@@ -37,29 +38,29 @@ def calculate_background_ratios(provider, compounds: List[dict]) -> Dict[str, fl
             f"Found {len(mm_samples)} MM files for {compound_name} with patterns '{mm_files_field}': {mm_samples}"
         )
 
-        if label_atoms == 0:
-            background_ratios[compound_name] = 0.0
-            continue
+        # IMPORTANT: Background correction logic is defined per compound using matched MM files
+        # We aggregate per-sample labelled/M0 ratios via mean (MATLAB GVISO-compatible)
 
-        mm_unlabeled_signals: List[float] = []
-        mm_labeled_signals: List[float] = []
+        # Track per-sample background ratios to compute mean(labeled/unlabeled)
+        per_sample_backgrounds: List[float] = []
 
         for mm_sample in mm_samples:
             sample_data = provider.get_sample_corrected_data(mm_sample)
-            isotopologue_data = sample_data.get(compound_name, [0.0] * (label_atoms + 1))
+            # For label_atoms=0, get all available isotopologues
+            isotopologue_data = sample_data.get(compound_name, [0.0])
 
             if len(isotopologue_data) > 1:
-                unlabeled_signal = isotopologue_data[0]
+                unlabeled_signal = float(isotopologue_data[0])
                 labeled_signal = float(sum(isotopologue_data[1:]))
-                mm_unlabeled_signals.append(unlabeled_signal)
-                mm_labeled_signals.append(labeled_signal)
+                if unlabeled_signal > 0:
+                    per_sample_backgrounds.append(labeled_signal / unlabeled_signal)
 
-        if mm_unlabeled_signals and mm_labeled_signals:
-            mean_unlabeled = sum(mm_unlabeled_signals) / len(mm_unlabeled_signals)
-            mean_labeled = sum(mm_labeled_signals) / len(mm_labeled_signals)
-            background_ratio = (mean_labeled / mean_unlabeled) if mean_unlabeled > 0 else 0.0
+        if per_sample_backgrounds:
+            background_ratio = sum(per_sample_backgrounds) / len(per_sample_backgrounds)
             background_ratios[compound_name] = background_ratio
-            logger.debug(f"Background ratio for {compound_name}: {background_ratio:.6f}")
+            logger.debug(
+                f"Background ratio for {compound_name} (mean of per-sample ratios): {background_ratio:.6f}"
+            )
         else:
             background_ratios[compound_name] = 0.0
 
@@ -135,8 +136,9 @@ def calculate_mrrf_values(provider, compounds: List[dict], internal_standard_com
         for mm_sample in internal_std_mm_samples:
             sample_data = provider.get_sample_corrected_data(mm_sample)
             iso_data = sample_data.get(internal_standard_compound, [0.0])
-            total_signal = float(sum(iso_data))
-            internal_std_signals.append(total_signal)
+            # Use M+0 only for internal standard signal (match MATLAB)
+            m0_signal = float(iso_data[0]) if iso_data else 0.0
+            internal_std_signals.append(m0_signal)
 
         mean_metabolite_signal = (
             float(sum(metabolite_signals) / len(metabolite_signals)) if metabolite_signals else 0.0
@@ -176,4 +178,3 @@ def calculate_mrrf_values(provider, compounds: List[dict], internal_standard_com
             )
 
     return mrrf_values
-

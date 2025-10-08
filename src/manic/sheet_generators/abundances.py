@@ -109,7 +109,9 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
 
         if exporter.internal_standard_compound:
             internal_std_data = sample_data.get(exporter.internal_standard_compound, [0.0])
-            internal_std_signal = sum(internal_std_data) if internal_std_data else 0.0
+            # MATLAB uses only M+0 for internal standard normalization (processIntegrals.m line 24)
+            # internalStandardCorrection = integrationData(metaboliteStandard).ionsRawCorr(:, 1)
+            internal_std_signal = internal_std_data[0] if internal_std_data and len(internal_std_data) > 0 else 0.0
         else:
             internal_std_signal = 1.0
 

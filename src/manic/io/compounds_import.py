@@ -1,6 +1,11 @@
 """
 Read a compound-list spreadsheet and write rows directly into the
 `compounds` table. Talking to SQLite through get_connection() only.
+
+Header handling: Column names are normalized by lowercasing and removing
+spaces/underscores so variants like "MM Files" / "MMFiles" / "mm_files"
+are all accepted. This also applies to fields such as "Int Std amount"
+and "Amount in StdMix".
 """
 
 import logging
@@ -112,15 +117,55 @@ def import_compound_excel(filepath: str | Path) -> int:
     else:
         df = pd.read_csv(path)
 
-    df.columns = [c.strip().lower() for c in df.columns]
+    def _normalize_col(name: str) -> str:
+        """Normalize column names to be case/space/underscore-insensitive.
+
+        Examples:
+        - 'MM Files' -> 'mmfiles'
+        - 'Int Std amount' -> 'intstdamount'
+        - 'Amount in StdMix' -> 'amountinstdmix'
+        - 'LabelType' -> 'labeltype'
+        - 'tR' -> 'tr'
+        """
+        if not isinstance(name, str):
+            name = str(name)
+        name = name.strip().lower()
+        # remove spaces and underscores to unify variants
+        name = name.replace(' ', '').replace('_', '')
+        return name
+
+    # Apply normalization to columns
+    df.columns = [_normalize_col(c) for c in df.columns]
     
     # Debug: log available columns
-    logger.info(f"Available columns in {path.name}: {list(df.columns)}")
+    logger.info(f"Available columns in {path.name} (normalized): {list(df.columns)}")
 
-    required = {"name", "tr", "mass0", "loffset", "roffset", "labelatoms"}
+    # Required columns: enforce presence to avoid silent partial imports
+    # (headers are normalized; see _normalize_col above)
+    required = {
+        "name",
+        "tr",
+        "mass0",
+        "loffset",
+        "roffset",
+        "labelatoms",
+        "formula",
+        "labeltype",
+        "tbdms",
+        "meox",
+        "me",
+        "amountinstdmix",
+        "intstdamount",
+        "mmfiles",
+    }
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"{path.name}: missing columns: {', '.join(missing)}")
+        # Cancel import with a clear message (handled by UI as an alert)
+        ordered_missing = ", ".join(sorted(missing))
+        raise ValueError(
+            f"{path.name}: missing required column(s): {ordered_missing}.\n"
+            "Please provide a compound list with all required columns."
+        )
 
     # ---- validate & prepare parameter list -----------------------
     # iterable of tuples required format for sqlite
@@ -133,10 +178,14 @@ def import_compound_excel(filepath: str | Path) -> int:
             tbdms = int(row["tbdms"]) if "tbdms" in row and pd.notna(row["tbdms"]) else 0
             meox = int(row["meox"]) if "meox" in row and pd.notna(row["meox"]) else 0
             me = int(row["me"]) if "me" in row and pd.notna(row["me"]) else 0
-            
-            # Get new MRRF and MM file fields
-            amount_in_std_mix = float(row["amountinstdmix"]) if "amountinstdmix" in row and pd.notna(row["amountinstdmix"]) else None
-            int_std_amount = float(row["intstdamount"]) if "intstdamount" in row and pd.notna(row["intstdamount"]) else None  
+
+            # Get new MRRF and MM file fields (normalized keys cover variants with spaces/underscores)
+            amount_in_std_mix = (
+                float(row["amountinstdmix"]) if "amountinstdmix" in row and pd.notna(row["amountinstdmix"]) else None
+            )
+            int_std_amount = (
+                float(row["intstdamount"]) if "intstdamount" in row and pd.notna(row["intstdamount"]) else None
+            )
             mm_files = row["mmfiles"] if "mmfiles" in row and pd.notna(row["mmfiles"]) else None
             
             cr = CompoundRow(

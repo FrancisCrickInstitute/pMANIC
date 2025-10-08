@@ -97,7 +97,10 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
                 corrected_labeled_signal = raw_labeled_signal - (background_ratio * m0_signal)
                 corrected_labeled_signal = max(0.0, corrected_labeled_signal)
 
-                total_signal = m0_signal + corrected_labeled_signal
+                # MATLAB uses the ORIGINAL total signal (allSum) in denominator (processIntegrals.m line 56)
+                # tmp = (correctedCounts ./ allSum) .* 100
+                # NOT the corrected total (m0 + corrected_labeled)
+                total_signal = sum(isotopologue_data)  # Original uncorrected total
                 label_percentage = (corrected_labeled_signal / total_signal) * 100 if total_signal > 0 else 0.0
             else:
                 label_percentage = 0.0

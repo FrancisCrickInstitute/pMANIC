@@ -1,10 +1,16 @@
 """
 Natural isotope abundance correction for isotopologue analysis.
 
-This module implements theoretical correction for natural isotope abundances
-based on known isotope distributions. The correction removes the contribution
-of natural heavy isotopes (e.g., 13C, 2H, 15N) from measured isotopologue
-distributions to reveal true experimental labeling.
+Implements the MATLAB GVISO-equivalent correction using a vectorized direct
+linear solve. The algorithm builds a convolution-based correction matrix using
+natural isotope abundances (and MATLAB-matched derivatization stoichiometry),
+normalizes the measured data, solves for corrected fractions, rescales by the
+total intensity, and finally divides by the diagonal of the correction matrix.
+
+Notes:
+- Optimization (SLSQP/fmincon-style) fallback has been removed; only the
+  direct linear solve is used now (to match MATLAB behavior and for speed).
+- Derivatization math exactly mirrors MATLAB calculateTheoreticalMass0New.
 """
 
 import logging
@@ -37,27 +43,12 @@ class NaturalAbundanceCorrector:
     """
     High-performance natural isotope abundance corrector for mass spectrometry data.
 
-    This implementation provides significant performance optimizations while maintaining
-    numerical accuracy and reliability:
+    This implementation emphasizes performance while matching MATLAB GVISO math:
 
-    PERFORMANCE FEATURES:
-    - Matrix caching: Pre-computed correction matrices eliminate redundant calculations
-    - Vectorized processing: Simultaneous correction of entire chromatographic time series
-    - Adaptive algorithms: Automatic selection between fast direct solvers and robust optimization
-    - Batch operations: Efficient processing of multiple samples per compound
-
-    MATHEMATICAL APPROACH:
-    Uses convolution-based correction matrices to model natural isotope contributions,
-    then applies either direct linear algebra.
-
-    MEMORY MANAGEMENT:
-    Matrix cache is automatically managed with explicit cleanup methods. Typical memory
-    usage is 1-10KB per unique compound formula, bounded by dataset compound diversity.
-
-    NUMERICAL SAFETY:
-    - Condition number analysis prevents numerical instability
-    - Automatic fallback to robust optimization for ill-conditioned problems
-    - Non-negativity constraints preserve physical meaning of results
+    - Matrix caching: Pre-compute and reuse correction matrices per (formula, label, labels, derivatization)
+    - Vectorized processing: Correct the entire chromatographic series in one solve
+    - Direct solver only: No iterative optimization path is used
+    - Non-negativity clamping: Preserve physical meaning of corrected intensities
     """
 
     def __init__(self):
@@ -75,7 +66,7 @@ class NaturalAbundanceCorrector:
         # Memory impact: ~1-10KB per unique compound formula combination
         self._matrix_cache = {}
 
-        # Performance monitoring counters
+        # Performance monitoring counters (optimization fallback removed; always 0)
         self._cache_hits = 0
         self._cache_misses = 0
         self._direct_solves = 0
@@ -142,53 +133,48 @@ class NaturalAbundanceCorrector:
         Returns:
             Tuple of (formula string, element dict)
         """
-        elements = self.parse_formula(base_formula)
+        # Start from explicit element counts (match MATLAB initialize + add semantics)
+        counts: Dict[str, int] = {"C": 0, "H": 0, "N": 0, "O": 0, "S": 0, "Si": 0, "P": 0}
 
-        # Apply TBDMS derivatization
-        # Each TBDMS adds C6H15Si but replaces an H
-        if tbdms > 0:
-            elements["C"] = elements.get("C", 0) + tbdms * 6
-            elements["H"] = (
-                elements.get("H", 0) + tbdms * 15 - tbdms
-            )  # Minus H replaced
-            elements["Si"] = elements.get("Si", 0) + tbdms
+        # Add base formula counts
+        base = self.parse_formula(base_formula)
+        for k, v in base.items():
+            counts[k] = counts.get(k, 0) + int(v)
 
-        # Apply MeOX derivatization
-        # Adds CH3ON per carbonyl
-        if meox > 0:
-            elements["C"] = elements.get("C", 0) + meox
-            elements["H"] = elements.get("H", 0) + meox * 3
-            elements["O"] = elements.get("O", 0) + meox
-            elements["N"] = elements.get("N", 0) + meox
+        # Apply derivatization adjustments to mimic MATLAB calculateTheoreticalMass0New
+        # TBDMS
+        if tbdms and tbdms > 0:
+            # C += (tbdms - 1)*6 + 2
+            counts["C"] = counts.get("C", 0) + (tbdms - 1) * 6 + 2
+            # H += (tbdms - 1)*15 + 6 - tbdms
+            counts["H"] = counts.get("H", 0) + (tbdms - 1) * 15 + 6 - tbdms
+            # Si += tbdms
+            counts["Si"] = counts.get("Si", 0) + tbdms
 
-        # Apply methylation
-        # Adds CH2 per methylation
-        if me > 0:
-            elements["C"] = elements.get("C", 0) + me
-            elements["H"] = elements.get("H", 0) + me * 2
+        # MeOX
+        if meox and meox > 0:
+            # N += meox; C += meox; H += 3*meox (Note: MATLAB does not add O)
+            counts["N"] = counts.get("N", 0) + meox
+            counts["C"] = counts.get("C", 0) + meox
+            counts["H"] = counts.get("H", 0) + 3 * meox
 
-        # Build formula string in standard order
-        formula_str = ""
-        element_order = ["C", "H", "N", "O", "S", "Si", "P"]
+        # Methylation (Me)
+        if me and me > 0:
+            # C += me; H += 2*me
+            counts["C"] = counts.get("C", 0) + me
+            counts["H"] = counts.get("H", 0) + 2 * me
 
-        for elem in element_order:
-            if elem in elements and elements[elem] > 0:
-                count = elements[elem]
-                if count == 1:
-                    formula_str += elem
-                else:
-                    formula_str += f"{elem}{count}"
+        # Build formula string exactly like MATLAB order and always include counts
+        # MATLAB: derivformula = 'C#H#O#N#S#Si#' (P excluded from derivformula)
+        c = counts.get("C", 0)
+        h = counts.get("H", 0)
+        o = counts.get("O", 0)
+        n = counts.get("N", 0)
+        s = counts.get("S", 0)
+        si = counts.get("Si", 0)
+        formula_str = f"C{c}H{h}O{o}N{n}S{s}Si{si}"
 
-        # Add any remaining elements not in standard order
-        for elem in sorted(elements.keys()):
-            if elem not in element_order and elements[elem] > 0:
-                count = elements[elem]
-                if count == 1:
-                    formula_str += elem
-                else:
-                    formula_str += f"{elem}{count}"
-
-        return formula_str, elements
+        return formula_str, counts
 
     def _get_cached_correction_matrix(
         self,
@@ -200,7 +186,7 @@ class NaturalAbundanceCorrector:
         me: int = 0,
     ):
         """
-        Retrieve or compute a correction matrix with intelligent caching for performance.
+        Retrieve or compute a correction matrix with caching for performance.
 
         This method eliminates redundant matrix computation by caching results based on
         compound signatures. Since correction matrices depend only on molecular composition
@@ -212,32 +198,10 @@ class NaturalAbundanceCorrector:
         - Memory Usage: ~1-10KB per unique compound formula combination.
         - Expected Hit Rate: 90-99% for datasets with biological replicates.
 
-        NUMERICAL STABILITY & ADAPTIVE ALGORITHM:
-        The core of this correction is solving the linear system A*x = b, where A is the
-        correction matrix. This docstring explains the numerical analysis performed to
-        ensure a robust and efficient solution.
-
-        The Condition Number:
-        This is a formal measure of the matrix's sensitivity to input perturbations. A high
-        condition number indicates an "ill-conditioned" system where small errors in the
-        measured data (instrument noise) can be drastically amplified in the final
-        solution, leading to unreliable results.
-
-        Causes of Ill-Conditioning:
-        This typically occurs in large molecules with many atoms of the labeled element
-        (e.g., lipids with >30 carbons). For such molecules, the theoretical isotopologue
-        patterns for adjacent labeled states (e.g., M+15 vs. M+16) become smoothed into
-        highly similar, overlapping distributions. This lack of mathematical distinctness
-        makes the matrix columns nearly linearly dependent, resulting in a high
-        condition number.
-
-        Adaptive Strategy:
-        This code assesses stability via the condition number and adapts its strategy:
-        1. Well-conditioned systems (< 1e10): A high-speed, vectorized direct linear
-        solver (np.linalg.solve) is used for maximum efficiency.
-        2. Ill-conditioned systems: The code falls back to a robust, iterative
-        constrained optimizer (SLSQP), which is slower but guarantees a stable,
-        physically meaningful result.
+        NUMERICAL STABILITY:
+        The solve is formulated as A*x = b where A is the correction matrix. We report
+        condition numbers for diagnostics, but we always use a direct solver to match
+        MATLAB output characteristics. Non-negativity clamping is applied afterwards.
 
         Args:
             formula: Base molecular formula (e.g., "C6H12O6").
@@ -272,15 +236,9 @@ class NaturalAbundanceCorrector:
             deriv_formula, label_element, label_atoms
         )
 
-        # PHASE A OPTIMIZATION 2: Analyze matrix properties for algorithm selection
-        # Well-conditioned matrices (low condition number) can use fast direct solving
-        # Ill-conditioned matrices need robust iterative optimization
+        # Analyze matrix conditioning (diagnostic only; direct solver is always used)
         condition_number = np.linalg.cond(correction_matrix)
-
-        # Condition number threshold for algorithm selection
-        # < 1e10: Well-conditioned, use direct solver (~100x faster)
-        # >= 1e10: Ill-conditioned, use SLSQP optimization (robust)
-        use_direct_solver = condition_number < 1e10
+        use_direct_solver = True
 
         # Cache the results for future use
         cached_result = (correction_matrix, condition_number, use_direct_solver)
@@ -343,7 +301,7 @@ class NaturalAbundanceCorrector:
         max_isotopologues: int = None,
     ) -> np.ndarray:
         """
-        Build correction matrix for natural abundance using convolution.
+        Build correction matrix for natural abundance using convolution (MATLAB-aligned).
 
         The correction matrix transforms measured isotopologue distributions
         to true labeled distributions by accounting for natural abundance.
@@ -370,7 +328,7 @@ class NaturalAbundanceCorrector:
         # Determine matrix size
         n_isotopologues = label_atoms + 1
         if max_isotopologues:
-            n_isotopologues = min(n_isotopologues, max_isotopologues)
+            n_isotopologues = max(n_isotopologues, max_isotopologues)
 
         # Calculate natural abundance distribution for unlabeled atoms
         # Start with delta function [1.0]
@@ -392,27 +350,39 @@ class NaturalAbundanceCorrector:
         # Build correction matrix column by column
         correction_matrix = np.zeros((n_isotopologues, n_isotopologues))
 
-        for n_labeled in range(n_isotopologues):
+        for n in range(n_isotopologues):
             # Start with natural abundance of unlabeled atoms
             column = nat_dist.copy()
 
             # Add contribution from labeled atoms
-            if n_labeled > 0 and hasattr(self.abundances, label_element):
-                # Convolve with labeled element distribution n_labeled times
+            # MATLAB: for l = n : labelatoms
+            # This means we convolve with the label element (labelatoms - n + 1) times
+            # But MATLAB uses 1-based indexing, so n=1 means first column (our n=0)
+            # MATLAB loops from n to labelatoms (inclusive), so (labelatoms - n + 1) iterations
+            if hasattr(self.abundances, label_element):
                 elem_dist = getattr(self.abundances, label_element)
-                for _ in range(n_labeled):
+                # Convert to 0-based: MATLAB n=1 is our n=0
+                # MATLAB: for l = n : labelatoms means (labelatoms - n + 1) iterations
+                matlab_n = n + 1  # Convert to 1-based
+                num_label_convolutions = max(0, label_atoms - matlab_n + 1)
+                for _ in range(num_label_convolutions):
                     column = np.convolve(column, elem_dist)
 
             # Apply label purity (imperfect labeling)
-            # Each labeled position has probability distribution given by label_purity
-            for _ in range(1, n_labeled + 1):
+            # MATLAB: for p = 2 : n means (n - 2 + 1) = (n - 1) iterations when n >= 2
+            # When n=1, loop doesn't execute (2:1 is empty)
+            # When n=2, loop executes once (p=2)
+            # When n=3, loop executes twice (p=2,3)
+            matlab_n = n + 1  # Convert to 1-based
+            num_purity_convolutions = max(0, matlab_n - 1)
+            for _ in range(num_purity_convolutions):
                 column = np.convolve(column, label_purity)
 
             # Truncate or pad to matrix size
             if len(column) >= n_isotopologues:
-                correction_matrix[:, n_labeled] = column[:n_isotopologues]
+                correction_matrix[:, n] = column[:n_isotopologues]
             else:
-                correction_matrix[: len(column), n_labeled] = column
+                correction_matrix[: len(column), n] = column
 
         # Debug: log correction matrix structure
         logger.debug(f"Correction matrix shape: {correction_matrix.shape}")
@@ -421,84 +391,6 @@ class NaturalAbundanceCorrector:
         
         return correction_matrix
 
-    def correct_isotopologue_distribution(
-        self,
-        measured: np.ndarray,
-        correction_matrix: np.ndarray,
-        preserve_total: bool = True,
-    ) -> np.ndarray:
-        """
-        Apply natural abundance correction to measured isotopologue distribution.
-
-        Uses constrained optimization to solve:
-        correction_matrix @ true_distribution = measured_distribution
-
-        Args:
-            measured: Measured isotopologue intensities (not necessarily normalized)
-            correction_matrix: Matrix from build_correction_matrix
-            preserve_total: If True, preserve total intensity; if False, normalize to 1
-
-        Returns:
-            Corrected isotopologue distribution
-        """
-        # Handle edge cases
-        if np.sum(measured) == 0:
-            return measured
-
-        # Store total for later
-        total_intensity = np.sum(measured)
-
-        # Normalize for optimization (improves numerical stability)
-        if preserve_total:
-            measured_norm = measured / total_intensity
-        else:
-            measured_norm = measured / np.sum(measured)
-
-        # Define objective function (least squares)
-        def objective(x):
-            predicted = correction_matrix @ x
-            residual = measured_norm - predicted
-            return np.sum(residual**2)
-
-        # Set up constraints
-        constraints = []
-        if preserve_total:
-            # Sum to 1 (will rescale later)
-            constraints.append({"type": "eq", "fun": lambda x: np.sum(x) - 1.0})
-        else:
-            # Sum to 1
-            constraints.append({"type": "eq", "fun": lambda x: np.sum(x) - 1.0})
-
-        # Bounds: all values must be non-negative
-        bounds = [(0, None) for _ in range(len(measured))]
-
-        # Initial guess: measured distribution
-        x0 = measured_norm.copy()
-
-        # Optimize
-        result = minimize(
-            objective,
-            x0,
-            method="SLSQP",
-            bounds=bounds,
-            constraints=constraints,
-            options={"ftol": 1e-10, "maxiter": 1000},
-        )
-
-        if not result.success:
-            logger.warning(f"Optimization did not converge: {result.message}")
-
-        # Extract corrected distribution
-        corrected = result.x
-
-        # Clean up numerical artifacts
-        corrected[corrected < 1e-10] = 0
-
-        # Rescale if preserving total intensity
-        if preserve_total:
-            corrected = corrected * total_intensity
-
-        return corrected
 
     def correct_time_series(
         self,
@@ -516,15 +408,9 @@ class NaturalAbundanceCorrector:
         This high-performance implementation provides significant speedup over traditional
         approaches through several key optimizations:
 
-        PERFORMANCE OPTIMIZATIONS:
-        1. Matrix Caching: Correction matrices are computed once and reused across samples
-        2. Vectorized Processing: All time points processed simultaneously using linear algebra
-        3. Adaptive Algorithms: Automatic selection between fast direct solvers and robust optimization
-
-        ALGORITHM SELECTION:
-        - Well-conditioned matrices (condition number < 1e10): Fast direct linear solve
-        - Ill-conditioned matrices: Robust constrained optimization (SLSQP)
-        - Small datasets (< 10 time points): Always use robust optimization
+        PERFORMANCE:
+        - Matrix caching + vectorized direct solve
+        - No iterative optimization path; matches MATLAB GVISO flow
 
         TYPICAL PERFORMANCE:
         - Large time series (1000+ points): 20-100x speedup via vectorization
@@ -552,23 +438,35 @@ class NaturalAbundanceCorrector:
             )
         )
 
-        n_isotopologues, n_timepoints = intensity_2d.shape
+        n_isotopologues_measured, n_timepoints = intensity_2d.shape
+        n_isotopologues_expected = correction_matrix.shape[0]
 
-        # PHASE A OPTIMIZATION 2: Vectorized correction processing
-        if use_direct_solver and n_timepoints > 10:
-            # Fast path: Vectorized direct solve for well-conditioned matrices
-            # Process all time points simultaneously using linear algebra
-            corrected_2d = self._correct_vectorized_direct(
-                intensity_2d, correction_matrix
+        # Handle case where measured data has more isotopologues than the correction matrix
+        if n_isotopologues_measured > n_isotopologues_expected:
+            # Rebuild correction matrix with the measured size
+            logger.debug(
+                f"Rebuilding correction matrix: measured {n_isotopologues_measured} isotopologues, "
+                f"but matrix built for {n_isotopologues_expected}. Using max_isotopologues={n_isotopologues_measured}"
             )
-            self._direct_solves += 1
-        else:
-            # Robust path: Per-timepoint optimization for ill-conditioned matrices or small datasets
-            corrected_2d = self._correct_iterative_fallback(
-                intensity_2d, correction_matrix
+            correction_matrix = self.build_correction_matrix(
+                self.calculate_derivative_formula(formula, tbdms, meox, me)[0],
+                label_element,
+                label_atoms,
+                max_isotopologues=n_isotopologues_measured
             )
-            self._optimization_fallbacks += 1
+        elif n_isotopologues_measured < n_isotopologues_expected:
+            logger.error(
+                f"Measured data has {n_isotopologues_measured} isotopologues but label_atoms={label_atoms} "
+                f"requires at least {n_isotopologues_expected}. Cannot perform correction."
+            )
+            return intensity_2d  # Return uncorrected
 
+        # Perform correction
+        corrected_2d = self._correct_vectorized_direct(
+            intensity_2d, correction_matrix
+        )
+
+        self._direct_solves += 1
         return corrected_2d
 
     def _correct_vectorized_direct(
@@ -608,76 +506,49 @@ class NaturalAbundanceCorrector:
                     with natural abundance contributions removed
         """
         try:
-            # Vectorized linear solve: C × corrected = measured
-            # Where C is the correction matrix, solve for corrected intensities
-            corrected_2d = np.linalg.solve(correction_matrix, intensity_2d)
+            # Match MATLAB workflow exactly:
+            # 1. Normalize each time point
+            # 2. Solve for normalized fractions (cordist)
+            # 3. Scale back by total intensity (corRaw = cordist * sum(raw))
+            # 4. Divide by diagonal elements
 
-            # Apply diagonal division step (MATLAB compatibility)
-            # This scales corrected values by the inverse of diagonal elements to compensate 
-            # for the "dilution" effect of natural abundance on detection efficiency
+            n_isotopologues, n_timepoints = intensity_2d.shape
+            corrected_2d = np.zeros_like(intensity_2d)
+
+            # Store total intensity for each time point
+            totals = np.sum(intensity_2d, axis=0)
+
+            # Create normalized copy (don't modify input!)
+            intensity_normalized = np.zeros_like(intensity_2d)
+            for t in range(n_timepoints):
+                if totals[t] > 1e-10:
+                    intensity_normalized[:, t] = intensity_2d[:, t] / totals[t]
+                else:
+                    intensity_normalized[:, t] = 0
+
+            # Vectorized linear solve on normalized data: C × cordist = measured_normalized
+            cordist_2d = np.linalg.solve(correction_matrix, intensity_normalized)
+
+            # Scale back by total intensity (corRaw = cordist * total)
+            for t in range(n_timepoints):
+                corrected_2d[:, t] = cordist_2d[:, t] * totals[t]
+
+            # Apply diagonal division (MATLAB: corRaw(:, kIon) = corRaw(:, kIon) ./ cormat(kIon, kIon))
             diagonal_elements = np.diag(correction_matrix)
-            
             for i in range(len(diagonal_elements)):
-                if diagonal_elements[i] > 0:  # Avoid division by zero
+                if diagonal_elements[i] > 0:
                     corrected_2d[i, :] = corrected_2d[i, :] / diagonal_elements[i]
 
-            # Apply non-negativity constraint (natural abundance corrections should be positive)
+            # Apply non-negativity constraint
             corrected_2d = np.maximum(corrected_2d, 0.0)
 
             return corrected_2d
 
-        except np.linalg.LinAlgError:
-            # Fallback to robust optimization if direct solve fails
-            logger.warning("Direct solver failed, falling back to optimization")
-            return self._correct_iterative_fallback(intensity_2d, correction_matrix)
+        except np.linalg.LinAlgError as e:
+            # If direct solver fails, return uncorrected data with warning
+            logger.error(f"Direct solver failed: {e}. Returning uncorrected data.")
+            return intensity_2d
 
-    def _correct_iterative_fallback(
-        self, intensity_2d: np.ndarray, correction_matrix: np.ndarray
-    ) -> np.ndarray:
-        """
-        Robust fallback correction using per-timepoint optimization.
-
-        This method maintains the original SLSQP optimization approach for cases where
-        the direct solver is inappropriate (ill-conditioned matrices, numerical issues).
-
-        Args:
-            intensity_2d: Raw measured intensities
-            correction_matrix: Pre-computed correction matrix
-
-        Returns:
-            Corrected intensity array
-        """
-        n_isotopologues, n_timepoints = intensity_2d.shape
-        corrected_2d = np.zeros_like(intensity_2d)
-
-        # Apply correction at each time point using original optimization method
-        for t in range(n_timepoints):
-            measured = intensity_2d[:, t]
-
-            # Skip if no signal
-            if np.sum(measured) < 1e-10:
-                corrected_2d[:, t] = 0
-                continue
-
-            # Apply correction using existing robust optimization
-            try:
-                corrected = self.correct_isotopologue_distribution(
-                    measured, correction_matrix, preserve_total=True
-                )
-                
-                # Apply diagonal division step (MATLAB compatibility)
-                diagonal_elements = np.diag(correction_matrix)
-                
-                for i in range(len(diagonal_elements)):
-                    if diagonal_elements[i] > 0:  # Avoid division by zero
-                        corrected[i] = corrected[i] / diagonal_elements[i]
-                        
-                corrected_2d[:, t] = corrected
-            except Exception as e:
-                logger.warning(f"Correction failed at time point {t}: {e}")
-                corrected_2d[:, t] = measured  # Fall back to uncorrected
-
-        return corrected_2d
 
 
 def correct_eic_data(

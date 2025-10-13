@@ -2,7 +2,7 @@
 
 ## Overview
 
-Python MANIC produces raw values that are 10-55% higher than MATLAB MANIC for the same data. The root cause is a fundamental difference in how the two implementations handle duplicate mass peaks that round to the same integer m/z bin within a single scan.
+Python MANIC produces raw values that are 10-55% higher than MATLAB MANIC for the same data (Glycerol). The root cause is a fundamental difference in how the two implementations handle duplicate mass peaks that round to the same integer m/z bin within a single scan.
 
 **Status**: Identified but not yet fixed in Python version.
 
@@ -29,7 +29,7 @@ This 3× difference accumulates across all scans in the integration window, lead
 
 ### MATLAB Implementation
 
-**File**: `oldmanic/MANIC/inputs/cdf/loadncGv3.m`  
+**File**: `oldmanic/MANIC/inputs/cdf/loadncGv3.m`
 **Lines**: 77-87
 
 ```matlab
@@ -54,7 +54,7 @@ end
 
 ### Python Implementation
 
-**File**: `src/manic/io/eic_importer.py`  
+**File**: `src/manic/io/eic_importer.py`
 **Lines**: 216-230
 
 ```python
@@ -67,7 +67,7 @@ for label in label_ions:
     target_int = target_mzs_int[label]
     # MANIC's asymmetric mass tolerance method: offset + half-up rounding
     mask = (rounded_masses == target_int)
-    
+
     # Sum intensities per scan using vectorized bincount operation
     # This efficiently groups intensities by scan index and sums them
     intensities_arr[label] = np.bincount(
@@ -128,8 +128,8 @@ Given a scan with:
 - m/z 204.8, intensity 1000 (bins to 205)
 - m/z 205.1, intensity 500 (bins to 205)
 
-**MATLAB result**: `I = 500` (last value)  
-**Python result**: `I = 1500` (sum)  
+**MATLAB result**: `I = 500` (last value)
+**Python result**: `I = 1500` (sum)
 **Ratio**: 3.0×
 
 ### Integration Across Scans
@@ -158,7 +158,7 @@ This matches the observed 10-55% differences for glycerol and other compounds.
 Scan 1 centroid peaks:
   204.75 → intensity 800  } both round to 205
   205.15 → intensity 600  }
-  
+
 After binning:
   mzimat[205, scan1] = 600  ← only last value kept
 
@@ -171,7 +171,7 @@ Final: I(205, scan1) = 600
 Scan 1 centroid peaks:
   204.75 → intensity 800  } both round to 205
   205.15 → intensity 600  }
-  
+
 After binning:
   bincount sums: 800 + 600 = 1400
 
@@ -228,77 +228,3 @@ The severity of the discrepancy depends on:
 - Observed ratios: 0.965× to 1.546× (Python/MATLAB)
 - Average: ~1.2× (20% higher in Python)
 - Indicates moderate duplicate frequency in this mass region
-
----
-
-## Solution Approaches
-
-### Option 1: Emulate MATLAB Last-Wins (Recommended for Parity)
-
-Replace `np.bincount()` summation with per-scan last-value selection:
-
-```python
-for scan_i, (s, e) in enumerate(start_end_array):
-    masses = cdf.mass[s:e] - mass_tol
-    rounded = np.floor(masses + 0.5).astype(int)
-    intens = cdf.intensity[s:e]
-    
-    for label_i, target_int in enumerate(target_mzs_int):
-        hit_idx = np.where(rounded == target_int)[0]
-        if hit_idx.size:
-            # Take LAST occurrence (MATLAB semantics)
-            intensities_arr[label_i, scan_i] = float(intens[hit_idx[-1]])
-        else:
-            intensities_arr[label_i, scan_i] = 0.0
-```
-
-**Pros**: Perfect parity with MATLAB  
-**Cons**: Slightly slower than vectorized bincount (negligible in practice)
-
-### Option 2: Keep Summation (Physically Motivated)
-
-Argue that summing all centroid peaks in a bin is more physically correct than arbitrary last-wins selection.
-
-**Pros**: Better represents total ion count  
-**Cons**: Breaks compatibility with historical MATLAB results
-
-### Option 3: Configurable Behavior
-
-Add a setting for duplicate handling:
-- `legacy_matlab`: Last-wins (default)
-- `sum_all`: Bincount summation
-- `average`: Take mean of duplicates
-
-**Pros**: Flexibility and transparency  
-**Cons**: More complexity
-
----
-
-## Verification Test
-
-To confirm this is the root cause, compare a single compound (e.g., glycerol) with diagnostic logging:
-
-1. Log number of scans with duplicates
-2. Log average inflation factor (sum/last)
-3. Compute expected ratio: `1 + duplicate_freq × (inflation - 1)`
-4. Compare to observed Python/MATLAB ratio
-
-Expected outcome: Predicted ratio should match observed 1.1-1.5× range.
-
----
-
-## References
-
-- MATLAB array indexing: [MATLAB documentation](https://www.mathworks.com/help/matlab/math/array-indexing.html)
-- NumPy bincount: [NumPy documentation](https://numpy.org/doc/stable/reference/generated/numpy.bincount.html)
-- Original MATLAB code: `oldmanic/MANIC/inputs/cdf/loadncGv3.m`
-- Python implementation: `src/manic/io/eic_importer.py`
-
----
-
-## Status
-
-**Date**: 2025-10-13  
-**Identified By**: Code comparison and Oracle analysis  
-**Fix Status**: Not yet implemented  
-**Estimated Impact**: Affects all raw values; severity varies by compound (10-55% observed)

@@ -121,45 +121,57 @@ class DataProvider:
                 "SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name"
             )]
 
-            compounds_query = (
-                "SELECT compound_name, label_atoms, retention_time, loffset, roffset "
-                "FROM compounds WHERE deleted=0 ORDER BY compound_name"
-            )
-            compounds = {row['compound_name']: row for row in conn.execute(compounds_query)}
-
             for s in samples:
                 bulk_data[s] = {}
 
-            raw_eic_query = (
-                "SELECT e.sample_name, e.compound_name, e.x_axis, e.y_axis "
-                "FROM eic e JOIN compounds c ON e.compound_name = c.compound_name "
-                "WHERE e.deleted = 0 AND c.deleted = 0 AND c.label_atoms = 0 "
-                "ORDER BY e.sample_name, e.compound_name"
-            )
-            corrected_eic_query = (
-                "SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected "
-                "FROM eic_corrected ec JOIN compounds c ON ec.compound_name = c.compound_name "
-                "WHERE ec.deleted = 0 AND c.deleted = 0 "
-                "ORDER BY ec.sample_name, ec.compound_name"
-            )
+            # Use LEFT JOIN to apply session overrides automatically via SQL
+            raw_eic_query = """
+                SELECT e.sample_name, e.compound_name, e.x_axis, e.y_axis,
+                       c.label_atoms,
+                       COALESCE(sa.retention_time, c.retention_time) as retention_time,
+                       COALESCE(sa.loffset, c.loffset) as loffset,
+                       COALESCE(sa.roffset, c.roffset) as roffset
+                FROM eic e 
+                JOIN compounds c ON e.compound_name = c.compound_name
+                LEFT JOIN session_activity sa 
+                    ON e.compound_name = sa.compound_name 
+                    AND e.sample_name = sa.sample_name 
+                    AND sa.sample_deleted = 0
+                WHERE e.deleted = 0 AND c.deleted = 0 AND c.label_atoms = 0
+                ORDER BY e.sample_name, e.compound_name
+            """
+            
+            corrected_eic_query = """
+                SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected,
+                       c.label_atoms,
+                       COALESCE(sa.retention_time, c.retention_time) as retention_time,
+                       COALESCE(sa.loffset, c.loffset) as loffset,
+                       COALESCE(sa.roffset, c.roffset) as roffset
+                FROM eic_corrected ec 
+                JOIN compounds c ON ec.compound_name = c.compound_name
+                LEFT JOIN session_activity sa 
+                    ON ec.compound_name = sa.compound_name 
+                    AND ec.sample_name = sa.sample_name 
+                    AND sa.sample_deleted = 0
+                WHERE ec.deleted = 0 AND c.deleted = 0
+                ORDER BY ec.sample_name, ec.compound_name
+            """
 
             for row in conn.execute(raw_eic_query):
                 sample_name = row['sample_name']
                 compound_name = row['compound_name']
                 if sample_name not in bulk_data:
                     continue
-                compound_info = compounds.get(compound_name)
-                if not compound_info:
-                    continue
+                
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis']), dtype=np.float64)
                 areas = calculate_peak_areas(
                     time_data,
                     intensity_data,
-                    compound_info['label_atoms'],
-                    compound_info['retention_time'],
-                    compound_info['loffset'],
-                    compound_info['roffset'],
+                    row['label_atoms'],
+                    row['retention_time'],
+                    row['loffset'],
+                    row['roffset'],
                     use_legacy=self.use_legacy_integration,
                 )
                 bulk_data[sample_name][compound_name] = areas
@@ -169,25 +181,23 @@ class DataProvider:
                 compound_name = row['compound_name']
                 if sample_name not in bulk_data:
                     continue
-                compound_info = compounds.get(compound_name)
-                if not compound_info:
-                    continue
+                
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
                 areas = calculate_peak_areas(
                     time_data,
                     intensity_data,
-                    compound_info['label_atoms'],
-                    compound_info['retention_time'],
-                    compound_info['loffset'],
-                    compound_info['roffset'],
+                    row['label_atoms'],
+                    row['retention_time'],
+                    row['loffset'],
+                    row['roffset'],
                     use_legacy=self.use_legacy_integration,
                 )
                 bulk_data[sample_name][compound_name] = areas
 
         self._bulk_sample_data_cache = bulk_data
         self._cache_valid = True
-        logger.info(f"Loaded data for {len(bulk_data)} samples, {len(compounds)} compounds")
+        logger.info(f"Loaded data for {len(bulk_data)} samples")
         return bulk_data
 
     def get_sample_raw_data(self, sample_name: str) -> Dict[str, List[float]]:

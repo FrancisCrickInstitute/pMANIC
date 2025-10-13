@@ -6,11 +6,12 @@ Offset-and-round matching (asymmetric window):
 
 ```python
 offset_mass = detected_mass - tolerance_offset
-rounded_mass = floor(offset_mass + 0.5)  # half-up for positive masses
+rounded_mass = floor(offset_mass + 0.5)  # half-up rounding (MATLAB compatible)
+target_integer_mass = floor(target_mz + 0.5)  # half-up rounding for targets
 is_match = (rounded_mass == target_integer_mass)
 ```
 
-This is equivalent to matching within an asymmetric window biased to lower m/z.
+Both detected masses and target m/z values use half-up rounding (equivalent to MATLAB's `round()` function) to ensure consistent binning. This is equivalent to matching within an asymmetric window biased to lower m/z.
 
 ## Behavior Example
 
@@ -24,6 +25,8 @@ Target mass 319 with offset 0.2 Da:
 | 319.7    | 319.7 - 0.2 = 319.5    | 320     | No    |
 
 Effective window (half-up): approximately 318.7 to 319.7 Da (upper edge exclusive).
+
+**Half-integer target m/z values**: For targets like 174.5, the integer bin is determined by half-up rounding (174.5 → 175), matching MATLAB behavior and ensuring correct isotopologue extraction.
 
 ## Configuration
 

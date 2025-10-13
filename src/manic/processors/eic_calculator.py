@@ -91,8 +91,8 @@ def extract_eic(
     target_mzs = target_mz + label_ions  # (e.g. 174, 175, 176, 177 for Pyruvate)
 
     # MATLAB-style asymmetric matching via offset-and-round
-    # Compute integer targets for each label state
-    target_mzs_int = np.round(target_mzs).astype(int)
+    # Compute integer targets for each label state using half-up rounding (MATLAB compatible)
+    target_mzs_int = np.floor(target_mzs + 0.5).astype(int)
 
     # Precompute rounded masses: round(mass - offset) with half-up behavior
     # Use floor(x + 0.5) since masses are positive

@@ -216,7 +216,7 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
     # Precompute MATLAB-aligned half-up rounding of (mass - offset)
     offset_masses = all_relevant_mass - mass_tol
     rounded_masses = np.floor(offset_masses + 0.5).astype(int)
-    target_mzs_int = np.round(target_mzs).astype(int)
+    target_mzs_int = np.floor(target_mzs + 0.5).astype(int)  # Use half-up rounding (MATLAB compatible)
 
     for label in label_ions:
         target_int = target_mzs_int[label]

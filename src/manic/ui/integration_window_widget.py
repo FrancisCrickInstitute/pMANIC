@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.session_activity import SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
-from manic.utils.utils import load_stylesheet
 from manic.utils.paths import resource_path
+from manic.utils.utils import load_stylesheet
 
 
 class IntegrationWindow(QGroupBox):
@@ -51,9 +51,11 @@ class IntegrationWindow(QGroupBox):
         self._setup_apply_button_state()
 
         # Load and apply the stylesheet
-        stylesheet = load_stylesheet(resource_path('resources', 'integration_window.qss'))
+        stylesheet = load_stylesheet(
+            resource_path("resources", "integration_window.qss")
+        )
         self.setStyleSheet(stylesheet)
-        
+
         font = self.font()
         font.setBold(True)
         self.setFont(font)
@@ -64,15 +66,19 @@ class IntegrationWindow(QGroupBox):
         while widget.parent():
             widget = widget.parent()
             # Check if this widget has the _create_message_box method (i.e., it's the MainWindow)
-            if hasattr(widget, '_create_message_box'):
+            if hasattr(widget, "_create_message_box"):
                 return widget
         return None
 
-    def _show_message(self, msg_type: str, title: str, text: str, informative_text: str = ""):
+    def _show_message(
+        self, msg_type: str, title: str, text: str, informative_text: str = ""
+    ):
         """Show a message using the main window's styled message box helper."""
         main_window = self._get_main_window()
         if main_window:
-            msg_box = main_window._create_message_box(msg_type, title, text, informative_text, self)
+            msg_box = main_window._create_message_box(
+                msg_type, title, text, informative_text, self
+            )
             return msg_box.exec()
         else:
             # Fallback to standard message box if main window not found
@@ -129,7 +135,7 @@ class IntegrationWindow(QGroupBox):
 
         # Regeneration button
         regen_button_row = QHBoxLayout()
-        self.regenerate_button = QPushButton("Update tR")
+        self.regenerate_button = QPushButton("Update tR Window")
         self.regenerate_button.setObjectName("RegenerateButton")
         self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
         regen_button_row.addWidget(self.regenerate_button)
@@ -378,7 +384,9 @@ class IntegrationWindow(QGroupBox):
         )
 
         if not samples_to_apply:
-            self._show_message("warning", "No Samples", "No samples available to apply changes to.")
+            self._show_message(
+                "warning", "No Samples", "No samples available to apply changes to."
+            )
             return
 
         try:
@@ -402,7 +410,9 @@ class IntegrationWindow(QGroupBox):
             self.session_data_applied.emit(self._current_compound, samples_to_apply)
 
         except Exception as e:
-            self._show_message("critical", "Apply Failed", f"Failed to apply changes: {str(e)}")
+            self._show_message(
+                "critical", "Apply Failed", f"Failed to apply changes: {str(e)}"
+            )
 
     def _on_restore_clicked(self):
         """Handle restore button click - clear session data and restore to defaults"""
@@ -416,7 +426,9 @@ class IntegrationWindow(QGroupBox):
         )
 
         if not samples_to_restore:
-            self._show_message("warning", "No Samples", "No samples available to restore.")
+            self._show_message(
+                "warning", "No Samples", "No samples available to restore."
+            )
             return
 
         # Confirm restore action
@@ -445,7 +457,11 @@ class IntegrationWindow(QGroupBox):
                 )
 
             except Exception as e:
-                self._show_message("critical", "Restore Failed", f"Failed to restore to defaults: {str(e)}")
+                self._show_message(
+                    "critical",
+                    "Restore Failed",
+                    f"Failed to restore to defaults: {str(e)}",
+                )
 
     def _get_validated_inputs(self) -> Optional[tuple[float, float, float]]:
         """
@@ -473,7 +489,9 @@ class IntegrationWindow(QGroupBox):
                     retention_time_text = retention_time_text.split(" - ")[0]
                 retention_time = float(retention_time_text)
             except ValueError:
-                self._show_message("warning", "Invalid Input", "Retention time must be a valid number")
+                self._show_message(
+                    "warning", "Invalid Input", "Retention time must be a valid number"
+                )
                 tr_field.setFocus()
                 return None
 
@@ -487,7 +505,9 @@ class IntegrationWindow(QGroupBox):
                     loffset_text = loffset_text.split(" - ")[0]
                 loffset = float(loffset_text)
             except ValueError:
-                self._show_message("warning", "Invalid Input", "Left offset must be a valid number")
+                self._show_message(
+                    "warning", "Invalid Input", "Left offset must be a valid number"
+                )
                 lo_field.setFocus()
                 return None
 
@@ -501,30 +521,40 @@ class IntegrationWindow(QGroupBox):
                     roffset_text = roffset_text.split(" - ")[0]
                 roffset = float(roffset_text)
             except ValueError:
-                self._show_message("warning", "Invalid Input", "Right offset must be a valid number")
+                self._show_message(
+                    "warning", "Invalid Input", "Right offset must be a valid number"
+                )
                 ro_field.setFocus()
                 return None
 
             # Basic validation
             if retention_time <= 0:
-                self._show_message("warning", "Invalid Input", "Retention time must be positive")
+                self._show_message(
+                    "warning", "Invalid Input", "Retention time must be positive"
+                )
                 tr_field.setFocus()
                 return None
 
             if loffset < 0:
-                self._show_message("warning", "Invalid Input", "Left offset cannot be negative")
+                self._show_message(
+                    "warning", "Invalid Input", "Left offset cannot be negative"
+                )
                 lo_field.setFocus()
                 return None
 
             if roffset < 0:
-                self._show_message("warning", "Invalid Input", "Right offset cannot be negative")
+                self._show_message(
+                    "warning", "Invalid Input", "Right offset cannot be negative"
+                )
                 ro_field.setFocus()
                 return None
 
             return retention_time, loffset, roffset
 
         except Exception as e:
-            self._show_message("critical", "Validation Error", f"Error validating inputs: {str(e)}")
+            self._show_message(
+                "critical", "Validation Error", f"Error validating inputs: {str(e)}"
+            )
             return None
 
     def _on_regenerate_clicked(self):
@@ -536,13 +566,17 @@ class IntegrationWindow(QGroupBox):
         # Get and validate tR window input
         tr_window_field = self.findChild(QLineEdit, "tr_window_input")
         if not tr_window_field:
-            self._show_message("critical", "UI Error", "Could not find tR Window input field")
+            self._show_message(
+                "critical", "UI Error", "Could not find tR Window input field"
+            )
             return
 
         try:
             tr_window_text = tr_window_field.text().strip()
             if not tr_window_text:
-                self._show_message("warning", "Invalid Input", "tR Window cannot be empty")
+                self._show_message(
+                    "warning", "Invalid Input", "tR Window cannot be empty"
+                )
                 tr_window_field.setFocus()
                 return
 
@@ -553,12 +587,16 @@ class IntegrationWindow(QGroupBox):
             tr_window = float(tr_window_text)
 
             if tr_window <= 0:
-                self._show_message("warning", "Invalid Input", "tR Window must be positive")
+                self._show_message(
+                    "warning", "Invalid Input", "tR Window must be positive"
+                )
                 tr_window_field.setFocus()
                 return
 
         except ValueError:
-            self._show_message("warning", "Invalid Input", "tR Window must be a valid number")
+            self._show_message(
+                "warning", "Invalid Input", "tR Window must be a valid number"
+            )
             tr_window_field.setFocus()
             return
 
@@ -567,7 +605,9 @@ class IntegrationWindow(QGroupBox):
         sample_count = len(samples_to_affect)
 
         if sample_count == 0:
-            self._show_message("warning", "No Samples", "No samples available for data regeneration.")
+            self._show_message(
+                "warning", "No Samples", "No samples available for data regeneration."
+            )
             return
 
         # Create detailed confirmation message
@@ -596,4 +636,8 @@ class IntegrationWindow(QGroupBox):
                 pass
 
             except Exception as e:
-                self._show_message("critical", "Regeneration Failed", f"Failed to queue regeneration: {str(e)}")
+                self._show_message(
+                    "critical",
+                    "Regeneration Failed",
+                    f"Failed to queue regeneration: {str(e)}",
+                )

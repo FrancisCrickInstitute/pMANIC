@@ -8,7 +8,12 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def integrate_peak(intensity_data: np.ndarray, time_data: Optional[np.ndarray] = None, *, use_legacy: bool = False) -> float:
+def integrate_peak(
+    intensity_data: np.ndarray,
+    time_data: Optional[np.ndarray] = None,
+    *,
+    use_legacy: bool = False,
+) -> float:
     """
     Integrate peak using either time-based or legacy unit-spacing method.
 
@@ -39,7 +44,9 @@ def calculate_peak_areas(
     """
 
     # Helper function to apply integration boundaries
-    def apply_integration_boundaries(td: np.ndarray, idata: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def apply_integration_boundaries(
+        td: np.ndarray, idata: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         if retention_time is not None and loffset is not None and roffset is not None:
             l_boundary = retention_time - loffset
             r_boundary = retention_time + roffset
@@ -97,7 +104,9 @@ def calculate_peak_areas(
         intensity_reshaped = intensity_data.reshape(num_isotopologues, num_time_points)
 
         # THEN apply integration boundaries to the reshaped data
-        td, intensity_reshaped = apply_integration_boundaries(time_data, intensity_reshaped)
+        td, intensity_reshaped = apply_integration_boundaries(
+            time_data, intensity_reshaped
+        )
         if len(td) == 0:
             return [0.0] * num_isotopologues
 

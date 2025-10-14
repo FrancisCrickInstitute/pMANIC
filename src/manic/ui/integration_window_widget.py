@@ -136,6 +136,21 @@ class IntegrationWindow(QGroupBox):
 
         layout.addLayout(regen_button_row)
 
+    def _format_number(self, value: float, sig_figs: int = 4) -> str:
+        """
+        Format number to specified significant figures.
+
+        Args:
+            value: Number to format
+            sig_figs: Number of significant figures (default: 4)
+
+        Returns:
+            Formatted string with specified significant figures
+        """
+        if value == 0:
+            return "0"
+        return f"{value:.{sig_figs}g}"
+
     def populate_tr_window_field(self, compound_name: str):
         """Populate only the tR window field - called only when compound changes"""
         try:
@@ -144,7 +159,7 @@ class IntegrationWindow(QGroupBox):
 
             tr_window_field = self.findChild(QLineEdit, "tr_window_input")
             if tr_window_field:
-                tr_window_field.setText(str(tr_window_value))
+                tr_window_field.setText(self._format_number(tr_window_value))
         except Exception as e:
             print(f"Error populating tR window field: {e}")
 
@@ -165,7 +180,10 @@ class IntegrationWindow(QGroupBox):
         for obj_name, value in field_mappings.items():
             line_edit = self.findChild(QLineEdit, obj_name)
             if line_edit:
-                line_edit.setText(str(value) if value is not None else "")
+                if value is not None and value != "":
+                    line_edit.setText(self._format_number(value))
+                else:
+                    line_edit.setText("")
 
     def _clear_fields(self):
         """Clear all line edit fields"""
@@ -304,11 +322,11 @@ class IntegrationWindow(QGroupBox):
 
         # If all values are the same (or very close), show single value
         if abs(max_val - min_val) < 1e-6:
-            return f"{min_val:.4f}".rstrip("0").rstrip(".")
+            return self._format_number(min_val)
         else:
-            # Show range
-            min_str = f"{min_val:.4f}".rstrip("0").rstrip(".")
-            max_str = f"{max_val:.4f}".rstrip("0").rstrip(".")
+            # Show range with consistent formatting
+            min_str = self._format_number(min_val)
+            max_str = self._format_number(max_val)
             return f"{min_str} - {max_str}"
 
     def _setup_apply_button_state(self):

@@ -129,6 +129,8 @@ class IntegrationWindow(QGroupBox):
         tr_window_lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
+        # Enable Enter key to trigger regeneration (same as clicking Update tR Window button)
+        self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
         tr_window_row.addWidget(tr_window_lbl)
         tr_window_row.addWidget(self.tr_window_edit, 1)
         layout.addLayout(tr_window_row)
@@ -361,15 +363,8 @@ class IntegrationWindow(QGroupBox):
         self.apply_button.setToolTip(apply_tooltip)
         self.restore_button.setToolTip(restore_tooltip)
 
-        # Set detailed tooltip for regenerate button
-        regenerate_tooltip = (
-            "Regenerate EIC data with new tR window\n\n"
-            "⚠️ WARNING: This operation will:\n"
-            "• Delete existing EIC data for this compound\n"
-            "• Recalculate from raw CDF files\n"
-            "• Take 2-5 minutes to complete\n"
-            "• Cannot be easily undone"
-        )
+        # Set tooltip for regenerate button
+        regenerate_tooltip = "Update tR window and recalculate EIC data"
         self.regenerate_button.setToolTip(regenerate_tooltip)
 
     def _on_apply_clicked(self):
@@ -600,44 +595,22 @@ class IntegrationWindow(QGroupBox):
             tr_window_field.setFocus()
             return
 
-        # Show detailed confirmation dialog with implications
+        # Check that samples are available
         samples_to_affect = self._all_samples if self._all_samples else []
-        sample_count = len(samples_to_affect)
-
-        if sample_count == 0:
+        if not samples_to_affect:
             self._show_message(
                 "warning", "No Samples", "No samples available for data regeneration."
             )
             return
 
-        # Create detailed confirmation message
-        message = (
-            f"⚠️ DATA REGENERATION WARNING ⚠️\n\n"
-            f"This will:\n"
-            f"• Delete all existing EIC data for '{self._current_compound}'\n"
-            f"• Recalculate EICs with new tR window ({tr_window} min)\n"
-            f"• Process {sample_count} samples\n"
-            f"• Take 2-5 minutes to complete\n\n"
-            f"This operation cannot be easily undone.\n\n"
-            f"Continue with data regeneration?"
-        )
-
-        reply = self._show_message("question", "Confirm Data Regeneration", message)
-
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                # Emit signal for future implementation
-                # Main window can connect to this signal to handle actual regeneration
-                self.data_regeneration_requested.emit(
-                    self._current_compound, tr_window, samples_to_affect
-                )
-
-                # Regeneration will be handled by main window via signal
-                pass
-
-            except Exception as e:
-                self._show_message(
-                    "critical",
-                    "Regeneration Failed",
-                    f"Failed to queue regeneration: {str(e)}",
-                )
+        # Emit signal to trigger data regeneration
+        try:
+            self.data_regeneration_requested.emit(
+                self._current_compound, tr_window, samples_to_affect
+            )
+        except Exception as e:
+            self._show_message(
+                "critical",
+                "Regeneration Failed",
+                f"Failed to queue regeneration: {str(e)}",
+            )

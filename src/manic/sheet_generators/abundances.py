@@ -93,7 +93,9 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
 
         intstd_rows = [c for c in compounds if _row_get(c, 'compound_name') == exporter.internal_standard_compound]
         if intstd_rows:
-            val = _row_get(intstd_rows[0], 'int_std_amount')
+            # Fix for issue #55: Use amount_in_std_mix (actual amount in MM files)
+            # instead of int_std_amount (normalization factor for other metabolites)
+            val = _row_get(intstd_rows[0], 'amount_in_std_mix')
             internal_std_amount = val if (val is not None) else 1.0
         else:
             internal_std_amount = 1.0

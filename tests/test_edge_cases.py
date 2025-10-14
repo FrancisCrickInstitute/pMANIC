@@ -352,3 +352,98 @@ class TestDataValidation:
             area = 0.0
 
         assert area == 0.0
+
+
+class TestAbundanceCalculations:
+    """Test abundance calculation edge cases and bugs."""
+
+    def test_internal_standard_uses_amount_in_std_mix(self):
+        """
+        Test for Issue #55: Internal standard should use amount_in_std_mix, not int_std_amount.
+
+        Bug: When the internal standard compound (e.g., scyllo-Ins) has:
+          - int_std_amount = 1.0 (normalization factor for other metabolites)
+          - amount_in_std_mix = 0.5 (ACTUAL amount in MM files)
+
+        The code incorrectly used int_std_amount (1.0) for the internal standard's
+        own abundance, causing it to be doubled. It should use amount_in_std_mix (0.5).
+        """
+        from types import SimpleNamespace
+        from io import BytesIO
+        import xlsxwriter
+
+        # Mock exporter with internal standard set
+        exporter = SimpleNamespace(internal_standard_compound='scyllo-Ins')
+
+        # Mock provider that returns corrected data
+        class MockProvider:
+            def get_all_compounds(self):
+                return [
+                    {
+                        'compound_name': 'scyllo-Ins',
+                        'mass0': 318.0,
+                        'retention_time': 15.5,
+                        'amount_in_std_mix': 0.5,  # Actual amount in standard mix
+                        'int_std_amount': 1.0,     # Normalization factor (wrong if used for abundance)
+                        'mm_files': '*_MM*'
+                    },
+                    {
+                        'compound_name': 'Pyruvate',
+                        'mass0': 174.0,
+                        'retention_time': 7.17,
+                        'amount_in_std_mix': 20.0,
+                        'int_std_amount': None,
+                        'mm_files': '*_MM*'
+                    }
+                ]
+
+            def get_all_samples(self):
+                return ['Sample1']
+
+            def get_sample_corrected_data(self, sample_name):
+                return {
+                    'scyllo-Ins': [1000.0],  # M+0 signal for internal standard
+                    'Pyruvate': [500.0, 100.0, 50.0]  # M+0, M+1, M+2
+                }
+
+            def get_mrrf_values(self, compounds, internal_std):
+                return {'Pyruvate': 2.0}
+
+        provider = MockProvider()
+
+        # Create a workbook in memory
+        output = BytesIO()
+        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+
+        # Import and call the abundances sheet generator
+        from manic.sheet_generators import abundances
+        abundances.write(
+            workbook,
+            exporter,
+            progress_callback=None,
+            start_progress=0,
+            end_progress=100,
+            provider=provider
+        )
+
+        workbook.close()
+
+        # Read back the workbook to check values
+        output.seek(0)
+        from openpyxl import load_workbook
+        wb = load_workbook(output)
+        ws = wb['Abundances']
+
+        # Headers are in rows 1-5, data starts at row 6
+        # Column structure: [empty, Sample, Compound1, Compound2, ...]
+        # scyllo-Ins should be in column 3 (index C)
+        # Sample1 data is in row 6
+
+        scyllo_ins_abundance = ws['C6'].value  # Row 6 (Sample1), Col C (scyllo-Ins)
+
+        # The abundance for the internal standard should be 0.5 (amount_in_std_mix)
+        # NOT 1.0 (int_std_amount)
+        assert scyllo_ins_abundance == 0.5, (
+            f"Internal standard abundance should be 0.5 (amount_in_std_mix), "
+            f"but got {scyllo_ins_abundance} (likely using int_std_amount=1.0)"
+        )

@@ -97,6 +97,8 @@ class IntegrationWindow(QGroupBox):
             lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
             edt = QLineEdit()
             edt.setObjectName(obj_name)
+            # Enable Enter key to trigger apply (same as clicking Apply button)
+            edt.returnPressed.connect(self._on_apply_clicked)
             row.addWidget(lbl)
             row.addWidget(edt, 1)
             layout.addLayout(row)

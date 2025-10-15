@@ -37,7 +37,7 @@ from manic.ui.left_toolbar import Toolbar
 from manic.ui.recovery_dialog import RecoveryDialog
 from manic.utils.utils import load_stylesheet
 from manic.utils.paths import resource_path, docs_path
-from manic.utils.workers import CdfImportWorker, EicRegenerationWorker
+from manic.utils.workers import CdfImportWorker, EicRegenerationWorker, MassToleranceReloadWorker
 from src.manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
@@ -869,6 +869,122 @@ class MainWindow(QMainWindow):
             )
             msg_box.exec()
 
+    def _on_mass_tolerance_changed(self, new_mass_tol: float):
+        """Handle mass tolerance change - regenerate all EICs with new tolerance"""
+        from manic.constants import DEFAULT_RT_WINDOW
+        
+        logger.info(f"Starting EIC regeneration with mass tolerance {new_mass_tol} Da")
+        
+        try:
+            # Disable UI during regeneration
+            self.load_cdf_action.setEnabled(False)
+            self.load_compound_action.setEnabled(False)
+            self.export_data_action.setEnabled(False)
+            self.export_method_action.setEnabled(False)
+            
+            # Build and show progress dialog
+            self.mass_tol_progress_dialog = self._build_progress_dialog(
+                f"Regenerating all EICs with mass tolerance {new_mass_tol} Da..."
+            )
+            self.mass_tol_progress_dialog.show()
+            
+            # Create background thread and worker
+            self._mass_tol_thread = QThread(self)
+            self._mass_tol_worker = MassToleranceReloadWorker(
+                mass_tol=new_mass_tol,
+                rt_window=DEFAULT_RT_WINDOW
+            )
+            self._mass_tol_worker.moveToThread(self._mass_tol_thread)
+            
+            # Connect progress updates
+            self._mass_tol_worker.progress.connect(self._update_mass_tolerance_progress)
+            
+            # Connect completion/failure handlers
+            self._mass_tol_worker.finished.connect(self._mass_tolerance_reload_completed)
+            self._mass_tol_worker.failed.connect(self._mass_tolerance_reload_failed)
+            self._mass_tol_worker.finished.connect(self._mass_tol_thread.quit)
+            self._mass_tol_worker.failed.connect(self._mass_tol_thread.quit)
+            
+            # Start the background work
+            self._mass_tol_thread.started.connect(self._mass_tol_worker.run)
+            self._mass_tol_thread.finished.connect(self._mass_tol_thread.deleteLater)
+            self._mass_tol_thread.start()
+            
+        except Exception as e:
+            logger.error(f"Failed to start mass tolerance reload: {e}")
+            self._re_enable_ui_actions()
+            msg_box = self._create_message_box(
+                "critical",
+                "Reload Error",
+                f"Failed to start EIC regeneration: {str(e)}",
+            )
+            msg_box.exec()
+    
+    def _update_mass_tolerance_progress(self, current: int, total: int):
+        """Update mass tolerance regeneration progress dialog"""
+        if hasattr(self, "mass_tol_progress_dialog"):
+            pct = int(current / total * 100) if total > 0 else 0
+            self.mass_tol_progress_dialog.setMaximum(100)
+            self.mass_tol_progress_dialog.setValue(pct)
+            self.mass_tol_progress_dialog.setLabelText(
+                f"Processing {current} of {total}..."
+            )
+            QCoreApplication.processEvents()
+    
+    def _mass_tolerance_reload_completed(self, regenerated_count: int):
+        """Handle successful mass tolerance reload completion"""
+        if hasattr(self, "mass_tol_progress_dialog"):
+            self.mass_tol_progress_dialog.close()
+        
+        logger.info(f"Mass tolerance reload completed: {regenerated_count} EICs regenerated")
+        
+        # Invalidate caches
+        from manic.io.data_provider import DataProvider
+        data_provider = DataProvider()
+        data_provider.invalidate_cache()
+        
+        # Refresh plots
+        current_compound = self.toolbar.get_selected_compound()
+        current_samples = self.toolbar.get_selected_samples()
+        if current_compound and current_samples:
+            self.on_plot_button(current_compound, current_samples)
+        
+        # Re-enable UI
+        self._re_enable_ui_actions()
+        
+        # Show success message
+        msg = self._create_message_box(
+            "info",
+            "Regeneration Complete",
+            f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
+        )
+        msg.exec()
+    
+    def _mass_tolerance_reload_failed(self, error_msg: str):
+        """Handle mass tolerance reload failure"""
+        if hasattr(self, "mass_tol_progress_dialog"):
+            self.mass_tol_progress_dialog.close()
+        
+        logger.error(f"Mass tolerance reload failed: {error_msg}")
+        
+        # Re-enable UI
+        self._re_enable_ui_actions()
+        
+        msg_box = self._create_message_box(
+            "critical",
+            "Regeneration Failed",
+            f"Failed to regenerate EICs: {error_msg}",
+        )
+        msg_box.exec()
+    
+    def _re_enable_ui_actions(self):
+        """Re-enable UI actions after background operations"""
+        self.load_cdf_action.setEnabled(True)
+        self.load_compound_action.setEnabled(True)
+        # Re-enable export actions based on data state
+        self.export_method_action.setEnabled(self.compound_data_loaded)
+        self.export_data_action.setEnabled(self.cdf_data_loaded and self.compound_data_loaded)
+
     def _update_regeneration_progress(self, current: int, total: int):
         """Update regeneration progress dialog"""
         if hasattr(self, "regen_progress_dialog"):
@@ -1268,23 +1384,16 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             old_value = self.mass_tolerance
             new_value = mass_tol_spinbox.value()
-            self.mass_tolerance = new_value
 
             if old_value != new_value:
                 logger.info(
                     f"Mass tolerance changed from {old_value} to {new_value} Da"
                 )
+                self.mass_tolerance = new_value
 
-                # Notify user that re-import may be needed
+                # If data is loaded, trigger regeneration immediately
                 if self.cdf_data_loaded:
-                    msg = self._create_message_box(
-                        "info",
-                        "Mass Tolerance Changed",
-                        f"Mass tolerance changed to {new_value} Da.",
-                        "Note: This change will only apply to new data imports. "
-                        "You may need to re-import CDF files to apply the new tolerance.",
-                    )
-                    msg.exec()
+                    self._on_mass_tolerance_changed(new_value)
 
     def show_min_peak_height_dialog(self):
         """Show dialog to edit minimum peak height setting."""

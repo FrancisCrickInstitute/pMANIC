@@ -640,3 +640,191 @@ def regenerate_compound_eics(
         logger.warning(f"Failed to recalculate corrections for '{compound_name}': {e}")
     
     return regenerated
+
+
+def regenerate_all_eics_with_mass_tolerance(
+    mass_tol: float,
+    rt_window: float = 0.2,
+    progress_cb: Optional[Callable[[int, int], None]] = None,
+) -> int:
+    """
+    Regenerate all EIC data with a new mass tolerance value.
+    
+    This function deletes ALL existing EIC records and recalculates them using
+    the new mass tolerance parameter. Session overrides (retention times, offsets)
+    are preserved via LEFT JOIN + COALESCE queries.
+    
+    Parameters
+    ----------
+    mass_tol : float
+        New mass tolerance offset for MANIC's asymmetric matching method (Da)
+    rt_window : float
+        Retention time search window (±min). Default: 0.2
+    progress_cb : Callable[[done, total], None] | None
+        Optional callback for GUI progress bars
+        
+    Returns
+    -------
+    int
+        Total number of EIC rows regenerated
+    """
+    start = time.time()
+    logger.info(f"Starting full EIC regeneration with mass tolerance {mass_tol}")
+    
+    # Get all active samples
+    with get_connection() as conn:
+        sample_rows = conn.execute(
+            "SELECT sample_name, file_name FROM samples WHERE deleted = 0"
+        ).fetchall()
+    
+    if not sample_rows:
+        raise RuntimeError("No active samples found in database")
+    
+    # Get all active compounds (base data)
+    with get_connection() as conn:
+        compounds = list(_iter_compounds(conn))
+    
+    if not compounds:
+        raise RuntimeError("Compounds table is empty")
+    
+    # Count compounds that will need correction
+    corrections_needed = 0
+    with get_connection() as conn:
+        correction_sql = """
+            SELECT COUNT(DISTINCT compound_name) as count
+            FROM compounds
+            WHERE deleted = 0
+            AND formula IS NOT NULL
+            AND label_atoms > 0
+        """
+        result = conn.execute(correction_sql).fetchone()
+        correction_compounds = result["count"] if result else 0
+        corrections_needed = correction_compounds * len(sample_rows)
+    
+    total_work = len(sample_rows) * len(compounds) + corrections_needed
+    done = 0
+    regenerated = 0
+    
+    import gc  # For memory management
+    
+    # Process each sample file
+    for sample_row in sample_rows:
+        sample_name = sample_row["sample_name"]
+        cdf_path = Path(sample_row["file_name"])
+        
+        # Check if CDF file exists
+        if not cdf_path.exists():
+            logger.warning(f"CDF file not found for sample '{sample_name}': {cdf_path}")
+            done += len(compounds)
+            if progress_cb:
+                progress_cb(done, total_work)
+            continue
+        
+        logger.info(f"Processing sample '{sample_name}'")
+        
+        # Get compounds with session-specific retention time overrides for this sample
+        # Uses LEFT JOIN + COALESCE to respect session_activity retention time changes
+        with get_connection() as conn:
+            compound_overrides = conn.execute(
+                """
+                SELECT 
+                    c.compound_name,
+                    COALESCE(sa.retention_time, c.retention_time) as retention_time,
+                    c.mass0,
+                    c.label_atoms
+                FROM compounds c
+                LEFT JOIN session_activity sa
+                    ON sa.compound_name = c.compound_name
+                    AND sa.sample_name = ?
+                    AND sa.sample_deleted = 0
+                WHERE c.deleted = 0
+                """,
+                (sample_name,)
+            ).fetchall()
+        
+        # Convert to list of tuples for _extract_all_eics_for_file
+        compounds_with_overrides = [
+            (row["compound_name"], row["retention_time"], row["mass0"], row["label_atoms"])
+            for row in compound_overrides
+        ]
+        
+        try:
+            # Delete existing EIC records for this sample
+            with get_connection() as conn:
+                delete_result = conn.execute(
+                    "DELETE FROM eic WHERE sample_name = ?",
+                    (sample_name,)
+                )
+                deleted_count = delete_result.rowcount
+                logger.debug(f"Deleted {deleted_count} existing EIC records for '{sample_name}'")
+                
+                # Also delete corrected records
+                delete_corrected = conn.execute(
+                    "DELETE FROM eic_corrected WHERE sample_name = ?",
+                    (sample_name,)
+                )
+                deleted_corrected_count = delete_corrected.rowcount
+                if deleted_corrected_count > 0:
+                    logger.debug(f"Deleted {deleted_corrected_count} corrected EIC records for '{sample_name}'")
+            
+            # Load CDF file
+            cdf_data = read_cdf_file(cdf_path)
+            
+            # Extract all EICs using the optimized batch function
+            eic_batch, skipped_count = _extract_all_eics_for_file(
+                cdf_data, compounds_with_overrides, mass_tol, rt_window, 
+                progress_cb, done, total_work
+            )
+            
+            # Batch insert new EIC records
+            if eic_batch:
+                with get_connection() as conn:
+                    conn.executemany(
+                        """
+                        INSERT INTO eic (
+                            sample_name, compound_name,
+                            x_axis, y_axis,
+                            rt_window, corrected, deleted,
+                            spectrum_pos, chromat_pos
+                        ) VALUES (?,?,?,?,?,0,0,NULL,NULL)
+                        """,
+                        eic_batch
+                    )
+                    regenerated += len(eic_batch)
+                    logger.debug(f"Inserted {len(eic_batch)} new EIC records for '{sample_name}'")
+            
+            done += len(compounds)
+            
+        except Exception as e:
+            logger.error(f"Failed to process sample '{sample_name}': {e}")
+            done += len(compounds)
+            if progress_cb:
+                progress_cb(done, total_work)
+        finally:
+            # Explicit memory cleanup
+            if 'cdf_data' in locals():
+                del cdf_data
+            gc.collect()
+    
+    # Recalculate natural abundance corrections for all compounds
+    if corrections_needed > 0:
+        try:
+            from manic.processors.eic_correction_manager import process_all_corrections
+            
+            logger.info("Recalculating natural abundance corrections...")
+            
+            # Create progress callback that continues from where EIC regeneration left off
+            def correction_progress(current, total):
+                if progress_cb:
+                    correction_done = int((current / total) * corrections_needed)
+                    progress_cb(done + correction_done, total_work)
+            
+            corrections_count = process_all_corrections(progress_cb=correction_progress)
+            logger.info(f"Recalculated {corrections_count} natural abundance corrections")
+        except Exception as e:
+            logger.warning(f"Failed to recalculate corrections: {e}")
+    
+    elapsed = time.time() - start
+    logger.info(f"Regenerated {regenerated} EICs with mass tolerance {mass_tol} in {elapsed:.1f} s")
+    
+    return regenerated

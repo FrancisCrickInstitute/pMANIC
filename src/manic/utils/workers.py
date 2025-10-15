@@ -2,6 +2,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from manic.io.eic_importer import import_eics
 from manic.io.eic_importer import regenerate_compound_eics
+from manic.io.eic_importer import regenerate_all_eics_with_mass_tolerance
 
 
 class CdfImportWorker(QObject):
@@ -48,6 +49,29 @@ class EicRegenerationWorker(QObject):
                 sample_names=self._sample_names,
                 progress_cb=self.progress.emit,
                 retention_time=self._retention_time,
+            )
+            self.finished.emit(count)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class MassToleranceReloadWorker(QObject):
+    progress = Signal(int, int)  # current, total
+    finished = Signal(int)  # eics regenerated
+    failed = Signal(str)
+
+    def __init__(self, mass_tol: float, rt_window: float = 0.2):
+        super().__init__()
+        self._mass_tol = mass_tol
+        self._rt_window = rt_window
+
+    @Slot()
+    def run(self):
+        try:
+            count = regenerate_all_eics_with_mass_tolerance(
+                mass_tol=self._mass_tol,
+                rt_window=self._rt_window,
+                progress_cb=self.progress.emit,
             )
             self.finished.emit(count)
         except Exception as exc:

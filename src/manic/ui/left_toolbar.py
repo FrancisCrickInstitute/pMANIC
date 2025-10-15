@@ -254,31 +254,11 @@ class Toolbar(QWidget):
         return self.standard.internal_standard
 
     def fill_integration_window(self, compound_name: str):
-        """Fill integration window fields with data for the specified compound"""
-        # Skip if compound_name is empty or placeholder text
-        if (
-            not compound_name
-            or compound_name.startswith("- No")
-            or compound_name.startswith("No ")
-        ):
-            self.integration.populate_fields(None)
-            return
-
-        try:
-            compound_data = read_compound(compound_name)
-
-            compound_dict = {
-                "loffset": compound_data.loffset,
-                "retention_time": compound_data.retention_time,
-                "roffset": compound_data.roffset,
-                "tr_window": getattr(
-                    compound_data, "tr_window", 0.2
-                ),  # default if not exists
-            }
-
-            self.integration.populate_fields(compound_dict)
-
-        except Exception as e:
-            print(f"Could not load compound data for {compound_name}: {e}")
-            # Clear fields if data can't be loaded
-            self.integration.populate_fields(None)
+        """
+        Legacy method - no longer used.
+        
+        Integration window fields are now populated by populate_fields_from_plots()
+        which properly handles session data overrides. This method previously 
+        populated fields with base compound data, overwriting session values.
+        """
+        pass

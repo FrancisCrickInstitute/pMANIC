@@ -88,6 +88,11 @@ MS_TIME_TOLERANCE = 0.1  # minutes for MS extraction
 # Time windows  
 DEFAULT_RT_WINDOW = 0.2  # minutes (half-window)
 
+# RT window buffer for auto-reload feature
+# Added to max(loffset, roffset) when calculating minimum RT window
+# This provides margin to prevent frequent reloads on minor adjustments
+DEFAULT_RT_WINDOW_BUFFER = 0.1  # minutes
+
 # Peak height validation
 DEFAULT_MIN_PEAK_HEIGHT_RATIO = 0.05  # Fraction of internal standard height for minimum peak validation
 

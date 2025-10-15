@@ -490,6 +490,7 @@ def regenerate_compound_eics(
     sample_names: list,
     mass_tol: float = 0.25,
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    retention_time: Optional[float] = None,
 ) -> int:
     """
     Regenerate EIC data for a specific compound across given samples with new tR window.
@@ -509,6 +510,8 @@ def regenerate_compound_eics(
         Mass tolerance offset for MANIC's asymmetric matching method (Da)
     progress_cb : Callable[[done, total], None] | None
         Optional callback for GUI progress bars
+    retention_time : float | None
+        Retention time to center the window at. If None, uses compound default.
         
     Returns
     -------
@@ -522,7 +525,9 @@ def regenerate_compound_eics(
     # Get compound data (retention time, mass, label_atoms)
     try:
         compound_data = read_compound(compound_name)
-        rt = compound_data.retention_time
+        # Use provided retention_time if given, otherwise use compound default
+        rt = retention_time if retention_time is not None else compound_data.retention_time
+        logger.info(f"Using retention time {rt:.3f} for EIC extraction (compound default: {compound_data.retention_time:.3f})")
         mz = compound_data.mass0
         label_atoms = compound_data.label_atoms
     except Exception as e:

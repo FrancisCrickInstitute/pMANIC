@@ -825,11 +825,11 @@ class MainWindow(QMainWindow):
             msg_box.exec()
 
     def on_data_regeneration_requested(
-        self, compound_name: str, tr_window: float, sample_names: list
+        self, compound_name: str, tr_window: float, sample_names: list, retention_time: float
     ):
         """Handle data regeneration request - start background regeneration with progress dialog"""
         logger.info(
-            f"Data regeneration requested for compound '{compound_name}' with tR window {tr_window}"
+            f"Data regeneration requested for compound '{compound_name}' with tR window {tr_window} centered at RT {retention_time:.3f}"
         )
 
         try:
@@ -842,7 +842,7 @@ class MainWindow(QMainWindow):
             # Create background thread and worker
             self._regen_thread = QThread(self)
             self._regen_worker = EicRegenerationWorker(
-                compound_name, tr_window, sample_names
+                compound_name, tr_window, sample_names, retention_time
             )
             self._regen_worker.moveToThread(self._regen_thread)
 
@@ -890,13 +890,59 @@ class MainWindow(QMainWindow):
         )
 
         try:
-            # Refresh plots to show new EIC data
-            # Since EIC data was regenerated, we need a full replot
+            # Check if there's a pending session update from Apply button (auto-reload feature)
+            if hasattr(self.toolbar.integration, '_pending_session_update') and \
+               self.toolbar.integration._pending_session_update is not None:
+
+                # Apply the pending session update now that data has been reloaded
+                retention_time, loffset, roffset, samples_to_apply = \
+                    self.toolbar.integration._pending_session_update
+
+                from manic.models.session_activity import SessionActivityService
+                SessionActivityService.update_session_data(
+                    compound_name=self.graph_view.get_current_compound(),
+                    sample_names=samples_to_apply,
+                    retention_time=retention_time,
+                    loffset=loffset,
+                    roffset=roffset,
+                )
+
+                # Refresh data window bounds for the regenerated samples
+                # Use the list of samples that were actually regenerated, not all samples_to_apply
+                current_compound = self.graph_view.get_current_compound()
+                samples_regenerated = getattr(self.toolbar.integration, '_samples_regenerated', [])
+                if samples_regenerated:
+                    logger.info(f"Refreshing bounds for {len(samples_regenerated)} regenerated samples")
+                    self.toolbar.integration.refresh_data_window_bounds(
+                        current_compound, samples_regenerated
+                    )
+                else:
+                    logger.warning("No samples_regenerated list found, skipping bounds refresh")
+
+                # Clear the pending update and regenerated list
+                self.toolbar.integration._pending_session_update = None
+                self.toolbar.integration._samples_regenerated = []
+
+                logger.info(f"Applied pending session update after EIC reload: RT={retention_time:.3f}, loffset={loffset:.3f}, roffset={roffset:.3f}")
+
+            # Update integration window BEFORE refreshing plots
+            # This ensures the plots draw RT lines at the correct (updated) positions
             current_compound = self.graph_view.get_current_compound()
+            current_selected = self.graph_view.get_selected_samples()
             current_samples = self.graph_view.get_current_samples()
 
             if current_compound and current_samples:
-                # Force a complete replot with fresh EIC data and validation
+                # Update integration window fields with new session data (RT, loffset, roffset)
+                self.toolbar.integration.populate_fields_from_plots(
+                    current_compound, current_selected, current_samples
+                )
+
+                # Update tR window field with the ACTUAL persisted value from EIC table
+                # (Don't use the old value - use the new regenerated RT window)
+                self.toolbar.integration.populate_tr_window_field(current_compound)
+
+                # NOW replot with fresh EIC data and updated integration parameters
+                # The plots will draw RT lines at the correct new positions
                 validation_data = {}
                 if self.min_peak_height_ratio > 0:  # Only if validation is enabled
                     from manic.processors.eic_processing import get_eics_for_compound
@@ -909,33 +955,6 @@ class MainWindow(QMainWindow):
             else:
                 # Fallback to session data refresh
                 self.graph_view.refresh_plots_with_session_data()
-
-            # Update integration window after refresh - but preserve tR window value
-            from PySide6.QtCore import QTimer
-
-            def update_integration_window():
-                current_compound = self.graph_view.get_current_compound()
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                # Store current tR window value before refresh
-                tr_window_field = self.toolbar.integration.findChild(
-                    QLineEdit, "tr_window_input"
-                )
-                current_tr_window = tr_window_field.text() if tr_window_field else ""
-
-                if current_compound:
-                    # Refresh other fields but preserve tR window
-                    self.toolbar.integration.populate_fields_from_plots(
-                        current_compound, current_selected, all_samples
-                    )
-
-                    # Restore tR window value (don't overwrite with old default)
-                    if tr_window_field and current_tr_window:
-                        tr_window_field.setText(current_tr_window)
-
-            # Small delay to ensure plot refresh completes
-            QTimer.singleShot(100, update_integration_window)
 
             # Show success message
             msg_box = self._create_message_box(

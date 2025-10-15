@@ -32,11 +32,12 @@ class EicRegenerationWorker(QObject):
     finished = Signal(int)  # eics regenerated
     failed = Signal(str)
 
-    def __init__(self, compound_name: str, tr_window: float, sample_names: list):
+    def __init__(self, compound_name: str, tr_window: float, sample_names: list, retention_time: float):
         super().__init__()
         self._compound_name = compound_name
         self._tr_window = tr_window
         self._sample_names = sample_names
+        self._retention_time = retention_time
 
     @Slot()
     def run(self):
@@ -46,6 +47,7 @@ class EicRegenerationWorker(QObject):
                 tr_window=self._tr_window,
                 sample_names=self._sample_names,
                 progress_cb=self.progress.emit,
+                retention_time=self._retention_time,
             )
             self.finished.emit(count)
         except Exception as exc:

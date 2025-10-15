@@ -99,10 +99,13 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
         session_row = conn.execute(session_sql, (compound_name, sample_name)).fetchone()
         
         if session_row is None:
-            # No session data, return base compound
             return base_compound
         
         # Create compound with session data overrides
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Using session data for {compound_name} / {sample_name}: RT={session_row['retention_time']:.3f}")
+        
         return Compound(
             compound_name=base_compound.compound_name,
             retention_time=session_row["retention_time"],  # Override with session data

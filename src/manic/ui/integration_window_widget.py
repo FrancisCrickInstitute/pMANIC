@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -18,6 +18,92 @@ from manic.utils.paths import resource_path
 from manic.utils.utils import load_stylesheet
 
 
+# ─────────────────────── RT Window Boundary Checking Functions ───────────────────────
+# These pure functions handle the logic for determining when EIC data needs to be reloaded
+# due to integration boundaries falling outside the currently stored data window.
+
+
+def calculate_integration_boundaries(
+    rt: float, loffset: float, roffset: float
+) -> tuple[float, float]:
+    """
+    Calculate left and right integration boundaries from retention time and offsets.
+
+    Integration boundaries define the time range where peak area integration occurs.
+    These boundaries must fit within the stored EIC data window.
+
+    Args:
+        rt: Retention time (minutes)
+        loffset: Left offset from retention time (minutes)
+        roffset: Right offset from retention time (minutes)
+
+    Returns:
+        Tuple of (left_boundary, right_boundary) in minutes
+
+    Example:
+        >>> calculate_integration_boundaries(10.0, 0.5, 0.5)
+        (9.5, 10.5)
+    """
+    return rt - loffset, rt + roffset
+
+
+def calculate_minimum_rt_window(
+    loffset: float, roffset: float, buffer: float = 0.1
+) -> float:
+    """
+    Calculate minimum RT window size required to cover integration boundaries.
+
+    The RT window must be large enough to contain both left and right integration
+    boundaries. A safety buffer is added to prevent boundary conditions.
+
+    Args:
+        loffset: Left offset from retention time (minutes)
+        roffset: Right offset from retention time (minutes)
+        buffer: Safety buffer to add beyond max offset (minutes, default: 0.1)
+
+    Returns:
+        Minimum RT window size (minutes)
+
+    Example:
+        >>> calculate_minimum_rt_window(0.3, 0.5, buffer=0.1)
+        0.6  # max(0.3, 0.5) + 0.1
+    """
+    return max(loffset, roffset) + buffer
+
+
+def check_boundaries_within_window(
+    left_boundary: float,
+    right_boundary: float,
+    window_min: float,
+    window_max: float,
+    tolerance: float = 0.001,
+) -> bool:
+    """
+    Check if integration boundaries fit within the stored data window.
+
+    Determines whether the current EIC data window contains the integration boundaries.
+    If boundaries exceed the window, EIC data must be reloaded with a new RT center.
+
+    Args:
+        left_boundary: Left integration boundary (minutes)
+        right_boundary: Right integration boundary (minutes)
+        window_min: Minimum time in stored EIC data (minutes)
+        window_max: Maximum time in stored EIC data (minutes)
+        tolerance: Tolerance for floating point comparison (minutes, default: 0.001)
+
+    Returns:
+        True if boundaries fit within window (no reload needed), False otherwise
+
+    Example:
+        >>> check_boundaries_within_window(9.5, 10.5, 9.0, 11.0)
+        True  # Boundaries fit comfortably within window
+        >>> check_boundaries_within_window(8.5, 10.5, 9.0, 11.0)
+        False  # Left boundary exceeds window minimum
+    """
+    return (left_boundary >= window_min - tolerance and
+            right_boundary <= window_max + tolerance)
+
+
 class IntegrationWindow(QGroupBox):
     """
     Integration window widget for modifying compound parameters.
@@ -35,8 +121,8 @@ class IntegrationWindow(QGroupBox):
 
     # Signal emitted when regenerate button is clicked (for future implementation)
     data_regeneration_requested = Signal(
-        str, float, list
-    )  # compound_name, tr_window, sample_names
+        str, float, list, float
+    )  # compound_name, tr_window, sample_names, retention_time
 
     def __init__(self, parent=None):
         super().__init__("Selected Plots: All", parent)
@@ -46,6 +132,17 @@ class IntegrationWindow(QGroupBox):
         self._current_compound: str = ""
         self._selected_samples: List[str] = []
         self._all_samples: List[str] = []
+
+        # Track data window bounds for reload detection (per-sample)
+        # Maps (compound_name, sample_name) to (min_time, max_time) of stored EIC data
+        self._data_window_bounds: Dict[Tuple[str, str], Tuple[float, float]] = {}
+
+        # Store pending session update when reload is triggered
+        # Tuple of (retention_time, loffset, roffset, samples_to_apply)
+        self._pending_session_update: Optional[Tuple[float, float, float, List[str]]] = None
+        
+        # Track which samples were actually regenerated (for bounds refresh)
+        self._samples_regenerated: List[str] = []
 
         self._build_ui()
         self._setup_apply_button_state()
@@ -160,10 +257,33 @@ class IntegrationWindow(QGroupBox):
         return f"{value:.{sig_figs}g}"
 
     def populate_tr_window_field(self, compound_name: str):
-        """Populate only the tR window field - called only when compound changes"""
+        """Populate only the tR window field - called only when compound changes
+
+        Reads the actual RT window from the EIC data (persisted value), falling back
+        to compound defaults if no EIC data exists yet.
+        """
         try:
-            compound_data = read_compound(compound_name)
-            tr_window_value = getattr(compound_data, "tr_window", 0.2)
+            # Try to get RT window from actual EIC data (persisted value)
+            from manic.models.database import get_connection
+
+            tr_window_value = None
+            with get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT rt_window FROM eic
+                    WHERE compound_name = ? AND deleted = 0
+                    LIMIT 1
+                    """,
+                    (compound_name,)
+                ).fetchone()
+
+                if row and row["rt_window"] is not None:
+                    tr_window_value = row["rt_window"]
+
+            # Fall back to compound default if no EIC data exists
+            if tr_window_value is None:
+                compound_data = read_compound(compound_name)
+                tr_window_value = getattr(compound_data, "tr_window", 0.2)
 
             tr_window_field = self.findChild(QLineEdit, "tr_window_input")
             if tr_window_field:
@@ -174,7 +294,6 @@ class IntegrationWindow(QGroupBox):
     def populate_fields(self, compound_dict):
         """Populate the line edit fields with compound data"""
         if compound_dict is None:
-            # Clear all fields
             self._clear_fields()
             return
 
@@ -210,6 +329,10 @@ class IntegrationWindow(QGroupBox):
             selected_samples: List of currently selected sample names
             all_samples: List of all visible sample names (for fallback when no selection)
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"populate_fields_from_plots: compound={compound_name}, selected={len(selected_samples) if selected_samples else 0}, all={len(all_samples) if all_samples else 0}")
+        
         # Validate inputs
         if not compound_name:
             self._clear_fields()
@@ -246,6 +369,17 @@ class IntegrationWindow(QGroupBox):
             # Case 3: Single plot selected - show specific values (with session data if available)
             if len(selected_samples) == 1:
                 sample_name = selected_samples[0]
+
+                # Get EIC data to capture data window bounds (per-sample)
+                try:
+                    eics = get_eics_for_compound(compound_name, [sample_name])
+                    if eics and len(eics) > 0 and len(eics[0].time) > 0:
+                        time_data = eics[0].time
+                        key = (compound_name, sample_name)
+                        self._data_window_bounds[key] = (time_data.min(), time_data.max())
+                except Exception:
+                    pass  # Bounds capture is best-effort
+
                 compound_data = read_compound_with_session(compound_name, sample_name)
                 compound_dict = {
                     "loffset": compound_data.loffset,
@@ -264,19 +398,32 @@ class IntegrationWindow(QGroupBox):
             self._update_apply_button_state()
 
         except Exception as e:
-            print(f"Error populating integration window fields: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error populating integration window fields: {e}")
             self._clear_fields()
             self._update_apply_button_state()
 
     def _populate_range_fields(self, compound_name: str, sample_names: list):
         """Populate fields with ranges for multiple samples"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
             # Get EIC data for all specified samples
             eics = get_eics_for_compound(compound_name, sample_names)
 
             if not eics:
+                logger.warning(f"No EIC data found for compound {compound_name}")
                 self._clear_fields()
                 return
+
+            # Store data window bounds for all samples
+            for idx, sample_name in enumerate(sample_names):
+                if idx < len(eics) and len(eics[idx].time) > 0:
+                    time_data = eics[idx].time
+                    key = (compound_name, sample_name)
+                    self._data_window_bounds[key] = (time_data.min(), time_data.max())
 
             # Get compound data for each sample (including session overrides)
             rt_times = []
@@ -367,6 +514,94 @@ class IntegrationWindow(QGroupBox):
         regenerate_tooltip = "Update tR window and recalculate EIC data"
         self.regenerate_button.setToolTip(regenerate_tooltip)
 
+    def _get_samples_needing_reload(
+        self,
+        new_rt: float,
+        new_loffset: float,
+        new_roffset: float,
+        samples_to_check: List[str]
+    ) -> List[str]:
+        """
+        Determine which samples need EIC data reload based on integration boundaries.
+        
+        For each sample, checks if the new integration boundaries (RT ± offsets) 
+        fall outside that sample's stored data window. Only samples whose boundaries 
+        exceed their window need to be regenerated.
+        
+        Args:
+            new_rt: New retention time (minutes)
+            new_loffset: New left offset (minutes)
+            new_roffset: New right offset (minutes)
+            samples_to_check: List of sample names to check
+            
+        Returns:
+            List of sample names that need reload (empty if none need reload)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        samples_needing_reload = []
+        
+        # Calculate new integration boundaries using tested helper function
+        left_boundary, right_boundary = calculate_integration_boundaries(
+            new_rt, new_loffset, new_roffset
+        )
+        
+        # Check each sample independently
+        for sample_name in samples_to_check:
+            key = (self._current_compound, sample_name)
+            
+            # If no bounds info, reload to be safe
+            if key not in self._data_window_bounds:
+                logger.debug(f"No bounds info for {sample_name} - marking for reload")
+                samples_needing_reload.append(sample_name)
+                continue
+            
+            window_min, window_max = self._data_window_bounds[key]
+            
+            # Check if boundaries fit within this sample's window using tested helper
+            boundaries_fit = check_boundaries_within_window(
+                left_boundary, right_boundary, window_min, window_max
+            )
+            
+            if not boundaries_fit:
+                logger.debug(
+                    f"Sample {sample_name}: boundaries [{left_boundary:.3f}, {right_boundary:.3f}] "
+                    f"exceed window [{window_min:.3f}, {window_max:.3f}] - marking for reload"
+                )
+                samples_needing_reload.append(sample_name)
+        
+        return samples_needing_reload
+
+    def refresh_data_window_bounds(self, compound_name: str, sample_names: List[str]):
+        """
+        Refresh stored data window bounds after EIC reload.
+
+        This should be called after EIC data is regenerated to update the stored
+        time window bounds used for boundary checking.
+
+        Args:
+            compound_name: Name of the compound to refresh bounds for
+            sample_names: List of sample names to refresh bounds for
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Refresh bounds for each regenerated sample
+            for sample_name in sample_names:
+                eics = get_eics_for_compound(compound_name, [sample_name], use_corrected=False)
+                if eics and len(eics) > 0 and len(eics[0].time) > 0:
+                    time_data = eics[0].time
+                    key = (compound_name, sample_name)
+                    self._data_window_bounds[key] = (time_data.min(), time_data.max())
+                    logger.debug(
+                        f"Refreshed bounds for {sample_name}: "
+                        f"[{time_data.min():.3f}, {time_data.max():.3f}]"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to refresh data window bounds: {e}")
+
     def _on_apply_clicked(self):
         """Handle apply button click - validate inputs and update session data"""
         if not self._current_compound:
@@ -392,7 +627,54 @@ class IntegrationWindow(QGroupBox):
 
             retention_time, loffset, roffset = input_values
 
-            # Update session activity data for the target samples
+            # Determine which samples need reload (check each sample independently)
+            samples_needing_reload = self._get_samples_needing_reload(
+                retention_time, loffset, roffset, samples_to_apply
+            )
+
+            if samples_needing_reload:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(
+                    f"Checking {len(samples_to_apply)} samples: "
+                    f"{len(samples_needing_reload)} need reload"
+                )
+                
+                # Get current RT window value
+                tr_window_field = self.findChild(QLineEdit, "tr_window_input")
+                current_tr_window = (
+                    float(tr_window_field.text()) if tr_window_field and tr_window_field.text() else 0.2
+                )
+
+                # Calculate required RT window (ensure it covers integration boundaries)
+                # Use tested helper function with configurable buffer constant
+                from manic.constants import DEFAULT_RT_WINDOW_BUFFER
+                min_required_window = calculate_minimum_rt_window(
+                    loffset, roffset, buffer=DEFAULT_RT_WINDOW_BUFFER
+                )
+                actual_window = max(current_tr_window, min_required_window)
+
+                logger.info(
+                    f"Regenerating {len(samples_needing_reload)} samples with RT window {actual_window:.3f} min"
+                )
+
+                # Store pending session update to be applied after reload completes
+                # Apply to ALL originally selected samples, not just those needing reload
+                self._pending_session_update = (retention_time, loffset, roffset, samples_to_apply)
+                
+                # Track which samples are being regenerated (for bounds refresh)
+                self._samples_regenerated = samples_needing_reload.copy()
+
+                # Emit signal to trigger EIC data regeneration for ONLY affected samples
+                # Pass the new retention time so EIC is centered at the correct position
+                self.data_regeneration_requested.emit(
+                    self._current_compound, actual_window, samples_needing_reload, retention_time
+                )
+
+                # Note: Session data will be updated in _regeneration_completed handler
+                return
+
+            # No reload needed - update session activity data immediately
             SessionActivityService.update_session_data(
                 compound_name=self._current_compound,
                 sample_names=samples_to_apply,

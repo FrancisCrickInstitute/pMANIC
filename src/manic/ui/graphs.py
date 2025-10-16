@@ -97,7 +97,7 @@ class GraphView(QWidget):
         self._current_samples: List[str] = []
 
         # Track whether to use corrected data
-        self.use_corrected = True  # Default to using corrected data
+        self.use_corrected = False  # Default to using uncorrected data
 
         # Chart object pooling for performance optimization
         # Maintains reusable chart containers to avoid expensive creation/destruction cycles

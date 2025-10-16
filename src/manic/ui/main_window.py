@@ -187,9 +187,9 @@ class MainWindow(QMainWindow):
         settings_menu.addAction(self.min_peak_height_action)
 
         # Natural abundance correction toggle action
-        self.nat_abundance_toggle = QAction("Natural Abundance Correction: On", self)
+        self.nat_abundance_toggle = QAction("Natural Abundance Correction: Off", self)
         self.nat_abundance_toggle.setCheckable(True)
-        self.nat_abundance_toggle.setChecked(True)  # On by default
+        self.nat_abundance_toggle.setChecked(False)  # Off by default
         self.nat_abundance_toggle.triggered.connect(
             self.toggle_natural_abundance_correction
         )
@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         self._update_menu_states()
 
         # Initialize natural abundance correction state
-        self.toolbar.isotopologue_ratios.set_use_corrected(True)  # On by default
+        self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
 
         # Connect the toolbar's custom signals to handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
@@ -1703,6 +1703,17 @@ class MainWindow(QMainWindow):
 
         # Update the isotopologue ratio widget
         self.toolbar.isotopologue_ratios.set_use_corrected(is_enabled)
+
+        # Also update the graph view to use corrected/uncorrected data
+        self.graph_view.set_use_corrected(is_enabled)
+
+        # If we have data displayed, refresh everything
+        selected_compound = self.toolbar.get_selected_compound()
+        selected_samples = self.toolbar.get_selected_samples()
+
+        if selected_compound and selected_samples:
+            # Trigger a full replot of the main graphs
+            self.on_plot_button(selected_compound, selected_samples)
 
     def toggle_legacy_integration_mode(self):
         """Toggle legacy MATLAB-compatible integration mode on/off."""

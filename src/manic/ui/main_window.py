@@ -433,9 +433,7 @@ class MainWindow(QMainWindow):
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(
             self, 
-            "Select Directory Containing CDF Files",
-            "",
-            QFileDialog.Option.DontUseNativeDialog
+            "Select Directory Containing CDF Files"
         )
         if not directory:
             return

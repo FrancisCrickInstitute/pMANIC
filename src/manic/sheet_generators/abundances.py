@@ -8,13 +8,14 @@ from manic.models.database import get_connection
 logger = logging.getLogger(__name__)
 
 
-def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None) -> None:
+def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None, validation_data=None) -> None:
     """
     Write the 'Abundances' sheet.
 
     Extracted from DataExporter._export_abundances_sheet without behavior changes.
     """
     worksheet = workbook.add_worksheet('Abundances')
+    invalid_format = workbook.add_format({'bg_color': '#FFCCCC'})
 
     if provider is None:
         with get_connection() as conn:
@@ -150,7 +151,14 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
                     f"No internal standard calibration available for {compound_name}"
                 )
 
-            worksheet.write(row, col + 2, calibrated_abundance)
+            if validation_data and sample_name in validation_data:
+                is_valid = validation_data[sample_name].get(compound_name, True)
+                if not is_valid:
+                    worksheet.write(row, col + 2, calibrated_abundance, invalid_format)
+                else:
+                    worksheet.write(row, col + 2, calibrated_abundance)
+            else:
+                worksheet.write(row, col + 2, calibrated_abundance)
 
         if progress_callback and (sample_idx + 1) % 5 == 0:
             progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)

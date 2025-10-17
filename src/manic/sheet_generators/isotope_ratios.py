@@ -8,13 +8,14 @@ from manic.models.database import get_connection
 logger = logging.getLogger(__name__)
 
 
-def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None) -> None:
+def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None, validation_data=None) -> None:
     """
     Write the 'Isotope Ratio' sheet (normalized corrected values that sum to 1.0).
 
     Extracted from DataExporter._export_isotope_ratios_sheet.
     """
     worksheet = workbook.add_worksheet('Isotope Ratio')
+    invalid_format = workbook.add_format({'bg_color': '#FFCCCC'})
 
     if provider is None:
         with get_connection() as conn:
@@ -95,7 +96,16 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
 
             for isotope_idx in range(num_isotopologues):
                 ratio_value = ratios[isotope_idx] if isotope_idx < len(ratios) else 0.0
-                worksheet.write(row, col, ratio_value)
+                
+                if validation_data and sample_name in validation_data:
+                    is_valid = validation_data[sample_name].get(compound_name, True)
+                    if not is_valid:
+                        worksheet.write(row, col, ratio_value, invalid_format)
+                    else:
+                        worksheet.write(row, col, ratio_value)
+                else:
+                    worksheet.write(row, col, ratio_value)
+                
                 col += 1
 
         if progress_callback and (sample_idx + 1) % 5 == 0:

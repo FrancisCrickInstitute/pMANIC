@@ -8,14 +8,20 @@ from manic.models.database import get_connection
 logger = logging.getLogger(__name__)
 
 
-def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None) -> None:
+def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None, validation_data=None) -> None:
     """
     Write the 'Raw Values' sheet.
 
     This is a direct extraction of DataExporter._export_raw_values_sheet to keep
     behavior and output identical.
+    
+    Args:
+        validation_data: Optional dict mapping sample_name -> {compound_name: is_valid}
     """
     worksheet = workbook.add_worksheet('Raw Values')
+    
+    # Create format for invalid cells (light red background)
+    invalid_format = workbook.add_format({'bg_color': '#FFCCCC'})
 
     # Get all compounds and samples
     if provider is None:
@@ -97,7 +103,17 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
             # Write each isotopologue value
             for isotope_idx in range(num_isotopologues):
                 area_value = isotopologue_data[isotope_idx] if isotope_idx < len(isotopologue_data) else 0.0
-                worksheet.write(row, col, area_value)
+                
+                # Apply invalid format if compound fails validation for this sample
+                if validation_data and sample_name in validation_data:
+                    is_valid = validation_data[sample_name].get(compound_name, True)
+                    if not is_valid:
+                        worksheet.write(row, col, area_value, invalid_format)
+                    else:
+                        worksheet.write(row, col, area_value)
+                else:
+                    worksheet.write(row, col, area_value)
+                
                 col += 1
 
         # Update progress

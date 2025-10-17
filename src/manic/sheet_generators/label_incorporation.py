@@ -8,13 +8,14 @@ from manic.models.database import get_connection
 logger = logging.getLogger(__name__)
 
 
-def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None) -> None:
+def write(workbook, exporter, progress_callback, start_progress: int, end_progress: int, *, provider=None, validation_data=None) -> None:
     """
     Write the '% Label Incorporation' sheet.
 
     Extracted from DataExporter._export_label_incorporation_sheet.
     """
     worksheet = workbook.add_worksheet('% Label Incorporation')
+    invalid_format = workbook.add_format({'bg_color': '#FFCCCC'})
 
     if provider is None:
         with get_connection() as conn:
@@ -105,7 +106,14 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
             else:
                 label_percentage = 0.0
 
-            worksheet.write(row, col + 2, label_percentage)
+            if validation_data and sample_name in validation_data:
+                is_valid = validation_data[sample_name].get(compound_name, True)
+                if not is_valid:
+                    worksheet.write(row, col + 2, label_percentage, invalid_format)
+                else:
+                    worksheet.write(row, col + 2, label_percentage)
+            else:
+                worksheet.write(row, col + 2, label_percentage)
 
         if progress_callback and (sample_idx + 1) % 5 == 0:
             progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)

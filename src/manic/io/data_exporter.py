@@ -51,6 +51,8 @@ class DataExporter:
         self.use_legacy_integration = False
         # Centralized data provider for DB access and caching
         self._provider = DataProvider(use_legacy_integration=self.use_legacy_integration)
+        # Minimum peak area ratio for validation highlighting
+        self.min_peak_area_ratio = 0.05
 
     def _resolve_mm_samples(self, mm_files_field: Optional[str]) -> List[str]:
         """Delegate to provider to resolve MM sample patterns."""
@@ -72,6 +74,31 @@ class DataExporter:
     def _invalidate_cache(self):
         """Invalidate all caches when parameters change."""
         self._provider.invalidate_cache()
+    
+    def _compute_validation_data(self, samples: List[str], compounds: List[dict]) -> Dict[str, Dict[str, bool]]:
+        """
+        Compute validation data for all sample/compound combinations.
+        
+        Returns:
+            Dict mapping sample_name -> {compound_name: is_valid}
+        """
+        if not self.internal_standard_compound or self.min_peak_area_ratio <= 0:
+            return {}
+        
+        validation_data = {}
+        for sample in samples:
+            validation_data[sample] = {}
+            for compound in compounds:
+                compound_name = compound['compound_name']
+                is_valid = self._provider.validate_peak_area(
+                    sample,
+                    compound_name,
+                    self.internal_standard_compound,
+                    self.min_peak_area_ratio
+                )
+                validation_data[sample][compound_name] = is_valid
+        
+        return validation_data
         
     def _integrate_peak(self, intensity_data: np.ndarray, time_data: np.ndarray = None) -> float:
         """Delegates to processors.integration.integrate_peak (backward-compatible stub)."""
@@ -117,6 +144,11 @@ class DataExporter:
             data_load_time = time.time() - data_load_start
             logger.info(f"Loaded data for {len(bulk_data)} samples in bulk ({data_load_time:.2f}s)")
             
+            # Compute validation data for all samples/compounds
+            samples = self._provider.get_all_samples()
+            compounds = self._provider.get_all_compounds()
+            validation_data = self._compute_validation_data(samples, compounds)
+            
             # Create Excel workbook with optimization settings
             workbook = xlsxwriter.Workbook(filepath, {
                 'constant_memory': True,  # Optimize for low RAM usage
@@ -129,23 +161,23 @@ class DataExporter:
                 progress_callback(progress)
                 
             # Sheet 1: Raw Values (20% of work)
-            sheet_raw_values.write(workbook, self, progress_callback, 0, 20)
+            sheet_raw_values.write(workbook, self, progress_callback, 0, 20, validation_data=validation_data)
             
             # Sheet 2: Corrected Values (20% of work)
-            sheet_corrected_values.write(workbook, self, progress_callback, 20, 40)
+            sheet_corrected_values.write(workbook, self, progress_callback, 20, 40, validation_data=validation_data)
             
             # Sheet 3: Isotope Ratios (20% of work)
-            sheet_isotope_ratios.write(workbook, self, progress_callback, 40, 60)
+            sheet_isotope_ratios.write(workbook, self, progress_callback, 40, 60, validation_data=validation_data)
             
             # Sheet 4: % Label Incorporation (20% of work)
             try:
-                sheet_label_incorporation.write(workbook, self, progress_callback, 60, 80)
+                sheet_label_incorporation.write(workbook, self, progress_callback, 60, 80, validation_data=validation_data)
             except Exception as e:
                 logger.error(f"Error in % Label Incorporation sheet: {e}")
                 raise
             
             # Sheet 5: Abundances (20% of work) - Final sheet for easy access
-            sheet_abundances.write(workbook, self, progress_callback, 80, 100)
+            sheet_abundances.write(workbook, self, progress_callback, 80, 100, validation_data=validation_data)
             
             workbook.close()
             

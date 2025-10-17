@@ -8,4 +8,4 @@ dist/*
 build/*
 outputs/*
 oldmanic/*
-CLAUDE*
+agents.md

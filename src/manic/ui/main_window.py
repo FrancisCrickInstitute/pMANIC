@@ -77,6 +77,9 @@ class MainWindow(QMainWindow):
         self.use_legacy_integration = False  # Time-based by default
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
+        
+        # Cached DataProvider for validation (reused to avoid repeated bulk loads)
+        self._validation_provider = None
 
         self.setup_ui()
 
@@ -182,7 +185,7 @@ class MainWindow(QMainWindow):
         self.mass_tolerance_action.triggered.connect(self.show_mass_tolerance_dialog)
         settings_menu.addAction(self.mass_tolerance_action)
         
-        self.min_peak_height_action = QAction("Minimum Peak Height...", self)
+        self.min_peak_height_action = QAction("Minimum Peak Area...", self)
         self.min_peak_height_action.triggered.connect(self.show_min_peak_height_dialog)
         settings_menu.addAction(self.min_peak_height_action)
 
@@ -484,55 +487,42 @@ class MainWindow(QMainWindow):
         msg_box = self._create_message_box("critical", "Import failed", msg)
         msg_box.exec()
 
-    def _validate_peak_height(self, compound_name: str, sample_name: str, eic_intensity: np.ndarray) -> bool:
+    def _validate_peak_area(self, compound_name: str, sample_name: str) -> bool:
         """
-        Validate if the m0 peak height meets the minimum threshold.
+        Validate if the compound's total peak area meets the minimum threshold.
+        
+        This method compares the sum of all isotopologue peak areas for the compound
+        against a threshold calculated as: internal_standard_total × min_peak_height_ratio.
+        
+        Both the compound and internal standard use their own integration boundaries
+        (retention time ± offsets), which respect session overrides.
         
         Args:
             compound_name: Name of the compound being validated
             sample_name: Name of the sample
-            eic_intensity: Intensity array for the EIC
             
         Returns:
-            True if peak height is above threshold, False otherwise
+            True if compound total area >= threshold, False otherwise
         """
-        # Only validate if we have an internal standard selected
         internal_standard = self.toolbar.get_internal_standard()
         if not internal_standard:
-            return True  # No validation if no internal standard
+            return True
             
-        # Only validate the m0 peak (unlabeled compound)
-        # We determine this is m0 by checking if compound contains "m0" or is unlabeled
-        if "m0" not in compound_name.lower() and compound_name != internal_standard:
-            # For now, assume non-internal standard compounds are being validated
-            # This is a simple heuristic - could be improved with better m0 detection
-            pass
-        
         try:
-            # Get the internal standard's peak height for this sample
-            from manic.processors.eic_processing import get_eics_for_compound
-            internal_eics = get_eics_for_compound(internal_standard, [sample_name], use_corrected=False)
+            if self._validation_provider is None:
+                from manic.io.data_provider import DataProvider
+                self._validation_provider = DataProvider(use_legacy_integration=self.use_legacy_integration)
             
-            if not internal_eics:
-                return True  # Can't validate without internal standard data
-                
-            internal_intensity = internal_eics[0].intensity
-            if len(internal_intensity) == 0:
-                return True  # Can't validate with empty internal standard data
-                
-            # Get peak heights (maximum intensity)
-            internal_peak_height = np.max(internal_intensity)
-            current_peak_height = np.max(eic_intensity) if len(eic_intensity) > 0 else 0
-            
-            # Calculate threshold
-            threshold = internal_peak_height * self.min_peak_height_ratio
-            
-            # Return True if above threshold
-            return current_peak_height >= threshold
+            return self._validation_provider.validate_peak_area(
+                sample_name,
+                compound_name,
+                internal_standard,
+                self.min_peak_height_ratio
+            )
             
         except Exception as e:
-            logger.warning(f"Peak height validation failed for {compound_name}/{sample_name}: {e}")
-            return True  # Default to valid if validation fails
+            logger.warning(f"Peak area validation failed for {compound_name}/{sample_name}: {e}")
+            return True
 
     def on_plot_button(self, compound_name, samples):
         # Validate inputs before plotting
@@ -548,11 +538,9 @@ class MainWindow(QMainWindow):
                     # Calculate validation data for all samples
                     validation_data = {}
                     if self.min_peak_height_ratio > 0:  # Only if validation is enabled
-                        from manic.processors.eic_processing import get_eics_for_compound
-                        eics = get_eics_for_compound(compound_name, samples, use_corrected=False)
-                        for eic in eics:
-                            validation_data[eic.sample_name] = self._validate_peak_height(
-                                compound_name, eic.sample_name, eic.intensity
+                        for sample in samples:
+                            validation_data[sample] = self._validate_peak_area(
+                                compound_name, sample
                             )
                     
                     self.graph_view.plot_compound(compound_name, samples, validation_data)
@@ -726,8 +714,19 @@ class MainWindow(QMainWindow):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")
 
         try:
-            # Refresh plots with session data
-            self.graph_view.refresh_plots_with_session_data()
+            # Invalidate validation provider cache since integration boundaries changed
+            if self._validation_provider is not None:
+                self._validation_provider.invalidate_cache()
+            
+            # Re-validate with new session data
+            validation_data = {}
+            if self.min_peak_height_ratio > 0:
+                current_samples = self.graph_view.get_current_samples()
+                for sample in current_samples:
+                    validation_data[sample] = self._validate_peak_area(compound_name, sample)
+            
+            # Refresh plots with session data and updated validation
+            self.graph_view.plot_compound(compound_name, self.graph_view.get_current_samples(), validation_data)
 
             # After refreshing plots, update the integration window to show the new values
             # Add a small delay to ensure the plot refresh is fully complete
@@ -943,6 +942,10 @@ class MainWindow(QMainWindow):
         data_provider = DataProvider()
         data_provider.invalidate_cache()
         
+        # Invalidate validation provider cache
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+        
         # Refresh plots
         current_compound = self.toolbar.get_selected_compound()
         current_samples = self.toolbar.get_selected_samples()
@@ -1061,11 +1064,9 @@ class MainWindow(QMainWindow):
                 # The plots will draw RT lines at the correct new positions
                 validation_data = {}
                 if self.min_peak_height_ratio > 0:  # Only if validation is enabled
-                    from manic.processors.eic_processing import get_eics_for_compound
-                    eics = get_eics_for_compound(current_compound, current_samples, use_corrected=False)
-                    for eic in eics:
-                        validation_data[eic.sample_name] = self._validate_peak_height(
-                            current_compound, eic.sample_name, eic.intensity
+                    for sample in current_samples:
+                        validation_data[sample] = self._validate_peak_area(
+                            current_compound, sample
                         )
                 self.graph_view.plot_compound(current_compound, current_samples, validation_data)
             else:
@@ -1413,9 +1414,9 @@ class MainWindow(QMainWindow):
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
-        # Min peak height input
+        # Min peak area input
         peak_height_layout = QHBoxLayout()
-        peak_height_label = QLabel("Minimum Height Ratio:")
+        peak_height_label = QLabel("Minimum Area Ratio:")
         peak_height_layout.addWidget(peak_height_label)
 
         peak_height_spinbox = QDoubleSpinBox()
@@ -1430,7 +1431,7 @@ class MainWindow(QMainWindow):
         peak_height_layout.addWidget(peak_height_spinbox)
         
         # Add explanation
-        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard height)")
+        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard total area)")
         explanation_label.setStyleSheet("color: gray; font-style: italic;")
         peak_height_layout.addWidget(explanation_label)
 

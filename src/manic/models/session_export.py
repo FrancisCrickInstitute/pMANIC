@@ -58,9 +58,11 @@ def export_session_method(export_path: str) -> bool:
         export_dir = export_path.parent / "manic_session_export"
         export_dir.mkdir(parents=True, exist_ok=True)
 
-        # Set paths for JSON and changelog files
+        # Set paths for JSON and changelog files with timestamp
+        import datetime
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M')
         json_path = export_dir / f"{base_name}.json"
-        changelog_path = export_dir / "changelog.md"
+        changelog_path = export_dir / f"changelog_{timestamp}.md"
 
         method_data = {}
 
@@ -111,8 +113,6 @@ def export_session_method(export_path: str) -> bool:
             method_data["session_overrides"] = session_overrides
 
         # Add metadata
-        import datetime
-
         method_data["export_metadata"] = {
             "export_date": datetime.datetime.now().isoformat(),
             "export_version": __version__,

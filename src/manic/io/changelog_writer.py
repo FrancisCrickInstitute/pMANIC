@@ -17,10 +17,11 @@ logger = logging.getLogger(__name__)
 
 def generate_changelog(export_filepath: str, *, internal_standard: Optional[str], use_legacy_integration: bool) -> None:
     """
-    Generate a comprehensive changelog.md file detailing the export session.
+    Generate a comprehensive changelog file with timestamp detailing the export session.
     """
     export_path = Path(export_filepath)
-    changelog_path = export_path.parent / "changelog.md"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+    changelog_path = export_path.parent / f"changelog_{timestamp}.md"
 
     # Get session information from database
     with get_connection() as conn:
@@ -94,10 +95,11 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
 
 ## Key Processing Notes
 - Integration boundaries determined by compound-specific loffset/roffset values
-- Inclusive boundaries (time >= l_boundary & time <= r_boundary) to match MATLAB exports
+- Strict boundaries (time > l_boundary & time < r_boundary) for precise peak integration
 - Compound-specific MM file patterns used for standard mixture identification
 - {"Legacy unit-spacing integration matches MATLAB MANIC (larger numerical values)" if use_legacy_integration else "Time-based integration produces physically meaningful results with proper units"}
 - Natural isotope correction applied using high-performance algorithms for accuracy
+- Peak area validation uses minimum ratio of 5% of internal standard total area
 
 ## Session Changes Made
 This export represents the final state of all data processing and parameter adjustments made during the session. All parameter overrides and corrections have been applied to generate the most accurate quantitative results possible.

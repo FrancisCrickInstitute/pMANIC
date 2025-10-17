@@ -175,16 +175,6 @@ class GraphView(QWidget):
                 container.chart_view for container in plot_containers
             ]
 
-            # Connect click signals for newly created containers only
-            # (Reused containers have signals connected in _update_container_data)
-            for container in plot_containers:
-                if container not in self._container_pool:
-                    # This is a newly created container, connect signals
-                    container.chart_view.clicked.connect(self._on_plot_clicked)
-                    container.chart_view.right_clicked.connect(
-                        self._on_plot_right_clicked
-                    )
-
             # Add to layout efficiently with atomic visibility handling
             # Hide all containers first, add to layout, then show all at once
             # This prevents visual flashing and is more efficient than processEvents()
@@ -529,6 +519,10 @@ class GraphView(QWidget):
         # Store references for easy access
         container.chart_view = chart_view
         container.caption = caption
+
+        # Connect click signals for new container
+        chart_view.clicked.connect(self._on_plot_clicked)
+        chart_view.right_clicked.connect(self._on_plot_right_clicked)
 
         # Apply validation styling
         self._apply_validation_styling(container, is_valid)

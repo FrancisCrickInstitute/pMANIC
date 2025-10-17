@@ -408,8 +408,10 @@ class MainWindow(QMainWindow):
         2. Call the load_compound_list controller function to load the compound list.
 
         """
+        from pathlib import Path
+        default_dir = str(Path.home() / "Documents")
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Compound List", "", "Excel Files (*.xls *.xlsx)"
+            self, "Select Compound List", default_dir, "Excel Files (*.xls *.xlsx)"
         )
         if not file_path:
             return

@@ -5,8 +5,6 @@ correction, calibration (MRRF and background ratios), and mass binning operation
 """
 
 import numpy as np
-import pytest
-from types import SimpleNamespace
 
 from manic.processors.integration import integrate_peak, calculate_peak_areas
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
@@ -530,7 +528,7 @@ class TestPerformance:
         snapshot1 = tracemalloc.take_snapshot()
 
         # This should be memory efficient
-        result = integrate_peak(data, np.arange(len(data)))
+        integrate_peak(data, np.arange(len(data)))
 
         snapshot2 = tracemalloc.take_snapshot()
         stats = snapshot2.compare_to(snapshot1, 'lineno')

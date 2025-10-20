@@ -4,10 +4,8 @@ Tests for backward compatibility with MATLAB version, changelog formatting,
 and legacy data import/export.
 """
 
-import tempfile
 from pathlib import Path
 
-import numpy as np
 from openpyxl import Workbook
 
 from manic.io.legacy_raw_values_reader import read_raw_values_workbook

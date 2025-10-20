@@ -2,7 +2,6 @@ import logging
 import os
 from pathlib import Path
 
-import numpy as np
 
 from PySide6.QtCore import QCoreApplication, Qt, QThread
 from PySide6.QtGui import QAction, QIcon, QPixmap
@@ -12,10 +11,8 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
-    QCheckBox,
     QRadioButton,
     QLabel,
-    QLineEdit,
     QMainWindow,
     QMenuBar,
     QMessageBox,
@@ -37,7 +34,11 @@ from manic.ui.left_toolbar import Toolbar
 from manic.ui.recovery_dialog import RecoveryDialog
 from manic.utils.utils import load_stylesheet
 from manic.utils.paths import resource_path, docs_path
-from manic.utils.workers import CdfImportWorker, EicRegenerationWorker, MassToleranceReloadWorker
+from manic.utils.workers import (
+    CdfImportWorker,
+    EicRegenerationWorker,
+    MassToleranceReloadWorker,
+)
 from src.manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
@@ -48,7 +49,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} v{__version__}")
         self.setObjectName("mainWindow")
-        
+
         # Flag to prevent cascading compound deletion events
         self._deleting_compound = False
 
@@ -69,22 +70,22 @@ class MainWindow(QMainWindow):
 
         # Mass tolerance setting (default 0.2 Da)
         self.mass_tolerance = 0.2
-        
+
         # Minimum peak height setting (as ratio of internal standard height)
         self.min_peak_height_ratio = 0.05
-        
+
         # Integration method setting
         self.use_legacy_integration = False  # Time-based by default
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
-        
+
         # Cached DataProvider for validation (reused to avoid repeated bulk loads)
         self._validation_provider = None
 
         self.setup_ui()
 
         # Load and apply the stylesheet
-        stylesheet = load_stylesheet(resource_path('resources', 'style.qss'))
+        stylesheet = load_stylesheet(resource_path("resources", "style.qss"))
         self.setStyleSheet(stylesheet)
 
         # Connect toolbar signals (avoid duplicate connections; others are set in setup_ui)
@@ -157,7 +158,7 @@ class MainWindow(QMainWindow):
 
         # Add separator before recovery and export
         file_menu.addSeparator()
-        
+
         # Recovery dialog action
         self.recovery_action = QAction("Recover Deleted Compounds...", self)
         self.recovery_action.triggered.connect(self.show_recovery_dialog)
@@ -184,7 +185,7 @@ class MainWindow(QMainWindow):
         self.mass_tolerance_action = QAction("Mass Tolerance...", self)
         self.mass_tolerance_action.triggered.connect(self.show_mass_tolerance_dialog)
         settings_menu.addAction(self.mass_tolerance_action)
-        
+
         self.min_peak_height_action = QAction("Minimum Peak Area...", self)
         self.min_peak_height_action.triggered.connect(self.show_min_peak_height_dialog)
         settings_menu.addAction(self.min_peak_height_action)
@@ -197,7 +198,7 @@ class MainWindow(QMainWindow):
             self.toggle_natural_abundance_correction
         )
         settings_menu.addAction(self.nat_abundance_toggle)
-        
+
         # Legacy integration mode toggle action
         self.legacy_integration_toggle = QAction("Legacy Integration Mode: Off", self)
         self.legacy_integration_toggle.setCheckable(True)
@@ -206,7 +207,6 @@ class MainWindow(QMainWindow):
             self.toggle_legacy_integration_mode
         )
         settings_menu.addAction(self.legacy_integration_toggle)
-        
 
         """ Create Documentation Menu """
 
@@ -251,7 +251,7 @@ class MainWindow(QMainWindow):
     def _get_logo_path(self) -> str:
         """Get the path to the MANIC logo."""
         # Try to find the logo relative to this file
-        logo_path = resource_path('resources', 'manic_logo.png')
+        logo_path = resource_path("resources", "manic_logo.png")
         if os.path.exists(logo_path):
             return logo_path
         return ""
@@ -409,6 +409,7 @@ class MainWindow(QMainWindow):
 
         """
         from pathlib import Path
+
         default_dir = str(Path.home() / "Documents")
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Compound List", default_dir, "Excel Files (*.xls *.xlsx)"
@@ -434,8 +435,7 @@ class MainWindow(QMainWindow):
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(
-            self, 
-            "Select Directory Containing CDF Files"
+            self, "Select Directory Containing CDF Files"
         )
         if not directory:
             return
@@ -495,38 +495,43 @@ class MainWindow(QMainWindow):
     def _validate_peak_area(self, compound_name: str, sample_name: str) -> bool:
         """
         Validate if the compound's total peak area meets the minimum threshold.
-        
+
         This method compares the sum of all isotopologue peak areas for the compound
         against a threshold calculated as: internal_standard_total × min_peak_height_ratio.
-        
+
         Both the compound and internal standard use their own integration boundaries
         (retention time ± offsets), which respect session overrides.
-        
+
         Args:
             compound_name: Name of the compound being validated
             sample_name: Name of the sample
-            
+
         Returns:
             True if compound total area >= threshold, False otherwise
         """
         internal_standard = self.toolbar.get_internal_standard()
         if not internal_standard:
             return True
-            
+
         try:
             if self._validation_provider is None:
                 from manic.io.data_provider import DataProvider
-                self._validation_provider = DataProvider(use_legacy_integration=self.use_legacy_integration)
-            
+
+                self._validation_provider = DataProvider(
+                    use_legacy_integration=self.use_legacy_integration
+                )
+
             return self._validation_provider.validate_peak_area(
                 sample_name,
                 compound_name,
                 internal_standard,
-                self.min_peak_height_ratio
+                self.min_peak_height_ratio,
             )
-            
+
         except Exception as e:
-            logger.warning(f"Peak area validation failed for {compound_name}/{sample_name}: {e}")
+            logger.warning(
+                f"Peak area validation failed for {compound_name}/{sample_name}: {e}"
+            )
             return True
 
     def on_plot_button(self, compound_name, samples):
@@ -547,8 +552,10 @@ class MainWindow(QMainWindow):
                             validation_data[sample] = self._validate_peak_area(
                                 compound_name, sample
                             )
-                    
-                    self.graph_view.plot_compound(compound_name, samples, validation_data)
+
+                    self.graph_view.plot_compound(
+                        compound_name, samples, validation_data
+                    )
 
                 # After plotting, update integration window to show "All" state
                 # (no plots selected initially)
@@ -617,34 +624,37 @@ class MainWindow(QMainWindow):
         # Prevent cascading deletion events
         if self._deleting_compound:
             return
-            
+
         self._deleting_compound = True
-        
+
         try:
             # Perform soft delete in database
             if soft_delete_compound(compound_name):
                 # Get updated compound list
                 active_compounds = list_compound_names()
-                
+
                 # Clear the graph view first before updating the list
                 self.graph_view.clear_all_plots()
-                
+
                 # Force complete UI refresh to eliminate any visual artifacts
                 from PySide6.QtCore import QCoreApplication
+
                 QCoreApplication.processEvents()
                 self.graph_view.update()
                 self.graph_view.repaint()
                 QCoreApplication.processEvents()
-                
+
                 # Update compound list (signals are blocked during update)
                 self.toolbar.update_compound_list(active_compounds)
-                
+
                 logger.info(f"Compound '{compound_name}' deleted successfully.")
-                
+
                 if not active_compounds:
                     logger.info("No compounds remaining after deletion.")
             else:
-                logger.error(f"Failed to delete compound '{compound_name}' from database")
+                logger.error(
+                    f"Failed to delete compound '{compound_name}' from database"
+                )
         except Exception as e:
             logger.error(f"Error during compound deletion: {e}")
         finally:
@@ -722,16 +732,20 @@ class MainWindow(QMainWindow):
             # Invalidate validation provider cache since integration boundaries changed
             if self._validation_provider is not None:
                 self._validation_provider.invalidate_cache()
-            
+
             # Re-validate with new session data
             validation_data = {}
             if self.min_peak_height_ratio > 0:
                 current_samples = self.graph_view.get_current_samples()
                 for sample in current_samples:
-                    validation_data[sample] = self._validate_peak_area(compound_name, sample)
-            
+                    validation_data[sample] = self._validate_peak_area(
+                        compound_name, sample
+                    )
+
             # Refresh plots with session data and updated validation
-            self.graph_view.plot_compound(compound_name, self.graph_view.get_current_samples(), validation_data)
+            self.graph_view.plot_compound(
+                compound_name, self.graph_view.get_current_samples(), validation_data
+            )
 
             # After refreshing plots, update the integration window to show the new values
             # Add a small delay to ensure the plot refresh is fully complete
@@ -829,7 +843,11 @@ class MainWindow(QMainWindow):
             msg_box.exec()
 
     def on_data_regeneration_requested(
-        self, compound_name: str, tr_window: float, sample_names: list, retention_time: float
+        self,
+        compound_name: str,
+        tr_window: float,
+        sample_names: list,
+        retention_time: float,
     ):
         """Handle data regeneration request - start background regeneration with progress dialog"""
         logger.info(
@@ -876,44 +894,45 @@ class MainWindow(QMainWindow):
     def _on_mass_tolerance_changed(self, new_mass_tol: float):
         """Handle mass tolerance change - regenerate all EICs with new tolerance"""
         from manic.constants import DEFAULT_RT_WINDOW
-        
+
         logger.info(f"Starting EIC regeneration with mass tolerance {new_mass_tol} Da")
-        
+
         try:
             # Disable UI during regeneration
             self.load_cdf_action.setEnabled(False)
             self.load_compound_action.setEnabled(False)
             self.export_data_action.setEnabled(False)
             self.export_method_action.setEnabled(False)
-            
+
             # Build and show progress dialog
             self.mass_tol_progress_dialog = self._build_progress_dialog(
                 f"Regenerating all EICs with mass tolerance {new_mass_tol} Da..."
             )
             self.mass_tol_progress_dialog.show()
-            
+
             # Create background thread and worker
             self._mass_tol_thread = QThread(self)
             self._mass_tol_worker = MassToleranceReloadWorker(
-                mass_tol=new_mass_tol,
-                rt_window=DEFAULT_RT_WINDOW
+                mass_tol=new_mass_tol, rt_window=DEFAULT_RT_WINDOW
             )
             self._mass_tol_worker.moveToThread(self._mass_tol_thread)
-            
+
             # Connect progress updates
             self._mass_tol_worker.progress.connect(self._update_mass_tolerance_progress)
-            
+
             # Connect completion/failure handlers
-            self._mass_tol_worker.finished.connect(self._mass_tolerance_reload_completed)
+            self._mass_tol_worker.finished.connect(
+                self._mass_tolerance_reload_completed
+            )
             self._mass_tol_worker.failed.connect(self._mass_tolerance_reload_failed)
             self._mass_tol_worker.finished.connect(self._mass_tol_thread.quit)
             self._mass_tol_worker.failed.connect(self._mass_tol_thread.quit)
-            
+
             # Start the background work
             self._mass_tol_thread.started.connect(self._mass_tol_worker.run)
             self._mass_tol_thread.finished.connect(self._mass_tol_thread.deleteLater)
             self._mass_tol_thread.start()
-            
+
         except Exception as e:
             logger.error(f"Failed to start mass tolerance reload: {e}")
             self._re_enable_ui_actions()
@@ -923,7 +942,7 @@ class MainWindow(QMainWindow):
                 f"Failed to start EIC regeneration: {str(e)}",
             )
             msg_box.exec()
-    
+
     def _update_mass_tolerance_progress(self, current: int, total: int):
         """Update mass tolerance regeneration progress dialog"""
         if hasattr(self, "mass_tol_progress_dialog"):
@@ -934,32 +953,35 @@ class MainWindow(QMainWindow):
                 f"Processing {current} of {total}..."
             )
             QCoreApplication.processEvents()
-    
+
     def _mass_tolerance_reload_completed(self, regenerated_count: int):
         """Handle successful mass tolerance reload completion"""
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
-        
-        logger.info(f"Mass tolerance reload completed: {regenerated_count} EICs regenerated")
-        
+
+        logger.info(
+            f"Mass tolerance reload completed: {regenerated_count} EICs regenerated"
+        )
+
         # Invalidate caches
         from manic.io.data_provider import DataProvider
+
         data_provider = DataProvider()
         data_provider.invalidate_cache()
-        
+
         # Invalidate validation provider cache
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
-        
+
         # Refresh plots
         current_compound = self.toolbar.get_selected_compound()
         current_samples = self.toolbar.get_selected_samples()
         if current_compound and current_samples:
             self.on_plot_button(current_compound, current_samples)
-        
+
         # Re-enable UI
         self._re_enable_ui_actions()
-        
+
         # Show success message
         msg = self._create_message_box(
             "info",
@@ -967,31 +989,33 @@ class MainWindow(QMainWindow):
             f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
         )
         msg.exec()
-    
+
     def _mass_tolerance_reload_failed(self, error_msg: str):
         """Handle mass tolerance reload failure"""
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
-        
+
         logger.error(f"Mass tolerance reload failed: {error_msg}")
-        
+
         # Re-enable UI
         self._re_enable_ui_actions()
-        
+
         msg_box = self._create_message_box(
             "critical",
             "Regeneration Failed",
             f"Failed to regenerate EICs: {error_msg}",
         )
         msg_box.exec()
-    
+
     def _re_enable_ui_actions(self):
         """Re-enable UI actions after background operations"""
         self.load_cdf_action.setEnabled(True)
         self.load_compound_action.setEnabled(True)
         # Re-enable export actions based on data state
         self.export_method_action.setEnabled(self.compound_data_loaded)
-        self.export_data_action.setEnabled(self.cdf_data_loaded and self.compound_data_loaded)
+        self.export_data_action.setEnabled(
+            self.cdf_data_loaded and self.compound_data_loaded
+        )
 
     def _update_regeneration_progress(self, current: int, total: int):
         """Update regeneration progress dialog"""
@@ -1015,14 +1039,17 @@ class MainWindow(QMainWindow):
 
         try:
             # Check if there's a pending session update from Apply button (auto-reload feature)
-            if hasattr(self.toolbar.integration, '_pending_session_update') and \
-               self.toolbar.integration._pending_session_update is not None:
-
+            if (
+                hasattr(self.toolbar.integration, "_pending_session_update")
+                and self.toolbar.integration._pending_session_update is not None
+            ):
                 # Apply the pending session update now that data has been reloaded
-                retention_time, loffset, roffset, samples_to_apply = \
+                retention_time, loffset, roffset, samples_to_apply = (
                     self.toolbar.integration._pending_session_update
+                )
 
                 from manic.models.session_activity import SessionActivityService
+
                 SessionActivityService.update_session_data(
                     compound_name=self.graph_view.get_current_compound(),
                     sample_names=samples_to_apply,
@@ -1034,20 +1061,28 @@ class MainWindow(QMainWindow):
                 # Refresh data window bounds for the regenerated samples
                 # Use the list of samples that were actually regenerated, not all samples_to_apply
                 current_compound = self.graph_view.get_current_compound()
-                samples_regenerated = getattr(self.toolbar.integration, '_samples_regenerated', [])
+                samples_regenerated = getattr(
+                    self.toolbar.integration, "_samples_regenerated", []
+                )
                 if samples_regenerated:
-                    logger.info(f"Refreshing bounds for {len(samples_regenerated)} regenerated samples")
+                    logger.info(
+                        f"Refreshing bounds for {len(samples_regenerated)} regenerated samples"
+                    )
                     self.toolbar.integration.refresh_data_window_bounds(
                         current_compound, samples_regenerated
                     )
                 else:
-                    logger.warning("No samples_regenerated list found, skipping bounds refresh")
+                    logger.warning(
+                        "No samples_regenerated list found, skipping bounds refresh"
+                    )
 
                 # Clear the pending update and regenerated list
                 self.toolbar.integration._pending_session_update = None
                 self.toolbar.integration._samples_regenerated = []
 
-                logger.info(f"Applied pending session update after EIC reload: RT={retention_time:.3f}, loffset={loffset:.3f}, roffset={roffset:.3f}")
+                logger.info(
+                    f"Applied pending session update after EIC reload: RT={retention_time:.3f}, loffset={loffset:.3f}, roffset={roffset:.3f}"
+                )
 
             # Update integration window BEFORE refreshing plots
             # This ensures the plots draw RT lines at the correct (updated) positions
@@ -1073,7 +1108,9 @@ class MainWindow(QMainWindow):
                         validation_data[sample] = self._validate_peak_area(
                             current_compound, sample
                         )
-                self.graph_view.plot_compound(current_compound, current_samples, validation_data)
+                self.graph_view.plot_compound(
+                    current_compound, current_samples, validation_data
+                )
             else:
                 # Fallback to session data refresh
                 self.graph_view.refresh_plots_with_session_data()
@@ -1294,7 +1331,9 @@ class MainWindow(QMainWindow):
         if not out_path:
             return
 
-        progress_dialog = QProgressDialog("Rebuilding data export...", "Cancel", 0, 100, self)
+        progress_dialog = QProgressDialog(
+            "Rebuilding data export...", "Cancel", 0, 100, self
+        )
         progress_dialog.setWindowTitle("Update Old Data")
         progress_dialog.setWindowModality(Qt.WindowModal)
         progress_dialog.setMinimumDuration(0)
@@ -1434,7 +1473,7 @@ class MainWindow(QMainWindow):
             "QDoubleSpinBox { background-color: white; color: black; }"
         )
         peak_height_layout.addWidget(peak_height_spinbox)
-        
+
         # Add explanation
         explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard total area)")
         explanation_label.setStyleSheet("color: gray; font-style: italic;")
@@ -1473,12 +1512,12 @@ class MainWindow(QMainWindow):
         """Show dialog to recover deleted compounds."""
         dialog = RecoveryDialog(self)
         result = dialog.exec()
-        
+
         if result == QDialog.DialogCode.Accepted:
             # Refresh compound list in case compounds were restored
             active_compounds = list_compound_names()
             self.toolbar.update_compound_list(active_compounds)
-            
+
             # Auto-select first compound if available
             if active_compounds:
                 self.toolbar.compound_list.setCurrentRow(0)
@@ -1566,11 +1605,7 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             # Create and show progress dialog
             progress = QProgressDialog(
-                "Preparing to clear session...", 
-                "Cancel", 
-                0, 
-                100, 
-                self
+                "Preparing to clear session...", "Cancel", 0, 100, self
             )
             progress.setWindowTitle("Clearing Session")
             progress.setWindowModality(Qt.WindowModal)
@@ -1578,7 +1613,7 @@ class MainWindow(QMainWindow):
             progress.setValue(0)
             progress.show()
             QCoreApplication.processEvents()  # Ensure dialog appears
-            
+
             try:
                 # Temporarily disconnect signals to prevent cascading events during clear
                 self.toolbar.samples_selected.disconnect()
@@ -1628,20 +1663,24 @@ class MainWindow(QMainWindow):
                 def db_progress_callback(current, total, operation):
                     if progress.wasCanceled():
                         return
-                    
+
                     # Map database progress to 40-90% of total progress
                     db_progress_percent = int(40 + (current / total) * 50)
                     progress.setValue(db_progress_percent)
                     progress.setLabelText(operation)
-                    
+
                     # OPTIMIZATION: Reduce UI update frequency for better performance
                     # Only update UI every 25% or on operation changes
-                    if current == 0 or current == total or db_progress_percent % 25 == 0:
+                    if (
+                        current == 0
+                        or current == total
+                        or db_progress_percent % 25 == 0
+                    ):
                         QCoreApplication.processEvents()
 
                 # Clear the database with progress tracking (fast mode enabled by default)
                 clear_database(progress_callback=db_progress_callback)
-                
+
                 if progress.wasCanceled():
                     progress.close()
                     return
@@ -1661,7 +1700,7 @@ class MainWindow(QMainWindow):
                 progress.setValue(100)
                 progress.setLabelText("Session clearing complete")
                 QCoreApplication.processEvents()
-                
+
                 # Close progress dialog
                 progress.close()
 
@@ -1678,14 +1717,15 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 # Close progress dialog
                 progress.close()
-                
+
                 # Ensure signals are reconnected even if clearing fails
                 try:
                     self.toolbar.samples_selected.connect(self.on_samples_selected)
                     self.toolbar.compound_selected.connect(self.on_compound_selected)
                     self.toolbar.compound_deleted.connect(self.on_compound_deleted)
-                except:
+                except Exception as ex:
                     pass  # Signals might already be connected
+                    logger.error(f"{ex}")
 
                 logger.error(f"Failed to clear session: {e}")
                 msg_box = self._create_message_box(
@@ -1725,27 +1765,29 @@ class MainWindow(QMainWindow):
         """Toggle legacy MATLAB-compatible integration mode on/off."""
         is_enabled = self.legacy_integration_toggle.isChecked()
         self.use_legacy_integration = is_enabled
-        
-        logger.info(
-            f"Legacy integration mode toggled: {'ON' if is_enabled else 'OFF'}"
-        )
+
+        logger.info(f"Legacy integration mode toggled: {'ON' if is_enabled else 'OFF'}")
 
         # Update menu text
         self.legacy_integration_toggle.setText(
             f"Legacy Integration Mode: {'On' if is_enabled else 'Off'}"
         )
-        
+
         # Show information dialog about the change
         mode_name = "Legacy Unit-Spacing" if is_enabled else "Time-Based"
-        value_info = "~100× larger values (MATLAB compatible)" if is_enabled else "Scientifically accurate"
-        
+        value_info = (
+            "~100× larger values (MATLAB compatible)"
+            if is_enabled
+            else "Scientifically accurate"
+        )
+
         msg = self._create_message_box(
             "info",
             "Integration Mode Changed",
             f"Integration method changed to: {mode_name}",
             f"This mode produces {value_info}. "
             f"The change will apply to new data exports. "
-            f"See documentation for detailed information about integration methods."
+            f"See documentation for detailed information about integration methods.",
         )
         msg.exec()
 

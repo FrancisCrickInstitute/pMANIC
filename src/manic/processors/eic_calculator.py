@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from manic.io.cdf_reader import CdfFileData
-from manic.io.compound_reader import read_compound
 
 
 @dataclass(slots=True)

@@ -7,7 +7,7 @@ and plot formatting used across the application.
 
 import re
 import logging
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple
 import numpy as np
 
 logger = logging.getLogger(__name__)

@@ -2,7 +2,7 @@ import logging
 from typing import Iterable, List
 
 from manic.io.compound_reader import read_compound
-from manic.io.eic_reader import EIC, read_eic, read_eics_batch
+from manic.io.eic_reader import EIC, read_eics_batch
 
 logger = logging.getLogger(__name__)
 

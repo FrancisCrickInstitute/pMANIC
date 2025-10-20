@@ -1,9 +1,8 @@
 import sys
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from manic.constants import FONT, GREEN, RED, create_font
+from manic.constants import GREEN, RED, create_font
 
 
 class LoadedDataWidget(QWidget):

@@ -262,7 +262,7 @@ class IsotopologueRatioWidget(QWidget):
 
         # Same grid calculation as graph window
         cols = math.ceil(math.sqrt(num))
-        rows = math.ceil(num / cols)
+        math.ceil(num / cols)
 
         # Create ordering that matches graph window grid positions
         # Graph adds widgets as: row = i // cols, col = i % cols

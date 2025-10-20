@@ -76,7 +76,7 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
     # Compounds table
     changelog_content += format_compounds_table_for_data_export(compounds) + "\n"
 
-    changelog_content += f"\n## Sample Files Processed\n"
+    changelog_content += "\n## Sample Files Processed\n"
     for sample in samples:
         file_name = sample['file_name'] if sample['file_name'] else 'N/A'
         changelog_content += f"- **{sample['sample_name']}**: {file_name}\n"

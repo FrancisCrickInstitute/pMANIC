@@ -5,7 +5,6 @@ Provides shared test infrastructure without complexity.
 
 import os
 import sys
-import tempfile
 import sqlite3
 from pathlib import Path
 

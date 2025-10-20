@@ -18,7 +18,6 @@ import re
 from typing import Dict, Tuple
 
 import numpy as np
-from scipy.optimize import minimize
 
 logger = logging.getLogger(__name__)
 

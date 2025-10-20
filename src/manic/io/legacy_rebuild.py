@@ -8,7 +8,6 @@ import xlsxwriter
 
 from manic.io.legacy_raw_values_reader import read_raw_values_workbook
 from manic.io.in_memory_provider import InMemoryDataProvider
-from manic.io.compounds_import import import_compound_excel
 import pandas as pd
 
 from manic.sheet_generators import (

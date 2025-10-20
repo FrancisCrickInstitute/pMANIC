@@ -10,7 +10,6 @@ These tests follow TDD (Test-Driven Development) principles:
 3. Implementation will be written to make these tests pass
 """
 
-import pytest
 from manic.ui.integration_window_widget import (
     calculate_integration_boundaries,
     calculate_minimum_rt_window,

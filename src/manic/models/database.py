@@ -1,4 +1,3 @@
-import importlib.resources as pkg_resources
 import logging
 import sqlite3
 import time

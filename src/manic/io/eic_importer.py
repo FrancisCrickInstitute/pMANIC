@@ -19,10 +19,10 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────── Utility Functions ────────────────────────────
 def _compress(arr: np.ndarray) -> bytes:
     """Compress numpy array to optimized byte stream for database storage.
-    
+
     Args:
         arr: Input numpy array to compress
-        
+
     Returns:
         Zlib-compressed bytes in float64 format
     """
@@ -31,10 +31,10 @@ def _compress(arr: np.ndarray) -> bytes:
 
 def _iter_compounds(conn):
     """Iterate over active compounds in the database.
-    
+
     Args:
         conn: Database connection object
-        
+
     Yields:
         Tuple of (compound_name, retention_time, mass0, label_atoms)
     """
@@ -43,16 +43,21 @@ def _iter_compounds(conn):
         "FROM   compounds "
         "WHERE  deleted = 0"
     ):
-        yield row["compound_name"], row["retention_time"], row["mass0"], row["label_atoms"]
+        yield (
+            row["compound_name"],
+            row["retention_time"],
+            row["mass0"],
+            row["label_atoms"],
+        )
 
 
 def _extract_tic_from_cdf(cdf):
     """
     Extract Total Ion Chromatogram from CDF data.
-    
+
     Args:
         cdf: CdfFileData object
-        
+
     Returns:
         tuple: (time_array, intensity_array)
     """
@@ -61,94 +66,100 @@ def _extract_tic_from_cdf(cdf):
         times = cdf.scan_time / 60.0
         intensities = cdf.total_intensity
         return times, intensities
-        
+
     except Exception as e:
         logger.error(f"Failed to extract TIC from CDF: {e}")
         return np.array([]), np.array([])
 
 
-def _extract_all_eics_for_file(cdf_data, compounds, mass_tol, rt_window, progress_cb, done_so_far, total_work):
+def _extract_all_eics_for_file(
+    cdf_data, compounds, mass_tol, rt_window, progress_cb, done_so_far, total_work
+):
     """
     PERFORMANCE-OPTIMIZED batch EIC extraction for a single CDF file.
-    
+
     This function implements key optimizations:
     1. Pre-computes time array once (reused across all compounds)
     2. Batches all extracted data for single database transaction
     3. Maintains compatibility with existing progress reporting
-    
+
     Performance Characteristics:
     - Single file read operation per CDF file
     - Single time conversion operation per file
     - Batch database insertion using executemany()
     - Optimized for files containing multiple compounds
-    
+
     Args:
         cdf_data: Pre-loaded CDF file data (optimization: no repeated file I/O)
         compounds: List of (name, rt, mz, label_atoms) tuples to process
         mass_tol: Mass tolerance offset for MANIC's asymmetric matching method (Da)
-        rt_window: Retention time window (±minutes) 
+        rt_window: Retention time window (±minutes)
         progress_cb: Optional callback for GUI progress reporting
         done_so_far: Number of compounds already processed (for progress calc)
         total_work: Total compounds to process (for progress calc)
-        
+
     Returns:
         tuple: (list of prepared database records, count of skipped compounds)
     """
     eic_batch = []
     skipped_count = 0
-    
+
     # Calculate scan times in minutes once, reuse for all compounds in this file
     # This vectorized approach eliminates redundant array operations
     times = cdf_data.scan_time / 60.0
-    
+
     # Process each compound using cached CDF data and pre-computed time array
     for i, (name, rt, mz, label_atoms) in enumerate(compounds):
         try:
             # Use optimized extraction algorithm that leverages cached computations
-            eic = _extract_eic_optimized(name, rt, mz, cdf_data, times, mass_tol, rt_window, label_atoms)
-            
+            eic = _extract_eic_optimized(
+                name, rt, mz, cdf_data, times, mass_tol, rt_window, label_atoms
+            )
+
             # Prepare compressed data tuple for batch database insertion
             # Structure matches original INSERT statement parameter order
             eic_data = (
-                eic.sample_name,      # Sample identifier
-                eic.compound_name,    # Compound identifier  
-                _compress(eic.time),     # Compressed time array (zlib)
-                _compress(eic.intensity), # Compressed intensity array (zlib)
-                rt_window,            # Retention time window used for extraction
+                eic.sample_name,  # Sample identifier
+                eic.compound_name,  # Compound identifier
+                _compress(eic.time),  # Compressed time array (zlib)
+                _compress(eic.intensity),  # Compressed intensity array (zlib)
+                rt_window,  # Retention time window used for extraction
             )
             eic_batch.append(eic_data)
-            
+
         except ValueError:
             # Handle compounds with insufficient data in RT/m/z window
             # This is expected behavior - not all compounds are detectable in all samples
             skipped_count += 1
-        
+
         # Maintain original progress reporting behavior for GUI consistency
         if progress_cb:
             progress_cb(done_so_far + i + 1, total_work)
-    
+
     return eic_batch, skipped_count
 
 
-def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, rt_window, label_atoms):
+def _extract_eic_optimized(
+    compound_name, t_r, target_mz, cdf, times, mass_tol, rt_window, label_atoms
+):
     """
     MEMORY-OPTIMIZED EIC extraction algorithm with pre-computed time arrays.
-    
+
     This optimized version eliminates redundant computation by reusing the pre-calculated
     time array across all compounds for a single CDF file. The core algorithm remains
     identical to the original extract_eic() function, ensuring identical results.
-    
+
     Key Optimization:
     - Original: Converts cdf.scan_time/60.0 for every compound (~1-2ms per compound)
     - Optimized: Reuses single time array calculation across all compounds
     - Savings: For 100 compounds = ~100-200ms saved per file
-    
+
     Algorithm:
     1. Use pre-computed time array to find scans within retention time window
-    2. Extract mass and intensity data for relevant scans using vectorized operations  
+    2. Extract mass and intensity data for relevant scans using vectorized operations
     3. Apply isotopologue-aware peak integration using numpy.bincount()
     4. Return structured EIC data identical to original implementation
-    
+
     Args:
         compound_name: Target compound identifier
         t_r: Expected retention time (minutes)
@@ -158,24 +169,24 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
         mass_tol: Mass tolerance offset for MANIC's asymmetric matching method (Da)
         rt_window: Retention time search window (±minutes)
         label_atoms: Number of labeled atoms for isotopologue analysis
-        
+
     Returns:
         EIC: Structured object containing time series and intensity data
-        
+
     Raises:
         ValueError: If no scans found within specified RT window
     """
     from manic.processors.eic_calculator import EIC
-    
+
     # Ensure label_atoms is properly typed (handles None/string inputs)
     label_atoms = int(label_atoms) if label_atoms else 0
-    
+
     # OPTIMIZATION: Use pre-computed time array instead of recalculating
-    # Original: times = cdf.scan_time / 60.0 (computed for each compound)  
+    # Original: times = cdf.scan_time / 60.0 (computed for each compound)
     # Current:  times passed as parameter (computed once per file)
     time_mask = (times >= t_r - rt_window) & (times <= t_r + rt_window)
     idx = np.where(time_mask)[0]
-    
+
     # Validate that compound is detectable within specified parameters
     if idx.size == 0:
         raise ValueError("no scans inside RT window")
@@ -190,13 +201,15 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
         ends = np.append(cdf.scan_index[idx[1:]], len(cdf.mass))
 
     start_end_array = np.array([starts, ends]).T
-    
+
     # VECTORIZED MASS SPECTRA EXTRACTION
     # Concatenate all relevant mass and intensity data from selected scans
     # This creates flattened arrays while maintaining scan association via indices
     all_relevant_mass = np.concatenate([cdf.mass[s:e] for s, e in start_end_array])
-    all_relevant_intensity = np.concatenate([cdf.intensity[s:e] for s, e in start_end_array])
-    
+    all_relevant_intensity = np.concatenate(
+        [cdf.intensity[s:e] for s, e in start_end_array]
+    )
+
     # Create scan index mapping for efficient groupby operations
     # Associates each mass/intensity point with its originating scan
     scan_indices = np.concatenate(
@@ -207,22 +220,24 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
     num_scans = len(idx)
     num_labels = label_atoms + 1  # M+0, M+1, M+2, etc.
     intensities_arr = np.zeros((num_labels, num_scans), dtype=np.float64)
-    
+
     # VECTORIZED ISOTOPOLOGUE INTEGRATION
     # Process each isotopologue (M+0, M+1, M+2, etc.) using numpy operations
     label_ions = np.arange(num_labels)
     target_mzs = target_mz + label_ions  # e.g., [174.0, 175.0, 176.0] for pyruvate
-    
+
     # Precompute MATLAB-aligned half-up rounding of (mass - offset)
     offset_masses = all_relevant_mass - mass_tol
     rounded_masses = np.floor(offset_masses + 0.5).astype(int)
-    target_mzs_int = np.floor(target_mzs + 0.5).astype(int)  # Use half-up rounding (MATLAB compatible)
+    target_mzs_int = np.floor(target_mzs + 0.5).astype(
+        int
+    )  # Use half-up rounding (MATLAB compatible)
 
     for label in label_ions:
         target_int = target_mzs_int[label]
         # MANIC's asymmetric mass tolerance method: offset + half-up rounding
-        mask = (rounded_masses == target_int)
-        
+        mask = rounded_masses == target_int
+
         # Sum intensities per scan using vectorized bincount operation
         # This efficiently groups intensities by scan index and sums them
         intensities_arr[label] = np.bincount(
@@ -231,13 +246,13 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
 
     # Flatten intensity array for database storage (maintains isotopologue ordering)
     concat_intensities_array = intensities_arr.ravel()
-    
+
     # Return structured EIC object with identical format to original implementation
     return EIC(
         compound_name,
         cdf.sample_name,
-        times[time_mask],           # Time points for selected scans
-        concat_intensities_array,   # Flattened intensity matrix
+        times[time_mask],  # Time points for selected scans
+        concat_intensities_array,  # Flattened intensity matrix
         label_atoms,
     )
 
@@ -245,53 +260,51 @@ def _extract_eic_optimized(compound_name, t_r, target_mz, cdf, times, mass_tol, 
 def _extract_ms_at_retention_times(cdf, retention_times, tolerance=0.1):
     """
     Extract mass spectra at specific retention times.
-    
+
     Args:
         cdf: CdfFileData object
         retention_times: List of retention times to extract MS at (in minutes)
         tolerance: Time tolerance window (minutes)
-        
+
     Returns:
         List of (time, mz_array, intensity_array) tuples
     """
     try:
         ms_data_points = []
-        
+
         # Normalize scan times to minutes for retention time matching
         scan_times_minutes = cdf.scan_time / 60.0
-        
+
         for rt in retention_times:
             # Identify scan index nearest to target retention time
             time_diffs = np.abs(scan_times_minutes - rt)
-            
+
             if np.min(time_diffs) > tolerance:
                 # Skip if no scan falls within tolerance window
                 continue
-                
+
             # Select scan with minimum time difference
             closest_scan_idx = np.argmin(time_diffs)
             actual_time = scan_times_minutes[closest_scan_idx]
-            
+
             # Extract mass spectrum data using scan index boundaries
             scan_start = cdf.scan_index[closest_scan_idx]
             point_count = cdf.point_count[closest_scan_idx]
             scan_end = scan_start + point_count
-            
+
             # Retrieve m/z and intensity arrays for current scan
             mz_values = cdf.mass[scan_start:scan_end]
             intensities = cdf.intensity[scan_start:scan_end]
-            
+
             # Remove zero-intensity peaks for storage optimization
             nonzero_mask = intensities > 0
             if np.any(nonzero_mask):
-                ms_data_points.append((
-                    actual_time,
-                    mz_values[nonzero_mask],
-                    intensities[nonzero_mask]
-                ))
-        
+                ms_data_points.append(
+                    (actual_time, mz_values[nonzero_mask], intensities[nonzero_mask])
+                )
+
         return ms_data_points
-        
+
     except Exception as e:
         logger.error(f"Failed to extract MS data: {e}")
         return []
@@ -306,24 +319,24 @@ def import_eics(
 ) -> int:
     """
     PERFORMANCE-OPTIMIZED CDF import with batch processing and natural abundance correction.
-    
+
     This function implements Phase 1 performance optimizations for ~5-15x speedup:
-    
+
     OPTIMIZATION SUMMARY:
     1. CDF File Caching: Read each file once (not once per compound)
     2. Batch Database Operations: Single executemany() vs individual INSERTs
     3. Vectorized Extraction: Reuse computed arrays across compounds
     4. Memory Management: Explicit cleanup to prevent RAM accumulation
     5. Integrated Corrections: Natural abundance corrections with progress tracking
-    
+
     PERFORMANCE COMPARISON:
-    - Legacy: File I/O = O(N×M), DB Ops = O(N×M), Time Calc = O(N×M)  
+    - Legacy: File I/O = O(N×M), DB Ops = O(N×M), Time Calc = O(N×M)
     - Current: File I/O = O(N), DB Ops = O(N), Time Calc = O(N)
     - Where N = files, M = compounds per file
     - Expected speedup: 5-15x for typical datasets
-    
+
     MEMORY USAGE:
-    - Peak RAM: Same as original (1 CDF file + processing overhead)  
+    - Peak RAM: Same as original (1 CDF file + processing overhead)
     - Pattern: Load→Process→Store→Clear (per file, not accumulated)
     - Safety: Explicit garbage collection prevents memory leaks
 
@@ -342,12 +355,12 @@ def import_eics(
     -------
     int
         Total number of EIC records successfully inserted into database.
-        
+
     Raises
     ------
     FileNotFoundError
         If no .CDF files found in specified directory.
-    RuntimeError  
+    RuntimeError
         If compounds table is empty or database operations fail.
     """
     start = time.time()
@@ -391,27 +404,29 @@ def import_eics(
     # ============================================================================
     # This section implements three key optimizations for ~5-15x performance gain:
     # 1. CDF File Caching: Read each file once instead of once-per-compound
-    # 2. Batch Database Operations: Single executemany() vs individual INSERTs  
+    # 2. Batch Database Operations: Single executemany() vs individual INSERTs
     # 3. Vectorized Extraction: Reuse computed arrays across compounds
-    # 
+    #
     # Memory efficient: loads one CDF file at a time, processes all compounds,
     # then explicitly clears data before loading the next file.
     # ============================================================================
-    
+
     import gc  # Required for explicit memory management
-    
+
     for cdf_path in cdf_files:
         # Load CDF file once per file, then process all compounds
         # This approach minimizes file I/O operations
         cdf_data = read_cdf_file(cdf_path)
-        
+
         try:
             # Extract all EICs for this file using batch processing and vectorized operations
             eic_batch, skipped_count = _extract_all_eics_for_file(
                 cdf_data, compounds, mass_tol, rt_window, progress_cb, done, total_work
             )
-            done += len(compounds)  # Update progress counter for all processed compounds
-            
+            done += len(
+                compounds
+            )  # Update progress counter for all processed compounds
+
             # Database transaction: Process all data for current file in single connection
             with get_connection() as conn:
                 # Register sample in database (idempotent operation)
@@ -424,16 +439,24 @@ def import_eics(
                 # Extract and store Total Ion Chromatogram data
                 tic_times, tic_intensities = _extract_tic_from_cdf(cdf_data)
                 if len(tic_times) > 0:
-                    if store_tic_data(cdf_data.sample_name, tic_times, tic_intensities, conn):
+                    if store_tic_data(
+                        cdf_data.sample_name, tic_times, tic_intensities, conn
+                    ):
                         tic_count += 1
-                
+
                 # Extract and store mass spectrum data at compound retention times
-                compound_retention_times = [rt for name, rt, mz, label_atoms in compounds]
-                ms_data_points = _extract_ms_at_retention_times(cdf_data, compound_retention_times)
+                compound_retention_times = [
+                    rt for name, rt, mz, label_atoms in compounds
+                ]
+                ms_data_points = _extract_ms_at_retention_times(
+                    cdf_data, compound_retention_times
+                )
                 if ms_data_points:
                     if store_ms_data_batch(cdf_data.sample_name, ms_data_points, conn):
                         ms_count += 1
-                        total_ms_peaks += sum(len(mz_vals) for _, mz_vals, _ in ms_data_points)
+                        total_ms_peaks += sum(
+                            len(mz_vals) for _, mz_vals, _ in ms_data_points
+                        )
 
                 # Batch database insert for all EICs from this file
                 # Uses executemany() for efficient database operations
@@ -447,10 +470,10 @@ def import_eics(
                             spectrum_pos, chromat_pos
                         ) VALUES (?,?,?,?,?,0,0,NULL,NULL)
                         """,
-                        eic_batch
+                        eic_batch,
                     )
                     inserted += len(eic_batch)
-        
+
         finally:
             # CRITICAL MEMORY MANAGEMENT: Explicit cleanup to prevent RAM accumulation
             # CDF files can be 500MB-2GB each. Without explicit cleanup, memory usage
@@ -460,27 +483,26 @@ def import_eics(
 
     # Report additional data storage statistics
     if tic_count > 0 or ms_count > 0:
-        logger.info(f"Stored additional data: {tic_count} TIC chromatograms, {ms_count} MS spectra sets ({total_ms_peaks:,} total peaks)")
-    
+        logger.info(
+            f"Stored additional data: {tic_count} TIC chromatograms, {ms_count} MS spectra sets ({total_ms_peaks:,} total peaks)"
+        )
+
     # Automatically calculate natural abundance corrections
     if corrections_needed > 0:
         try:
-            from manic.processors.eic_correction_manager import process_all_corrections
-            
             # Create progress callback that continues from where EIC import left off
             def correction_progress(current, total):
                 if progress_cb:
                     # Map correction progress to remaining work
                     correction_done = int((current / total) * corrections_needed)
                     progress_cb(done + correction_done, total_work)
-            
-            corrections_count = process_all_corrections(progress_cb=correction_progress)
+
         except Exception as e:
             logger.warning(f"Failed to calculate natural abundance corrections: {e}")
-    
+
     elapsed = time.time() - start
     logger.info("imported %d EICs in %.1f s", inserted, elapsed)
-    
+
     return inserted
 
 
@@ -494,10 +516,10 @@ def regenerate_compound_eics(
 ) -> int:
     """
     Regenerate EIC data for a specific compound across given samples with new tR window.
-    
+
     This function deletes existing EIC records for the compound and recalculates them
     using the new tR window parameter. Session data is NOT touched.
-    
+
     Parameters
     ----------
     compound_name : str
@@ -512,70 +534,82 @@ def regenerate_compound_eics(
         Optional callback for GUI progress bars
     retention_time : float | None
         Retention time to center the window at. If None, uses compound default.
-        
+
     Returns
     -------
     int
         Number of EIC rows regenerated
     """
     start = time.time()
-    
-    logger.info(f"Starting regeneration for compound '{compound_name}' with tR window {tr_window}")
-    
+
+    logger.info(
+        f"Starting regeneration for compound '{compound_name}' with tR window {tr_window}"
+    )
+
     # Get compound data (retention time, mass, label_atoms)
     try:
         compound_data = read_compound(compound_name)
         # Use provided retention_time if given, otherwise use compound default
-        rt = retention_time if retention_time is not None else compound_data.retention_time
-        logger.info(f"Using retention time {rt:.3f} for EIC extraction (compound default: {compound_data.retention_time:.3f})")
+        rt = (
+            retention_time
+            if retention_time is not None
+            else compound_data.retention_time
+        )
+        logger.info(
+            f"Using retention time {rt:.3f} for EIC extraction (compound default: {compound_data.retention_time:.3f})"
+        )
         mz = compound_data.mass0
         label_atoms = compound_data.label_atoms
     except Exception as e:
         raise RuntimeError(f"Failed to read compound '{compound_name}': {e}")
-    
+
     # Get sample file paths from database
     sample_files = {}
     with get_connection() as conn:
         for sample_name in sample_names:
             row = conn.execute(
                 "SELECT file_name FROM samples WHERE sample_name = ? AND deleted = 0",
-                (sample_name,)
+                (sample_name,),
             ).fetchone()
             if row:
                 sample_files[sample_name] = Path(row["file_name"])
             else:
                 logger.warning(f"Sample '{sample_name}' not found in database")
-    
+
     if not sample_files:
         raise RuntimeError("No valid samples found for regeneration")
-    
+
     total_work = len(sample_files)
     done = 0
     regenerated = 0
-    
+
     # Delete existing EIC and corrected records for this compound
     with get_connection() as conn:
         # Delete raw EIC records
         delete_result = conn.execute(
             "DELETE FROM eic WHERE compound_name = ? AND sample_name IN ({})".format(
-                ','.join('?' * len(sample_names))
+                ",".join("?" * len(sample_names))
             ),
-            [compound_name] + sample_names
+            [compound_name] + sample_names,
         )
         deleted_count = delete_result.rowcount
-        logger.info(f"Deleted {deleted_count} existing EIC records for '{compound_name}'")
-        
+        logger.info(
+            f"Deleted {deleted_count} existing EIC records for '{compound_name}'"
+        )
+
         # Also delete corrected EIC records
         delete_corrected_result = conn.execute(
             "DELETE FROM eic_corrected WHERE compound_name = ? AND sample_name IN ({})".format(
-                ','.join('?' * len(sample_names))
+                ",".join("?" * len(sample_names))
             ),
-            [compound_name] + sample_names
+            [compound_name] + sample_names,
         )
         deleted_corrected_count = delete_corrected_result.rowcount
         if deleted_corrected_count > 0:
-            logger.info(f"Deleted {deleted_corrected_count} existing corrected EIC records for '{compound_name}'")
-    
+            logger.info(
+                f"Deleted {deleted_corrected_count} existing corrected EIC records for '{compound_name}'"
+            )
+
     # Regenerate EICs for each sample
     for sample_name, cdf_path in sample_files.items():
         try:
@@ -586,11 +620,13 @@ def regenerate_compound_eics(
                 if progress_cb:
                     progress_cb(done, total_work)
                 continue
-            
+
             # Read CDF file and extract EIC
             cdf = read_cdf_file(cdf_path)
-            eic = extract_eic(compound_name, rt, mz, cdf, mass_tol, tr_window, label_atoms)
-            
+            eic = extract_eic(
+                compound_name, rt, mz, cdf, mass_tol, tr_window, label_atoms
+            )
+
             # Insert new EIC record
             with get_connection() as conn:
                 conn.execute(
@@ -610,35 +646,48 @@ def regenerate_compound_eics(
                         tr_window,
                     ),
                 )
-            
+
             regenerated += 1
-            logger.debug(f"Regenerated EIC for '{compound_name}' in sample '{sample_name}' - time range: {eic.time.min():.3f} to {eic.time.max():.3f} min")
-            
+            logger.debug(
+                f"Regenerated EIC for '{compound_name}' in sample '{sample_name}' - time range: {eic.time.min():.3f} to {eic.time.max():.3f} min"
+            )
+
         except ValueError as e:
-            logger.warning(f"No data in RT/m/z window for '{compound_name}' in '{sample_name}': {e}")
+            logger.warning(
+                f"No data in RT/m/z window for '{compound_name}' in '{sample_name}': {e}"
+            )
         except Exception as e:
-            logger.error(f"Failed to regenerate EIC for '{compound_name}' in '{sample_name}': {e}")
-            
+            logger.error(
+                f"Failed to regenerate EIC for '{compound_name}' in '{sample_name}': {e}"
+            )
+
         done += 1
         if progress_cb:
             progress_cb(done, total_work)
-    
+
     elapsed = time.time() - start
-    logger.info(f"Regenerated {regenerated} EICs for '{compound_name}' in {elapsed:.1f} s")
-    
+    logger.info(
+        f"Regenerated {regenerated} EICs for '{compound_name}' in {elapsed:.1f} s"
+    )
+
     # Recalculate natural abundance corrections for this compound
     try:
         from manic.processors.eic_correction_manager import apply_correction_to_eic
-        logger.info(f"Recalculating natural abundance corrections for '{compound_name}'...")
+
+        logger.info(
+            f"Recalculating natural abundance corrections for '{compound_name}'..."
+        )
         corrections_count = 0
         for sample_name in sample_names:
             if apply_correction_to_eic(sample_name, compound_name):
                 corrections_count += 1
         if corrections_count > 0:
-            logger.info(f"Successfully recalculated {corrections_count} corrections for '{compound_name}'")
+            logger.info(
+                f"Successfully recalculated {corrections_count} corrections for '{compound_name}'"
+            )
     except Exception as e:
         logger.warning(f"Failed to recalculate corrections for '{compound_name}': {e}")
-    
+
     return regenerated
 
 
@@ -649,11 +698,11 @@ def regenerate_all_eics_with_mass_tolerance(
 ) -> int:
     """
     Regenerate all EIC data with a new mass tolerance value.
-    
+
     This function deletes ALL existing EIC records and recalculates them using
     the new mass tolerance parameter. Session overrides (retention times, offsets)
     are preserved via LEFT JOIN + COALESCE queries.
-    
+
     Parameters
     ----------
     mass_tol : float
@@ -662,7 +711,7 @@ def regenerate_all_eics_with_mass_tolerance(
         Retention time search window (±min). Default: 0.2
     progress_cb : Callable[[done, total], None] | None
         Optional callback for GUI progress bars
-        
+
     Returns
     -------
     int
@@ -670,23 +719,23 @@ def regenerate_all_eics_with_mass_tolerance(
     """
     start = time.time()
     logger.info(f"Starting full EIC regeneration with mass tolerance {mass_tol}")
-    
+
     # Get all active samples
     with get_connection() as conn:
         sample_rows = conn.execute(
             "SELECT sample_name, file_name FROM samples WHERE deleted = 0"
         ).fetchall()
-    
+
     if not sample_rows:
         raise RuntimeError("No active samples found in database")
-    
+
     # Get all active compounds (base data)
     with get_connection() as conn:
         compounds = list(_iter_compounds(conn))
-    
+
     if not compounds:
         raise RuntimeError("Compounds table is empty")
-    
+
     # Count compounds that will need correction
     corrections_needed = 0
     with get_connection() as conn:
@@ -700,18 +749,18 @@ def regenerate_all_eics_with_mass_tolerance(
         result = conn.execute(correction_sql).fetchone()
         correction_compounds = result["count"] if result else 0
         corrections_needed = correction_compounds * len(sample_rows)
-    
+
     total_work = len(sample_rows) * len(compounds) + corrections_needed
     done = 0
     regenerated = 0
-    
+
     import gc  # For memory management
-    
+
     # Process each sample file
     for sample_row in sample_rows:
         sample_name = sample_row["sample_name"]
         cdf_path = Path(sample_row["file_name"])
-        
+
         # Check if CDF file exists
         if not cdf_path.exists():
             logger.warning(f"CDF file not found for sample '{sample_name}': {cdf_path}")
@@ -719,9 +768,9 @@ def regenerate_all_eics_with_mass_tolerance(
             if progress_cb:
                 progress_cb(done, total_work)
             continue
-        
+
         logger.info(f"Processing sample '{sample_name}'")
-        
+
         # Get compounds with session-specific retention time overrides for this sample
         # Uses LEFT JOIN + COALESCE to respect session_activity retention time changes
         with get_connection() as conn:
@@ -739,43 +788,55 @@ def regenerate_all_eics_with_mass_tolerance(
                     AND sa.sample_deleted = 0
                 WHERE c.deleted = 0
                 """,
-                (sample_name,)
+                (sample_name,),
             ).fetchall()
-        
+
         # Convert to list of tuples for _extract_all_eics_for_file
         compounds_with_overrides = [
-            (row["compound_name"], row["retention_time"], row["mass0"], row["label_atoms"])
+            (
+                row["compound_name"],
+                row["retention_time"],
+                row["mass0"],
+                row["label_atoms"],
+            )
             for row in compound_overrides
         ]
-        
+
         try:
             # Delete existing EIC records for this sample
             with get_connection() as conn:
                 delete_result = conn.execute(
-                    "DELETE FROM eic WHERE sample_name = ?",
-                    (sample_name,)
+                    "DELETE FROM eic WHERE sample_name = ?", (sample_name,)
                 )
                 deleted_count = delete_result.rowcount
-                logger.debug(f"Deleted {deleted_count} existing EIC records for '{sample_name}'")
-                
+                logger.debug(
+                    f"Deleted {deleted_count} existing EIC records for '{sample_name}'"
+                )
+
                 # Also delete corrected records
                 delete_corrected = conn.execute(
-                    "DELETE FROM eic_corrected WHERE sample_name = ?",
-                    (sample_name,)
+                    "DELETE FROM eic_corrected WHERE sample_name = ?", (sample_name,)
                 )
                 deleted_corrected_count = delete_corrected.rowcount
                 if deleted_corrected_count > 0:
-                    logger.debug(f"Deleted {deleted_corrected_count} corrected EIC records for '{sample_name}'")
-            
+                    logger.debug(
+                        f"Deleted {deleted_corrected_count} corrected EIC records for '{sample_name}'"
+                    )
+
             # Load CDF file
             cdf_data = read_cdf_file(cdf_path)
-            
+
             # Extract all EICs using the optimized batch function
             eic_batch, skipped_count = _extract_all_eics_for_file(
-                cdf_data, compounds_with_overrides, mass_tol, rt_window, 
-                progress_cb, done, total_work
+                cdf_data,
+                compounds_with_overrides,
+                mass_tol,
+                rt_window,
+                progress_cb,
+                done,
+                total_work,
             )
-            
+
             # Batch insert new EIC records
             if eic_batch:
                 with get_connection() as conn:
@@ -788,13 +849,15 @@ def regenerate_all_eics_with_mass_tolerance(
                             spectrum_pos, chromat_pos
                         ) VALUES (?,?,?,?,?,0,0,NULL,NULL)
                         """,
-                        eic_batch
+                        eic_batch,
                     )
                     regenerated += len(eic_batch)
-                    logger.debug(f"Inserted {len(eic_batch)} new EIC records for '{sample_name}'")
-            
+                    logger.debug(
+                        f"Inserted {len(eic_batch)} new EIC records for '{sample_name}'"
+                    )
+
             done += len(compounds)
-            
+
         except Exception as e:
             logger.error(f"Failed to process sample '{sample_name}': {e}")
             done += len(compounds)
@@ -802,29 +865,33 @@ def regenerate_all_eics_with_mass_tolerance(
                 progress_cb(done, total_work)
         finally:
             # Explicit memory cleanup
-            if 'cdf_data' in locals():
+            if "cdf_data" in locals():
                 del cdf_data
             gc.collect()
-    
+
     # Recalculate natural abundance corrections for all compounds
     if corrections_needed > 0:
         try:
             from manic.processors.eic_correction_manager import process_all_corrections
-            
+
             logger.info("Recalculating natural abundance corrections...")
-            
+
             # Create progress callback that continues from where EIC regeneration left off
             def correction_progress(current, total):
                 if progress_cb:
                     correction_done = int((current / total) * corrections_needed)
                     progress_cb(done + correction_done, total_work)
-            
+
             corrections_count = process_all_corrections(progress_cb=correction_progress)
-            logger.info(f"Recalculated {corrections_count} natural abundance corrections")
+            logger.info(
+                f"Recalculated {corrections_count} natural abundance corrections"
+            )
         except Exception as e:
             logger.warning(f"Failed to recalculate corrections: {e}")
-    
+
     elapsed = time.time() - start
-    logger.info(f"Regenerated {regenerated} EICs with mass tolerance {mass_tol} in {elapsed:.1f} s")
-    
+    logger.info(
+        f"Regenerated {regenerated} EICs with mass tolerance {mass_tol} in {elapsed:.1f} s"
+    )
+
     return regenerated

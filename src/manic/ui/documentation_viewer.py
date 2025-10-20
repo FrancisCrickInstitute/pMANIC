@@ -5,7 +5,6 @@ Documentation viewer dialog for displaying markdown files with formatting.
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont

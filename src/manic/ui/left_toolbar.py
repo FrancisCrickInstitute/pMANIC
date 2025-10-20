@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.manic.io.compound_reader import read_compound
 
 from .compound_list_widget import CompoundListWidget
 from .integration_window_widget import IntegrationWindow

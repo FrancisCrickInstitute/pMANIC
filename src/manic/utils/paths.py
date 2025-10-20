@@ -19,7 +19,6 @@ running from a frozen executable (MEIPASS staging directory).
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 

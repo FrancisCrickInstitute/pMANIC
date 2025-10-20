@@ -8,8 +8,6 @@ import pytest
 
 from manic.processors.integration import calculate_peak_areas, integrate_peak
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
-from manic.processors.calibration import calculate_background_ratios, calculate_mrrf_values
-from manic.io.data_provider import DataProvider
 
 
 class TestZeroHandling:
@@ -161,7 +159,6 @@ class TestMissingData:
     def test_empty_sample_list(self):
         """Test export with no samples."""
         samples = []
-        compounds = [{'compound_name': 'Test', 'label_atoms': 3}]
 
         # Should handle empty sample list
         for sample in samples:

@@ -119,7 +119,7 @@ class TotalAbundanceWidget(QWidget):
 
         # Same grid calculation as graph window
         cols = math.ceil(math.sqrt(num))
-        rows = math.ceil(num / cols)
+        math.ceil(num / cols)
 
         # Graph processes EICs in database order, so no reordering needed
         return eics, abundances

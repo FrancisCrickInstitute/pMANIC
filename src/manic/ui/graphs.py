@@ -24,10 +24,11 @@ from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.timer import measure_time
 
-logger = logging.getLogger(__name__)
-
 # Import shared colors
 from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
+
+
+logger = logging.getLogger(__name__)
 
 
 class ClickableChartView(QChartView):
@@ -209,18 +210,6 @@ class GraphView(QWidget):
         # Update integration window title
         self._update_integration_title()
 
-    def _update_integration_title(self):
-        """Update the integration window title based on selection"""
-        if not self._selected_plots:
-            title = "Selected Plots: All"
-        elif len(self._selected_plots) == 1:
-            sample_name = next(iter(self._selected_plots)).sample_name
-            title = f"Selected Plots: {sample_name}"
-        else:
-            title = f"Selected Plots: {len(self._selected_plots)} samples"
-
-        # Integration window title is updated via signals
-
     def _on_plot_right_clicked(self, clicked_plot: ClickableChartView, global_pos):
         """Handle right-click on plot - show consolidated context menu"""
         try:
@@ -338,13 +327,6 @@ class GraphView(QWidget):
         """Get the list of all currently displayed samples"""
         return self._current_samples.copy()
 
-    def set_use_corrected(self, use_corrected: bool):
-        """Set whether to use corrected data when reading EICs"""
-        self.use_corrected = use_corrected
-        logger.info(
-            f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data"
-        )
-
     def clear_selection(self):
         """Clear all plot selections"""
         for plot in self._selected_plots:
@@ -354,7 +336,7 @@ class GraphView(QWidget):
 
     def clear_all_plots(self, force_destroy: bool = True):
         """Clear all plots from the graph view
-        
+
         Args:
             force_destroy: If True, completely destroy widgets (slower but prevents artifacts).
                           If False, use pooling (faster but may have visual artifacts).
@@ -364,7 +346,7 @@ class GraphView(QWidget):
         self._current_samples = []
         # Note: _current_plots will be cleared in _clear_layout
         self._clear_layout(force_destroy=force_destroy)
-        
+
         # Force immediate update to prevent visual artifacts
         self.update()
         self.repaint()
@@ -451,7 +433,7 @@ class GraphView(QWidget):
             try:
                 selected_samples = [plot.sample_name for plot in self._selected_plots]
                 self.selection_changed.emit(selected_samples)
-            except:
+            except Exception as e:
                 pass  # Don't cascade failures
 
     def _get_container_from_pool(self, eic, is_valid: bool = True) -> QWidget:
@@ -734,11 +716,11 @@ class GraphView(QWidget):
         for plot in self._current_plots:
             # Clear selection state
             plot.set_selected(False)
-            
+
             # Clear the chart data completely
             plot.chart().removeAllSeries()
             plot.chart().setTitle("")
-            
+
             # Force the chart to update
             plot.update()
 
@@ -752,7 +734,7 @@ class GraphView(QWidget):
                 if hasattr(container, "caption"):
                     container.caption.setText("")
                     container.caption.update()
-                
+
                 # Disconnect signals to prevent stale connections
                 if hasattr(plot, "_signal_connected"):
                     try:
@@ -970,7 +952,7 @@ class GraphView(QWidget):
             # First, clear the current plots tracking
             self._current_plots.clear()
             self._selected_plots.clear()
-            
+
             # Remove and delete ALL widgets from layout completely
             while self._layout.count():
                 item = self._layout.takeAt(0)
@@ -979,20 +961,20 @@ class GraphView(QWidget):
                     # Completely delete the widget to ensure no visual artifacts
                     widget.setParent(None)
                     widget.deleteLater()
-            
+
             # Clear the container pool completely - we'll rebuild it as needed
             for container in self._container_pool:
                 if container and container.parent():
                     container.setParent(None)
                 container.deleteLater()
-            
+
             self._container_pool.clear()
             self._available_containers.clear()
         else:
             # Normal clearing with pooling - fast for regular operations
             # Return containers to pool for reuse
             self._return_containers_to_pool()
-            
+
             # Remove all widgets from layout
             while self._layout.count():
                 item = self._layout.takeAt(0)
@@ -1011,7 +993,7 @@ class GraphView(QWidget):
             self._layout.setColumnStretch(i, 0)
         for i in range(self._layout.rowCount()):
             self._layout.setRowStretch(i, 0)
-            
+
         # Force complete repaint of the widget
         self.update()
         self.repaint()

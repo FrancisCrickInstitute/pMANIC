@@ -1,4 +1,3 @@
-from typing import List
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont

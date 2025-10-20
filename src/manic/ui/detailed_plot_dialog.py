@@ -13,7 +13,7 @@ import logging
 
 import sys
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QScreen
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -37,15 +37,10 @@ from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
 from manic.constants import (
     DETAILED_DIALOG_WIDTH,
     DETAILED_DIALOG_HEIGHT,
-    DETAILED_DIALOG_MIN_WIDTH,
-    DETAILED_DIALOG_MIN_HEIGHT,
     DETAILED_DIALOG_SCREEN_RATIO,
     DETAILED_EIC_HEIGHT,
     DETAILED_TIC_HEIGHT,
     DETAILED_MS_HEIGHT,
-    DETAILED_EIC_MIN_HEIGHT,
-    DETAILED_TIC_MIN_HEIGHT,
-    DETAILED_MS_MIN_HEIGHT,
     MS_TIME_TOLERANCE,
     PLOT_LINE_WIDTH,
     PLOT_STEM_WIDTH,

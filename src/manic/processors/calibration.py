@@ -20,9 +20,10 @@ def calculate_background_ratios(provider, compounds: List[dict]) -> Dict[str, fl
     background_ratios: Dict[str, float] = {}
 
     for compound_row in compounds:
-        compound_name = compound_row['compound_name']
-        label_atoms = compound_row['label_atoms'] or 0
-        mm_files_field = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
+        compound_name = compound_row["compound_name"]
+        mm_files_field = (
+            compound_row["mm_files"] if compound_row["mm_files"] is not None else ""
+        )
 
         # Resolve samples from possibly multiple mm_files patterns
         mm_samples = provider.resolve_mm_samples(mm_files_field)
@@ -67,7 +68,9 @@ def calculate_background_ratios(provider, compounds: List[dict]) -> Dict[str, fl
     return background_ratios
 
 
-def calculate_mrrf_values(provider, compounds: List[dict], internal_standard_compound: str) -> Dict[str, float]:
+def calculate_mrrf_values(
+    provider, compounds: List[dict], internal_standard_compound: str
+) -> Dict[str, float]:
     """
     Calculate MRRF values using MM files (original DataExporter logic, unchanged).
     """
@@ -82,7 +85,9 @@ def calculate_mrrf_values(provider, compounds: List[dict], internal_standard_com
         row = cursor.fetchone()
         try:
             internal_std_concentration = (
-                row['amount_in_std_mix'] if row and row['amount_in_std_mix'] is not None else 1.0
+                row["amount_in_std_mix"]
+                if row and row["amount_in_std_mix"] is not None
+                else 1.0
             )
         except (KeyError, TypeError):
             internal_std_concentration = 1.0
@@ -105,15 +110,19 @@ def calculate_mrrf_values(provider, compounds: List[dict], internal_standard_com
     internal_std_mm_samples = provider.resolve_mm_samples(internal_std_mm_field)
 
     for compound_row in compounds:
-        compound_name = compound_row['compound_name']
+        compound_name = compound_row["compound_name"]
 
         if compound_name == internal_standard_compound:
             mrrf_values[compound_name] = 1.0
             continue
 
-        compound_mm_field = compound_row['mm_files'] if compound_row['mm_files'] is not None else ''
+        compound_mm_field = (
+            compound_row["mm_files"] if compound_row["mm_files"] is not None else ""
+        )
         if not compound_mm_field:
-            logger.warning(f"No MM files pattern specified for compound {compound_name}")
+            logger.warning(
+                f"No MM files pattern specified for compound {compound_name}"
+            )
             mrrf_values[compound_name] = 1.0
             continue
 
@@ -141,20 +150,26 @@ def calculate_mrrf_values(provider, compounds: List[dict], internal_standard_com
             internal_std_signals.append(m0_signal)
 
         mean_metabolite_signal = (
-            float(sum(metabolite_signals) / len(metabolite_signals)) if metabolite_signals else 0.0
+            float(sum(metabolite_signals) / len(metabolite_signals))
+            if metabolite_signals
+            else 0.0
         )
         mean_internal_std_signal = (
-            float(sum(internal_std_signals) / len(internal_std_signals)) if internal_std_signals else 0.0
+            float(sum(internal_std_signals) / len(internal_std_signals))
+            if internal_std_signals
+            else 0.0
         )
 
         try:
-            amount_in_std_mix = compound_row['amount_in_std_mix']
+            amount_in_std_mix = compound_row["amount_in_std_mix"]
             metabolite_std_concentration = (
                 amount_in_std_mix if amount_in_std_mix is not None else 1.0
             )
         except (KeyError, IndexError):
             metabolite_std_concentration = 1.0
-            logger.debug(f"amount_in_std_mix not found for {compound_name}, using default 1.0")
+            logger.debug(
+                f"amount_in_std_mix not found for {compound_name}, using default 1.0"
+            )
 
         if (
             mean_metabolite_signal > 0

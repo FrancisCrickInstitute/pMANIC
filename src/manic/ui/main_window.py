@@ -1332,11 +1332,12 @@ class MainWindow(QMainWindow):
             return
 
         progress_dialog = QProgressDialog(
-            "Rebuilding data export...", "Cancel", 0, 100, self
+            "Rebuilding data export...", "", 0, 100, self
         )
         progress_dialog.setWindowTitle("Update Old Data")
         progress_dialog.setWindowModality(Qt.WindowModal)
         progress_dialog.setMinimumDuration(0)
+        progress_dialog.setCancelButton(None)
 
         def progress_cb(val):
             progress_dialog.setValue(int(val))
@@ -1752,6 +1753,71 @@ class MainWindow(QMainWindow):
 
         # Also update the graph view to use corrected/uncorrected data
         self.graph_view.set_use_corrected(is_enabled)
+
+        # If enabling correction, check if corrections need to be applied
+        if is_enabled:
+            try:
+                from manic.processors.eic_correction_manager import (
+                    process_all_corrections,
+                )
+                from manic.models.database import get_connection
+
+                # Check if there are raw EICs that don't have corresponding corrected data
+                with get_connection() as conn:
+                    missing_corrections_count = conn.execute("""
+                        SELECT COUNT(*) 
+                        FROM eic e
+                        JOIN compounds c ON e.compound_name = c.compound_name
+                        LEFT JOIN eic_corrected ec
+                           ON ec.sample_name = e.sample_name
+                          AND ec.compound_name = e.compound_name
+                        WHERE e.deleted = 0 
+                          AND c.deleted = 0 
+                          AND c.label_atoms > 0
+                          AND (ec.id IS NULL OR ec.deleted = 1)
+                    """).fetchone()[0]
+
+                # If we have raw EICs without corrected data, apply corrections
+                if missing_corrections_count > 0:
+                    logger.info(
+                        f"Applying natural abundance corrections for {missing_corrections_count} EICs..."
+                    )
+
+                    # Show progress dialog (no cancel button)
+                    from PySide6.QtWidgets import QProgressDialog
+                    from PySide6.QtCore import Qt
+
+                    progress_dialog = QProgressDialog(
+                        "Applying natural abundance corrections...", "", 0, 100, self
+                    )
+                    progress_dialog.setWindowTitle("Natural Abundance Correction")
+                    progress_dialog.setWindowModality(Qt.WindowModal)
+                    progress_dialog.setCancelButton(None)
+                    progress_dialog.show()
+
+                    def correction_progress(current, total):
+                        if total > 0:
+                            progress_value = int((current / total) * 100)
+                            progress_dialog.setValue(progress_value)
+
+                    try:
+                        corrections_count = process_all_corrections(
+                            progress_cb=correction_progress
+                        )
+                        logger.info(
+                            f"Applied {corrections_count} natural abundance corrections"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to apply natural abundance corrections: {e}"
+                        )
+                    finally:
+                        progress_dialog.close()
+
+            except Exception as e:
+                logger.error(
+                    f"Error checking/applying natural abundance corrections: {e}"
+                )
 
         # If we have data displayed, refresh everything
         selected_compound = self.toolbar.get_selected_compound()

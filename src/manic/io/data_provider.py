@@ -22,6 +22,7 @@ class DataProvider:
         self._mrrf_cache: Dict[str, Dict[str, float]] = {}
         self._background_ratios_cache: Dict[str, Dict[str, float]] = {}
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
+        self._bulk_raw_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._cache_valid: bool = False
 
     def set_use_legacy_integration(self, use_legacy: bool) -> None:
@@ -33,6 +34,7 @@ class DataProvider:
         self._mrrf_cache.clear()
         self._background_ratios_cache.clear()
         self._bulk_sample_data_cache.clear()
+        self._bulk_raw_sample_data_cache.clear()
         self._cache_valid = False
 
     def get_total_sample_count(self) -> int:
@@ -109,20 +111,22 @@ class DataProvider:
         return sorted(matched)
 
     def load_bulk_sample_data(self) -> Dict[str, Dict[str, List[float]]]:
-        if self._cache_valid and self._bulk_sample_data_cache:
+        if self._cache_valid:
             logger.debug("Using cached bulk sample data")
             return self._bulk_sample_data_cache
 
         logger.info("Loading all sample data in bulk...")
-        bulk_data: Dict[str, Dict[str, List[float]]] = {}
+        raw_data: Dict[str, Dict[str, List[float]]] = {}
+        corrected_data: Dict[str, Dict[str, List[float]]] = {}
 
         with get_connection() as conn:
             samples = [row['sample_name'] for row in conn.execute(
                 "SELECT sample_name FROM samples WHERE deleted=0 ORDER BY sample_name"
             )]
 
-            for s in samples:
-                bulk_data[s] = {}
+            for sample_name in samples:
+                raw_data[sample_name] = {}
+                corrected_data[sample_name] = {}
 
             # Use LEFT JOIN to apply session overrides automatically via SQL
             raw_eic_query = """
@@ -137,12 +141,7 @@ class DataProvider:
                     ON e.compound_name = sa.compound_name 
                     AND e.sample_name = sa.sample_name 
                     AND sa.sample_deleted = 0
-                LEFT JOIN eic_corrected ec_existing
-                    ON ec_existing.sample_name = e.sample_name
-                    AND ec_existing.compound_name = e.compound_name
-                    AND ec_existing.deleted = 0
                 WHERE e.deleted = 0 AND c.deleted = 0
-                  AND (c.label_atoms = 0 OR ec_existing.id IS NULL)
                 ORDER BY e.sample_name, e.compound_name
             """
             
@@ -165,9 +164,9 @@ class DataProvider:
             for row in conn.execute(raw_eic_query):
                 sample_name = row['sample_name']
                 compound_name = row['compound_name']
-                if sample_name not in bulk_data:
+                if sample_name not in raw_data:
                     continue
-                
+
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis']), dtype=np.float64)
                 areas = calculate_peak_areas(
@@ -179,33 +178,52 @@ class DataProvider:
                     row['roffset'],
                     use_legacy=self.use_legacy_integration,
                 )
-                bulk_data[sample_name][compound_name] = areas
+                raw_data[sample_name][compound_name] = areas
 
             for row in conn.execute(corrected_eic_query):
                 sample_name = row['sample_name']
                 compound_name = row['compound_name']
-                if sample_name not in bulk_data:
+                if sample_name not in corrected_data:
                     continue
-                
+
+                label_atoms = row['label_atoms'] or 0
+                if label_atoms <= 0:
+                    # Unlabeled compounds do not need corrected values; keep raw signal
+                    continue
+
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
                 areas = calculate_peak_areas(
                     time_data,
                     intensity_data,
-                    row['label_atoms'],
+                    label_atoms,
                     row['retention_time'],
                     row['loffset'],
                     row['roffset'],
                     use_legacy=self.use_legacy_integration,
                 )
-                bulk_data[sample_name][compound_name] = areas
+                corrected_data[sample_name][compound_name] = areas
 
-        self._bulk_sample_data_cache = bulk_data
+        # For compounds without corrected data, fall back to their raw integrated areas
+        for sample_name, compounds_map in raw_data.items():
+            corrected_map = corrected_data.setdefault(sample_name, {})
+            for compound_name, areas in compounds_map.items():
+                if compound_name not in corrected_map:
+                    corrected_map[compound_name] = areas
+
+        self._bulk_raw_sample_data_cache = raw_data
+        self._bulk_sample_data_cache = corrected_data
         self._cache_valid = True
-        logger.info(f"Loaded data for {len(bulk_data)} samples")
-        return bulk_data
+        logger.info(f"Loaded data for {len(raw_data)} samples")
+        return self._bulk_sample_data_cache
 
     def get_sample_raw_data(self, sample_name: str) -> Dict[str, List[float]]:
+        # Ensure caches are populated to avoid redundant decompression/integration
+        self.load_bulk_sample_data()
+        if sample_name in self._bulk_raw_sample_data_cache:
+            return self._bulk_raw_sample_data_cache[sample_name]
+
+        # Fallback for samples not covered by the bulk load (e.g., deleted mid-run)
         sample_data: Dict[str, List[float]] = {}
         with get_connection() as conn:
             eic_query = (

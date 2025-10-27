@@ -137,7 +137,12 @@ class DataProvider:
                     ON e.compound_name = sa.compound_name 
                     AND e.sample_name = sa.sample_name 
                     AND sa.sample_deleted = 0
-                WHERE e.deleted = 0 AND c.deleted = 0 AND c.label_atoms = 0
+                LEFT JOIN eic_corrected ec_existing
+                    ON ec_existing.sample_name = e.sample_name
+                    AND ec_existing.compound_name = e.compound_name
+                    AND ec_existing.deleted = 0
+                WHERE e.deleted = 0 AND c.deleted = 0
+                  AND (c.label_atoms = 0 OR ec_existing.id IS NULL)
                 ORDER BY e.sample_name, e.compound_name
             """
             

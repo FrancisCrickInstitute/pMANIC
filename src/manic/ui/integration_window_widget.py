@@ -484,6 +484,43 @@ class IntegrationWindow(QGroupBox):
             max_str = self._format_number(max_val)
             return f"{min_str} - {max_str}"
 
+    def _get_current_retention_time(self) -> float:
+        """
+        Get current retention time for the compound.
+        
+        Checks for session override first, then falls back to compound default.
+        Uses the first selected sample if available, otherwise uses compound default.
+        
+        Returns:
+            Retention time in minutes
+        """
+        from manic.models.database import get_connection
+        
+        with get_connection() as conn:
+            # Try session override first if we have selected samples
+            if self._selected_samples:
+                row = conn.execute(
+                    """
+                    SELECT retention_time FROM session_activity
+                    WHERE compound_name = ? AND sample_name = ? AND sample_deleted = 0
+                    LIMIT 1
+                    """,
+                    (self._current_compound, self._selected_samples[0]),
+                ).fetchone()
+                if row and row["retention_time"] is not None:
+                    return row["retention_time"]
+            
+            # Fall back to compound default
+            row = conn.execute(
+                """
+                SELECT retention_time FROM compounds
+                WHERE compound_name = ? AND deleted = 0
+                """,
+                (self._current_compound,),
+            ).fetchone()
+            
+            return row["retention_time"] if row and row["retention_time"] else 0.0
+
     def _setup_apply_button_state(self):
         """Setup initial apply button state and styling"""
         self._update_apply_button_state()
@@ -877,6 +914,25 @@ class IntegrationWindow(QGroupBox):
             tr_window_field.setFocus()
             return
 
+        # Get retention time from UI field (allows updating RT and window together)
+        rt_field = self.findChild(QLineEdit, "retention_time_input")
+        retention_time = None
+        
+        if rt_field:
+            try:
+                rt_text = rt_field.text().strip()
+                if rt_text:
+                    # Handle range format (take first value)
+                    if " - " in rt_text:
+                        rt_text = rt_text.split(" - ")[0]
+                    retention_time = float(rt_text)
+            except ValueError:
+                pass  # Fall through to database query
+        
+        # Fall back to database if UI field unavailable or invalid
+        if retention_time is None:
+            retention_time = self._get_current_retention_time()
+
         # Check that samples are available
         samples_to_affect = self._all_samples if self._all_samples else []
         if not samples_to_affect:
@@ -888,7 +944,7 @@ class IntegrationWindow(QGroupBox):
         # Emit signal to trigger data regeneration
         try:
             self.data_regeneration_requested.emit(
-                self._current_compound, tr_window, samples_to_affect
+                self._current_compound, tr_window, samples_to_affect, retention_time
             )
         except Exception as e:
             self._show_message(

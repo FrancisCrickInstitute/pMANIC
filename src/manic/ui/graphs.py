@@ -207,8 +207,6 @@ class GraphView(QWidget):
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
 
-        # Update integration window title
-        self._update_integration_title()
 
     def _on_plot_right_clicked(self, clicked_plot: ClickableChartView, global_pos):
         """Handle right-click on plot - show consolidated context menu"""
@@ -362,12 +360,10 @@ class GraphView(QWidget):
         # Emit signal with all selected sample names
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
-        self._update_integration_title()
 
     def deselect_all_plots(self):
         """Deselect all currently selected plots"""
         self.clear_selection()
-        self._update_integration_title()
 
     def contextMenuEvent(self, event):
         """

@@ -12,7 +12,7 @@ DisableDirPage=no
 DisableProgramGroupPage=no
 
 [Files]
-Source: "..\\dist\\MANIC\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+Source: "..\\dist\\MANIC\\*"; DestDir: "{app}"; Flags: recursesubdirs
 
 [Icons]
 Name: "{group}\MANIC"; Filename: "{app}\MANIC.exe"

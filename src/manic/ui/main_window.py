@@ -2,7 +2,6 @@ import logging
 import os
 from pathlib import Path
 
-
 from PySide6.QtCore import QCoreApplication, Qt, QThread
 from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import (
@@ -11,13 +10,13 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
-    QRadioButton,
     QLabel,
     QMainWindow,
     QMenuBar,
     QMessageBox,
     QProgressBar,
     QProgressDialog,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -32,8 +31,8 @@ from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.recovery_dialog import RecoveryDialog
+from manic.utils.paths import docs_path, resource_path
 from manic.utils.utils import load_stylesheet
-from manic.utils.paths import resource_path, docs_path
 from manic.utils.workers import (
     CdfImportWorker,
     EicRegenerationWorker,
@@ -1309,10 +1308,11 @@ class MainWindow(QMainWindow):
 
     def update_old_data(self):
         """Rebuild an export from a legacy compounds file and Raw Values workbook."""
-        from PySide6.QtWidgets import QFileDialog, QProgressDialog
         from PySide6.QtCore import Qt
-        from manic.ui.update_old_data_dialog import UpdateOldDataDialog
+        from PySide6.QtWidgets import QFileDialog, QProgressDialog
+
         from manic.io.legacy_rebuild import rebuild_export_from_files
+        from manic.ui.update_old_data_dialog import UpdateOldDataDialog
 
         dlg = UpdateOldDataDialog(self)
         if dlg.exec() != QDialog.Accepted:
@@ -1331,9 +1331,7 @@ class MainWindow(QMainWindow):
         if not out_path:
             return
 
-        progress_dialog = QProgressDialog(
-            "Rebuilding data export...", "", 0, 100, self
-        )
+        progress_dialog = QProgressDialog("Rebuilding data export...", "", 0, 100, self)
         progress_dialog.setWindowTitle("Update Old Data")
         progress_dialog.setWindowModality(Qt.WindowModal)
         progress_dialog.setMinimumDuration(0)
@@ -1737,10 +1735,20 @@ class MainWindow(QMainWindow):
                 msg_box.exec()
 
     def toggle_natural_abundance_correction(self):
-        """Toggle natural abundance correction on/off."""
+        """
+        Toggle natural abundance correction visualization on/off.
+
+        IMPORTANT: This toggle controls ONLY what data is displayed in the UI graphs:
+        - When ON: Graphs show corrected data (natural isotope abundance removed)
+        - When OFF: Graphs show raw uncorrected data
+
+        This toggle does NOT affect data export. Exported data always contains properly
+        corrected values in the Corrected Values sheet, regardless of this toggle state.
+        See export_data() for details on how corrections are ensured during export.
+        """
         is_enabled = self.nat_abundance_toggle.isChecked()
         logger.info(
-            f"Natural abundance correction toggled: {'ON' if is_enabled else 'OFF'}"
+            f"Natural abundance correction visualization toggled: {'ON' if is_enabled else 'OFF'}"
         )
 
         # Update menu text
@@ -1757,10 +1765,10 @@ class MainWindow(QMainWindow):
         # If enabling correction, check if corrections need to be applied
         if is_enabled:
             try:
+                from manic.models.database import get_connection
                 from manic.processors.eic_correction_manager import (
                     process_all_corrections,
                 )
-                from manic.models.database import get_connection
 
                 # Check if there are raw EICs that don't have corresponding corrected data
                 with get_connection() as conn:
@@ -1784,8 +1792,8 @@ class MainWindow(QMainWindow):
                     )
 
                     # Show progress dialog (no cancel button)
-                    from PySide6.QtWidgets import QProgressDialog
                     from PySide6.QtCore import Qt
+                    from PySide6.QtWidgets import QProgressDialog
 
                     progress_dialog = QProgressDialog(
                         "Applying natural abundance corrections...", "", 0, 100, self
@@ -1868,8 +1876,92 @@ class MainWindow(QMainWindow):
             # Trigger a full replot of the main graphs
             self.on_plot_button(selected_compound, selected_samples)
 
+    def _ensure_corrections_applied_for_export(self):
+        """
+        Ensure natural isotope corrections are applied before data export.
+
+        This method is called automatically before any export operation to guarantee
+        that the Corrected Values sheet contains properly corrected data. This is
+        completely independent of the UI visualization toggle state.
+
+        If corrections are missing (user never toggled correction on in UI), they are
+        applied automatically with a progress dialog. This is safe because:
+        - Correction application is idempotent (INSERT OR REPLACE)
+        - Only missing corrections are computed
+        - Original raw data is never modified
+        """
+        try:
+            from manic.models.database import get_connection
+            from manic.processors.eic_correction_manager import process_all_corrections
+
+            # Check if there are any labeled compounds that lack corrected data
+            with get_connection() as conn:
+                missing_corrections_count = conn.execute("""
+                    SELECT COUNT(*) 
+                    FROM eic e
+                    JOIN compounds c ON e.compound_name = c.compound_name
+                    LEFT JOIN eic_corrected ec
+                       ON ec.sample_name = e.sample_name
+                      AND ec.compound_name = e.compound_name
+                      AND ec.deleted = 0
+                    WHERE e.deleted = 0 
+                      AND c.deleted = 0 
+                      AND c.label_atoms > 0
+                      AND ec.id IS NULL
+                """).fetchone()[0]
+
+            # If corrections are missing, apply them silently
+            if missing_corrections_count > 0:
+                logger.info(
+                    f"Export requires natural isotope corrections. "
+                    f"Applying corrections for {missing_corrections_count} labeled compounds..."
+                )
+
+                try:
+                    corrections_count = process_all_corrections(progress_cb=None)
+                    logger.info(
+                        f"Successfully applied {corrections_count} natural isotope corrections for export"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to apply natural isotope corrections for export: {e}"
+                    )
+                    raise  # Re-raise to prevent export with incorrect data
+            else:
+                logger.debug("All required natural isotope corrections already applied")
+
+        except Exception as e:
+            logger.error(f"Error ensuring corrections for export: {e}")
+            # Show error dialog
+            msg = self._create_message_box(
+                "error",
+                "Export Preparation Failed",
+                "Failed to prepare corrected data for export.",
+                f"Error: {str(e)}\n\n"
+                "The export cannot proceed without properly corrected data. "
+                "Please check the logs for details.",
+            )
+            msg.exec()
+            raise  # Prevent export from continuing
+
     def export_data(self):
-        """Export processed data to Excel with 5 worksheets."""
+        """
+        Export processed data to Excel with 5 worksheets.
+
+        IMPORTANT: This export function is completely independent of the UI toggle state
+        for natural isotope correction. The Corrected Values sheet will ALWAYS contain
+        properly corrected data, regardless of whether the user has the correction toggle
+        enabled in the UI for visualization purposes.
+
+        The UI toggle only controls what data is displayed in graphs. The export always
+        uses the scientifically correct data:
+        - Raw Values sheet: Uncorrected instrument signals
+        - Corrected Values sheet: Natural isotope abundance corrected signals
+
+        If corrections have not yet been applied to the database (because the user never
+        toggled the correction on in the UI), they will be automatically applied before
+        export to ensure data integrity.
+        """
         try:
             # Get export file path
             file_path, _ = QFileDialog.getSaveFileName(
@@ -1885,6 +1977,10 @@ class MainWindow(QMainWindow):
             # Ensure .xlsx extension
             if not file_path.lower().endswith(".xlsx"):
                 file_path += ".xlsx"
+
+            # CRITICAL: Ensure natural isotope corrections are applied before export
+            # This is independent of the UI visualization toggle state
+            self._ensure_corrections_applied_for_export()
 
             # Export options popup: choose integration mode
             options_dialog = QDialog(self)

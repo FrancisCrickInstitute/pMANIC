@@ -111,11 +111,22 @@ class DataProvider:
         return sorted(matched)
 
     def load_bulk_sample_data(self) -> Dict[str, Dict[str, List[float]]]:
+        """
+        Load all sample data at once for improved performance during exports.
+        
+        This method pre-loads mixed data (corrected for labeled compounds, raw for unlabeled)
+        for all samples and compounds in a single database query, avoiding the overhead of 
+        repeated database calls during export operations.
+        
+        Returns:
+            Dictionary mapping sample names to compound data dictionaries.
+            Each compound dictionary maps compound names to lists of isotopologue peak areas.
+        """
         if self._cache_valid:
-            logger.debug("Using cached bulk sample data")
+            logger.debug("Using cached bulk sample data (corrected)")
             return self._bulk_sample_data_cache
 
-        logger.info("Loading all sample data in bulk...")
+        logger.info("Loading all sample data in bulk (corrected)...")
         raw_data: Dict[str, Dict[str, List[float]]] = {}
         corrected_data: Dict[str, Dict[str, List[float]]] = {}
 
@@ -128,7 +139,7 @@ class DataProvider:
                 raw_data[sample_name] = {}
                 corrected_data[sample_name] = {}
 
-            # Use LEFT JOIN to apply session overrides automatically via SQL
+            # Always load raw data first (needed for both scenarios)
             raw_eic_query = """
                 SELECT e.sample_name, e.compound_name, e.x_axis, e.y_axis,
                        c.label_atoms,
@@ -144,23 +155,8 @@ class DataProvider:
                 WHERE e.deleted = 0 AND c.deleted = 0
                 ORDER BY e.sample_name, e.compound_name
             """
-            
-            corrected_eic_query = """
-                SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected,
-                       c.label_atoms,
-                       COALESCE(sa.retention_time, c.retention_time) as retention_time,
-                       COALESCE(sa.loffset, c.loffset) as loffset,
-                       COALESCE(sa.roffset, c.roffset) as roffset
-                FROM eic_corrected ec 
-                JOIN compounds c ON ec.compound_name = c.compound_name
-                LEFT JOIN session_activity sa 
-                    ON ec.compound_name = sa.compound_name 
-                    AND ec.sample_name = sa.sample_name 
-                    AND sa.sample_deleted = 0
-                WHERE ec.deleted = 0 AND c.deleted = 0
-                ORDER BY ec.sample_name, ec.compound_name
-            """
 
+            # Load raw data
             for row in conn.execute(raw_eic_query):
                 sample_name = row['sample_name']
                 compound_name = row['compound_name']
@@ -180,7 +176,27 @@ class DataProvider:
                 )
                 raw_data[sample_name][compound_name] = areas
 
-            for row in conn.execute(corrected_eic_query):
+            # Always load corrected data for labeled compounds
+            corrected_eic_query = """
+                SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected,
+                       c.label_atoms,
+                       COALESCE(sa.retention_time, c.retention_time) as retention_time,
+                       COALESCE(sa.loffset, c.loffset) as loffset,
+                       COALESCE(sa.roffset, c.roffset) as roffset
+                FROM eic_corrected ec 
+                JOIN compounds c ON ec.compound_name = c.compound_name
+                LEFT JOIN session_activity sa 
+                    ON ec.compound_name = sa.compound_name 
+                    AND ec.sample_name = sa.sample_name 
+                    AND sa.sample_deleted = 0
+                WHERE ec.deleted = 0 AND c.deleted = 0
+                ORDER BY ec.sample_name, ec.compound_name
+            """
+
+            corrected_rows = list(conn.execute(corrected_eic_query))
+            logger.debug(f"Found {len(corrected_rows)} corrected EIC rows in database")
+            
+            for row in corrected_rows:
                 sample_name = row['sample_name']
                 compound_name = row['compound_name']
                 if sample_name not in corrected_data:
@@ -189,8 +205,10 @@ class DataProvider:
                 label_atoms = row['label_atoms'] or 0
                 if label_atoms <= 0:
                     # Unlabeled compounds do not need corrected values; keep raw signal
+                    logger.debug(f"Skipping unlabeled compound '{compound_name}' in corrected data")
                     continue
 
+                logger.debug(f"Loading corrected data for labeled compound '{compound_name}' (label_atoms={label_atoms})")
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
                 areas = calculate_peak_areas(
@@ -204,17 +222,44 @@ class DataProvider:
                 )
                 corrected_data[sample_name][compound_name] = areas
 
-        # For compounds without corrected data, fall back to their raw integrated areas
-        for sample_name, compounds_map in raw_data.items():
-            corrected_map = corrected_data.setdefault(sample_name, {})
-            for compound_name, areas in compounds_map.items():
-                if compound_name not in corrected_map:
-                    corrected_map[compound_name] = areas
+            # For compounds without corrected data, fall back to their raw integrated areas
+            # 
+            # IMPORTANT: This fallback exists for two scenarios:
+            # 1. Unlabeled compounds (label_atoms=0): These legitimately use raw data
+            # 2. Labeled compounds missing corrections: This should NOT happen in normal use
+            #    because export_data() ensures all corrections are applied before export
+            #
+            # If you see warnings about labeled compounds using raw data as fallback,
+            # this indicates the correction application step failed or was bypassed.
+            for sample_name, compounds_map in raw_data.items():
+                corrected_map = corrected_data.setdefault(sample_name, {})
+                for compound_name, areas in compounds_map.items():
+                    if compound_name not in corrected_map:
+                        # Check if this is a labeled compound by looking up label_atoms
+                        with get_connection() as conn:
+                            label_atoms = conn.execute(
+                                "SELECT label_atoms FROM compounds WHERE compound_name = ? AND deleted = 0",
+                                (compound_name,)
+                            ).fetchone()
+                            is_labeled = label_atoms and label_atoms[0] > 0 if label_atoms else False
+                        
+                        if is_labeled:
+                            # Labeled compound without corrected data - this should not happen
+                            # if export was triggered through the UI (which applies corrections first)
+                            logger.warning(
+                                f"Labeled compound '{compound_name}' in sample '{sample_name}' "
+                                f"has no corrected data available. Using raw data as fallback. "
+                                f"This may indicate the correction step was skipped or failed."
+                            )
+                        # For both labeled and unlabeled compounds, fall back to raw data
+                        corrected_map[compound_name] = areas
 
         self._bulk_raw_sample_data_cache = raw_data
         self._bulk_sample_data_cache = corrected_data
         self._cache_valid = True
-        logger.info(f"Loaded data for {len(raw_data)} samples")
+        logger.info(f"Loaded data for {len(raw_data)} samples (corrected)")
+        logger.debug(f"Raw cache compounds per sample: {[(s, len(compounds)) for s, compounds in raw_data.items()]}")
+        logger.debug(f"Corrected cache compounds per sample: {[(s, len(compounds)) for s, compounds in corrected_data.items()]}")
         return self._bulk_sample_data_cache
 
     def get_sample_raw_data(self, sample_name: str) -> Dict[str, List[float]]:

@@ -392,7 +392,7 @@ class DataExporter:
         return self._provider.get_total_sample_count()
 
     def _load_bulk_sample_data(self) -> Dict[str, Dict[str, List[float]]]:
-        """Delegate bulk data loading to DataProvider."""
+        """Load bulk sample data using provider for caching."""
         return self._provider.load_bulk_sample_data()
 
     def _get_sample_raw_data(self, sample_name: str) -> Dict[str, List[float]]:

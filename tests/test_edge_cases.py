@@ -171,6 +171,7 @@ class TestMissingData:
         mm_files_field = None  # or ''
 
         # Should return empty list
+        mm_samples = []
         if not mm_files_field:
             mm_samples = []
 
@@ -374,6 +375,9 @@ class TestAbundanceCalculations:
 
         # Mock provider that returns corrected data
         class MockProvider:
+            def __init__(self):
+                self._samples = ['Sample_MM1', 'Sample1']
+
             def get_all_compounds(self):
                 return [
                     {
@@ -395,16 +399,22 @@ class TestAbundanceCalculations:
                 ]
 
             def get_all_samples(self):
-                return ['Sample1']
+                return list(self._samples)
 
             def get_sample_corrected_data(self, sample_name):
-                return {
+                base_data = {
                     'scyllo-Ins': [1000.0],  # M+0 signal for internal standard
                     'Pyruvate': [500.0, 100.0, 50.0]  # M+0, M+1, M+2
                 }
+                return base_data
 
             def get_mrrf_values(self, compounds, internal_std):
                 return {'Pyruvate': 2.0}
+
+            def resolve_mm_samples(self, mm_field):
+                if not mm_field:
+                    return []
+                return [sample for sample in self._samples if 'MM' in sample]
 
         provider = MockProvider()
 
@@ -434,13 +444,128 @@ class TestAbundanceCalculations:
         # Headers are in rows 1-5, data starts at row 6
         # Column structure: [empty, Sample, Compound1, Compound2, ...]
         # scyllo-Ins should be in column 3 (index C)
-        # Sample1 data is in row 6
+        # Sample rows: row 6 = Sample_MM1, row 7 = Sample1
 
-        scyllo_ins_abundance = ws['C6'].value  # Row 6 (Sample1), Col C (scyllo-Ins)
+        scyllo_ins_abundance_mm = ws['C6'].value  # Sample_MM1 (MM file)
+        scyllo_ins_abundance_non_mm = ws['C7'].value  # Sample1 (non-MM)
 
-        # The abundance for the internal standard should be 0.5 (amount_in_std_mix)
-        # NOT 1.0 (int_std_amount)
-        assert scyllo_ins_abundance == 0.5, (
-            f"Internal standard abundance should be 0.5 (amount_in_std_mix), "
-            f"but got {scyllo_ins_abundance} (likely using int_std_amount=1.0)"
+        # MM samples should use amount_in_std_mix, regular samples use int_std_amount
+        assert scyllo_ins_abundance_mm == 0.5, (
+            "Internal standard abundance for MM samples should use amount_in_std_mix (0.5)"
         )
+        assert scyllo_ins_abundance_non_mm == 1.0, (
+            "Internal standard abundance for non-MM samples should use int_std_amount (1.0)"
+        )
+
+        # Non-internal-standard metabolite should also be scaled differently per sample
+        pyruvate_mm = ws['D6'].value
+        pyruvate_non_mm = ws['D7'].value
+
+        # Expected values based on formula: total_signal=650, IS signal=1000, MRRF=2
+        assert pyruvate_mm == pytest.approx(0.1625)
+        assert pyruvate_non_mm == pytest.approx(0.325)
+
+    def test_abundances_require_internal_standard(self):
+        """Export must fail if no internal standard is configured."""
+        from types import SimpleNamespace
+        from io import BytesIO
+        import xlsxwriter
+
+        exporter = SimpleNamespace(internal_standard_compound=None)
+
+        class DummyProvider:
+            def get_all_compounds(self):
+                return [
+                    {
+                        'compound_name': 'scyllo-Ins',
+                        'mass0': 318.0,
+                        'retention_time': 15.5,
+                        'amount_in_std_mix': 0.5,
+                        'int_std_amount': 1.0,
+                        'mm_files': '*_MM*'
+                    }
+                ]
+
+            def get_all_samples(self):
+                return ['Sample1']
+
+            def get_sample_corrected_data(self, sample_name):
+                return {'scyllo-Ins': [1000.0]}
+
+            def get_mrrf_values(self, compounds, internal_std):
+                return {}
+
+            def resolve_mm_samples(self, mm_field):
+                return []
+
+        from manic.sheet_generators import abundances
+
+        provider = DummyProvider()
+        output = BytesIO()
+        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+        with pytest.raises(ValueError, match="Internal standard must be set"):
+            abundances.write(
+                workbook,
+                exporter,
+                progress_callback=None,
+                start_progress=0,
+                end_progress=100,
+                provider=provider,
+            )
+        workbook.close()
+
+    def test_internal_standard_missing_amounts(self):
+        """Exporter should fail fast when required IS amounts are missing."""
+        from types import SimpleNamespace
+        from io import BytesIO
+        import xlsxwriter
+
+        exporter = SimpleNamespace(internal_standard_compound='scyllo-Ins')
+
+        class MissingAmountProvider:
+            def __init__(self, *, missing_field):
+                self._missing_field = missing_field
+
+            def get_all_compounds(self):
+                base = {
+                    'compound_name': 'scyllo-Ins',
+                    'mass0': 318.0,
+                    'retention_time': 15.5,
+                    'amount_in_std_mix': 0.5,
+                    'int_std_amount': 1.0,
+                    'mm_files': '*_MM*'
+                }
+                base[self._missing_field] = None
+                return [base]
+
+            def get_all_samples(self):
+                return ['Sample1']
+
+            def get_sample_corrected_data(self, sample_name):
+                return {'scyllo-Ins': [1000.0]}
+
+            def get_mrrf_values(self, compounds, internal_std):
+                return {}
+
+            def resolve_mm_samples(self, mm_field):
+                return []
+
+        from manic.sheet_generators import abundances
+
+        for missing_field, expected_msg in (
+            ('int_std_amount', "'int_std_amount'"),
+            ('amount_in_std_mix', "'amount_in_std_mix'"),
+        ):
+            provider = MissingAmountProvider(missing_field=missing_field)
+            output = BytesIO()
+            workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+            with pytest.raises(ValueError, match=expected_msg):
+                abundances.write(
+                    workbook,
+                    exporter,
+                    progress_callback=None,
+                    start_progress=0,
+                    end_progress=100,
+                    provider=provider,
+                )
+            workbook.close()

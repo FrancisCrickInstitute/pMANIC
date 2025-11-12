@@ -91,3 +91,5 @@ Abundance = (Total_Corrected × IS_Amount) / (IS_M0 × MRRF)
 - Internal standard in all samples (IS M+0 used)
 - Standard mixtures with known concentrations
 - Compound library with `amount_in_std_mix`, `int_std_amount`, and `mmfiles`
+
+> The Abundances export stops with an error if no internal standard is selected or if either `int_std_amount` or `amount_in_std_mix` is missing for that compound.

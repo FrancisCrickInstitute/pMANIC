@@ -43,7 +43,8 @@ The import process:
 Requirements:
 - Internal standard must have `labelatoms = 0`
 - Must be present in all samples
-- Requires `int_std_amount > 0` for quantification
+- Requires `int_std_amount > 0` (per-sample dose)
+- Requires `amount_in_std_mix > 0` (MM mix amount) for calibration/export
 
 ### Step 4: Review Integration
 
@@ -66,6 +67,8 @@ Creates Excel workbook with five sheets:
 - **Isotope Ratios**: Normalized distributions
 - **% Label Incorporation**: Background-corrected labeling
 - **Abundances**: Absolute concentrations
+
+> **Important:** The Abundances sheet now fails fast unless an internal standard is selected and both `int_std_amount` and `amount_in_std_mix` are present in the compound list.
 
 ## Visual Indicators
 

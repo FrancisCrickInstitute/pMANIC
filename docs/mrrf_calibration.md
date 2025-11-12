@@ -30,6 +30,8 @@ Where:
 - Signal_IS_sample = Internal standard signal in sample
 - MRRF = Pre-calculated response factor
 
+> **Failure conditions:** If no internal standard is selected, or if either `int_std_amount` or `amount_in_std_mix` is missing for that compound, the export aborts rather than emitting partial Abundance data.
+
 Units match those used for `int_std_amount`.
 
 ## Required Configuration

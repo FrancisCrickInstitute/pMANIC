@@ -10,12 +10,12 @@
 - [Development](#development)
 - [Changes from MANIC v3.3.0 and Below](#changes-from-manic-v330-and-below)
 - [Technical Details](#technical-details)
-- [Documentation](#documentation)
+
 
 
 ## Documentation 
 
-- [Getting Started](/docs/getting_started.md)
+- [Getting Started](/docs/user_guide.md)
 - [Data Interpretation](/docs/data_interpretation.md)
 
 ## Overview

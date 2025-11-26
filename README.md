@@ -12,6 +12,12 @@
 - [Technical Details](#technical-details)
 - [Documentation](#documentation)
 
+
+## Documentation 
+
+- [Getting Started](/docs/getting_started.md)
+- [Data Interpretation](/docs/data_interpretation.md)
+
 ## Overview
 
 MANIC processes isotopically-labeled mass spectrometry data through natural isotope abundance correction, peak integration, and metabolite quantification. The application reads CDF files from GC-MS and LC-MS instruments and generates Excel workbooks containing five analysis stages: Raw Values, Corrected Values, Isotope Ratios, % Label Incorporation, and Abundances.

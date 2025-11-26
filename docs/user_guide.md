@@ -4,25 +4,44 @@
 
 ### Step 1: Load Compound Definitions
 
-File → Load Compounds/Parameter List
+**Objective**
+Initialize the analysis session by importing a library of target metabolites and their specific integration parameters.
 
-Required Excel/CSV columns (header variants accepted; spaces/underscores ignored):
-- `name`: Compound identifier
-- `tr`: Retention time (minutes)
-- `mass0`: Base m/z value
-- `loffset`: Left integration offset (minutes)
-- `roffset`: Right integration offset (minutes)
-- `labelatoms`: Number of labelable positions
-- `formula`: Molecular formula
-- `labeltype`: Labeled element (e.g., C)
-- `tbdms`: TBDMS groups
-- `meox`: Methoxyamine groups
-- `me`: Methyl groups
-- `amount_in_std_mix`: Concentration in standards
-- `int_std_amount`: Internal standard amount
-- `mmfiles`: Standard mixture patterns (supports `*`, multiple separated by comma/semicolon)
+**File Requirements**
+Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns listed below.
 
-If any required column is missing, the import is cancelled with an on-screen alert.
+*Note: Column headers are flexible. They are case-insensitive and ignore spaces or underscores (e.g., `Int Std Amount`, `int_std_amount`, and `IntStdAmount` are all treated as the same field).*
+
+| Column | Description |
+| :--- | :--- |
+| `name` | Unique compound identifier |
+| `tr` | Retention time (minutes) |
+| `mass0` | Base m/z value |
+| `loffset` | Left integration offset (minutes) from tR |
+| `roffset` | Right integration offset (minutes) from tR |
+| `labelatoms` | Number of positions capable of retaining label |
+| `formula` | Molecular formula (e.g., C6H12O6) |
+| `labeltype` | Element being labeled (e.g., C) |
+| `tbdms` | Number of TBDMS derivatization groups |
+| `meox` | Number of Methoxyamine derivatization groups |
+| `me` | Number of Methylation groups |
+| `amount_in_std_mix`| Concentration in standard mixture |
+| `int_std_amount` | Amount of internal standard added to samples |
+| `mmfiles` | Pattern to identify standard mixture files (supports wildcards like `*MM*`) |
+
+> **Tip:** To see a working template, download the `example_compound_list.xls` file from the repository.
+
+**Procedure**
+1.  Navigate to **File → Load Compounds/Parameter List**.
+2.  Select your prepared compound definition file from the file dialog.
+
+**Verification**
+Upon a successful import, the application provides immediate visual feedback:
+* The **Compounds** status indicator in the top-left toolbar will turn **green**.
+* The compound list widget (located below the status indicators) will populate with the names of all imported compounds.
+
+*If any required columns are missing from your file, the import process will be cancelled and an alert will display the specific missing headers.*
+
 
 ### Step 2: Import Mass Spectrometry Data
 

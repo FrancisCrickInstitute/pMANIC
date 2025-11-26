@@ -1,105 +1,88 @@
-# Natural Isotope Abundance Correction
+# Reference: Natural Isotope Correction
 
 ## Overview
+In mass spectrometry, the signal for a biological molecule is spread across multiple mass channels due to the natural presence of heavy isotopes (¹³C ≈ 1.1%, ¹⁵N ≈ 0.4%, etc.).   
 
-Natural isotope correction removes the contribution of naturally occurring heavy isotopes from mass spectrometry measurements to isolate experimental labeling.
+For example, even a completely unlabelled metabolite will produce a signal at **M+0** (100%), **M+1** (~6%), and **M+2** (~0.5%).   
 
-## Natural Isotope Abundances
+To quantify experimental labelling accurately, MANIC must mathematically remove this "natural background" spread. It uses a **Matrix-Based Deconvolution** algorithm to solve for the true abundance of each labelled isotopologue.   
 
-Elements in biological molecules contain:
-- Carbon: ¹³C (1.07%)
-- Nitrogen: ¹⁵N (0.368%)
-- Hydrogen: ²H (0.015%)
-- Oxygen: ¹⁷O (0.038%), ¹⁸O (0.205%)
-- Silicon (derivatization): ²⁹Si (4.68%), ³⁰Si (3.09%)
+---
 
-## Mathematical Method
+## 1. The Algorithm (Matrix Inversion)
 
-We solve a linear system: `A × x = b`
+MANIC models the relationship between the **Measured Raw Signal ($b$)** and the **True Isotopologue Abundance ($x$)** as a linear system:   
+
+$$A \cdot x = b$$
 
 Where:
-- `A` = Correction matrix built by convolving elemental isotope distributions (MATLAB-aligned derivatization)
-- `x` = True isotopologue distribution (fractions)
-- `b` = Measured isotopologue distribution (normalized per timepoint)
+* **$b$ (Vector):** The raw intensities measured by the instrument at M+0, M+1, M+2, etc.
+* **$x$ (Vector):** The unknown "true" amounts of unlabelled (M+0), 1-labelled (M+1), etc.
+* **$A$ (Matrix):** The **Correction Matrix**. Each column $j$ represents the theoretical isotopic distribution of a compound with exactly $j$ labels.
 
-## Algorithm Implementation
+### The Solution
+To find the true abundances ($x$), MANIC inverts the matrix (or solves the system) for every timepoint:   
 
-### Solver (Direct Only)
-- Normalize each timepoint so intensities sum to 1
-- Solve `A × x = b` via direct linear algebra (no optimization path)
-- Rescale by the original total intensity
-- Divide each isotopologue by the diagonal element of `A`
-- Clamp negatives to 0
+$$x = A^{-1} \cdot b$$   
 
-We report condition numbers for diagnostics, but always use the direct solver for parity with MATLAB GVISO and performance.
+### Why this matters
+Unlike simpler "subtraction" methods, this approach correctly handles **overlapping distributions**. For example, the M+2 bin contains signal from:
+1.  True 2-labelled compound.
+2.  Natural isotope tail of the 1-labelled compound.
+3.  Natural isotope tail of the unlabelled compound.
+The matrix solver disentangles all these contributions simultaneously.
 
-### Unlabeled (1×1) Case
-- For compounds with `labelatoms = 0` (single isotopologue), the normalized constrained MATLAB solution reduces to `cordist = 1`, so the corrected intensity equals the original total before a single diagonal division. The implementation special‑cases this 1×1 case to match MATLAB behavior.
+---
 
-### Performance
-- Matrix caching (reuse per compound/derivatization)
-- Vectorized time series processing
+## 2. Correction Matrix Construction
 
-## Compound Configuration
+The matrix $A$ is built dynamically for each compound based on its **Molecular Formula** and **Labeling Constraints**.
 
-### Required Parameters
+### Inputs
+The algorithm requires the following metadata from your Compound List:
+1.  **Formula:** (e.g., `C6H12O6`)
+2.  **Derivatization Counts:** (TBDMS, MeOX, Me)
+3.  **Label Element:** (e.g., `C`)
+4.  **Label Atoms:** The maximum number of labelable positions (e.g., `6` for Glucose).
 
-**Label Atoms** (`labelatoms`):
-- Number of positions that can incorporate label
-- Internal standards must have `labelatoms = 0`
+### Derivatization Adjustments
+Before building the matrix, MANIC adjusts the molecular formula to include the atoms added by chemical derivatization.   
 
-**Molecular Formula** (`formula`):
-- Standard notation (e.g., C6H12O6)
+> **⚠️ Critical Assumption for TBDMS**
+> For TBDMS derivatization, MANIC assumes the standard **[M-57]+ fragment** (loss of the t-butyl group).
+> * **Added:** The dimethylsilyl group ($-Si(CH_3)_2$).
+> * **Net Formula Change:** +2 C, +5 H, +1 Si (per TBDMS group).
 
-**Derivatization (MATLAB-aligned)**:
-- `tbdms`: `C += (t−1)*6 + 2`, `H += (t−1)*15 + 6 − t`, `Si += t`
-- `meox`: `N += m`, `C += m`, `H += 3m` (no O term)
-- `me`: `C += e`, `H += 2e`
+| Group | Added Formula (Approx) | Net Atom Change (per group) |
+| :--- | :--- | :--- |
+| **Me** (Methylation) | $-CH_2$ | +1 C, +2 H |
+| **MeOX** (Methoxyamine) | $=N-O-CH_3$ | +1 C, +3 H, +1 N |
+| **TBDMS** | $-Si(CH_3)_2$ ([M-57]+) | +2 C, +5 H, +1 Si |
 
-### Example Configuration
+---
 
-```
-name: Glucose
-formula: C6H12O6
-labelatoms: 6
-tbdms: 5
-meox: 1
-me: 0
-```
+## 3. Per-Timepoint Correction
 
-Total formula after derivatization follows the rules above (matches MATLAB GVISO).
+A key feature of MANIC (compared to the legacy v3.3.0 tool) is that this correction is applied **before integration**.   
 
-## Common Issues
+* **Legacy:** Integrate raw M+0, M+1, M+2 peaks $\rightarrow$ Apply correction to the total areas.
+* **MANIC:** Apply correction to every scan (timepoint) $\rightarrow$ Integrate the "Corrected Chromatogram."
 
-### All Corrected Values Are Zero
-- Check `labelatoms` and formula/derivatization settings
+This provides higher accuracy because it prevents baseline noise or interfering peaks at specific timepoints from skewing the global correction.   
 
-### Negative Corrected Values
-- Caused by parameter mismatch; verify compound configuration
+---
 
-## How MM Files Factor In
+## 4. Interpretation of Results
 
-Natural abundance correction itself does not use MM files. MM files are used afterwards to estimate and subtract background labeling for the “% Label Incorporation” sheet:
+The values in the **Corrected Values** sheet represent the **Calculated Abundance of the Isotopologue**, not just the "cleaned" raw signal.   
 
-1) Compute background ratio from MM samples (using corrected signals):
-   `background = mean( (Σ labeled) / M0 )`
+### Example: Unlabeled Compound
+If you analyze a purely unlabeled standard:
+* **Raw Signal ($b$):** You see 100 counts at M+0.
+* **Natural Physics:** We know M+0 is only ~92% of the total pool for this molecule (due to natural ¹³C).
+* **Corrected Value ($x$):** MANIC calculates the "True Unlabeled Amount" as $100 / 0.92 \approx 109$.
 
-2) For each sample:
-   `corrected_labeled = (Σ labeled) − background × M0`
+**Result:** Corrected values for M+0 are typically **higher** than raw values because they account for the signal "lost" to natural heavy isotopes.   
 
-3) `% label = corrected_labeled / (M0 + corrected_labeled) × 100`
-
-This makes `% label` robust to systematic background signal observed in standards.
-
-## Changes from MANIC v3.3.0 and Below
-
-### Algorithm
-- **Previous**: Mixed direct/optimization paths, conventional derivatization
-- **Current**: Direct solver only; MATLAB-aligned derivatization
-
-### Scope
-- NA correction is applied to all compounds (including unlabeled) for GVISO parity.
-
-### Performance
-- **Previous**: Matrix recalculated for each sample
-- **Current**: Matrix caching reduces computation 5-10×
+### Non-Negativity
+The algorithm enforces a non-negativity constraint. If noise causes the mathematical solution to be negative (e.g., $-0.5$), it is clamped to **0**.   

@@ -411,7 +411,10 @@ class MainWindow(QMainWindow):
 
         default_dir = str(Path.home() / "Documents")
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Compound List", default_dir, "Excel Files (*.xls *.xlsx)"
+            self,
+            "Select Compound List",
+            default_dir,
+            "Excel/CSV Files (*.xls *.xlsx *.csv)",
         )
         if not file_path:
             return

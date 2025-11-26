@@ -1,95 +1,80 @@
-# Data Interpretation
+# Workflow: Data Interpretation
 
-## Export Structure
+## Overview
+When you export data from MANIC (Step 5), the application generates a multi-sheet Excel workbook. This document explains the purpose, units, and derivation logic for each sheet in that report.
 
-MANIC exports five worksheets representing successive processing stages.
+---
 
-## Raw Values
+## 1. Raw Values
+**Description:** The direct area-under-the-curve (AUC) for each peak, summed from the extracted ion chromatogram.
 
-Direct integration of chromatographic peak areas without correction.
+* **Correction:** None. These are raw signals.
+* **Units:** Arbitrary Counts (Intensity × Time).
+    * *Note:* If using "Legacy Mode," values will be ~100× larger than "Time-Based" values.
+* **Use Case:** Quality control. Use this to check if a sample had low overall signal or injection issues.
 
-**Contents**: Uncorrected peak areas for each isotopologue (M+0, M+1, M+2, ...)
+> **📖 Deep Dive:**
+> Understand the mathematical difference between Time-Based and Legacy integration in **[Reference: Integration Methods](docs/Reference_Integration_Methods.md)**.
 
-**Calculation**: Trapezoidal integration within defined window
-```
-Area = Σᵢ [(Iᵢ + Iᵢ₊₁)/2] × (tᵢ₊₁ - tᵢ)
-```
+---
 
-**Use**: Quality control, verifying peak detection
+## 2. Corrected Values
+**Description:** The "pure" peak areas after the **Natural Isotope Abundance Correction** has been applied.
 
-## Corrected Values
+* **Correction:** Mathematically deconvoluted to remove signal from naturally occurring heavy isotopes (¹³C, etc.).
+* **Units:** Arbitrary Counts (Intensity × Time).
+* **Use Case:** This is your primary dataset for relative quantification if you are not using an internal standard. It represents the true experimental label distribution.
 
-Peak areas after mathematical deconvolution to remove natural isotope abundance.
+> **Why are some values small/zero?**
+> The correction algorithm subtracts the "natural" contribution. If a peak is entirely due to natural background (unlabelled), the corrected value for heavier isotopologues will properly be zero.
 
-**Algorithm**: Direct linear solve on normalized data
-- `A` = Correction matrix (convolution of elemental distributions; MATLAB-aligned derivatization)
-- `b` = Measured distribution per timepoint (normalized)
-- `x` = True distribution; rescaled by total; divided by diagonal of `A`
-− Applies to all compounds (including unlabeled) for GVISO parity
+> **📖 Deep Dive:**
+> Learn how the matrix-based correction algorithm works in **[Reference: Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)**.
 
-Natural abundances incorporated:
-- Carbon: ¹³C (1.07%)
-- Nitrogen: ¹⁵N (0.368%)
-- Hydrogen: ²H (0.015%)
-- Oxygen: ¹⁷O (0.038%), ¹⁸O (0.205%)
-- Silicon: ²⁸Si (92.23%), ²⁹Si (4.68%), ³⁰Si (3.09%)
+---
 
-**Use**: Foundation for all downstream calculations
+## 3. Isotope Ratios
+**Description:** The normalized distribution of isotopologues for each compound.
 
-## Isotope Ratios
+* **Calculation:** Each isotopologue's corrected area divided by the total corrected area for that compound.
+    $$\text{Ratio}_i = \frac{\text{Area}_i}{\sum \text{Area}_{total}}$$
+* **Units:** Unitless fraction (Sum of all isotopologues = 1.0).
+* **Use Case:** Comparing labelling patterns (e.g., "M+3 enrichment") across samples with different concentrations. Since it is normalized, it is independent of the total amount of metabolite.
 
-Normalized corrected values where sum equals 1.0.
+---
 
-**Calculation**:
-```
-Ratio[M+i] = Corrected[M+i] / Σⱼ(Corrected[M+j])
-```
+## 4. % Label Incorporation
+**Description:** The percentage of the total metabolite pool that contains the experimental label.
 
-**Use**: Comparing labeling patterns independent of concentration
+* **Correction:** Includes a background subtraction derived from your Standard Mixture (MM) files to account for impurities.
+* **Units:** Percentage (0–100%).
+* **Formula:**
+    $$\% \text{Label} = \frac{\text{Labelled}_{corrected}}{\text{Total}_{original}} \times 100$$
+* **Use Case:** Quickly assessing how "labelled" a specific pool is.
 
-## % Label Incorporation
+---
 
-Percentage of molecules containing experimental label after background correction.
+## 5. Abundances
+**Description:** The absolute amount of metabolite present in the sample.
 
-**Calculation**:
-1. Background ratio from standard mixtures (using corrected signals):
-   ```
-   Background_Ratio = mean( (ΣLabeled) / M+0 ) in MM samples
-   ```
+* **Units:** **nmol**.
+* **Calculation:** Derived relative to the **Internal Standard** using the **MRRF** (Metabolite Response Ratio Factor) determined from your standard curves.
+* **Requirements:**
+    * An Internal Standard must be selected.
+    * `int_std_amount` and `amount_in_std_mix` must be defined in your Compound List.
 
-2. Background correction:
-   ```
-   Corrected_Labeled = (ΣLabeled) - (Background_Ratio × Sample_M+0)
-   ```
+> **📖 Deep Dive:**
+> For the full derivation of the formula and how MRRF slopes are calculated, see **[Reference: Abundance Calculation](docs/Reference_Abundance_Calculation.md)**.
 
-3. Percentage:
-   ```
-   % Label = (Corrected_Labeled / Total_Signal) × 100
-   ```
+---
 
-**Requirements**: Standard mixture files
+## Color Codes & Validation
+MANIC automatically validates every peak during export. You may see coloured cells in your Excel file:
 
-Note: Integration method (Time‑based vs Legacy) can influence background‑subtracted fractions. For strict MATLAB GVISO parity, enable Legacy Integration Mode before export.
+* **⚪ White (Normal):** Valid peak. Area > Threshold.
+* **🔴 Light Red (Warning):** **Low Intensity.**
+    * The total peak area was less than **5%** (default) of the Internal Standard's area.
+    * *Action:* Check the raw chromatogram. This data may be noise.
 
-## Abundances
-
-Absolute concentrations calculated through internal standard calibration.
-
-**MRRF Calculation**:
-```
-MRRF = (Signal_met/Conc_met) / (Signal_IS/Conc_IS)
-```
-
-**Sample Quantification**:
-```
-Abundance = (Total_Corrected × IS_Amount) / (IS_M0 × MRRF)
-```
-
-**Units**: nmol (hardcoded in abundances.py)
-
-**Requirements**:
-- Internal standard in all samples (IS M+0 used)
-- Standard mixtures with known concentrations
-- Compound library with `amount_in_std_mix`, `int_std_amount`, and `mmfiles`
-
-> The Abundances export stops with an error if no internal standard is selected or if either `int_std_amount` or `amount_in_std_mix` is missing for that compound.
+> **📖 Deep Dive:**
+> See **[Reference: Peak Validation](docs/Reference_Peak_Validation.md)** for details on threshold algorithms and how to adjust them.

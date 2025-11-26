@@ -13,15 +13,16 @@ Built with Python and PySide6, it serves as a high-performance successor to the 
 ## Documentation
 
 ### For Users
-* **[Getting Started / User Guide](docs/user_guide.md)** - *The primary manual. Step-by-step instructions for import, integration, and export.*
-* **[Updating Old Data](docs/update_old_data.md)** - *How to re-process legacy result files without raw CDF data.*
+* **[Getting Started / User Guide](docs/01_user_guide.md)** - *The primary manual. Step-by-step instructions for import, integration, and export.*
+* **[Understanding the Output](/docs/Workflow_Data_Interpretation.md)** - *How to interpret the results exported in the excel workbook.*
+* **[Updating Old Data](docs/Workflow_Updating_Old_Data.md)** - *How to re-process legacy result files without raw CDF data.*
 
 ### Technical Reference
-* **[Natural Isotope Correction](docs/natural_isotope_correction.md)** - *Explanation of the matrix-based correction algorithm.*
-* **[Integration Methods](docs/integration_methods.md)** - *Time-based vs. Legacy Unit-spacing integration.*
-* **[MRRF Calibration](docs/mrrf_calibration.md)** - *Metabolite Response Ratio Factor calculations.*
-* **[Peak Validation](docs/peak_validation.md)** - *Criteria for automatic red/green quality indicators.*
-* **[Mass Tolerance](docs/mass_tolerance.md)** - *Details on the asymmetric mass binning logic.*
+* **[Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)** - *Explanation of the matrix-based correction algorithm.*
+* **[Integration Methods](docs/Reference_Integration_Methods.md)** - *Time-based vs. Legacy Unit-spacing integration.*
+* **[MRRF Calibration](docs/Reference_MRRF_Calibration.md)** - *Metabolite Response Ratio Factor calculations.*
+* **[Peak Validation](docs/Reference_Peak_Validation.md)** - *Criteria for automatic red/green quality indicators.*
+* **[Mass Tolerance](docs/Reference_Mass_Tolerance.md)** - *Details on the asymmetric mass binning logic.*
 
 ---
 

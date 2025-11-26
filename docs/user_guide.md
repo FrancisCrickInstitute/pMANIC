@@ -1,13 +1,12 @@
 # User Guide
 
-## Workflow
 
-### Step 1: Load Compound Definitions
+## Step 1: Load Compound Definitions
 
-**Objective**
+**Objective**   
 Initialize the analysis session by importing a library of target metabolites and their specific integration parameters.
 
-**File Requirements**
+**File Requirements**   
 Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns listed below.
 
 *Note: Column headers are flexible. They are case-insensitive and ignore spaces or underscores (e.g., `Int Std Amount`, `int_std_amount`, and `IntStdAmount` are all treated as the same field).*
@@ -43,7 +42,7 @@ Upon a successful import, the application provides immediate visual feedback:
 *If any required columns are missing from your file, the import process will be cancelled and an alert will display the specific missing headers.*
 
 
-### Step 2: Import Mass Spectrometry Data
+## Step 2: Import Mass Spectrometry Data
 
 File → Load Raw Data (CDF)
 

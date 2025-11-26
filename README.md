@@ -30,9 +30,10 @@ Built with Python and PySide6, it serves as a high-performance successor to the 
 ### Option 1: Standalone Installer (Recommended)
 For most users, simply download the latest compiled executable. This requires no Python knowledge or external dependencies.
 
-1.  Navigate to the **[Releases](../../releases)** page of this repository.
-2.  Download the latest installer (e.g., `MANIC_Setup_v4.0.0.exe`).
-3.  Run the installer and follow the on-screen prompts.
+1.  Navigate to the **[latest release](../../releases/latest)** page of this repository.
+2.  Click on the `Assets` drop-down.
+3.  Download the installer named `MANIC_Setup.zip`.
+4.  Run the installer and follow the on-screen prompts.
 
 ### Option 2: Running from Source
 If you prefer to run the raw Python code, use the provided execution script.

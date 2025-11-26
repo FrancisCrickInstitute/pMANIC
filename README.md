@@ -10,7 +10,7 @@ Built with Python and PySide6, it serves as a high-performance successor to the 
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 ### For Users
 * **[Getting Started / User Guide](docs/user_guide.md)** - *The primary manual. Step-by-step instructions for import, integration, and export.*
@@ -59,7 +59,7 @@ If you prefer to run the raw Python code, use the provided execution script.
 
 ---
 
-## 🛠️ Developer Instructions
+## Developer Instructions
 
 This project uses modern Python tooling including `uv` for dependency management and `PySide6` for the GUI.
 

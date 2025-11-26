@@ -265,7 +265,7 @@ These settings control the global behavior of the application. Changing them usu
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
 * **Impact:** Changing this requires re-importing your raw data (Step 2).
-* **Deep Dive:** 📖 [Read the Mass Tolerance Technical Doc](Reference_Mass_Tolerance.md)
+* **Deep Dive:** 📖 [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Legacy Integration Mode
 **Settings → Legacy Integration Mode**

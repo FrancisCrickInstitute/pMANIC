@@ -1,243 +1,109 @@
-# MANIC
+<div align="center">
+  <img src="src/manic/resources/manic_logo.png" alt="MANIC Logo" width="600">
+</div>
 
-## Table of Contents
-- [Overview](#overview)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Data Processing](#data-processing)
-- [Export Structure](#export-structure)
-- [Advanced Features](#advanced-features)
-- [Development](#development)
-- [Changes from MANIC v3.3.0 and Below](#changes-from-manic-v330-and-below)
-- [Technical Details](#technical-details)
+# MANIC: Mass Analysis & Natural Isotope Correction
 
+**MANIC** is a desktop application for the robust processing and analysis of isotopically labelled mass spectrometry data (GC-MS).
 
+Built with Python and PySide6, it serves as a high-performance successor to the legacy MATLAB GVISO/MANIC suite. It provides a complete workflow for extracting ion chromatograms, correcting for natural isotope abundance, validating peak quality, and calculating absolute metabolite concentrations.
 
-## Documentation 
+---
 
-- [Getting Started](/docs/user_guide.md)
-- [Data Interpretation](/docs/data_interpretation.md)
+## 📚 Documentation
 
-## Overview
+### For Users
+* **[Getting Started / User Guide](docs/user_guide.md)** - *The primary manual. Step-by-step instructions for import, integration, and export.*
+* **[Updating Old Data](docs/update_old_data.md)** - *How to re-process legacy result files without raw CDF data.*
 
-MANIC processes isotopically-labeled mass spectrometry data through natural isotope abundance correction, peak integration, and metabolite quantification. The application reads CDF files from GC-MS and LC-MS instruments and generates Excel workbooks containing five analysis stages: Raw Values, Corrected Values, Isotope Ratios, % Label Incorporation, and Abundances.
+### Technical Reference
+* **[Natural Isotope Correction](docs/natural_isotope_correction.md)** - *Explanation of the matrix-based correction algorithm.*
+* **[Integration Methods](docs/integration_methods.md)** - *Time-based vs. Legacy Unit-spacing integration.*
+* **[MRRF Calibration](docs/mrrf_calibration.md)** - *Metabolite Response Ratio Factor calculations.*
+* **[Peak Validation](docs/peak_validation.md)** - *Criteria for automatic red/green quality indicators.*
+* **[Mass Tolerance](docs/mass_tolerance.md)** - *Details on the asymmetric mass binning logic.*
+
+---
 
 ## Installation
 
-### Windows
+### Option 1: Standalone Installer (Recommended)
+For most users, simply download the latest compiled executable. This requires no Python knowledge or external dependencies.
 
-1. Download `MANIC-Setup.exe` from the Releases page
-2. Run the installer
-3. Launch MANIC from the Start Menu or desktop shortcut
+1.  Navigate to the **[Releases](../../releases)** page of this repository.
+2.  Download the latest installer (e.g., `MANIC_Setup_v4.0.0.exe`).
+3.  Run the installer and follow the on-screen prompts.
 
-### macOS and Linux
+### Option 2: Running from Source
+If you prefer to run the raw Python code, use the provided execution script.
 
-```bash
-# Clone repository
-git clone https://github.com/yourusername/pythonMANIC.git
-cd pythonMANIC
+**Prerequisites:**
+* Python 3.10 or higher
+* Git
+* [uv](https://github.com/astral-sh/uv) (Recommended for dependency management)
 
-# Create virtual environment
-uv venv
-source .venv/bin/activate
+**Steps:**
 
-# Install dependencies
-uv sync
+1.  Clone the repository:
+    ```bash
+    git clone [https://github.com/your-org/clone_pmanic.git](https://github.com/your-org/clone_pmanic.git)
+    cd clone_pmanic
+    ```
 
-# Run application
-uv run python -m src.manic.main
-```
+2.  Run the application using the helper script:
+    ```bash
+    ./scripts/run.sh
+    ```
+    *(Note: This script automatically handles dependency synchronization and environment setup.)*
 
-## Usage
+---
 
-### Basic Workflow
+## 🛠️ Developer Instructions
 
-1. **Load compound definitions**: File → Load Compounds/Parameter List
-2. **Import CDF files**: File → Load Raw Data (CDF)
-3. **Select internal standard**: Right-click compound → "Set as Internal Standard"
-4. **Export results**: File → Export Data
+This project uses modern Python tooling including `uv` for dependency management and `PySide6` for the GUI.
 
-### Input Files
-
-#### Compound Definition File (Excel/CSV)
-
-Required columns:
-- `name`: Compound identifier
-- `tr`: Retention time (minutes)
-- `mass0`: Base m/z value
-- `loffset`, `roffset`: Integration window offsets (minutes)
-- `tr_window`: RT extraction window (±minutes)
-- `labelatoms`: Number of labelable positions
-- `formula`: Molecular formula
-- `tbdms`, `meox`, `me`: Derivatization groups
-- `amount_in_std_mix`: Concentration in standards
-- `int_std_amount`: Internal standard amount
-- `mmfiles`: Pattern to identify standard mixtures
-
-## Data Processing
-
-### Natural Isotope Abundance Correction
-
-The correction solves the linear system **A × x = b** where:
-- **A**: Correction matrix containing theoretical isotope patterns
-- **b**: Measured isotopologue distribution
-- **x**: True isotopologue distribution
-
-The algorithm uses direct linear algebra for well-conditioned matrices (condition number < 10¹⁰) and constrained optimization (SLSQP) for ill-conditioned cases.
-
-### Peak Integration
-
-Two methods are available:
-
-**Time-Based Integration (Default):**
-```
-Area = Σᵢ [(Iᵢ + Iᵢ₊₁)/2] × (tᵢ₊₁ - tᵢ)
-```
-
-**Legacy Unit-Spacing Integration:**
-```
-Area = Σᵢ [(Iᵢ + Iᵢ₊₁)/2]
-```
-
-Legacy mode produces values ~100× larger for compatibility with MATLAB MANIC v3.3.0.
-
-### MRRF Calibration
-
-Metabolite Response Ratio Factor calculation:
-```
-MRRF = (Signal_metabolite/Conc_metabolite) / (Signal_IS/Conc_IS)
-```
-
-Sample quantification:
-```
-Abundance = (Signal_sample × IS_amount) / (Signal_IS × MRRF)
-```
-
-### Mass Tolerance
-
-MANIC uses an offset-and-round algorithm:
-```python
-offset_mass = detected_mass - tolerance_offset
-rounded_mass = round(offset_mass)
-match = (rounded_mass == target_integer_mass)
-```
-
-Default offset: 0.2 Da (configurable in Settings → Mass Tolerance)
-
-## Export Structure
-
-The Excel workbook contains five worksheets:
-
-1. **Raw Values**: Integrated peak areas without correction
-2. **Corrected Values**: Natural abundance-corrected peak areas
-3. **Isotope Ratios**: Normalized isotopologue distributions (sum = 1.0)
-4. **% Label Incorporation**: Background-corrected labeling percentage
-5. **Abundances**: Absolute concentrations via MRRF calibration
-
-## Advanced Features
-
-### Session Management
-
-- **Export Session**: Saves compound definitions and integration parameters (not raw data)
-- **Import Session**: Applies saved parameters to new data
-
-### Update Old Data
-
-Reconstructs complete exports from:
-- Compound definition file
-- Previously exported Raw Values worksheet
-
-This approximate mode applies natural abundance correction to integrated totals rather than per-timepoint data.
-
-### Peak Validation
-
-Compares m0 peak heights against internal standard signal. Default threshold: 5% of internal standard height. Invalid peaks are highlighted with red background.
-
-## Development
-
-### Environment Setup
+### Development Environment Setup
+To set up your local environment for development:
 
 ```bash
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Install uv (if not installed)
+pip install uv
 
-# Create environment
-uv venv
-source .venv/bin/activate
-
-# Install dependencies
+# Sync dependencies from lockfile
 uv sync
+```
 
-# Run tests
+### Running Tests
+The project maintains a test suite covering:
+* **Mathematical Correctness:** Verifies mass binning, integration algorithms, and natural abundance correction logic against standard scientific principles and legacy MATLAB behavior.
+* **Data Integrity:** Ensures accurate data extraction from CDF files, efficient batch processing, and correct database storage.
+* **System Robustness:** Tests edge cases such as missing metadata, zero-width integration windows, and zero-intensity signals.
+* **UI Logic:** Validates number formatting, auto-regeneration triggers, and peak quality validation logic.
+
+```bash
+# Run all tests using the provided script
 ./scripts/tests.sh
 ```
 
-### Building Windows Executable
+### Building Executables
 
-Using the convenience script:
-```bat
+To compile the application into a standalone Windows executable (.exe) and installer:
+
+1. Ensure you are on a Windows machine.
+2. Run the build script:
+
+```DOS 
 scripts\build_windows.bat
 ```
 
-Or manually:
-```bat
-# With uv
-uv venv
-uv sync
-uv run pyinstaller MANIC.spec
+3. Artifacts will be generated in the dist/ and Output/ directories.
 
-# With pip
-py -3.12 -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt pyinstaller
-pyinstaller MANIC.spec
 
-# Build installer (requires Inno Setup 6)
-"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\MANIC.iss
+```
 ```
 
-Output:
-- Executable: `dist\MANIC\MANIC.exe`
-- Installer: `dist\MANIC-Setup.exe`
+```
+```
 
-## Changes from MANIC v3.3.0 and Below
 
-### Integration Method
-- **Previous**: Legacy unit-spacing as default
-- **Current**: Time-based integration as default (legacy available in Settings)
 
-### Natural Abundance Correction
-- **Previous**: Correction after integration
-- **Current**: Per-timepoint correction before integration with adaptive solver selection
-
-### MRRF Calculation
-- **Previous**: Sum-then-divide approach
-- **Current**: Mean-based calculation
-
-### Mass Tolerance
-- **Previous**: Undocumented offset-and-round
-- **Current**: Configurable offset with documented algorithm
-
-## Technical Details
-
-### Dependencies
-- Core: NumPy, SciPy, Pandas
-- Interface: PyQt6
-- Data I/O: netCDF4, openpyxl
-- Database: SQLite3
-
-### File Formats
-- Input: CDF, Excel (.xlsx), CSV
-- Output: Excel (.xlsx), JSON (sessions)
-- Internal: SQLite database (~/.manic_app/manic.db)
-
-## Documentation
-
-- [Getting Started](docs/getting_started.md)
-- [Data Interpretation](docs/data_interpretation.md)
-- [Integration Methods](docs/integration_methods.md)
-- [Natural Isotope Correction](docs/natural_isotope_correction.md)
-- [MRRF Calibration](docs/mrrf_calibration.md)
-- [Mass Tolerance](docs/mass_tolerance.md)
-- [Peak Validation](docs/peak_validation.md)
-- [Update Old Data](docs/update_old_data.md)

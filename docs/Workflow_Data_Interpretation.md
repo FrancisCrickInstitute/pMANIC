@@ -14,7 +14,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 * **Use Case:** Quality control. Use this to check if a sample had low overall signal or injection issues.
 
 > **📖 Deep Dive:**
-> Understand the mathematical difference between Time-Based and Legacy integration in **[Reference: Integration Methods](docs/Reference_Integration_Methods.md)**.
+> Understand the mathematical difference between Time-Based and Legacy integration in **[Reference: Integration Methods](Reference_Integration_Methods.md)**.
 
 ---
 
@@ -29,7 +29,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 > The correction algorithm subtracts the "natural" contribution. If a peak is entirely due to natural background (unlabelled), the corrected value for heavier isotopologues will properly be zero.
 
 > **📖 Deep Dive:**
-> Learn how the matrix-based correction algorithm works in **[Reference: Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)**.
+> Learn how the matrix-based correction algorithm works in **[Reference: Natural Isotope Correction](Reference_Natural_Isotope_Correction.md)**.
 
 ---
 
@@ -64,7 +64,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
     * `int_std_amount` and `amount_in_std_mix` must be defined in your Compound List.
 
 > **📖 Deep Dive:**
-> For the full derivation of the formula and how MRRF slopes are calculated, see **[Reference: Abundance Calculation](docs/Reference_Abundance_Calculation.md)**.
+> For the full derivation of the formula and how MRRF slopes are calculated, see **[Reference: Abundance Calculation](Reference_Abundance_Calculation.md)**.
 
 ---
 
@@ -77,4 +77,4 @@ MANIC automatically validates every peak during export. You may see coloured cel
     * *Action:* Check the raw chromatogram. This data may be noise.
 
 > **📖 Deep Dive:**
-> See **[Reference: Peak Validation](docs/Reference_Peak_Validation.md)** for details on threshold algorithms and how to adjust them.
+> See **[Reference: Peak Validation](Reference_Peak_Validation.md)** for details on threshold algorithms and how to adjust them.

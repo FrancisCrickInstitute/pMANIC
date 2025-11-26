@@ -296,18 +296,6 @@ class MainWindow(QMainWindow):
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.Yes)
 
-        # Set the logo as window icon and replace standard icon
-        logo_path = self._get_logo_path()
-        if logo_path:
-            msg_box.setWindowIcon(QIcon(logo_path))
-            # Replace the standard icon with our logo (scaled appropriately)
-            pixmap = QPixmap(logo_path)
-            if not pixmap.isNull():
-                scaled_pixmap = pixmap.scaled(
-                    48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation
-                )
-                msg_box.setIconPixmap(scaled_pixmap)
-
         return msg_box
 
     def _show_question_dialog(
@@ -1852,19 +1840,13 @@ class MainWindow(QMainWindow):
 
         # Show information dialog about the change
         mode_name = "Legacy Unit-Spacing" if is_enabled else "Time-Based"
-        value_info = (
-            "~100× larger values (MATLAB compatible)"
-            if is_enabled
-            else "Scientifically accurate"
-        )
 
         msg = self._create_message_box(
             "info",
             "Integration Mode Changed",
             f"Integration method changed to: {mode_name}",
-            f"This mode produces {value_info}. "
-            f"The change will apply to new data exports. "
-            f"See documentation for detailed information about integration methods.",
+            "The change will only apply to graphs in the GUI. Integration method for export is chosen at the time of export. "
+            "See documentation for detailed information about integration methods.",
         )
         msg.exec()
 

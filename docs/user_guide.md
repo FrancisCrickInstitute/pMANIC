@@ -4,7 +4,7 @@
 ## Step 1: Load Compound Definitions
 
 **Objective**   
-Initialize the analysis session by importing a library of target metabolites and their specific integration parameters.
+Initialise the analysis session by importing a library of target metabolites and their specific integration parameters.
 
 **File Requirements**   
 Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns listed below.
@@ -42,17 +42,41 @@ Upon a successful import, the application provides immediate visual feedback:
 *If any required columns are missing from your file, the import process will be cancelled and an alert will display the specific missing headers.*
 
 
-## Step 2: Import Mass Spectrometry Data
+### Step 2: Import Mass Spectrometry Data
 
-File → Load Raw Data (CDF)
+**Objective**   
+Import raw experimental data files for processing. The application will extract Extracted Ion Chromatograms (EIC) for every compound defined in Step 1 and apply natural abundance corrections.
 
-The import process:
-1. Reads CDF files
-2. Extracts ion chromatograms for each compound
-3. Stores EICs in database
-4. Applies natural abundance correction (all compounds)
+**Prerequisites**   
+* **Compound Definitions Loaded:** You must complete [Step 1](#step-1-load-compound-definitions) first. The application requires the compound library to know which masses to extract.
+* **File Format:** Data must be in **NetCDF (`.CDF`)** format.
+* **File Organization:** Ensure all CDF files for the experiment (samples and standards) are located in the same directory.
 
-### Step 3: Configure Internal Standard
+**Configuration Note**   
+The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) to bin detected masses.
+* To check or change this: Go to **Settings → Mass Tolerance...** *before* loading data.
+* *Note: If you change the tolerance later, you will need to re-import the data.*
+
+**Procedure**   
+1.  Navigate to **File → Load Raw Data (CDF)**.
+2.  In the dialog window, select the **Directory (Folder)** containing your CDF files.
+    * *Note: You are selecting the folder itself, not individual files.*
+3.  Click **Select Folder** to begin the import.
+
+A progress bar will appear as the application:   
+1.  Reads CDF files.
+2.  Extracts ion chromatograms for each defined compound.
+3.  Stores EIC data in the local database.
+4.  Calculates and applies natural abundance corrections.
+
+**Verification**   
+Upon completion, verify the data loaded correctly:
+* The **Raw Data** status indicator in the top-left toolbar will turn **green**.
+* The **Samples** list widget (left sidebar) will populate with the filenames of your imported samples.
+* Selecting a sample and a compound will display the chromatogram in the main view.
+
+
+## Step 3: Configure Internal Standard
 
 1. Right-click internal standard compound in left panel
 2. Select "Set as Internal Standard"

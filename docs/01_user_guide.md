@@ -265,19 +265,19 @@ These settings control the global behavior of the application. Changing them usu
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
 * **Impact:** Changing this requires re-importing your raw data (Step 2).
-* **Deep Dive:** 📖 [Read the Mass Tolerance Technical Doc](docs/mass_tolerance.md)
+* **Deep Dive:** 📖 [Read the Mass Tolerance Technical Doc](mass_tolerance.md)
 
 ### Legacy Integration Mode
 **Settings → Legacy Integration Mode**
 * **Off (Default):** Uses **Time-Based Integration**. Areas are calculated as $Intensity \times Time$. This is the scientifically accurate method for modern reporting.
 * **On:** Uses **Unit-Spacing Integration**. Areas are simple sums of intensity. This produces values ~100× larger and is intended *only* for reproducing historical data from MATLAB GVISO/MANIC v3.3.0.
-* **Deep Dive:** 📖 [Compare Integration Methods](docs/integration_methods.md)
+* **Deep Dive:** 📖 [Compare Integration Methods](integration_methods.md)
 
 ### Minimum Peak Area
 **Settings → Minimum Peak Area...**
 * **Default:** `0.05` (5%)
 * **Function:** Sets the validation threshold. Peaks with a total area less than 5% of the Internal Standard's area are flagged with a **red background**.
-* **Deep Dive:** 📖 [Understanding Peak Validation](docs/peak_validation.md)
+* **Deep Dive:** 📖 [Understanding Peak Validation](peak_validation.md)
 
 ### Natural Abundance Correction
 **Settings → Natural Abundance Correction** (Toggle)
@@ -286,7 +286,7 @@ These settings control the global behavior of the application. Changing them usu
     * **Off (Unchecked):** Displays the **Raw EIC**. This shows the total signal extracted from the file before any correction.
 * **Usage:** Toggle this off and on to visually verify that the correction algorithm is working correctly (e.g., ensuring it hasn't over-corrected a peak into the negative range).
 * **Note:** This setting only affects the *display*; it does **not** turn off the background calculation.
-* **Deep Dive:** 📖 [Natural Isotope Correction Algorithm](docs/natural_isotope_correction.md)
+* **Deep Dive:** 📖 [Natural Isotope Correction Algorithm](natural_isotope_correction.md)
 
 ---
 
@@ -332,6 +332,6 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 | **MRRF** | Sum-based calculation | Mean-based calculation (more robust to sample count variations). |
 | **Validation** | Manual visual check | Automatic red/white quality indicators. |
 
-* **Correction Math:** 📖 [Natural Isotope Correction Algorithm](docs/natural_isotope_correction.md)
+* **Correction Math:** 📖 [Natural Isotope Correction Algorithm](natural_isotope_correction.md)
 
 

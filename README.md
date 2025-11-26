@@ -20,7 +20,7 @@ Built with Python and PySide6, it serves as a high-performance successor to the 
 ### Technical Reference
 * **[Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)** - *Explanation of the matrix-based correction algorithm.*
 * **[Integration Methods](docs/Reference_Integration_Methods.md)** - *Time-based vs. Legacy Unit-spacing integration.*
-* **[MRRF Calibration](docs/Reference_MRRF_Calibration.md)** - *Metabolite Response Ratio Factor calculations.*
+* **[Abundance Calculation](docs/Reference_Abundance_Calculation.md)** - *Metabolite Response Ratio Factor calculations.*
 * **[Peak Validation](docs/Reference_Peak_Validation.md)** - *Criteria for automatic red/green quality indicators.*
 * **[Mass Tolerance](docs/Reference_Mass_Tolerance.md)** - *Details on the asymmetric mass binning logic.*
 

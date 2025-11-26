@@ -1,75 +1,50 @@
-# Update Old Data
+# Workflow: Updating Old Data
 
 ## Overview
+The **Update Old Data** feature allows you to re-process historical results using MANIC's modern algorithms, even if you have lost the original raw mass spectrometry files (CDFs).
 
-Reconstructs complete MANIC exports from Raw Values when CDF files are unavailable. Uses approximate mode that applies natural abundance correction to integrated totals rather than per-timepoint data.
+It reads a legacy **"Raw Values"** Excel file, pairs it with a **Compound List**, and generates a fully calculated result workbook (including Corrected Values, % Label, and Abundances).
 
-## Required Input
+---
 
-1. **Compound Definition File** (Excel/CSV)
-   - Same structure as standard import
-   - Must include formula, labelatoms, derivatization parameters
+## When to use this
+Use this workflow **only** if:
+1.  You have an old experiment analysed with the legacy MATLAB tool (v3.3.0).
+2.  You want to apply modern MRRF calibration or Correction calculations.
+3.  **You do not have the original .CDF files.** (If you *do* have the CDFs, please use the standard "Import Raw Data" workflow in Step 2, as it is more accurate).
 
-2. **Raw Values Worksheet** (Excel)
-   - From previous MANIC export
-   - Column headers: compound names with isotopologue suffixes
-   - Sample names must match exactly
+---
 
-## Processing Difference
+## ⚠️ Scientific Limitation: Approximate Mode
 
-**Standard Processing:**
-```
-CDF Files
-  → Extract raw EICs (time series for each m/z)
-  → Natural abundance correction on each timepoint
-  → Store corrected time series in database
-  → Integration of raw EICs → Raw Values sheet
-  → Integration of corrected time series → Corrected Values sheet
-  → Calculate ratios, % label, abundances
-```
+Because the original raw time-series data is missing, MANIC cannot perform its standard **Per-Timepoint Correction**. Instead, it must use an **Approximate Mode**:
 
-**Approximate Processing:**
-```
-Raw Values (integrated raw EICs, no correction)
-  → Natural abundance correction on integrated totals
-  → Corrected Values (approximate)
-  → Calculate ratios, % label, abundances
-```
+| Standard Workflow | Approximate Mode (Update Old Data) |
+| :--- | :--- |
+| **1. Correct Timepoints** (Matrix algebra on every scan) | **1. Sum Totals** (Read integer areas from Excel) |
+| **2. Integrate** ("Clean" peak area) | **2. Correct Totals** (Apply matrix algebra to the single sum) |
 
-The key difference: Standard mode corrects thousands of individual timepoints in the chromatogram, then integrates. Approximate mode takes already-integrated values and corrects those single sums. This changes how constraints (like non-negativity) are applied and accumulates different rounding errors.
+> **Impact:**
+> * For clean, high-intensity peaks, the results are nearly identical (< 0.1% difference).
+> * For messy or low-intensity peaks, this method is slightly less accurate because it cannot distinguish between baseline noise and true signal overlap.
 
-## Expected Differences
+---
 
-| Data Type | Typical Difference |
-|-----------|-------------------|
-| Corrected Values | 0.5-1% |
-| Isotope Ratios | < 0.5% |
-| % Label | 1-2% |
-| Abundances | 2-3% |
+## Procedure
 
-## Use Cases
+### Prerequisites
+* **Legacy Results File:** An Excel (`.xlsx`) or CSV file containing a table of uncorrected peak areas.
+* **Matching Compound List:** A Compound Definition file (Step 1) that matches the metabolite names in your legacy file. This is required to provide the *Molecular Formulas* and *Label Atoms* needed for correction.
 
-### Appropriate
-- Legacy data recovery
+### Steps
+1.  Navigate to **File → Update Old Data...**.
+2.  **Select Old Results File:** Browse to your legacy export file.
+3.  **Select Compound List:** Browse to the corresponding definition file.
+4.  **Output Filename:** Choose where to save the new results (e.g., `reprocessed_results.xlsx`).
+5.  Click **Run Update**.
 
-### Inappropriate
-- When CDF files are available
-
-## Implementation
-
-The approximation arises from:
-- Non-negativity constraints applied once vs. per timepoint
-- Different numerical precision accumulation
-- Single correction vs. multiple corrections
-
-## MRRF in Approximate Mode
-
-MRRF calculation uses available samples in Raw Values:
-- Identifies MM samples by pattern matching
-- Calculates from integrated totals
-- Same mathematical approach as standard mode
-
-## Changes from MANIC v3.3.0 and Below
-
-- **Previous**: Use approximate approach for standard processing as well. Resulted in lower accuracy.
-- **Current**: Full reconstruction from Raw Values export
+### Result
+MANIC will generate a new 5-sheet Excel workbook.
+* **Raw Values:** Copied directly from your input file.
+* **Corrected Values:** Recalculated using the Approximate Mode.
+* **Abundances:** Recalculated using the internal standard from your Compound List.

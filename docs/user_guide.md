@@ -42,7 +42,7 @@ Upon a successful import, the application provides immediate visual feedback:
 *If any required columns are missing from your file, the import process will be cancelled and an alert will display the specific missing headers.*
 
 
-### Step 2: Import Mass Spectrometry Data
+## Step 2: Import Mass Spectrometry Data
 
 **Objective**   
 Import raw experimental data files for processing. The application will extract Extracted Ion Chromatograms (EIC) for every compound defined in Step 1 and apply natural abundance corrections.
@@ -78,15 +78,31 @@ Upon completion, verify the data loaded correctly:
 
 ## Step 3: Configure Internal Standard
 
-1. Right-click internal standard compound in left panel
-2. Select "Set as Internal Standard"
-3. Verify indicator shows selected compound
+**Objective**   
+Designate the reference compound used for normalization and quantification (MRRF calculation).
 
-Requirements:
-- Internal standard must have `labelatoms = 0`
-- Must be present in all samples
-- Requires `int_std_amount > 0` (per-sample dose)
-- Requires `amount_in_std_mix > 0` (MM mix amount) for calibration/export
+**Prerequisites**   
+The selected compound must meet specific criteria in your compound definition file (from Step 1):
+* **Unlabeled:** `labelatoms` should be `0`.
+* **Sample Dose:** `int_std_amount` must be defined and `> 0`. This is the amount added to every experimental sample.
+* **Calibration Amount:** `amount_in_std_mix` must be defined and `> 0`. This is the concentration present in the standard mixture (MM) files.
+* **Universal Presence:** The compound must be detectable in all samples and standards.
+
+> **Tip (Auto-Selection):** If your compound list includes "scyllo-inositol" and has a valid `int_std_amount`, MANIC attempts to select it automatically upon loading. Check the verification step below to see if this has already occurred.
+
+**Procedure**   
+1.  Locate the **Compounds** list widget in the left sidebar.
+2.  **Right-click** on the name of your internal standard compound.
+3.  Select **"Set as Internal Standard"** from the context menu.
+
+**Verification**   
+Confirm the selection was applied:
+* The **Standard** status indicator (located below the data indicators) will turn **green**.
+* The text inside the indicator will change to display the name of the selected compound (e.g., `-- scyllo-Inositol --`).
+
+*Note: If you proceed to "Export Data" without a valid internal standard selected (or if the selected compound is missing the required amount fields), the export process will be aborted to prevent invalid quantification.*
+
+
 
 ### Step 4: Review Integration
 

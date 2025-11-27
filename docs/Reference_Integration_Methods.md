@@ -18,7 +18,9 @@ It calculates the area using the **Trapezoidal Rule** with the actual retention 
 * **Resulting Unit:** Intensity $\times$ Minutes
 
 ### Formula
-$$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times (t_{i+1} - t_i)$$   
+
+$$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times (t_{i+1} - t_i)$$
+
 *Where $I$ is intensity and $t$ is time.*   
 
 ### Why use this?
@@ -39,7 +41,8 @@ It calculates the area using the Trapezoidal Rule but ignores the time timestamp
 * **Resulting Unit:** Intensity Sum (approximate)
 
 ### Formula
-$$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times 1$$   
+
+$$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times 1$$
 
 ### Why use this?
 * **Reproducibility:** Use this *only* if you are comparing new results against a dataset processed years ago with the MATLAB version and need the raw numbers to match exactly.

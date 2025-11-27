@@ -6,10 +6,19 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 block_cipher = None
 
 hiddenimports = [
+    # Markdown extensions for documentation rendering
+    'markdown.extensions.extra',
     'markdown.extensions.tables',
     'markdown.extensions.fenced_code',
     'markdown.extensions.codehilite',
     'markdown.extensions.toc',
+    'markdown.extensions.nl2br',
+    'markdown.extensions.sane_lists',
+    'markdown.extensions.md_in_html',
+    'pymdownx.arithmatex',
+    # QtWebEngine modules for documentation viewer
+    'PySide6.QtWebEngineCore',
+    'PySide6.QtWebEngineWidgets',
 ]
 hiddenimports += collect_submodules('PySide6')
 
@@ -27,6 +36,7 @@ a = Analysis(
         ('src/manic/resources/*', 'src/manic/resources'),
         ('src/manic/models/schema.sql', 'src/manic/models'),
         ('docs/*.md', 'docs'),
+        ('docs/_assets/mathjax/*', 'docs/_assets/mathjax'),
     ] + datas_extra,
     hiddenimports=hiddenimports,
     hookspath=[],

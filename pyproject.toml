@@ -19,6 +19,7 @@ dependencies = [
     "scipy~=1.14.1",
     "xlsxwriter~=3.2.0",
     "markdown~=3.7.0",
+    "pymdown-extensions>=10.17.2",
 ]
 
 [tool.hatch.build.targets.sdist]

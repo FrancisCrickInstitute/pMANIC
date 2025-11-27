@@ -18,8 +18,11 @@ Instead of a symmetric window (e.g., `205 ± 0.2`), MANIC subtracts a fixed offs
 For a detected mass $m$ and a tolerance offset $\tau$:   
 
 1.  **Offset:** Subtract the tolerance from the detected mass.
+
     $$m' = m - \tau$$
+
 2.  **Round:** Round the result to the nearest integer (using half-up rounding).
+
     $$M_{bin} = \lfloor m' + 0.5 \rfloor$$
 
 ### Example

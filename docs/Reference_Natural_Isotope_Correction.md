@@ -21,9 +21,9 @@ Where:
 * **$A$ (Matrix):** The **Correction Matrix**. Each column $j$ represents the theoretical isotopic distribution of a compound with exactly $j$ labels.
 
 ### The Solution
-To find the true abundances ($x$), MANIC inverts the matrix (or solves the system) for every timepoint:   
+To find the true abundances ($x$), MANIC inverts the matrix (or solves the system) for every timepoint:
 
-$$x = A^{-1} \cdot b$$   
+$$x = A^{-1} \cdot b$$
 
 ### Why this matters
 Unlike simpler "subtraction" methods, this approach correctly handles **overlapping distributions**. For example, the M+2 bin contains signal from:

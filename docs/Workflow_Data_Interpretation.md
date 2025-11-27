@@ -37,7 +37,9 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 **Description:** The normalized distribution of isotopologues for each compound.
 
 * **Calculation:** Each isotopologue's corrected area divided by the total corrected area for that compound.
+
     $$\text{Ratio}_i = \frac{\text{Area}_i}{\sum \text{Area}_{total}}$$
+
 * **Units:** Unitless fraction (Sum of all isotopologues = 1.0).
 * **Use Case:** Comparing labelling patterns (e.g., "M+3 enrichment") across samples with different concentrations. Since it is normalized, it is independent of the total amount of metabolite.
 
@@ -49,7 +51,9 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 * **Correction:** Includes a background subtraction derived from your Standard Mixture (MM) files to account for impurities.
 * **Units:** Percentage (0–100%).
 * **Formula:**
+
     $$\% \text{Label} = \frac{\text{Labelled}_{corrected}}{\text{Total}_{original}} \times 100$$
+
 * **Use Case:** Quickly assessing how "labelled" a specific pool is.
 
 ---

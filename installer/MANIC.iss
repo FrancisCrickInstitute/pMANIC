@@ -1,5 +1,5 @@
 [Setup]
-AppId={#SetupSetting("AppName")}
+AppId=MANIC
 AppName=MANIC
 AppVersion=4.0.0
 DefaultDirName={pf}\MANIC

@@ -1,8 +1,10 @@
 [Setup]
+AppId={#SetupSetting("AppName")}
 AppName=MANIC
 AppVersion=4.0.0
 DefaultDirName={pf}\MANIC
 DefaultGroupName=MANIC
+UninstallDisplayIcon={app}\MANIC.exe
 OutputDir=..\dist
 OutputBaseFilename=MANIC-Setup
 Compression=lzma
@@ -10,6 +12,9 @@ SolidCompression=yes
 WizardStyle=modern
 DisableDirPage=no
 DisableProgramGroupPage=no
+
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\docs"
 
 [Files]
 Source: "..\\dist\\MANIC\\*"; DestDir: "{app}"; Flags: recursesubdirs

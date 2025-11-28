@@ -4,9 +4,9 @@
 
 # MANIC: Mass Analysis & Natural Isotope Correction
 
-**MANIC** is a desktop application for the robust processing and analysis of isotopically labelled mass spectrometry data (GC-MS).
+**MANIC** is a desktop application for the processing and analysis of isotopically labelled mass spectrometry data (GC-MS).
 
-Built with Python and PySide6, it serves as a high-performance successor to the legacy MATLAB GVISO/MANIC suite. It provides a complete workflow for extracting ion chromatograms, correcting for natural isotope abundance, validating peak quality, and calculating absolute metabolite concentrations.
+Built with Python and PySide6, it serves as a successor to the legacy MATLAB GVISO/MANIC suite. It provides a workflow for extracting ion chromatograms, correcting for natural isotope abundance, validating peak quality, and calculating absolute metabolite concentrations.
 
 ---
 

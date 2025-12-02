@@ -733,9 +733,7 @@ class MainWindow(QMainWindow):
                     )
 
             # Refresh plots with session data and updated validation
-            self.graph_view.plot_compound(
-                compound_name, self.graph_view.get_current_samples(), validation_data
-            )
+            self.graph_view.refresh_plots_with_session_data(validation_data)
 
             # After refreshing plots, update the integration window to show the new values
             # Add a small delay to ensure the plot refresh is fully complete
@@ -1098,9 +1096,7 @@ class MainWindow(QMainWindow):
                         validation_data[sample] = self._validate_peak_area(
                             current_compound, sample
                         )
-                self.graph_view.plot_compound(
-                    current_compound, current_samples, validation_data
-                )
+                self.graph_view.refresh_plots_with_session_data(validation_data)
             else:
                 # Fallback to session data refresh
                 self.graph_view.refresh_plots_with_session_data()

@@ -2,7 +2,7 @@ import logging
 import math
 import sys
 import warnings
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -383,12 +383,18 @@ class GraphView(QWidget):
         # Use consolidated context menu (no specific plot clicked)
         self._show_context_menu(event.globalPos(), clicked_plot=None)
 
-    def refresh_plots_with_session_data(self):
+    def refresh_plots_with_session_data(
+        self, validation_data: Optional[Dict[str, bool]] = None
+    ):
         """
         Refresh the current plots using session data where available.
 
         This method rebuilds all current plots, using session activity data
         where it exists, while preserving the current plot selection state.
+
+        Args:
+            validation_data: Optional dictionary mapping sample names to validation status
+                           (True=valid, False=invalid) for visual styling.
         """
         if not self._current_compound or not self._current_samples:
             logger.warning("Cannot refresh plots: no current compound or samples")
@@ -403,7 +409,9 @@ class GraphView(QWidget):
                 self._selected_plots.clear()
 
                 # Re-plot the compound with the same samples
-                self.plot_compound(self._current_compound, self._current_samples)
+                self.plot_compound(
+                    self._current_compound, self._current_samples, validation_data
+                )
 
                 # Restore selection state - need to be careful with timing
                 # since _current_plots is updated in plot_compound

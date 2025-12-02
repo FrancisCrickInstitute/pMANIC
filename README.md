@@ -61,6 +61,25 @@ If you prefer to run the raw Python code, use the provided execution script.
 
 ---
 
+## Support & Issues
+
+If you encounter a bug, have a question about usage, or would like to suggest a feature, please use the GitHub Issues system. This ensures your request is tracked and addressed by the development team.
+
+### How to Report an Issue
+
+1.  Navigate to the **[Issues](../../issues)** tab at the top of this repository page.
+2.  Click the green **New issue** button.
+3.  Select the appropriate template (e.g., **Bug Report** or **Feature Request**) if available, or choose "Open a blank issue".
+4.  **Provide Detail:**
+    *   **Description:** Clearly explain what happened versus what you expected to happen.
+    *   **Steps to Reproduce:** List the actions you took immediately before the issue occurred (e.g., "Loaded compound list, then clicked Import Session").
+    *   **Screenshots:** If applicable, paste an image of the error message or the unexpected behaviour.
+    *   **Logs:** If an error popup appeared, please include the full text of the error.
+
+5.  Click **Submit new issue**.
+
+---
+
 ## Developer Instructions
 
 This project uses modern Python tooling including `uv` for dependency management and `PySide6` for the GUI.

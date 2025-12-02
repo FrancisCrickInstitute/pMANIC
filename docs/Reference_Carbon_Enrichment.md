@@ -29,7 +29,7 @@ $$ \% \text{Enrichment} = \frac{\sum_{i=0}^{N} (i \times \text{Area}_{M+i})}{N \
 Consider **Glucose** (6 Carbons, $N=6$).
 
 ### Scenario A: Light Labelling
-Every molecule in the pool contains exactly one $^{13}$C atom (100% M+1).
+Every molecule in the pool contains exactly one <sup>13</sup>C atom (100% M+1).
 
 * **% Label Incorporation:** 100% (Every molecule is "labelled").
 * **% Carbons Labelled:**
@@ -39,7 +39,7 @@ $$ \frac{1 \times 100}{6 \times 100} \times 100 = \mathbf{16.7\%} $$
     *(Only 1 out of 6 carbons is labelled)*
 
 ### Scenario B: Heavy Labelling
-Every molecule in the pool contains six $^{13}$C atoms (100% M+6).
+Every molecule in the pool contains six <sup>13</sup>C atoms (100% M+6).
 
 * **% Label Incorporation:** 100% (Every molecule is "labelled").
 * **% Carbons Labelled:**
@@ -58,7 +58,7 @@ This metric allows you to distinguish between pathways that produce singly-label
 This calculation uses the **Natural Isotope Corrected** values.
 
 1. **Raw Data** is extracted from the CDF files.
-2. **Natural Correction** removes the signal from naturally occurring isotopes (1.1% $^{13}$C).
+2. **Natural Correction** removes the signal from naturally occurring isotopes (1.1% <sup>13</sup>C).
 3. **Enrichment** is calculated on the remaining signal.
 
 *Note: Unlike "% Label Incorporation", this metric does not subtract the background signal found in Standard Mixture (MM) files. It represents the enrichment of the corrected experimental data.*

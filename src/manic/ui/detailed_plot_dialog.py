@@ -12,6 +12,7 @@ Features responsive layout adaptation and professional scientific notation.
 import logging
 
 import sys
+import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -398,6 +399,9 @@ class DetailedPlotDialog(QDialog):
                 rt, color=f"rgba(0,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="dotted"
             )
 
+            # Show legend with isotopologue labels on the right side of the graph
+            self.eic_plot.show_legend(loc="upper right")
+
             # Execute batch rendering for performance
             self.eic_plot.finalize_plot()
 
@@ -458,6 +462,48 @@ class DetailedPlotDialog(QDialog):
             self.ms_plot.plot_stems(
                 self.ms_data.mz, self.ms_data.intensity, color="darkblue", width=PLOT_STEM_WIDTH
             )
+
+            # Annotate the 8 most abundant peaks with their m/z values
+            try:
+                mz = np.asarray(self.ms_data.mz, dtype=np.float64)
+                intensity = np.asarray(self.ms_data.intensity, dtype=np.float64)
+
+                # Use the same basic filtering as plot_stems: positive and finite
+                mask = (intensity > 0) & np.isfinite(mz) & np.isfinite(intensity)
+                mz = mz[mask]
+                intensity = intensity[mask]
+
+                if mz.size > 0:
+                    # Indices of the top N peaks by intensity
+                    N = 8
+                    if intensity.size > N:
+                        top_idx = np.argsort(intensity)[-N:]
+                    else:
+                        top_idx = np.argsort(intensity)
+
+                    # Sort selected peaks by m/z for a more orderly appearance (optional but nice)
+                    top_idx = top_idx[np.argsort(mz[top_idx])]
+
+                    for idx in top_idx:
+                        x_val = float(mz[idx])
+                        y_val = float(intensity[idx])
+                        if y_val <= 0:
+                            continue
+
+                        # Position label slightly above the peak
+                        y_label = y_val * 1.02
+                        label = f"{x_val:.2f}"  # m/z with 2 decimal places
+
+                        self.ms_plot.add_text(
+                            x_val,
+                            y_label,
+                            label,
+                            color="black",
+                            ha="center",
+                            va="bottom",
+                        )
+            except Exception as e:
+                logger.error(f"Failed to annotate MS peaks: {e}")
 
             # Mark target m/z position with transparent indicator
             if self.compound_info:

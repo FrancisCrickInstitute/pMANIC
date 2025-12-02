@@ -8,47 +8,46 @@ efficient batch rendering for improved performance.
 """
 
 import logging
-import numpy as np
 from contextlib import contextmanager
-
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolButton
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-
-from manic.constants import (
-    PLOT_DPI,
-    PLOT_FIGURE_WIDTH,
-    PLOT_FIGURE_HEIGHT,
-    PLOT_MARGIN_LEFT,
-    PLOT_MARGIN_RIGHT,
-    PLOT_MARGIN_TOP,
-    PLOT_MARGIN_BOTTOM,
-    PLOT_TITLE_FONTSIZE,
-    PLOT_LABEL_FONTSIZE,
-    PLOT_TICK_FONTSIZE,
-    PLOT_TITLE_PADDING,
-    PLOT_GRID_ALPHA,
-    PLOT_GRID_LINEWIDTH,
-    PLOT_AXIS_SPINE_WIDTH,
-    PLOT_LINE_WIDTH,
-    PLOT_STEM_WIDTH,
-    PLOT_GUIDELINE_WIDTH,
-    PLOT_MIN_HEIGHT,
-    TOOLBAR_MAX_HEIGHT,
-    TOOLBAR_BUTTON_PADDING,
-    TOOLBAR_BUTTON_MARGIN,
-    TOOLBAR_SPACING,
-    TOOLBAR_MARGINS,
-    BUTTON_HOVER_OPACITY,
-    BUTTON_PRESSED_OPACITY,
-    BUTTON_CHECKED_BORDER_OPACITY,
-    SCIENTIFIC_NOTATION_THRESHOLD,
-)
 
 # Configure matplotlib for Qt5 integration with performance optimizations
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.figure import Figure
+from PySide6.QtWidgets import QHBoxLayout, QToolButton, QVBoxLayout, QWidget
+
+from manic.constants import (
+    BUTTON_CHECKED_BORDER_OPACITY,
+    BUTTON_HOVER_OPACITY,
+    BUTTON_PRESSED_OPACITY,
+    PLOT_AXIS_SPINE_WIDTH,
+    PLOT_DPI,
+    PLOT_FIGURE_HEIGHT,
+    PLOT_FIGURE_WIDTH,
+    PLOT_GRID_ALPHA,
+    PLOT_GRID_LINEWIDTH,
+    PLOT_GUIDELINE_WIDTH,
+    PLOT_LABEL_FONTSIZE,
+    PLOT_LINE_WIDTH,
+    PLOT_MARGIN_BOTTOM,
+    PLOT_MARGIN_LEFT,
+    PLOT_MARGIN_RIGHT,
+    PLOT_MARGIN_TOP,
+    PLOT_MIN_HEIGHT,
+    PLOT_STEM_WIDTH,
+    PLOT_TICK_FONTSIZE,
+    PLOT_TITLE_FONTSIZE,
+    PLOT_TITLE_PADDING,
+    SCIENTIFIC_NOTATION_THRESHOLD,
+    TOOLBAR_BUTTON_MARGIN,
+    TOOLBAR_BUTTON_PADDING,
+    TOOLBAR_MARGINS,
+    TOOLBAR_MAX_HEIGHT,
+    TOOLBAR_SPACING,
+)
 
 matplotlib.use("Qt5Agg")
 # Configure matplotlib rendering parameters for optimal performance
@@ -79,7 +78,7 @@ def matplotlib_cleanup():
 class CompactNavigationToolbar(QWidget):
     """Streamlined navigation toolbar with essential plot controls.
 
-    Provides a minimal, aesthetically pleasing interface for plot interaction
+    Provides a minimal interface for plot interaction
     with zoom, pan, and reset functionality.
     """
 
@@ -458,6 +457,77 @@ class MatplotlibPlotWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to add vertical line: {e}")
 
+    def show_legend(self, loc: str = "best", **kwargs):
+        """
+        Display a legend for the isotopologues.
+
+        Args:
+            loc: Legend location (matplotlib 'loc' parameter).
+            **kwargs: Additional keyword arguments forwarded to ax.legend().
+        """
+        try:
+            handles, labels = self.ax.get_legend_handles_labels()
+            # Avoid creating an empty legend
+            if not labels:
+                return
+
+            # Slightly smaller font than axis labels for a clean look
+            legend = self.ax.legend(
+                loc=loc,
+                fontsize=max(PLOT_LABEL_FONTSIZE - 1, 6),
+                frameon=True,
+                **kwargs,
+            )
+            # Keep a reference if needed later (optional)
+            self._legend = legend
+
+        except Exception as e:
+            logger.error(f"Failed to show legend: {e}")
+
+    def add_text(
+        self,
+        x: float,
+        y: float,
+        text: str,
+        color: str = "black",
+        ha: str = "center",
+        va: str = "bottom",
+        fontsize: int | None = None,
+        rotation: float = 0.0,
+        **kwargs,
+    ):
+        """
+        Add a text annotation at (x, y) in data coordinates.
+
+        Args:
+            x: X position in data coordinates.
+            y: Y position in data coordinates.
+            text: Text string to render.
+            color: Text color.
+            ha: Horizontal alignment ('center', 'left', 'right').
+            va: Vertical alignment ('bottom', 'center', 'top', ...).
+            fontsize: Font size; defaults to slightly smaller than labels.
+            rotation: Rotation angle in degrees.
+            **kwargs: Additional matplotlib.text.Text kwargs.
+        """
+        try:
+            if fontsize is None:
+                fontsize = max(PLOT_LABEL_FONTSIZE - 1, 6)
+
+            self.ax.text(
+                x,
+                y,
+                text,
+                color=color,
+                ha=ha,
+                va=va,
+                fontsize=fontsize,
+                rotation=rotation,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(f"Failed to add text annotation: {e}")
+
     def set_title(self, title: str):
         """Update the plot title."""
         self.title = title
@@ -520,4 +590,3 @@ class MatplotlibPlotWidget(QWidget):
     def __del__(self):
         """Destructor to ensure cleanup on deletion."""
         self.cleanup()
-

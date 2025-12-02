@@ -211,7 +211,8 @@ The Excel file contains five worksheets representing successive stages of analys
 | **2. Corrected Values** | Peak areas after mathematical deconvolution to remove natural isotope abundance. This is the "clean" signal representing true experimental labeling. |
 | **3. Isotope Ratios** | Normalized distributions where all isotopologues for a compound sum to 1.0. Used for comparing labeling patterns independent of concentration. |
 | **4. % Label Incorporation** | The percentage of the metabolite pool that has incorporated the experimental label. Includes background correction derived from standard (MM) files. |
-| **5. Abundances** | Absolute metabolite amounts (in nmol). Calculated using the internal standard and MRRF calibration. |
+| **5. % Carbons Labelled** | The weighted average enrichment of the total carbon pool. Useful for distinguishing between light (M+1) and heavy (M+N) labeling patterns. |
+| **6. Abundances** | Absolute metabolite amounts (in nmol). Calculated using the internal standard and MRRF calibration. |
 
 **Validation & Errors**   
 * **Invalid Peaks:** Cells corresponding to peaks that failed the minimum area validation (red plots) will be highlighted with a **light red background** in the Excel file.

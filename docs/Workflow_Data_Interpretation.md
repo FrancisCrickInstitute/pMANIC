@@ -58,7 +58,24 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 
 ---
 
-## 5. Abundances
+## 5. % Carbons Labelled (Average Enrichment)
+**Description:** The weighted average of isotopic enrichment, representing the percentage of the total carbon pool that is labelled.
+
+* **Units:** Percentage (0–100%).
+* **Formula:**
+
+    $$\% \text{Enrichment} = \frac{\sum (i \times \text{Area}_i)}{N \times \sum \text{Area}_{total}} \times 100$$
+
+    Where:
+    * $i$ is the isotopologue number (0, 1, 2...).
+    * $N$ is the maximum number of labelable atoms in the molecule.
+    * Area is the **Corrected Value** (NAC applied, but no background subtraction).
+
+* **Use Case:** Distinguishing between metabolic states. For example, a molecule pool that is 100% M+1 has the same "% Label Incorporation" as a pool that is 100% M+6 (both are 100% labelled molecules), but their "% Carbons Labelled" would be 16.7% vs 100% respectively (for a 6-carbon molecule).
+
+---
+
+## 6. Abundances
 **Description:** The absolute amount of metabolite present in the sample.
 
 * **Units:** **nmol**.

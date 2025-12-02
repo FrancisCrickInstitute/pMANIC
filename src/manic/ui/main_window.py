@@ -1927,7 +1927,7 @@ class MainWindow(QMainWindow):
 
     def export_data(self):
         """
-        Export processed data to Excel with 5 worksheets.
+        Export processed data to Excel with 6 worksheets.
 
         IMPORTANT: This export function is completely independent of the UI toggle state
         for natural isotope correction. The Corrected Values sheet will ALWAYS contain
@@ -2039,12 +2039,13 @@ class MainWindow(QMainWindow):
                     "information",
                     "Data Export Successful",
                     f"Data exported successfully to:\n{file_path}\n\n"
-                    f"The Excel file contains 5 worksheets:\n"
+                    f"The Excel file contains 6 worksheets:\n"
                     f"• Raw Values - Direct instrument signals\n"
                     f"• Corrected Values - Natural isotope corrected signals\n"
                     f"• Isotope Ratios - Normalized corrected values\n"
-                    f"• Abundances - Absolute metabolite concentrations\n"
-                    f"• % Label Incorporation - Experimental label percentages",
+                    f"• % Label Incorporation - Experimental label percentages\n"
+                    f"• % Carbons Labelled - Average fractional carbon enrichment\n"
+                    f"• Abundances - Absolute metabolite concentrations",
                 )
                 msg_box.exec()
                 logger.info(f"Data exported successfully to {file_path}")

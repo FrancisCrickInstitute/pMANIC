@@ -12,7 +12,9 @@ Unlike **% Label Incorporation**, which answers the binary question "Is this mol
 
 The calculation is a weighted average performed on the **Natural Isotope Abundance Corrected** data.
 
-$$ \% \text{Enrichment} = \frac{\sum_{i=0}^{N} (i \times \text{Area}_{M+i})}{N \times \sum_{i=0}^{N} \text{Area}_{M+i}} \times 100 $$
+$$
+\% \text{Enrichment} = \frac{\sum_{i=0}^{N} (i \times \text{Area}_{M+i})}{N \times \sum_{i=0}^{N} \text{Area}_{M+i}} \times 100
+$$
 
 **Where:**
 * **$i$**: The isotopologue number (number of labelled atoms).
@@ -33,7 +35,9 @@ Every molecule in the pool contains exactly one $^{13}$C atom (100% M+1).
 
 * **% Label Incorporation:** 100% (Every molecule is "labelled").
 * **% Carbons Labelled:**
-    $$ \frac{1 \times 100}{6 \times 100} \times 100 = \mathbf{16.7\%} $$
+$$
+\frac{1 \times 100}{6 \times 100} \times 100 = \mathbf{16.7\%}
+$$
     *(Only 1 out of 6 carbons is labelled)*
 
 ### Scenario B: Heavy Labelling
@@ -41,7 +45,9 @@ Every molecule in the pool contains six $^{13}$C atoms (100% M+6).
 
 * **% Label Incorporation:** 100% (Every molecule is "labelled").
 * **% Carbons Labelled:**
-    $$ \frac{6 \times 100}{6 \times 100} \times 100 = \mathbf{100\%} $$
+$$
+\frac{6 \times 100}{6 \times 100} \times 100 = \mathbf{100\%}
+$$
     *(All 6 carbons are labelled)*
 
 ### Comparison

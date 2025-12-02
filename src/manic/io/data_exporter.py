@@ -27,6 +27,7 @@ from manic.sheet_generators import (
     isotope_ratios as sheet_isotope_ratios,
     label_incorporation as sheet_label_incorporation,
     abundances as sheet_abundances,
+    carbon_enrichment as sheet_carbon_enrichment,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,51 +176,66 @@ class DataExporter:
             if progress_callback:
                 progress_callback(progress)
 
-            # Sheet 1: Raw Values (20% of work)
+            # Sheet 1: Raw Values (16% of work)
             sheet_raw_values.write(
                 workbook,
                 self,
                 progress_callback,
                 0,
-                20,
+                16,
                 validation_data=validation_data,
             )
 
-            # Sheet 2: Corrected Values (20% of work)
+            # Sheet 2: Corrected Values (16% of work)
             sheet_corrected_values.write(
                 workbook,
                 self,
                 progress_callback,
-                20,
-                40,
+                16,
+                32,
                 validation_data=validation_data,
             )
 
-            # Sheet 3: Isotope Ratios (20% of work)
+            # Sheet 3: Isotope Ratios (16% of work)
             sheet_isotope_ratios.write(
                 workbook,
                 self,
                 progress_callback,
-                40,
-                60,
+                32,
+                48,
                 validation_data=validation_data,
             )
 
-            # Sheet 4: % Label Incorporation (20% of work)
+            # Sheet 4: % Label Incorporation (16% of work)
             try:
                 sheet_label_incorporation.write(
                     workbook,
                     self,
                     progress_callback,
-                    60,
-                    80,
+                    48,
+                    64,
                     validation_data=validation_data,
                 )
             except Exception as e:
                 logger.error(f"Error in % Label Incorporation sheet: {e}")
                 raise
 
-            # Sheet 5: Abundances (20% of work) - Final sheet for easy access
+            # Sheet 5: % Carbons Labelled (Average Enrichment) (16% of work)
+            try:
+                sheet_carbon_enrichment.write(
+                    workbook,
+                    self,
+                    progress_callback,
+                    64,
+                    80,
+                    validation_data=validation_data,
+                    provider=self._provider
+                )
+            except Exception as e:
+                logger.error(f"Error in % Carbons Labelled sheet: {e}")
+                # Don't raise, just log, so other sheets still export
+
+            # Sheet 6: Abundances (20% of work) - Final sheet for easy access
             sheet_abundances.write(
                 workbook,
                 self,

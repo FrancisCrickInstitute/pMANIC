@@ -9,4 +9,4 @@ __version_info__ = (4, 0, 0)
 
 # Application metadata
 APP_NAME = "MANIC"
-APP_DESCRIPTION = "description"
+APP_DESCRIPTION = "Description"

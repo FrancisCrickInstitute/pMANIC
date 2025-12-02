@@ -6,14 +6,15 @@ from typing import Dict, List, Optional, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QMargins, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QEvent, QMargins, QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsTextItem,
     QGridLayout,
     QLabel,
     QMenu,
+    QRubberBand,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -51,10 +52,20 @@ class ClickableChartView(QChartView):
     def mousePressEvent(self, event):
         """Handle mouse clicks"""
         if event.button() == Qt.LeftButton:
-            self.clicked.emit(self)
+            self.m_pressPos = event.pos()
         elif event.button() == Qt.RightButton:
             self.right_clicked.emit(self, event.globalPosition())
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release to distinguish click from drag"""
+        if event.button() == Qt.LeftButton and hasattr(self, "m_pressPos"):
+            # Calculate distance moved
+            dist = (event.pos() - self.m_pressPos).manhattanLength()
+            if dist < QApplication.startDragDistance():
+                # It's a click, not a drag
+                self.clicked.emit(self)
+        super().mouseReleaseEvent(event)
 
     def set_selected(self, selected: bool):
         """Set the selection state and update appearance"""
@@ -111,6 +122,118 @@ class GraphView(QWidget):
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._update_graph_sizes)
+
+        # Rubberband selection state
+        self._rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+        self._drag_origin = None
+        self._is_dragging = False
+        
+        # Install event filter on self to handle background drags
+        self.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        """
+        Event filter to handle rubberband selection across child widgets.
+        """
+        # Handle Drag Press
+        if event.type() == QEvent.MouseButtonPress:
+            me = event
+            if me.button() == Qt.LeftButton:
+                self._drag_origin = self.mapFromGlobal(me.globalPos())
+                self._is_dragging = False
+            # Always return False to let children process press events (e.g. for click detection)
+            return False
+
+        # Handle Drag Move
+        elif event.type() == QEvent.MouseMove:
+            me = event
+            if not (me.buttons() & Qt.LeftButton):
+                return False
+
+            if self._handle_drag_move(me):
+                return True  # Consume event if we are dragging
+
+        # Handle Drag Release
+        elif event.type() == QEvent.MouseButtonRelease:
+            me = event
+            if me.button() != Qt.LeftButton:
+                return False
+
+            if self._handle_drag_release(me):
+                return True  # Consume event if we were dragging
+
+        return super().eventFilter(obj, event)
+
+    def _handle_drag_move(self, me):
+        """Handle mouse move events for drag selection"""
+        if self._drag_origin is None:
+            return False
+
+        current_pos = self.mapFromGlobal(me.globalPos())
+        
+        if not self._is_dragging:
+            # Check drag threshold
+            if (current_pos - self._drag_origin).manhattanLength() < QApplication.startDragDistance():
+                return False
+            
+            # Start drag
+            self._is_dragging = True
+            self._rubber_band.setGeometry(QRect(self._drag_origin, current_pos).normalized())
+            self._rubber_band.show()
+        else:
+            # Continue drag
+            rect = QRect(self._drag_origin, current_pos).normalized()
+            self._rubber_band.setGeometry(rect)
+            self._update_selection_from_rubberband(rect)
+        
+        return True
+
+    def _handle_drag_release(self, me):
+        """Handle mouse release events for drag selection"""
+        if not self._is_dragging:
+            self._drag_origin = None
+            return False
+
+        self._rubber_band.hide()
+        
+        # Final update
+        final_pos = self.mapFromGlobal(me.globalPos())
+        rect = QRect(self._drag_origin, final_pos).normalized()
+        self._update_selection_from_rubberband(rect)
+        
+        # Emit selection changed signal
+        selected_samples = [plot.sample_name for plot in self._selected_plots]
+        self.selection_changed.emit(selected_samples)
+
+        self._drag_origin = None
+        self._is_dragging = False
+        return True
+
+    def _update_selection_from_rubberband(self, band_rect: QRect):
+        """Update selection based on rubberband geometry"""
+        # Check modifier keys for add/subtract behavior
+        modifiers = QApplication.keyboardModifiers()
+        is_additive = bool(modifiers & (Qt.ControlModifier | Qt.ShiftModifier))
+
+        for container in self._current_plots:
+            # Note: _current_plots contains chart views
+            # Get parent container for geometry check
+            chart_container = container.parent()
+            if not chart_container:
+                continue
+                
+            # Ensure geometry is in GraphView coordinates
+            container_rect = chart_container.geometry()
+            
+            if band_rect.intersects(container_rect):
+                if not container.is_selected:
+                    container.set_selected(True)
+                    self._selected_plots.add(container)
+            elif not is_additive:
+                # Standard behavior: deselect items outside rubberband unless holding Ctrl/Shift
+                if container.is_selected:
+                    container.set_selected(False)
+                    self._selected_plots.discard(container)
 
     def set_use_corrected(self, use_corrected: bool):
         """Set whether to use natural abundance corrected data."""
@@ -513,6 +636,13 @@ class GraphView(QWidget):
         # Apply validation styling
         self._apply_validation_styling(container, is_valid)
 
+        # Install event filter for rubberband selection on ALL interactive parts
+        # Note: QChartView/QGraphicsView events happen on the viewport widget!
+        container.installEventFilter(self)
+        chart_view.installEventFilter(self)
+        chart_view.viewport().installEventFilter(self)
+        caption.installEventFilter(self)
+
         return container
 
     def _update_container_data(self, container: QWidget, eic, is_valid: bool = True):
@@ -566,6 +696,20 @@ class GraphView(QWidget):
             # Reconnect signals for this specific usage
             chart_view.clicked.connect(self._on_plot_clicked)
             chart_view.right_clicked.connect(self._on_plot_right_clicked)
+            
+            # Ensure event filter is installed on all parts (idempotent)
+            # Must include viewport for charts!
+            container.removeEventFilter(self)
+            container.installEventFilter(self)
+            
+            chart_view.removeEventFilter(self)
+            chart_view.installEventFilter(self)
+            
+            chart_view.viewport().removeEventFilter(self)
+            chart_view.viewport().installEventFilter(self)
+            
+            container.caption.removeEventFilter(self)
+            container.caption.installEventFilter(self)
 
         finally:
             # Container visibility is managed at the layout level for smoother updates

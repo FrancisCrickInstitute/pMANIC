@@ -30,7 +30,7 @@ $$ \text{Enrichment}_{sample} = \frac{\sum_{i=0}^{N} (i \times \text{Area}_{M+i}
 
 Calculate the same enrichment for all Standard Mixture (MM) files, average them, then subtract:
 
-$$ \text{APE} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM}) $$
+$$ \text{% Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM}) $$
 
 The result is clamped to 0 to prevent negative values.
 

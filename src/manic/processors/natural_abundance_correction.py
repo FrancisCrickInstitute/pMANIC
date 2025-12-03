@@ -523,20 +523,20 @@ class NaturalAbundanceCorrector:
             if n_isotopologues == 1 and correction_matrix.shape == (1, 1):
                 corrected_2d[0, :] = totals  # cordist=1 → corRaw = totals
             else:
-                # Create normalized copy (don't modify input!)
-                intensity_normalized = np.zeros_like(intensity_2d)
-                for t in range(n_timepoints):
-                    if totals[t] > 1e-10:
-                        intensity_normalized[:, t] = intensity_2d[:, t] / totals[t]
-                    else:
-                        intensity_normalized[:, t] = 0
+                # Normalize all time points in one broadcasted divide
+                totals_broadcast = totals.reshape(1, -1)
+                intensity_normalized = np.divide(
+                    intensity_2d,
+                    totals_broadcast,
+                    out=np.zeros_like(intensity_2d),
+                    where=totals_broadcast > 1e-10,
+                )
 
                 # Vectorized linear solve on normalized data: C × cordist = measured_normalized
                 cordist_2d = np.linalg.solve(correction_matrix, intensity_normalized)
 
                 # Scale back by total intensity (corRaw = cordist * total)
-                for t in range(n_timepoints):
-                    corrected_2d[:, t] = cordist_2d[:, t] * totals[t]
+                corrected_2d = cordist_2d * totals_broadcast
 
             # Apply diagonal division (MATLAB: corRaw(:, kIon) = corRaw(:, kIon) ./ cormat(kIon, kIon))
             diagonal_elements = np.diag(correction_matrix)

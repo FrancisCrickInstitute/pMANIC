@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
+from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
 # Import shared colors
@@ -831,6 +832,17 @@ class GraphView(QWidget):
                     dashed=True,
                 )
 
+                # Add baseline lines if baseline correction is enabled
+                self._add_baseline_lines(
+                    chart,
+                    x_axis,
+                    y_axis,
+                    eic.time,
+                    eic_intensity,
+                    compound,
+                    scale_factor,
+                )
+
             # Add scale factor text if needed
             if scale_exp != 0:
 
@@ -1011,6 +1023,17 @@ class GraphView(QWidget):
             dashed=True,
         )  # Right offset
 
+        # Add baseline lines if baseline correction is enabled
+        self._add_baseline_lines(
+            chart,
+            x_axis,
+            y_axis,
+            eic.time,
+            eic_intensity,
+            compound,
+            scale_factor,
+        )
+
         # helper function get superscript num
         def superscript(n):
             sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
@@ -1059,6 +1082,88 @@ class GraphView(QWidget):
         chart.addSeries(line_series)
         line_series.attachAxis(x_axis)
         line_series.attachAxis(y_axis)
+
+    def _add_baseline_lines(
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        eic_time: np.ndarray,
+        eic_intensity: np.ndarray,
+        compound,
+        scale_factor: float,
+    ):
+        """
+        Add dashed baseline lines when baseline correction is enabled.
+
+        For multi-trace (labeled) compounds, draws a baseline for each isotopologue
+        in matching colors. For single-trace compounds, uses dark red.
+
+        Args:
+            chart: The QChart to add series to
+            x_axis: X axis for attachment
+            y_axis: Y axis for attachment
+            eic_time: Full time array
+            eic_intensity: Intensity array (1D or 2D for isotopologues)
+            compound: Compound object with baseline_correction flag and offsets
+            scale_factor: Scale factor applied to intensities for display
+        """
+        baseline_flag = getattr(compound, "baseline_correction", 0)
+        if not baseline_flag:
+            return
+
+        logger.debug(f"Drawing baseline lines for {compound.compound_name}")
+
+        # Calculate integration window boundaries
+        l_boundary = compound.retention_time - compound.loffset
+        r_boundary = compound.retention_time + compound.roffset
+
+        # Create window mask (strict boundaries like integration)
+        mask = (eic_time > l_boundary) & (eic_time < r_boundary)
+        if not np.any(mask):
+            return
+
+        td_win = eic_time[mask]
+        multi_trace = eic_intensity.ndim > 1
+
+        if multi_trace:
+            # Draw baseline for each isotopologue with matching color
+            for i, intensity_trace in enumerate(eic_intensity):
+                idata_win = intensity_trace[mask]
+                baseline_result = compute_linear_baseline(td_win, idata_win)
+                if baseline_result is not None:
+                    td_base, baseline_y = baseline_result
+                    baseline_y_scaled = baseline_y / scale_factor if scale_factor != 0 else baseline_y
+
+                    baseline_series = QLineSeries()
+                    for x, y in zip(td_base, baseline_y_scaled):
+                        baseline_series.append(x, y)
+
+                    # Use matching isotopologue color
+                    baseline_pen = QPen(label_colors[i % len(label_colors)], 1.2)
+                    baseline_pen.setStyle(Qt.DashLine)
+                    baseline_series.setPen(baseline_pen)
+                    chart.addSeries(baseline_series)
+                    baseline_series.attachAxis(x_axis)
+                    baseline_series.attachAxis(y_axis)
+        else:
+            # Single trace - use dark red color
+            idata_win = eic_intensity[mask]
+            baseline_result = compute_linear_baseline(td_win, idata_win)
+            if baseline_result is not None:
+                td_base, baseline_y = baseline_result
+                baseline_y_scaled = baseline_y / scale_factor if scale_factor != 0 else baseline_y
+
+                baseline_series = QLineSeries()
+                for x, y in zip(td_base, baseline_y_scaled):
+                    baseline_series.append(x, y)
+
+                baseline_pen = QPen(dark_red_colour, 1.2)
+                baseline_pen.setStyle(Qt.DashLine)
+                baseline_series.setPen(baseline_pen)
+                chart.addSeries(baseline_series)
+                baseline_series.attachAxis(x_axis)
+                baseline_series.attachAxis(y_axis)
 
     def _update_graph_sizes(self) -> None:
         # Invalidate the layout to force recalculation

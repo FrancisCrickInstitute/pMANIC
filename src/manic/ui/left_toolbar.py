@@ -2,11 +2,15 @@ from typing import List
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
+
+from manic.io.compound_reader import read_compound
+from manic.utils.paths import resource_path
 
 
 from .compound_list_widget import CompoundListWidget
@@ -30,6 +34,9 @@ class Toolbar(QWidget):
     
     # Signal for when a compound is deleted
     compound_deleted = Signal(str)
+    
+    # Signal emitted when baseline correction checkbox is toggled
+    baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
     def __init__(self):
         super().__init__()
@@ -137,6 +144,41 @@ class Toolbar(QWidget):
         self.integration = IntegrationWindow()
         content_layout.addWidget(self.integration, stretch=0)  # No stretch for integration window
 
+        # Baseline correction checkbox (between integration window and plots)
+        self.baseline_checkbox = QCheckBox("Baseline correction")
+        self.baseline_checkbox.setObjectName("baseline_correction_checkbox")
+        self.baseline_checkbox.setToolTip(
+            "Enable linear baseline subtraction for this compound.\n"
+            "Fits a line through 3 points at each edge of the integration window\n"
+            "and subtracts the area under this baseline from the peak area."
+        )
+        self.baseline_checkbox.stateChanged.connect(self._on_baseline_checkbox_toggled)
+        # Apply checkbox styling
+        checkmark_path = resource_path("resources", "checkmark.svg").replace("\\", "/")
+        self.baseline_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                background-color: transparent;
+                color: black;
+                spacing: 8px;
+                padding: 10px 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: none;
+                border-radius: 3px;
+                background-color: #e9ecef;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #0d6efd;
+                image: url({checkmark_path});
+            }}
+            QCheckBox::indicator:hover {{
+                background-color: #d0d0d0;
+            }}
+        """)
+        content_layout.addWidget(self.baseline_checkbox, stretch=0)
+
         self.isotopologue_ratios = IsotopologueRatioWidget()
         content_layout.addWidget(self.isotopologue_ratios, stretch=2)  # Increased stretch for plots
 
@@ -190,6 +232,8 @@ class Toolbar(QWidget):
             self.compound_selected.emit(selected_text)
             # Initial fill - will be updated by plot selection logic after plotting
             self.fill_integration_window(selected_text)
+            # Update baseline checkbox state
+            self._set_baseline_checkbox_from_compound(selected_text)
         else:
             self.compound_selected.emit("")
 
@@ -261,3 +305,43 @@ class Toolbar(QWidget):
         populated fields with base compound data, overwriting session values.
         """
         pass
+
+    def _set_baseline_checkbox_from_compound(self, compound_name: str):
+        """Set baseline correction checkbox state from compound data."""
+        try:
+            comp = read_compound(compound_name)
+            enabled = bool(getattr(comp, "baseline_correction", 0))
+            self.baseline_checkbox.blockSignals(True)
+            self.baseline_checkbox.setChecked(enabled)
+            self.baseline_checkbox.blockSignals(False)
+        except Exception:
+            self.baseline_checkbox.blockSignals(True)
+            self.baseline_checkbox.setChecked(False)
+            self.baseline_checkbox.blockSignals(False)
+
+    def _on_baseline_checkbox_toggled(self, state: int):
+        """Handle baseline correction checkbox toggle - update DB and emit signal."""
+        compound_name = self.get_selected_compound()
+        if not compound_name:
+            return
+
+        enabled = state != 0
+
+        try:
+            from manic.models.database import get_connection
+
+            with get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE compounds
+                    SET baseline_correction = ?
+                    WHERE compound_name = ? AND deleted = 0
+                    """,
+                    (1 if enabled else 0, compound_name),
+                )
+
+            self.baseline_correction_changed.emit(compound_name, enabled)
+
+        except Exception as e:
+            print(f"Failed to update baseline setting: {e}")
+            self._set_baseline_checkbox_from_compound(compound_name)

@@ -248,6 +248,9 @@ class MainWindow(QMainWindow):
         self.toolbar.integration.data_regeneration_requested.connect(
             self.on_data_regeneration_requested
         )
+        self.toolbar.baseline_correction_changed.connect(
+            self.on_baseline_correction_changed
+        )
 
     def _get_logo_path(self) -> str:
         """Get the path to the MANIC logo."""
@@ -829,6 +832,58 @@ class MainWindow(QMainWindow):
                 "warning",
                 "Refresh Failed",
                 f"Failed to refresh plots after restore: {str(e)}",
+            )
+            msg_box.exec()
+
+    def on_baseline_correction_changed(self, compound_name: str, enabled: bool):
+        """Handle when baseline correction checkbox is toggled - refresh plots to show/hide baseline lines"""
+        logger.info(
+            f"Baseline correction {'enabled' if enabled else 'disabled'} for {compound_name}, refreshing plots"
+        )
+
+        try:
+            # Invalidate validation provider cache since peak areas may change
+            if self._validation_provider is not None:
+                self._validation_provider.invalidate_cache()
+
+            # Re-validate with new baseline correction setting
+            validation_data = {}
+            if self.min_peak_height_ratio > 0:
+                current_samples = self.graph_view.get_current_samples()
+                for sample in current_samples:
+                    validation_data[sample] = self._validate_peak_area(
+                        compound_name, sample
+                    )
+
+            # Refresh plots to show/hide baseline lines
+            self.graph_view.refresh_plots_with_session_data(validation_data)
+
+            # Update isotopologue ratios and total abundance (areas change with baseline correction)
+            from PySide6.QtCore import QTimer
+
+            def update_charts():
+                current_eics = self._get_current_eics()
+                self.toolbar.isotopologue_ratios.update_ratios(
+                    compound_name, current_eics
+                )
+
+                # Share calculated abundances
+                abundances, eics = (
+                    self.toolbar.isotopologue_ratios.get_last_total_abundances()
+                )
+                if abundances is not None:
+                    self.toolbar.total_abundance.update_abundance_from_data(
+                        compound_name, eics, abundances
+                    )
+
+            QTimer.singleShot(150, update_charts)
+
+        except Exception as e:
+            logger.error(f"Failed to refresh plots after baseline correction change: {e}")
+            msg_box = self._create_message_box(
+                "warning",
+                "Refresh Failed",
+                f"Failed to refresh plots with baseline correction: {str(e)}",
             )
             msg_box.exec()
 

@@ -145,7 +145,8 @@ class DataProvider:
                        c.label_atoms,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
-                       COALESCE(sa.roffset, c.roffset) as roffset
+                       COALESCE(sa.roffset, c.roffset) as roffset,
+                       c.baseline_correction as baseline_correction
                 FROM eic e 
                 JOIN compounds c ON e.compound_name = c.compound_name
                 LEFT JOIN session_activity sa 
@@ -165,6 +166,7 @@ class DataProvider:
 
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis']), dtype=np.float64)
+                baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
                 areas = calculate_peak_areas(
                     time_data,
                     intensity_data,
@@ -173,6 +175,7 @@ class DataProvider:
                     row['loffset'],
                     row['roffset'],
                     use_legacy=self.use_legacy_integration,
+                    baseline_correction=baseline_flag,
                 )
                 raw_data[sample_name][compound_name] = areas
 
@@ -182,7 +185,8 @@ class DataProvider:
                        c.label_atoms,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
-                       COALESCE(sa.roffset, c.roffset) as roffset
+                       COALESCE(sa.roffset, c.roffset) as roffset,
+                       c.baseline_correction as baseline_correction
                 FROM eic_corrected ec 
                 JOIN compounds c ON ec.compound_name = c.compound_name
                 LEFT JOIN session_activity sa 
@@ -211,6 +215,7 @@ class DataProvider:
                 logger.debug(f"Loading corrected data for labeled compound '{compound_name}' (label_atoms={label_atoms})")
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
+                baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
                 areas = calculate_peak_areas(
                     time_data,
                     intensity_data,
@@ -219,6 +224,7 @@ class DataProvider:
                     row['loffset'],
                     row['roffset'],
                     use_legacy=self.use_legacy_integration,
+                    baseline_correction=baseline_flag,
                 )
                 corrected_data[sample_name][compound_name] = areas
 
@@ -272,7 +278,8 @@ class DataProvider:
         sample_data: Dict[str, List[float]] = {}
         with get_connection() as conn:
             eic_query = (
-                "SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, c.loffset, c.roffset "
+                "SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, "
+                "c.loffset, c.roffset, c.baseline_correction "
                 "FROM eic e JOIN compounds c ON e.compound_name = c.compound_name "
                 "WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0 "
                 "ORDER BY e.compound_name"
@@ -283,6 +290,7 @@ class DataProvider:
                 retention_time = row['retention_time']
                 loffset = row['loffset']
                 roffset = row['roffset']
+                baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
                 intensity_data = np.frombuffer(zlib.decompress(row['y_axis']), dtype=np.float64)
                 areas = calculate_peak_areas(
@@ -293,6 +301,7 @@ class DataProvider:
                     loffset,
                     roffset,
                     use_legacy=self.use_legacy_integration,
+                    baseline_correction=baseline_flag,
                 )
                 sample_data[compound_name] = areas
         return sample_data

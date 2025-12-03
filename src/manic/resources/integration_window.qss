@@ -23,6 +23,31 @@ QGroupBox#integrationWindow QLabel {
     padding: 0px;
 }
 
+/* Style the checkbox inside integration window */
+QGroupBox#integrationWindow QCheckBox {
+    background-color: white;
+    color: black;
+    spacing: 6px;
+    padding: 4px 0px;
+}
+
+QGroupBox#integrationWindow QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: none;
+    border-radius: 3px;
+    background-color: #e9ecef;
+}
+
+QGroupBox#integrationWindow QCheckBox::indicator:checked {
+    background-color: #0d6efd;
+    image: url(CHECKMARK_PATH);
+}
+
+QGroupBox#integrationWindow QCheckBox::indicator:hover {
+    background-color: #d0d0d0;
+}
+
 /* All QLineEdit widgets inside Integration Window */
 QGroupBox#integrationWindow QLineEdit {
     background-color: white;

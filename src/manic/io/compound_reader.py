@@ -19,6 +19,7 @@ class Compound:
     tbdms: int = 0
     meox: int = 0
     me: int = 0
+    baseline_correction: int = 0
 
 
 def read_compound(compound_name: str) -> Compound:
@@ -36,7 +37,7 @@ def read_compound(compound_name: str) -> Compound:
     """
     sql = """
         SELECT compound_name, retention_time, loffset, roffset, label_atoms, mass0,
-               formula, label_type, tbdms, meox, me
+               formula, label_type, tbdms, meox, me, baseline_correction
         FROM   compounds
         WHERE  compound_name=? AND deleted=0
         LIMIT  1
@@ -58,6 +59,7 @@ def read_compound(compound_name: str) -> Compound:
         tbdms=int(row["tbdms"]) if row["tbdms"] else 0,
         meox=int(row["meox"]) if row["meox"] else 0,
         me=int(row["me"]) if row["me"] else 0,
+        baseline_correction=int(row["baseline_correction"]) if row["baseline_correction"] else 0,
     )
 
 
@@ -118,4 +120,5 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
             tbdms=base_compound.tbdms,  # Always from base compound
             meox=base_compound.meox,  # Always from base compound
             me=base_compound.me,  # Always from base compound
+            baseline_correction=base_compound.baseline_correction,  # Always from base compound
         )

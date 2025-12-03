@@ -124,6 +124,8 @@ class IntegrationWindow(QGroupBox):
         str, float, list, float
     )  # compound_name, tr_window, sample_names, retention_time
 
+
+
     def __init__(self, parent=None):
         super().__init__("Selected Plots: All", parent)
         self.setObjectName("integrationWindow")
@@ -151,6 +153,9 @@ class IntegrationWindow(QGroupBox):
         stylesheet = load_stylesheet(
             resource_path("resources", "integration_window.qss")
         )
+        # Replace placeholder with actual checkmark path for the checkbox indicator
+        checkmark_path = resource_path("resources", "checkmark.svg").replace("\\", "/")
+        stylesheet = stylesheet.replace("CHECKMARK_PATH", checkmark_path)
         self.setStyleSheet(stylesheet)
 
         font = self.font()
@@ -288,6 +293,8 @@ class IntegrationWindow(QGroupBox):
             tr_window_field = self.findChild(QLineEdit, "tr_window_input")
             if tr_window_field:
                 tr_window_field.setText(self._format_number(tr_window_value))
+
+
         except Exception as e:
             print(f"Error populating tR window field: {e}")
 

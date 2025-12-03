@@ -168,6 +168,14 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                 conn.execute("ALTER TABLE compounds ADD COLUMN mm_files TEXT")
                 conn.commit()
 
+            # Add baseline_correction column if missing (v4.1.0)
+            if "baseline_correction" not in columns:
+                logger.info("Adding baseline_correction column to compounds table")
+                conn.execute(
+                    "ALTER TABLE compounds ADD COLUMN baseline_correction INTEGER DEFAULT 0"
+                )
+                conn.commit()
+
     except sqlite3.OperationalError as e:
         logger.error(f"Migration error for compounds table: {e}")
         pass

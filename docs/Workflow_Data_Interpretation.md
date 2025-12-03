@@ -67,7 +67,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
        $$\text{Enrichment}_{sample} = \frac{\sum (i \times \text{Area}_i)}{N \times \sum \text{Area}_{total}} \times 100$$
     2. Calculate weighted enrichment of Standard Mixture (MM) files (averaged if multiple).
     3. Subtract the background:
-       $$\text{APE} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
+       $$\text{% Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
 
     Where:
     * $i$ is the isotopologue number (0, 1, 2...).
@@ -76,7 +76,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 
 * **Use Case:** Answers "How much of the carbon in this pool came from my labelled substrate?" by removing any natural or background enrichment present in the standards.
 
-> **Note:** Standard Mixture (MM) samples will display 0% APE since their enrichment equals the baseline. This is expected behaviour.
+> **Note:** Standard Mixture (MM) samples will display 0% carbon labelled since their enrichment equals the baseline. This is expected behaviour.
 
 ---
 

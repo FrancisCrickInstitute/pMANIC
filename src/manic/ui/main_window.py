@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QCoreApplication, Qt, QThread
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -879,7 +880,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(150, update_charts)
 
         except Exception as e:
-            logger.error(f"Failed to refresh plots after baseline correction change: {e}")
+            logger.error(
+                f"Failed to refresh plots after baseline correction change: {e}"
+            )
             msg_box = self._create_message_box(
                 "warning",
                 "Refresh Failed",
@@ -2028,8 +2031,8 @@ class MainWindow(QMainWindow):
                 "Choose integration method for this export (can also be changed in Settings → Legacy Integration Mode):"
             )
             vbox.addWidget(info_label)
-            # Force black text for label and radio buttons regardless of theme
-            options_dialog.setStyleSheet("QLabel, QRadioButton { color: black; }")
+            # Force black text for label, radio buttons, and checkboxes regardless of theme
+            options_dialog.setStyleSheet("QLabel, QRadioButton, QCheckBox { color: black; }")
 
             radio_time = QRadioButton("Time-based (recommended)")
             radio_legacy = QRadioButton("Legacy (MATLAB-compatible unit spacing)")
@@ -2041,6 +2044,15 @@ class MainWindow(QMainWindow):
                 radio_legacy.setChecked(True)
             else:
                 radio_time.setChecked(True)
+
+            # Optional sheets section
+            vbox.addSpacing(10)
+            optional_label = QLabel("Optional sheets:")
+            vbox.addWidget(optional_label)
+            checkbox_carbon_enrichment = QCheckBox("Include % Carbons Labelled sheet")
+            checkbox_carbon_enrichment.setChecked(False)  # Off by default
+            vbox.addWidget(checkbox_carbon_enrichment)
+
             buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
             vbox.addWidget(buttons)
             buttons.accepted.connect(options_dialog.accept)
@@ -2052,6 +2064,7 @@ class MainWindow(QMainWindow):
             # Read selection and persist to window state
             chosen_use_legacy = radio_legacy.isChecked()
             self.use_legacy_integration = chosen_use_legacy
+            include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
 
             # Get current internal standard selection from toolbar
             internal_standard = self.toolbar.get_internal_standard()
@@ -2085,24 +2098,35 @@ class MainWindow(QMainWindow):
                 file_path,
                 update_progress,
                 use_legacy_integration=self.use_legacy_integration,
+                include_carbon_enrichment=include_carbon_enrichment,
             )
 
             # Close progress dialog
             progress_dialog.close()
 
             if success:
+                # Build dynamic sheet list based on options
+                sheet_list = [
+                    "• Raw Values - Direct instrument signals",
+                    "• Corrected Values - Natural isotope corrected signals",
+                    "• Isotope Ratios - Normalized corrected values",
+                    "• % Label Incorporation - Experimental label percentages",
+                ]
+                if include_carbon_enrichment:
+                    sheet_list.append(
+                        "• % Carbons Labelled - Average fractional carbon enrichment"
+                    )
+                sheet_list.append("• Abundances - Absolute metabolite concentrations")
+                sheet_count = len(sheet_list)
+                sheets_text = "\n".join(sheet_list)
+
                 # Show success message
                 msg_box = self._create_message_box(
                     "information",
                     "Data Export Successful",
                     f"Data exported successfully to:\n{file_path}\n\n"
-                    f"The Excel file contains 6 worksheets:\n"
-                    f"• Raw Values - Direct instrument signals\n"
-                    f"• Corrected Values - Natural isotope corrected signals\n"
-                    f"• Isotope Ratios - Normalized corrected values\n"
-                    f"• % Label Incorporation - Experimental label percentages\n"
-                    f"• % Carbons Labelled - Average fractional carbon enrichment\n"
-                    f"• Abundances - Absolute metabolite concentrations",
+                    f"The Excel file contains {sheet_count} worksheets:\n"
+                    f"{sheets_text}",
                 )
                 msg_box.exec()
                 logger.info(f"Data exported successfully to {file_path}")

@@ -124,14 +124,16 @@ class DataExporter:
         filepath: str,
         progress_callback=None,
         use_legacy_integration: Optional[bool] = None,
+        include_carbon_enrichment: bool = False,
     ) -> bool:
         """
-        Export all data to Excel with 5 worksheets.
+        Export all data to Excel with multiple worksheets.
 
         Args:
             filepath: Output Excel file path
             progress_callback: Optional function to report progress (0-100)
             use_legacy_integration: If provided, overrides the integration mode for this export
+            include_carbon_enrichment: If True, include the % Carbons Labelled sheet (default: False)
 
         Returns:
             True if export successful, False otherwise
@@ -220,27 +222,29 @@ class DataExporter:
                 logger.error(f"Error in % Label Incorporation sheet: {e}")
                 raise
 
-            # Sheet 5: % Carbons Labelled (Average Enrichment) (16% of work)
-            try:
-                sheet_carbon_enrichment.write(
-                    workbook,
-                    self,
-                    progress_callback,
-                    64,
-                    80,
-                    validation_data=validation_data,
-                    provider=self._provider
-                )
-            except Exception as e:
-                logger.error(f"Error in % Carbons Labelled sheet: {e}")
-                # Don't raise, just log, so other sheets still export
+            # Sheet 5: % Carbons Labelled (Average Enrichment) - optional
+            if include_carbon_enrichment:
+                try:
+                    sheet_carbon_enrichment.write(
+                        workbook,
+                        self,
+                        progress_callback,
+                        64,
+                        80,
+                        validation_data=validation_data,
+                        provider=self._provider
+                    )
+                except Exception as e:
+                    logger.error(f"Error in % Carbons Labelled sheet: {e}")
 
             # Sheet 6: Abundances (20% of work) - Final sheet for easy access
+            # Adjust progress range based on whether carbon enrichment was included
+            abundance_start = 80 if include_carbon_enrichment else 64
             sheet_abundances.write(
                 workbook,
                 self,
                 progress_callback,
-                80,
+                abundance_start,
                 100,
                 validation_data=validation_data,
             )

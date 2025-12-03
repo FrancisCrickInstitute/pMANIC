@@ -174,7 +174,7 @@ def write(
             # A. Calculate Absolute Enrichment
             abs_enrichment = calculate_enrichment(isotopologue_data, label_atoms)
 
-            # B. Subtract Baseline (APE Calculation)
+            # B. Subtract Baseline (Calculation)
             baseline = baseline_enrichment.get(compound_name, 0.0)
             ape_value = abs_enrichment - baseline
 

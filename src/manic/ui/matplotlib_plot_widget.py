@@ -289,6 +289,7 @@ class MatplotlibPlotWidget(QWidget):
         color: str = "blue",
         width: int = PLOT_LINE_WIDTH,
         name: str = "",
+        style: str = "solid",
     ):
         """
         Plot a line.
@@ -299,6 +300,7 @@ class MatplotlibPlotWidget(QWidget):
             color: Line color (matplotlib format)
             width: Line width
             name: Series name for legend
+            style: Line style ('solid', 'dashed', 'dotted', 'dashdot')
         """
         try:
             # Ensure data is in numpy array format
@@ -335,6 +337,7 @@ class MatplotlibPlotWidget(QWidget):
                 y_data,
                 color=color,
                 linewidth=width,
+                linestyle=style,
                 label=name if name else None,
             )[0]
 

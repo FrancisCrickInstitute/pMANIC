@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS compounds (
     amount_in_std_mix REAL,  -- Known concentration in standard mixture (for MRRF calculation)
     int_std_amount REAL,     -- Amount of internal standard added to each sample
     mm_files      TEXT,      -- Comma-separated list of MM file patterns (e.g., "*_MM_01*,*_MM_02*")
-    baseline_correction INTEGER DEFAULT 0,  -- Enable linear baseline subtraction for this compound
+    baseline_correction INTEGER DEFAULT 1,  -- Enable linear baseline subtraction for this compound
     deleted       INTEGER DEFAULT 0
 );
 

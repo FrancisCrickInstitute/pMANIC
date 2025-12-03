@@ -33,6 +33,7 @@ from manic.io.compound_reader import read_compound_with_session
 from manic.io.ms_reader import read_ms_at_time
 from manic.io.tic_reader import read_tic
 from manic.processors.eic_processing import get_eics_for_compound
+from manic.processors.integration import compute_linear_baseline
 from manic.ui.colors import label_colors  # Import the same colors as main window
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
 from manic.constants import (
@@ -399,6 +400,9 @@ class DetailedPlotDialog(QDialog):
                 rt, color=f"rgba(0,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="dotted"
             )
 
+            # Add baseline lines if baseline correction is enabled
+            self._add_baseline_lines(left_bound, right_bound)
+
             # Show legend with isotopologue labels on the right side of the graph
             self.eic_plot.show_legend(loc="upper right")
 
@@ -412,6 +416,54 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot EIC: {e}")
+
+    def _add_baseline_lines(self, left_bound: float, right_bound: float):
+        """Add dashed baseline lines when baseline correction is enabled."""
+        if not self.compound_info or not self.eic_data:
+            return
+
+        baseline_flag = getattr(self.compound_info, "baseline_correction", 0)
+        if not baseline_flag:
+            return
+
+        # Create window mask (strict boundaries like integration)
+        mask = (self.eic_data.time > left_bound) & (self.eic_data.time < right_bound)
+        if not np.any(mask):
+            return
+
+        td_win = self.eic_data.time[mask]
+
+        if self.eic_data.intensity.ndim == 1:
+            # Single trace - use dark red color
+            idata_win = self.eic_data.intensity[mask]
+            baseline_result = compute_linear_baseline(td_win, idata_win)
+            if baseline_result is not None:
+                td_base, baseline_y = baseline_result
+                self.eic_plot.plot_line(
+                    td_base,
+                    baseline_y,
+                    color="darkred",
+                    width=1.2,
+                    name="",
+                    style="dashed",
+                )
+        else:
+            # Multi-trace - draw baseline for each isotopologue with matching color
+            for i in range(self.eic_data.intensity.shape[0]):
+                idata_win = self.eic_data.intensity[i, mask]
+                baseline_result = compute_linear_baseline(td_win, idata_win)
+                if baseline_result is not None:
+                    td_base, baseline_y = baseline_result
+                    qcolor = label_colors[i % len(label_colors)]
+                    color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
+                    self.eic_plot.plot_line(
+                        td_base,
+                        baseline_y,
+                        color=color,
+                        width=1.2,
+                        name="",
+                        style="dashed",
+                    )
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""

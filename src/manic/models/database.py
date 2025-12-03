@@ -172,9 +172,15 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             if "baseline_correction" not in columns:
                 logger.info("Adding baseline_correction column to compounds table")
                 conn.execute(
-                    "ALTER TABLE compounds ADD COLUMN baseline_correction INTEGER DEFAULT 0"
+                    "ALTER TABLE compounds ADD COLUMN baseline_correction INTEGER DEFAULT 1"
                 )
                 conn.commit()
+
+            # Update existing compounds to have baseline_correction enabled by default (v4.2.0)
+            conn.execute(
+                "UPDATE compounds SET baseline_correction = 1 WHERE baseline_correction = 0 OR baseline_correction IS NULL"
+            )
+            conn.commit()
 
     except sqlite3.OperationalError as e:
         logger.error(f"Migration error for compounds table: {e}")

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.eic_reader import EIC
 from manic.processors.eic_correction_manager import read_corrected_eic
+from manic.processors.integration import calculate_peak_areas
 
 from .colors import label_colors
 
@@ -157,39 +158,26 @@ class IsotopologueRatioWidget(QWidget):
             # Get integration parameters (with session overrides if available)
             compound = read_compound_with_session(compound_name, eic.sample_name)
 
-            # Define integration boundaries
             rt = compound.retention_time
             loffset = compound.loffset
             roffset = compound.roffset
-
-            left_bound = rt - loffset
-            right_bound = rt + roffset
-
-            # Find time points within integration window
-            mask = (eic.time >= left_bound) & (eic.time <= right_bound)
-
-            if not np.any(mask):
-                # No data points in integration window
-                if eic.intensity.ndim == 1:
-                    # Single trace
-                    ratios.append(np.array([1.0]))  # 100% for single isotope
-                    total_abundances.append(0.0)
-                else:
-                    # Multi-trace
-                    num_isotopologues = eic.intensity.shape[0]
-                    ratios.append(np.zeros(num_isotopologues))
-                    total_abundances.append(0.0)
-                continue
+            baseline_correction = bool(getattr(compound, "baseline_correction", 0))
 
             # Check if single or multi-trace
             if eic.intensity.ndim == 1:
-                # Single trace - integrate directly
-                area = np.trapezoid(eic.intensity[mask], eic.time[mask])
-                area = max(0, area)  # Ensure non-negative
-
-                # For single trace: ratio is always 1.0 (100%)
-                ratios.append(np.array([1.0]))
-                total_abundances.append(area)
+                # Single trace (unlabeled compound)
+                isotope_areas = calculate_peak_areas(
+                    eic.time,
+                    eic.intensity,
+                    label_atoms=0,
+                    retention_time=rt,
+                    loffset=loffset,
+                    roffset=roffset,
+                    baseline_correction=baseline_correction,
+                )
+                total_area = sum(isotope_areas)
+                ratios.append(np.array([1.0]))  # 100% for single isotope
+                total_abundances.append(total_area)
             else:
                 # Multi-trace - check for corrected data if enabled
                 intensity_to_use = eic.intensity
@@ -205,11 +193,16 @@ class IsotopologueRatioWidget(QWidget):
                 else:
                     uncorrected_count += 1
 
-                # Integrate each isotopologue
-                isotope_areas = []
-                for i in range(intensity_to_use.shape[0]):
-                    area = np.trapezoid(intensity_to_use[i, mask], eic.time[mask])
-                    isotope_areas.append(max(0, area))  # Ensure non-negative
+                num_isotopologues = intensity_to_use.shape[0]
+                isotope_areas = calculate_peak_areas(
+                    eic.time,
+                    intensity_to_use.flatten(),
+                    label_atoms=num_isotopologues - 1,
+                    retention_time=rt,
+                    loffset=loffset,
+                    roffset=roffset,
+                    baseline_correction=baseline_correction,
+                )
 
                 # Calculate total abundance (sum of all isotopologue areas)
                 total_area = sum(isotope_areas)

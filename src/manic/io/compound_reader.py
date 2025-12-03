@@ -19,7 +19,7 @@ class Compound:
     tbdms: int = 0
     meox: int = 0
     me: int = 0
-    baseline_correction: int = 0
+    baseline_correction: int = 1
 
 
 def read_compound(compound_name: str) -> Compound:
@@ -59,7 +59,7 @@ def read_compound(compound_name: str) -> Compound:
         tbdms=int(row["tbdms"]) if row["tbdms"] else 0,
         meox=int(row["meox"]) if row["meox"] else 0,
         me=int(row["me"]) if row["me"] else 0,
-        baseline_correction=int(row["baseline_correction"]) if row["baseline_correction"] else 0,
+        baseline_correction=int(row["baseline_correction"]) if row["baseline_correction"] is not None else 1,
     )
 
 

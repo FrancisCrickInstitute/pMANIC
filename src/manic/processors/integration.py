@@ -204,7 +204,7 @@ def calculate_peak_areas(
         if baseline_correction:
             baseline_area = compute_baseline_area(td, idata, use_legacy=use_legacy)
             if baseline_area is not None:
-                total_area = total_area - baseline_area
+                total_area = max(0.0, total_area - baseline_area)
                 logger.debug(
                     f"Baseline correction applied: total={total_area + baseline_area:.2f}, "
                     f"baseline={baseline_area:.2f}, corrected={total_area:.2f}"
@@ -236,7 +236,7 @@ def calculate_peak_areas(
                     td, intensity_reshaped[i], use_legacy=use_legacy
                 )
                 if baseline_area is not None:
-                    total_area = total_area - baseline_area
+                    total_area = max(0.0, total_area - baseline_area)
 
             peak_areas.append(float(total_area))
         return peak_areas

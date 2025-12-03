@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 from manic.models.database import get_connection
 
@@ -45,7 +45,7 @@ def write(
     validation_data=None,
 ) -> None:
     """
-    Write the '% Carbons Labelled' sheet (Atom Percent Excess).
+    Write the '% Carbons Labelled' sheet.
 
     Calculates the carbon enrichment relative to the Standard Mixture (MM) background.
     This represents the excess labelling above natural/background levels.
@@ -58,8 +58,8 @@ def write(
         with get_connection() as conn:
             compounds_query = """
                 SELECT compound_name, mass0, retention_time, label_atoms, mm_files
-                FROM compounds 
-                WHERE deleted=0 
+                FROM compounds
+                WHERE deleted=0
                 ORDER BY id
             """
             compounds = list(conn.execute(compounds_query))

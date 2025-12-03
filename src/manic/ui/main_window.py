@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, Qt, QThread
-from PySide6.QtGui import QAction, QIcon, QPixmap
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -190,7 +190,9 @@ class MainWindow(QMainWindow):
         settings_menu.addAction(self.min_peak_height_action)
 
         # Natural abundance correction toggle action
-        self.nat_abundance_toggle = QAction("Natural Abundance Correction: Off", self)
+        self.nat_abundance_toggle = QAction(
+            "Preview Natural Abundance Correction: Off", self
+        )
         self.nat_abundance_toggle.setCheckable(True)
         self.nat_abundance_toggle.setChecked(False)  # Off by default
         self.nat_abundance_toggle.triggered.connect(
@@ -1760,14 +1762,14 @@ class MainWindow(QMainWindow):
                 # Check if there are raw EICs that don't have corresponding corrected data
                 with get_connection() as conn:
                     missing_corrections_count = conn.execute("""
-                        SELECT COUNT(*) 
+                        SELECT COUNT(*)
                         FROM eic e
                         JOIN compounds c ON e.compound_name = c.compound_name
                         LEFT JOIN eic_corrected ec
                            ON ec.sample_name = e.sample_name
                           AND ec.compound_name = e.compound_name
-                        WHERE e.deleted = 0 
-                          AND c.deleted = 0 
+                        WHERE e.deleted = 0
+                          AND c.deleted = 0
                           AND c.label_atoms > 0
                           AND (ec.id IS NULL OR ec.deleted = 1)
                     """).fetchone()[0]
@@ -1878,15 +1880,15 @@ class MainWindow(QMainWindow):
             # Check if there are any labeled compounds that lack corrected data
             with get_connection() as conn:
                 missing_corrections_count = conn.execute("""
-                    SELECT COUNT(*) 
+                    SELECT COUNT(*)
                     FROM eic e
                     JOIN compounds c ON e.compound_name = c.compound_name
                     LEFT JOIN eic_corrected ec
                        ON ec.sample_name = e.sample_name
                       AND ec.compound_name = e.compound_name
                       AND ec.deleted = 0
-                    WHERE e.deleted = 0 
-                      AND c.deleted = 0 
+                    WHERE e.deleted = 0
+                      AND c.deleted = 0
                       AND c.label_atoms > 0
                       AND ec.id IS NULL
                 """).fetchone()[0]

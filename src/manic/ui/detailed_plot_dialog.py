@@ -439,9 +439,11 @@ class DetailedPlotDialog(QDialog):
             baseline_result = compute_linear_baseline(td_win, idata_win)
             if baseline_result is not None:
                 td_base, baseline_y = baseline_result
+                baseline_x = np.array([td_base[0], td_base[-1]])
+                baseline_y_vals = np.array([baseline_y[0], baseline_y[-1]])
                 self.eic_plot.plot_line(
-                    td_base,
-                    baseline_y,
+                    baseline_x,
+                    baseline_y_vals,
                     color="darkred",
                     width=1.2,
                     name="",
@@ -456,9 +458,11 @@ class DetailedPlotDialog(QDialog):
                     td_base, baseline_y = baseline_result
                     qcolor = label_colors[i % len(label_colors)]
                     color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
+                    baseline_x = np.array([td_base[0], td_base[-1]])
+                    baseline_y_vals = np.array([baseline_y[0], baseline_y[-1]])
                     self.eic_plot.plot_line(
-                        td_base,
-                        baseline_y,
+                        baseline_x,
+                        baseline_y_vals,
                         color=color,
                         width=1.2,
                         name="",

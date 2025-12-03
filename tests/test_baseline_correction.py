@@ -126,6 +126,17 @@ class TestComputeBaselineArea:
         assert area is not None
         assert pytest.approx(area, rel=0.01) == 100.0
 
+    def test_legacy_baseline_area_matches_trapezoid(self):
+        """Legacy integration should match np.trapezoid for unit spacing."""
+        time_data = np.linspace(0, 5, 20)
+        intensity_data = 3 * time_data + 5
+
+        area = compute_baseline_area(time_data, intensity_data, use_legacy=True)
+        expected = np.trapezoid(intensity_data)
+
+        assert area is not None
+        assert pytest.approx(area, rel=0.001) == expected
+
     def test_insufficient_points_returns_none(self):
         """Test that insufficient points returns None."""
         time_data = np.array([1.0, 2.0, 3.0])
@@ -294,6 +305,40 @@ class TestCalculatePeakAreasWithBaselineCorrection:
 
         # Should be identical
         assert areas_default == areas_explicit_false
+
+    def test_vectorized_baseline_matches_scalar(self):
+        """Vectorized path should match per-trace integration results."""
+        time_data = np.linspace(0, 10, 200)
+        retention_time = 5.0
+        loffset = 5.0
+        roffset = 5.0
+
+        # Build three isotopologue traces on shared sloped baselines
+        traces = []
+        for scale in (100, 80, 60):
+            baseline = 0.3 * time_data + 2
+            peak = scale * np.exp(-((time_data - retention_time) ** 2) / 0.5)
+            traces.append(baseline + peak)
+
+        intensity_data = np.array(traces).flatten()
+
+        vectorized = calculate_peak_areas(
+            time_data,
+            intensity_data,
+            label_atoms=2,
+            retention_time=retention_time,
+            loffset=loffset,
+            roffset=roffset,
+            baseline_correction=True,
+        )
+
+        manual = []
+        for trace in traces:
+            total_area = integrate_peak(trace, time_data)
+            baseline_area = compute_baseline_area(time_data, trace)
+            manual.append(max(0.0, total_area - (baseline_area or 0.0)))
+
+        np.testing.assert_allclose(vectorized, manual, rtol=1e-6)
 
 
 class TestBaselineNumPoints:

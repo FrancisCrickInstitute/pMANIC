@@ -1133,11 +1133,13 @@ class GraphView(QWidget):
                 baseline_result = compute_linear_baseline(td_win, idata_win)
                 if baseline_result is not None:
                     td_base, baseline_y = baseline_result
-                    baseline_y_scaled = baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                    baseline_y_scaled = (
+                        baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                    )
 
                     baseline_series = QLineSeries()
-                    for x, y in zip(td_base, baseline_y_scaled):
-                        baseline_series.append(x, y)
+                    baseline_series.append(td_base[0], baseline_y_scaled[0])
+                    baseline_series.append(td_base[-1], baseline_y_scaled[-1])
 
                     # Use matching isotopologue color
                     baseline_pen = QPen(label_colors[i % len(label_colors)], 1.2)
@@ -1152,11 +1154,13 @@ class GraphView(QWidget):
             baseline_result = compute_linear_baseline(td_win, idata_win)
             if baseline_result is not None:
                 td_base, baseline_y = baseline_result
-                baseline_y_scaled = baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                baseline_y_scaled = (
+                    baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                )
 
                 baseline_series = QLineSeries()
-                for x, y in zip(td_base, baseline_y_scaled):
-                    baseline_series.append(x, y)
+                baseline_series.append(td_base[0], baseline_y_scaled[0])
+                baseline_series.append(td_base[-1], baseline_y_scaled[-1])
 
                 baseline_pen = QPen(dark_red_colour, 1.2)
                 baseline_pen.setStyle(Qt.DashLine)

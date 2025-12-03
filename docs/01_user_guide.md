@@ -280,6 +280,13 @@ These settings control the global behavior of the application. Changing them usu
 * **Function:** Sets the validation threshold. Peaks with a total area less than 5% of the Internal Standard's area are flagged with a **red background**.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
 
+### Baseline Correction
+The **Baseline correction** checkbox is located in the left toolbar, between the Integration Window and the Label Incorporation chart.
+* **On (Default):** Subtracts a linear baseline from each peak area. A dashed line will appear on plots showing the fitted baseline.
+* **Off:** Uses the raw integrated area without baseline subtraction.
+* **Scope:** This is a per-compound setting. Toggling it affects all samples for the selected compound.
+* **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
+
 ### Natural Abundance Correction
 **Settings → Natural Abundance Correction** (Toggle)
 * **Function:** Controls the visualization mode of the main chromatogram plots.

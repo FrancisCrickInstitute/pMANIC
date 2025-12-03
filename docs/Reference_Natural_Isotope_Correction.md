@@ -49,15 +49,16 @@ The algorithm requires the following metadata from your Compound List:
 Before building the matrix, MANIC adjusts the molecular formula to include the atoms added by chemical derivatization.   
 
 > **⚠️ Critical Assumption for TBDMS**
-> For TBDMS derivatization, MANIC assumes the standard **[M-57]+ fragment** (loss of the t-butyl group).
-> * **Added:** The dimethylsilyl group ($-Si(CH_3)_2$).
-> * **Net Formula Change:** +2 C, +5 H, +1 Si (per TBDMS group).
+> For TBDMS derivatization, MANIC assumes the standard **[M-57]+ fragment** (loss of the t-butyl group) for the first derivatization group, but assumes any **additional** groups remain intact.
+> * **First Group:** Loss of reactive hydrogen (-1 H), addition of TBDMS (+15 H), and loss of t-butyl fragment (-9 H).
+> * **Additional Groups:** Standard replacement of Hydrogen with TBDMS.
 
-| Group | Added Formula (Approx) | Net Atom Change (per group) |
+| Group | Added Formula (Approx) | Net Atom Change |
 | :--- | :--- | :--- |
-| **Me** (Methylation) | $-CH_2$ | +1 C, +2 H |
-| **MeOX** (Methoxyamine) | $=N-O-CH_3$ | +1 C, +3 H, +1 N |
-| **TBDMS** | $-Si(CH_3)_2$ ([M-57]+) | +2 C, +5 H, +1 Si |
+| **Me** (Methylation) | $-CH_2$ | +1 C, +2 H (per group) |
+| **MeOX** (Methoxyamine) | $=N-O-CH_3$ | +1 C, +3 H, +1 N (per group) |
+| **TBDMS (1st Group)** | $-Si(CH_3)_2$ ([M-57]+) | **+2 C, +5 H, +1 Si** |
+| **TBDMS (2nd+ Groups)** | $-Si(CH_3)_2C_4H_9$ (Intact) | **+6 C, +14 H, +1 Si** (per additional group) |
 
 ---
 
@@ -86,3 +87,23 @@ If you analyze a purely unlabeled standard:
 
 ### Non-Negativity
 The algorithm enforces a non-negativity constraint. If noise causes the mathematical solution to be negative (e.g., $-0.5$), it is clamped to **0**.   
+
+---
+
+## 5. Empirical Background Correction (MM Files)
+
+In addition to the theoretical matrix correction described above, MANIC applies an **Empirical Background Correction** to the final "% Label Incorporation" and "% Carbon Labelled" results.
+
+### Why is this needed?
+Even after theoretical correction, "unlabelled" standards (MM files) often show a small residual amount of "labelled" signal due to:
+* Impurities in the standard.
+* Imperfections in the theoretical natural abundance constants.
+* Instrument noise or baseline integration errors.
+
+### How it works
+1.  **Calculate Base Level:** MANIC scans all files matching the `mm_files` pattern for a compound. It calculates the average ratio of **Corrected Labelled / Corrected M+0** in these standards.
+2.  **Subtract Base Level:** This "Background Ratio" is subtracted from the labeled/unlabeled ratio of every biological sample before the final "% Label Incorporation" & "% Carbon Labelled" is calculated.
+
+$$\text{Label Signal}_{final} = \text{Label Signal}_{raw} - (\text{Ratio}_{background} \times \text{M+0 Signal}_{sample})$$
+
+*Note: This correction specifically affects the **% Label Incorporation** & **% Carbon Labelled** sheets. The **Corrected Values** sheet reports the raw corrected intensities ($x$) before this background subtraction.*

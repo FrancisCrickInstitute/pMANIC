@@ -6,8 +6,14 @@ and data flow through the application.
 
 import zlib
 import numpy as np
+import pytest
 from types import SimpleNamespace
 
+import manic.io.cdf_data_extractor as cdf_data_extractor
+from manic.io.cdf_data_extractor import (
+    _extract_ms_at_time_from_cdf_data,
+    ensure_ms_data_for_time,
+)
 from manic.io.cdf_reader import CdfFileData
 from manic.processors.eic_calculator import extract_eic
 from manic.processors.eic_correction_manager import _process_compound_batch_corrections
@@ -46,6 +52,71 @@ def make_cdf(sample_name="S1"):
         point_count=point_count,
         total_intensity=total_intensity,
     )
+
+
+def test_extract_ms_at_time_converts_seconds_to_minutes():
+    cdf = make_cdf()
+    target_time = 70.0 / 60.0  # minutes
+
+    mz, intensities, actual_time = _extract_ms_at_time_from_cdf_data(
+        cdf,
+        target_time,
+        tolerance=0.2,
+    )
+
+    assert actual_time == pytest.approx(target_time)
+    assert mz.size == intensities.size == 3
+
+
+def test_ensure_ms_data_reuses_close_cached_data(monkeypatch):
+    sample = "SampleA"
+    retention_time = 1.25
+    cached = SimpleNamespace(time=retention_time + 0.005, mz=np.array([100.0]), intensity=np.array([10.0]))
+    called = {"refresh": False}
+
+    monkeypatch.setattr(cdf_data_extractor, "read_ms_at_time", lambda *args, **kwargs: cached)
+
+    def fake_extract(*args, **kwargs):
+        called["refresh"] = True
+        return SimpleNamespace(time=retention_time, mz=np.array([99.0]), intensity=np.array([5.0]))
+
+    monkeypatch.setattr(cdf_data_extractor, "extract_ms_on_demand", fake_extract)
+
+    result = ensure_ms_data_for_time(
+        sample,
+        retention_time,
+        tolerance=0.1,
+        refresh_threshold=0.01,
+    )
+
+    assert result is cached
+    assert called["refresh"] is False
+
+
+def test_ensure_ms_data_refreshes_when_cache_is_stale(monkeypatch):
+    sample = "SampleB"
+    retention_time = 1.5
+    stale = SimpleNamespace(time=retention_time + 0.2, mz=np.array([100.0]), intensity=np.array([1.0]))
+    refreshed = SimpleNamespace(time=retention_time, mz=np.array([101.0]), intensity=np.array([5.0]))
+    called = {"refresh": 0}
+
+    monkeypatch.setattr(cdf_data_extractor, "read_ms_at_time", lambda *args, **kwargs: stale)
+
+    def fake_extract(*args, **kwargs):
+        called["refresh"] += 1
+        return refreshed
+
+    monkeypatch.setattr(cdf_data_extractor, "extract_ms_on_demand", fake_extract)
+
+    result = ensure_ms_data_for_time(
+        sample,
+        retention_time,
+        tolerance=0.1,
+        refresh_threshold=0.05,
+    )
+
+    assert result is refreshed
+    assert called["refresh"] == 1
 
 
 def test_extract_eic_labeled_three_isotopologues():

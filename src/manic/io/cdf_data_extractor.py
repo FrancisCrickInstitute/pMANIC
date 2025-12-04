@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import numpy as np
 
+from manic.constants import MS_TIME_TOLERANCE, MS_TIME_REFRESH_THRESHOLD
 from manic.io.cdf_reader import read_cdf_file, CdfFileData
 from manic.io.tic_reader import store_tic_data, read_tic
 from manic.io.ms_reader import store_ms_data, read_ms_at_time
@@ -72,32 +73,37 @@ def extract_tic_on_demand(sample_name: str) -> Optional["TICData"]:
 
 
 def extract_ms_on_demand(
-    sample_name: str, retention_time: float, tolerance: float = 0.1
+    sample_name: str,
+    retention_time: float,
+    tolerance: float = MS_TIME_TOLERANCE,
+    force_refresh: bool = False,
 ) -> Optional["MSData"]:
     """
     Extract MS data on-demand for a sample at specific retention time.
 
-    First checks if MS data already exists in database. If not, loads the original
-    CDF file and extracts MS data at the specified retention time.
+    First checks if MS data already exists in database. If not or force_refresh=True,
+    loads the original CDF file and extracts MS data at the specified retention time.
 
     Args:
         sample_name: Name of the sample
         retention_time: Target retention time (minutes)
         tolerance: Time tolerance window (minutes)
+        force_refresh: Skip cached DB data and re-extract from CDF file
 
     Returns:
         MSData object if successful, None otherwise
     """
     try:
-        # First, try to load from database
-        ms_data = read_ms_at_time(sample_name, retention_time, tolerance)
-        if ms_data:
-            logger.debug(
-                f"Loaded existing MS data for {sample_name} at {retention_time:.3f} min"
-            )
-            return ms_data
+        # First, try to load from database when refresh not forced
+        if not force_refresh:
+            ms_data = read_ms_at_time(sample_name, retention_time, tolerance)
+            if ms_data:
+                logger.debug(
+                    f"Loaded existing MS data for {sample_name} at {retention_time:.3f} min"
+                )
+                return ms_data
 
-        # If not in database, extract from original CDF file
+        # If not in database or refresh requested, extract from original CDF file
         logger.info(
             f"Extracting MS data on-demand for {sample_name} at {retention_time:.3f} min"
         )
@@ -136,6 +142,45 @@ def extract_ms_on_demand(
             f"Failed to extract MS on-demand for {sample_name} at {retention_time:.3f}: {e}"
         )
         return None
+
+
+def ensure_ms_data_for_time(
+    sample_name: str,
+    retention_time: float,
+    tolerance: float = MS_TIME_TOLERANCE,
+    refresh_threshold: float = MS_TIME_REFRESH_THRESHOLD,
+) -> Optional["MSData"]:
+    """Ensure MS data exists near the requested retention time.
+
+    Loads existing MS data if it lies within refresh_threshold minutes of the
+    requested retention time; otherwise re-extracts the mass spectrum from the
+    original CDF file.
+    """
+    ms_data = read_ms_at_time(sample_name, retention_time, tolerance)
+
+    if ms_data is not None:
+        time_delta = abs(ms_data.time - retention_time)
+        if time_delta <= refresh_threshold:
+            logger.debug(
+                "Reusing MS data for %s (Δt=%.4f min within refresh threshold)",
+                sample_name,
+                time_delta,
+            )
+            return ms_data
+
+        logger.info(
+            "Refreshing MS data for %s: cached spectrum Δt=%.4f min exceeds %.4f min threshold",
+            sample_name,
+            time_delta,
+            refresh_threshold,
+        )
+
+    return extract_ms_on_demand(
+        sample_name,
+        retention_time,
+        tolerance=tolerance,
+        force_refresh=True,
+    )
 
 
 def _get_cdf_path_for_sample(sample_name: str) -> Optional[str]:
@@ -197,8 +242,11 @@ def _extract_ms_at_time_from_cdf_data(
         Tuple of (mz_values, intensities, actual_time)
     """
     try:
+        # Convert scan acquisition time from seconds to minutes for RT comparison
+        scan_times_minutes = cdf_data.scan_time / 60.0
+
         # Find the scan closest to target time
-        time_diffs = np.abs(cdf_data.scan_time - target_time)
+        time_diffs = np.abs(scan_times_minutes - target_time)
 
         if np.min(time_diffs) > tolerance:
             # No scan within tolerance
@@ -206,7 +254,7 @@ def _extract_ms_at_time_from_cdf_data(
 
         # Get the closest scan
         closest_scan_idx = np.argmin(time_diffs)
-        actual_time = cdf_data.scan_time[closest_scan_idx]
+        actual_time = scan_times_minutes[closest_scan_idx]
 
         # Extract mass spectrum for this scan
         # scan_index tells us where each scan starts in the mass/intensity arrays

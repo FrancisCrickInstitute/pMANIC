@@ -84,6 +84,7 @@ BUTTON_CHECKED_BORDER_OPACITY = 0.5
 # Mass tolerance defaults
 DEFAULT_MASS_TOLERANCE = 0.2  # Da
 MS_TIME_TOLERANCE = 0.1  # minutes for MS extraction
+MS_TIME_REFRESH_THRESHOLD = 0.02  # minutes; refresh MS data if cache is farther away
 
 # Time windows  
 DEFAULT_RT_WINDOW = 0.2  # minutes (half-window)

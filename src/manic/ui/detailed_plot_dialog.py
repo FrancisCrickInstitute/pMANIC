@@ -29,8 +29,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from manic.io.cdf_data_extractor import ensure_ms_data_for_time
 from manic.io.compound_reader import read_compound_with_session
-from manic.io.ms_reader import read_ms_at_time
 from manic.io.tic_reader import read_tic
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
@@ -326,17 +326,19 @@ class DetailedPlotDialog(QDialog):
         try:
             if self.compound_info:
                 retention_time = self.compound_info.retention_time
-                self.ms_data = read_ms_at_time(
-                    self.sample_name, retention_time, tolerance=MS_TIME_TOLERANCE
+                self.ms_data = ensure_ms_data_for_time(
+                    self.sample_name,
+                    retention_time,
+                    tolerance=MS_TIME_TOLERANCE,
                 )
 
                 if self.ms_data:
                     logger.debug(
-                        f"✓ MS data loaded from DB: {self.sample_name} at {self.ms_data.time:.3f} min ({len(self.ms_data.mz)} peaks)"
+                        f"✓ MS data ready for {self.sample_name} at {self.ms_data.time:.3f} min ({len(self.ms_data.mz)} peaks)"
                     )
                 else:
                     logger.info(
-                        f"No MS data in DB for {self.sample_name} at {retention_time:.3f} min (will show empty plot)"
+                        f"No MS data available for {self.sample_name} at {retention_time:.3f} min (will show empty plot)"
                     )
 
         except Exception as e:

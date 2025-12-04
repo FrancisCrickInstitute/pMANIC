@@ -37,7 +37,7 @@ For most users, simply download the latest compiled executable. This requires no
 2.  Click on the `Assets` drop-down.
 3.  Download the installer named `MANIC_Setup.zip` (either the Windows or Mac version).
 4. Unzip the downloaded file.
-5.  Run the installer and follow the on-screen prompts.
+5.  Run the installer and follow the on-screen prompts. When you run this for the first time on a Mac, you might have to go into privacy settings and allow the application to run.
 
 ### Option 2: Running from Source
 If you prefer to run the raw Python code, use the provided execution script.

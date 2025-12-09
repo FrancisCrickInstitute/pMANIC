@@ -1,0 +1,14 @@
+[
+  {
+    "label": "Debug Manic",
+    "adapter": "debugpy",
+    "program": "src/manic/main.py",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "args": [],
+    "env": {
+      "PYTHONPATH": "$ZED_WORKTREE_ROOT/src",
+      "QT_MAC_WANTS_LAYER": "1"
+    },
+    "pythonPath": ".venv/bin/python"
+  }
+]

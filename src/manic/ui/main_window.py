@@ -2,8 +2,12 @@ import logging
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, Qt, QThread
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtCore import QCoreApplication, Qt, QThread, QUrl
+from PySide6.QtGui import (
+    QAction,
+    QDesktopServices,  # Add this for opening URLs
+    QIcon,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -39,6 +43,7 @@ from manic.utils.workers import (
     CdfImportWorker,
     EicRegenerationWorker,
     MassToleranceReloadWorker,
+    UpdateCheckWorker,
 )
 from src.manic.utils.timer import measure_time
 
@@ -94,6 +99,34 @@ class MainWindow(QMainWindow):
             self.on_internal_standard_selected
         )
         self.toolbar.compound_deleted.connect(self.on_compound_deleted)
+
+        # Start update check in background
+        self._check_for_updates()
+
+    def _check_for_updates(self):
+        """Start the background update checker."""
+        self._update_worker = UpdateCheckWorker()
+        self._update_worker.result.connect(self._on_update_check_finished)
+        self._update_worker.finished.connect(self._update_worker.deleteLater)
+        self._update_worker.start()
+
+    def _on_update_check_finished(
+        self, has_update: bool, latest_version: str, url: str
+    ):
+        """Handle the result of the update check."""
+        if has_update:
+            msg = self._create_message_box(
+                "information",
+                "New Version Available",
+                f"A new version of MANIC is available (v{latest_version}).",
+                "Would you like to view the release page to download it?",
+            )
+            # Add Yes/No buttons manually since _create_message_box is generic
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg.setDefaultButton(QMessageBox.Yes)
+
+            if msg.exec() == QMessageBox.Yes:
+                QDesktopServices.openUrl(QUrl(url))
 
     def setup_ui(self):
         """

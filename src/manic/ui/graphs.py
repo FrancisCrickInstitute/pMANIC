@@ -6,8 +6,8 @@ from typing import Dict, List, Optional, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QEvent, QMargins, QPoint, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPen
+from PySide6.QtCore import QEvent, QMargins, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsTextItem,
@@ -28,7 +28,6 @@ from manic.utils.timer import measure_time
 
 # Import shared colors
 from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
-
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +127,7 @@ class GraphView(QWidget):
         self._rubber_band = QRubberBand(QRubberBand.Rectangle, self)
         self._drag_origin = None
         self._is_dragging = False
-        
+
         # Install event filter on self to handle background drags
         self.installEventFilter(self)
 
@@ -171,22 +170,26 @@ class GraphView(QWidget):
             return False
 
         current_pos = self.mapFromGlobal(me.globalPos())
-        
+
         if not self._is_dragging:
             # Check drag threshold
-            if (current_pos - self._drag_origin).manhattanLength() < QApplication.startDragDistance():
+            if (
+                current_pos - self._drag_origin
+            ).manhattanLength() < QApplication.startDragDistance():
                 return False
-            
+
             # Start drag
             self._is_dragging = True
-            self._rubber_band.setGeometry(QRect(self._drag_origin, current_pos).normalized())
+            self._rubber_band.setGeometry(
+                QRect(self._drag_origin, current_pos).normalized()
+            )
             self._rubber_band.show()
         else:
             # Continue drag
             rect = QRect(self._drag_origin, current_pos).normalized()
             self._rubber_band.setGeometry(rect)
             self._update_selection_from_rubberband(rect)
-        
+
         return True
 
     def _handle_drag_release(self, me):
@@ -196,12 +199,12 @@ class GraphView(QWidget):
             return False
 
         self._rubber_band.hide()
-        
+
         # Final update
         final_pos = self.mapFromGlobal(me.globalPos())
         rect = QRect(self._drag_origin, final_pos).normalized()
         self._update_selection_from_rubberband(rect)
-        
+
         # Emit selection changed signal
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
@@ -222,10 +225,10 @@ class GraphView(QWidget):
             chart_container = container.parent()
             if not chart_container:
                 continue
-                
+
             # Ensure geometry is in GraphView coordinates
             container_rect = chart_container.geometry()
-            
+
             if band_rect.intersects(container_rect):
                 if not container.is_selected:
                     container.set_selected(True)
@@ -331,7 +334,6 @@ class GraphView(QWidget):
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
 
-
     def _on_plot_right_clicked(self, clicked_plot: ClickableChartView, global_pos):
         """Handle right-click on plot - show consolidated context menu"""
         try:
@@ -424,7 +426,10 @@ class GraphView(QWidget):
             from manic.ui.detailed_plot_dialog import DetailedPlotDialog
 
             dialog = DetailedPlotDialog(
-                compound_name=compound_name, sample_name=sample_name, parent=self
+                compound_name=compound_name,
+                sample_name=sample_name,
+                parent=self,
+                use_corrected=self.use_corrected,
             )
             dialog.exec()
 
@@ -697,18 +702,18 @@ class GraphView(QWidget):
             # Reconnect signals for this specific usage
             chart_view.clicked.connect(self._on_plot_clicked)
             chart_view.right_clicked.connect(self._on_plot_right_clicked)
-            
+
             # Ensure event filter is installed on all parts (idempotent)
             # Must include viewport for charts!
             container.removeEventFilter(self)
             container.installEventFilter(self)
-            
+
             chart_view.removeEventFilter(self)
             chart_view.installEventFilter(self)
-            
+
             chart_view.viewport().removeEventFilter(self)
             chart_view.viewport().installEventFilter(self)
-            
+
             container.caption.removeEventFilter(self)
             container.caption.installEventFilter(self)
 

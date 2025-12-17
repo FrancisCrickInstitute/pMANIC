@@ -10,8 +10,8 @@ Features responsive layout adaptation and professional scientific notation.
 """
 
 import logging
-
 import sys
+
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -29,6 +29,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from manic.constants import (
+    DETAILED_DIALOG_HEIGHT,
+    DETAILED_DIALOG_SCREEN_RATIO,
+    DETAILED_DIALOG_WIDTH,
+    DETAILED_EIC_HEIGHT,
+    DETAILED_MS_HEIGHT,
+    DETAILED_TIC_HEIGHT,
+    GUIDELINE_ALPHA,
+    MS_TIME_TOLERANCE,
+    PLOT_GUIDELINE_WIDTH,
+    PLOT_LINE_WIDTH,
+    PLOT_STEM_WIDTH,
+)
 from manic.io.cdf_data_extractor import ensure_ms_data_for_time
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.tic_reader import read_tic
@@ -36,19 +49,6 @@ from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.ui.colors import label_colors  # Import the same colors as main window
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
-from manic.constants import (
-    DETAILED_DIALOG_WIDTH,
-    DETAILED_DIALOG_HEIGHT,
-    DETAILED_DIALOG_SCREEN_RATIO,
-    DETAILED_EIC_HEIGHT,
-    DETAILED_TIC_HEIGHT,
-    DETAILED_MS_HEIGHT,
-    MS_TIME_TOLERANCE,
-    PLOT_LINE_WIDTH,
-    PLOT_STEM_WIDTH,
-    GUIDELINE_ALPHA,
-    PLOT_GUIDELINE_WIDTH,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +65,17 @@ class DetailedPlotDialog(QDialog):
     - Responsive layout with scroll support for various screen sizes
     """
 
-    def __init__(self, compound_name: str, sample_name: str, parent=None):
+    def __init__(
+        self,
+        compound_name: str,
+        sample_name: str,
+        parent=None,
+        use_corrected: bool = False,
+    ):
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
+        self.use_corrected = use_corrected  # Store the isotope correction flag
 
         # Initialize data containers
         self.eic_data = None
@@ -85,10 +92,12 @@ class DetailedPlotDialog(QDialog):
             f"Detailed View - {self.compound_name} ({self.sample_name})"
         )
         self.setModal(True)
-        
+
         # Ensure the dialog is resizable on all platforms
         self.setSizeGripEnabled(True)  # Enable resize grip
-        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)  # Enable maximize button
+        self.setWindowFlags(
+            self.windowFlags() | Qt.WindowMaximizeButtonHint
+        )  # Enable maximize button
         # Platform-adaptive sizing for better cross-platform experience
         # Try to get screen where parent window is located, fall back to primary screen
         if self.parent():
@@ -96,33 +105,63 @@ class DetailedPlotDialog(QDialog):
         else:
             screen = QApplication.primaryScreen()
         screen_rect = screen.availableGeometry() if screen else None
-        
+
         if sys.platform == "win32":
             # Windows: Account for title bar, taskbar, and DPI scaling
-            width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.85) if screen_rect else DETAILED_DIALOG_WIDTH)
-            height = min(DETAILED_DIALOG_HEIGHT + 150, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
+            width = min(
+                DETAILED_DIALOG_WIDTH,
+                int(screen_rect.width() * 0.85)
+                if screen_rect
+                else DETAILED_DIALOG_WIDTH,
+            )
+            height = min(
+                DETAILED_DIALOG_HEIGHT + 150,
+                int(screen_rect.height() * 0.85)
+                if screen_rect
+                else DETAILED_DIALOG_HEIGHT,
+            )
         elif sys.platform == "darwin":
             # macOS: Account for menu bar and dock
-            width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.9) if screen_rect else DETAILED_DIALOG_WIDTH)
-            height = min(DETAILED_DIALOG_HEIGHT, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
+            width = min(
+                DETAILED_DIALOG_WIDTH,
+                int(screen_rect.width() * 0.9)
+                if screen_rect
+                else DETAILED_DIALOG_WIDTH,
+            )
+            height = min(
+                DETAILED_DIALOG_HEIGHT,
+                int(screen_rect.height() * 0.85)
+                if screen_rect
+                else DETAILED_DIALOG_HEIGHT,
+            )
         else:
             # Linux: Conservative sizing
-            width = min(DETAILED_DIALOG_WIDTH, int(screen_rect.width() * 0.85) if screen_rect else DETAILED_DIALOG_WIDTH)
-            height = min(DETAILED_DIALOG_HEIGHT, int(screen_rect.height() * 0.85) if screen_rect else DETAILED_DIALOG_HEIGHT)
-        
+            width = min(
+                DETAILED_DIALOG_WIDTH,
+                int(screen_rect.width() * 0.85)
+                if screen_rect
+                else DETAILED_DIALOG_WIDTH,
+            )
+            height = min(
+                DETAILED_DIALOG_HEIGHT,
+                int(screen_rect.height() * 0.85)
+                if screen_rect
+                else DETAILED_DIALOG_HEIGHT,
+            )
+
         self.resize(width, height)
-        
+
         # Set more reasonable minimum size for small screens (allow scrolling)
         min_width = min(600, int(screen_rect.width() * 0.5) if screen_rect else 600)
         min_height = min(500, int(screen_rect.height() * 0.4) if screen_rect else 500)
         self.setMinimumSize(min_width, min_height)
-        
+
         # Set maximum size based on available screen space with adaptive ratio
         if screen_rect:
             # Use more generous ratios for larger screens
             screen_width = screen_rect.width()
             screen_height = screen_rect.height()
-            
+
             # Adaptive ratio: more generous on larger screens
             if screen_width >= 2560:  # 4K+ monitors
                 width_ratio = 0.95
@@ -133,7 +172,7 @@ class DetailedPlotDialog(QDialog):
             else:  # Smaller monitors
                 width_ratio = DETAILED_DIALOG_SCREEN_RATIO
                 height_ratio = DETAILED_DIALOG_SCREEN_RATIO
-            
+
             max_width = int(screen_width * width_ratio)
             max_height = int(screen_height * height_ratio)
             self.setMaximumSize(max_width, max_height)
@@ -158,13 +197,15 @@ class DetailedPlotDialog(QDialog):
         # Initialize scrollable container for plot widgets
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)  # Allow horizontal scroll if needed
+        scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded
+        )  # Allow horizontal scroll if needed
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
+
         # Ensure scroll area can shrink to fit in small windows
         scroll_area.setMinimumSize(400, 300)  # Reasonable minimum for plot visibility
         scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
+
         # Configure scroll area content widget
         scroll_widget = QWidget()
         scroll_widget.setStyleSheet("background-color: white;")
@@ -182,8 +223,10 @@ class DetailedPlotDialog(QDialog):
             y_label="Intensity",
         )
         # Adaptive minimum heights for small screens
-        min_plot_height = min(200, int(screen_rect.height() * 0.15) if screen_rect else 200)
-        
+        min_plot_height = min(
+            200, int(screen_rect.height() * 0.15) if screen_rect else 200
+        )
+
         self.eic_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
@@ -207,14 +250,16 @@ class DetailedPlotDialog(QDialog):
         splitter.addWidget(self.ms_plot)
 
         # Configure initial plot height proportions
-        splitter.setSizes([DETAILED_EIC_HEIGHT, DETAILED_TIC_HEIGHT, DETAILED_MS_HEIGHT])
-        
+        splitter.setSizes(
+            [DETAILED_EIC_HEIGHT, DETAILED_TIC_HEIGHT, DETAILED_MS_HEIGHT]
+        )
+
         # Add splitter to scroll layout
         scroll_layout.addWidget(splitter)
-        
+
         # Set the scroll widget as the content of scroll area
         scroll_area.setWidget(scroll_widget)
-        
+
         # Add scroll area to main layout
         layout.addWidget(scroll_area)
 
@@ -290,7 +335,9 @@ class DetailedPlotDialog(QDialog):
     def _load_eic_data(self):
         """Load EIC data for the compound-sample combination."""
         try:
-            eics = get_eics_for_compound(self.compound_name, [self.sample_name])
+            eics = get_eics_for_compound(
+                self.compound_name, [self.sample_name], use_corrected=self.use_corrected
+            )
             if eics:
                 self.eic_data = eics[0]  # Get the first (and only) EIC
                 logger.debug(f"Loaded EIC data: {len(self.eic_data.time)} points")
@@ -393,13 +440,22 @@ class DetailedPlotDialog(QDialog):
 
             # Render integration boundary markers with transparency
             self.eic_plot.add_vertical_line(
-                left_bound, color=f"rgba(255,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="dashed"
+                left_bound,
+                color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
+                width=PLOT_GUIDELINE_WIDTH,
+                style="dashed",
             )
             self.eic_plot.add_vertical_line(
-                right_bound, color=f"rgba(255,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="dashed"
+                right_bound,
+                color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
+                width=PLOT_GUIDELINE_WIDTH,
+                style="dashed",
             )
             self.eic_plot.add_vertical_line(
-                rt, color=f"rgba(0,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="dotted"
+                rt,
+                color=f"rgba(0,0,0,{GUIDELINE_ALPHA})",
+                width=PLOT_GUIDELINE_WIDTH,
+                style="dotted",
             )
 
             # Add baseline lines if baseline correction is enabled
@@ -459,7 +515,9 @@ class DetailedPlotDialog(QDialog):
                 if baseline_result is not None:
                     td_base, baseline_y = baseline_result
                     qcolor = label_colors[i % len(label_colors)]
-                    color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
+                    color = (
+                        f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
+                    )
                     baseline_x = np.array([td_base[0], td_base[-1]])
                     baseline_y_vals = np.array([baseline_y[0], baseline_y[-1]])
                     self.eic_plot.plot_line(
@@ -495,7 +553,10 @@ class DetailedPlotDialog(QDialog):
             if self.compound_info:
                 rt = self.compound_info.retention_time
                 self.tic_plot.add_vertical_line(
-                    rt, color=f"rgba(255,0,0,{GUIDELINE_ALPHA})", width=PLOT_GUIDELINE_WIDTH, style="solid"
+                    rt,
+                    color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
+                    width=PLOT_GUIDELINE_WIDTH,
+                    style="solid",
                 )
 
             # Execute batch rendering for performance
@@ -518,7 +579,10 @@ class DetailedPlotDialog(QDialog):
 
             # Render mass spectrum as stem plot
             self.ms_plot.plot_stems(
-                self.ms_data.mz, self.ms_data.intensity, color="darkblue", width=PLOT_STEM_WIDTH
+                self.ms_data.mz,
+                self.ms_data.intensity,
+                color="darkblue",
+                width=PLOT_STEM_WIDTH,
             )
 
             # Annotate the 8 most abundant peaks with their m/z values
@@ -616,41 +680,43 @@ class DetailedPlotDialog(QDialog):
             self.close()
         else:
             super().keyPressEvent(event)
-    
+
     def cleanup_plots(self):
         """Clean up all matplotlib resources from plot widgets."""
         try:
             # Clean up each plot widget
-            if hasattr(self, 'eic_plot') and self.eic_plot:
+            if hasattr(self, "eic_plot") and self.eic_plot:
                 self.eic_plot.cleanup()
-            
-            if hasattr(self, 'tic_plot') and self.tic_plot:
+
+            if hasattr(self, "tic_plot") and self.tic_plot:
                 self.tic_plot.cleanup()
-            
-            if hasattr(self, 'ms_plot') and self.ms_plot:
+
+            if hasattr(self, "ms_plot") and self.ms_plot:
                 self.ms_plot.cleanup()
-            
+
             # Clear data references
             self.eic_data = None
             self.tic_data = None
             self.ms_data = None
             self.compound_info = None
-            
-            logger.debug(f"Cleaned up plots for {self.compound_name}/{self.sample_name}")
-            
+
+            logger.debug(
+                f"Cleaned up plots for {self.compound_name}/{self.sample_name}"
+            )
+
         except Exception as e:
             logger.error(f"Error during plot cleanup: {e}")
-    
+
     def closeEvent(self, event):
         """Handle dialog close event with proper cleanup."""
         self.cleanup_plots()
         super().closeEvent(event)
-    
+
     def reject(self):
         """Override reject to ensure cleanup when dialog is cancelled."""
         self.cleanup_plots()
         super().reject()
-    
+
     def accept(self):
         """Override accept to ensure cleanup when dialog is accepted."""
         self.cleanup_plots()

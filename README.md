@@ -65,20 +65,34 @@ If you prefer to run the raw Python code, use the provided execution script.
 
 ## Support & Issues
 
-If you encounter a bug, have a question about usage, or would like to suggest a feature, please use the GitHub Issues system. This ensures your request is tracked and addressed by the development team.
+If something doesn't work as expected or you have an idea to make MANIC better, you can let us know. The easiest way is to use our simple forms on GitHub — no technical knowledge required.
 
-### How to Report an Issue
+### Report a Bug or Request a Feature
 
-1.  Navigate to the **[Issues](../../issues)** tab at the top of this repository page.
-2.  Click the green **New issue** button.
-3.  Select the appropriate template (e.g., **Bug Report** or **Feature Request**) if available, or choose "Open a blank issue".
-4.  **Provide Detail:**
-    *   **Description:** Clearly explain what happened versus what you expected to happen.
-    *   **Steps to Reproduce:** List the actions you took immediately before the issue occurred (e.g., "Loaded compound list, then clicked Import Session").
-    *   **Screenshots:** If applicable, paste an image of the error message or the unexpected behaviour.
-    *   **Logs:** If an error popup appeared, please include the full text of the error.
+Please first check if you bug or issue has already been reported by visiting the [Issues](https://github.com/FrancisCrickInstitute/pMANIC/issues) tab on the GitHub repository. If it has not been reported, follow these steps:
 
-5.  Click **Submit new issue**.
+1. Click one of the links below:
+   * **Report a bug:** [Open the Bug Report form](https://github.com/FrancisCrickInstitute/pMANIC/issues/new?template=bug_report.yml)
+   * **Request a feature:** [Open the Feature Request form](https://github.com/FrancisCrickInstitute/pMANIC/issues/new?template=feature_request.yml)
+   * If those links don’t work, go to the **[Issues](https://github.com/FrancisCrickInstitute/pMANIC/issues)** tab and click **New issue**. Then choose either “Bug Report” or “Feature Request.”
+
+2. Sign in to GitHub (or create a free account) if prompted. This helps us track and respond to your request.
+
+3. Fill out the form:
+   * For bugs:
+     - What happened (and what you expected)
+     - Steps to reproduce (what you clicked or did)
+     - Any error messages shown
+     - Screenshots (optional but helpful)
+     - Your operating system (Windows/Mac) and MANIC version
+   * For feature requests:
+     - What you’d like MANIC to do
+     - Why it’s useful (your workflow or problem it solves)
+     - Any examples or similar tools you’ve seen
+
+4. Click **Submit**. We’ll review and follow up if we need more details.
+
+If you prefer a longer walkthrough with pictures and examples, see: **[How to Report Bugs and Request Features](docs/How_to_Report_Issues.md)**.
 
 ---
 

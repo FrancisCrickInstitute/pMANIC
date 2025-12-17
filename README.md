@@ -72,8 +72,8 @@ If something doesn't work as expected or you have an idea to make MANIC better, 
 Please first check if you bug or issue has already been reported by visiting the [Issues](https://github.com/FrancisCrickInstitute/pMANIC/issues) tab on the GitHub repository. If it has not been reported, follow these steps:
 
 1. Click one of the links below:
-   * **Report a bug:** [Open the Bug Report form](https://github.com/FrancisCrickInstitute/pMANIC/issues/new?template=bug_report.yml)
-   * **Request a feature:** [Open the Feature Request form](https://github.com/FrancisCrickInstitute/pMANIC/issues/new?template=feature_request.yml)
+   * **Report a bug:** [Open the Bug Report form](https://github.com/FrancisCrickInstitute/pMANIC/issues/new?template=bug_report.md)
+   * **Request a feature:** [Open the Feature Request form](https://github.com/FrancisCrickInstitute/pMANIC/issues/new?template=feature_request.md)
    * If those links don’t work, go to the **[Issues](https://github.com/FrancisCrickInstitute/pMANIC/issues)** tab and click **New issue**. Then choose either “Bug Report” or “Feature Request.”
 
 2. Sign in to GitHub (or create a free account) if prompted. This helps us track and respond to your request.

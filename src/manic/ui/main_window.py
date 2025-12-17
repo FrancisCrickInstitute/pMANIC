@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QRadioButton,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -102,15 +103,32 @@ class MainWindow(QMainWindow):
         # Create the main layout
         main_layout = QHBoxLayout()
 
+        # Create a horizontal splitter
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(5)  # Makes the grab area slightly larger/easier to hit
+
         # Create the toolbar
         self.toolbar = Toolbar()
         self.toolbar.setObjectName("toolbar")
-        main_layout.addWidget(self.toolbar)
+        # Add toolbar to splitter instead of layout
+        splitter.addWidget(self.toolbar)
 
         # Create the graph view
         self.graph_view = GraphView()
-        main_layout.addWidget(self.graph_view)
-        main_layout.setStretch(1, 1)
+        # Add graph view to splitter instead of layout
+        splitter.addWidget(self.graph_view)
+
+        # Set stretch factors for the splitter
+        # Index 0 (Toolbar): Stretch factor 0 (doesn't expand automatically)
+        # Index 1 (GraphView): Stretch factor 1 (takes up all available extra space)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+
+        # Make the toolbar non-collapsible (so it doesn't snap to size 0)
+        splitter.setCollapsible(0, False)
+
+        # Add the splitter to the main layout
+        main_layout.addWidget(splitter)
 
         # Set the main layout as the central widget
         central_widget = QWidget()
@@ -2032,7 +2050,9 @@ class MainWindow(QMainWindow):
             )
             vbox.addWidget(info_label)
             # Force black text for label, radio buttons, and checkboxes regardless of theme
-            options_dialog.setStyleSheet("QLabel, QRadioButton, QCheckBox { color: black; }")
+            options_dialog.setStyleSheet(
+                "QLabel, QRadioButton, QCheckBox { color: black; }"
+            )
 
             radio_time = QRadioButton("Time-based (recommended)")
             radio_legacy = QRadioButton("Legacy (MATLAB-compatible unit spacing)")

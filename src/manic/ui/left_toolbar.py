@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
 from manic.io.compound_reader import read_compound
 from manic.utils.paths import resource_path
 
-
 from .compound_list_widget import CompoundListWidget
 from .integration_window_widget import IntegrationWindow
 from .isotopologue_ratio_widget import IsotopologueRatioWidget
@@ -28,13 +27,13 @@ class Toolbar(QWidget):
 
     # Signal for the currently selected compound
     compound_selected = Signal(str)
-    
+
     # Signal for when internal standard is selected
     internal_standard_selected = Signal(str)
-    
+
     # Signal for when a compound is deleted
     compound_deleted = Signal(str)
-    
+
     # Signal emitted when baseline correction checkbox is toggled
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
@@ -127,22 +126,28 @@ class Toolbar(QWidget):
 
         # Compact the container to fit content size
         indicators_container.setMaximumHeight(
-            self.loaded_data.sizeHint().height() + 
-            self.standard.sizeHint().height() + 
-            20  # Account for margins, spacing, and extra vertical gap
+            self.loaded_data.sizeHint().height()
+            + self.standard.sizeHint().height()
+            + 20  # Account for margins, spacing, and extra vertical gap
         )
 
         # Add the container to the main layout with no stretch
         content_layout.addWidget(indicators_container, stretch=0)
 
         self.sample_list = SampleListWidget()
-        content_layout.addWidget(self.sample_list, stretch=1)  # Give sample list more space
+        content_layout.addWidget(
+            self.sample_list, stretch=1
+        )  # Give sample list more space
 
         self.compound_list = CompoundListWidget()
-        content_layout.addWidget(self.compound_list, stretch=1)  # Give compound list more space
+        content_layout.addWidget(
+            self.compound_list, stretch=1
+        )  # Give compound list more space
 
         self.integration = IntegrationWindow()
-        content_layout.addWidget(self.integration, stretch=0)  # No stretch for integration window
+        content_layout.addWidget(
+            self.integration, stretch=0
+        )  # No stretch for integration window
 
         # Baseline correction checkbox (between integration window and plots)
         self.baseline_checkbox = QCheckBox("Baseline correction")
@@ -180,10 +185,14 @@ class Toolbar(QWidget):
         content_layout.addWidget(self.baseline_checkbox, stretch=0)
 
         self.isotopologue_ratios = IsotopologueRatioWidget()
-        content_layout.addWidget(self.isotopologue_ratios, stretch=2)  # Increased stretch for plots
+        content_layout.addWidget(
+            self.isotopologue_ratios, stretch=2
+        )  # Increased stretch for plots
 
         self.total_abundance = TotalAbundanceWidget()
-        content_layout.addWidget(self.total_abundance, stretch=2)  # Increased stretch for plots
+        content_layout.addWidget(
+            self.total_abundance, stretch=2
+        )  # Increased stretch for plots
 
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)
@@ -192,7 +201,9 @@ class Toolbar(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
 
-        self.setFixedWidth(222)  # Accounts for border width
+        # self.setFixedWidth(222)
+        self.setMinimumWidth(222)
+
         self.setLayout(main_layout)
 
     def _connect_signals(self):
@@ -204,9 +215,7 @@ class Toolbar(QWidget):
         self.compound_list.internal_standard_selected.connect(
             self.on_internal_standard_selected
         )
-        self.compound_list.compound_deleted.connect(
-            self.on_compound_deleted
-        )
+        self.compound_list.compound_deleted.connect(self.on_compound_deleted)
 
     # --- Signal Handlers ---
     def on_samples_selection_changed(self):
@@ -244,7 +253,7 @@ class Toolbar(QWidget):
         """
         self.standard.set_internal_standard(compound_name)
         self.internal_standard_selected.emit(compound_name)
-    
+
     def on_compound_deleted(self, compound_name: str):
         """
         Handler for when a compound is deleted.
@@ -299,9 +308,9 @@ class Toolbar(QWidget):
     def fill_integration_window(self, compound_name: str):
         """
         Legacy method - no longer used.
-        
+
         Integration window fields are now populated by populate_fields_from_plots()
-        which properly handles session data overrides. This method previously 
+        which properly handles session data overrides. This method previously
         populated fields with base compound data, overwriting session values.
         """
         pass

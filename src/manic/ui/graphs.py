@@ -343,11 +343,10 @@ class GraphView(QWidget):
 
     def _show_context_menu(self, global_pos, clicked_plot=None):
         """
-        Show consolidated context menu with appropriate options.
-
-        The context menu automatically dismisses when clicking outside or when
-        actions are triggered, providing a clean user experience.
+        Show context menu.
+        Simplified: 'View Detailed' only works if you right-click a specific plot.
         """
+
         # Close any existing context menu first
         if hasattr(self, "_active_context_menu") and self._active_context_menu:
             self._active_context_menu.close()
@@ -390,28 +389,22 @@ class GraphView(QWidget):
         # Add separator before detailed view option
         context_menu.addSeparator()
 
-        # Add detailed view action (only if single plot clicked and none or one selected)
-        if clicked_plot is not None and len(self._selected_plots) <= 1:
-            detailed_action = context_menu.addAction("View Detailed...")
+        # Add detailed view action
+        detailed_action = context_menu.addAction("View Detailed...")
+
+        if clicked_plot is not None:
+            # Case: Right-clicked a specific plot.
+            # Enable detailed view for this plot regardless of other selections.
             detailed_action.triggered.connect(
                 lambda: self._show_detailed_view(
                     clicked_plot.compound_name, clicked_plot.sample_name
                 )
             )
-        elif clicked_plot is None and len(self._selected_plots) == 1:
-            # If right-clicked on empty space but exactly one plot is selected
-            selected_plot = next(iter(self._selected_plots))
-            detailed_action = context_menu.addAction("View Detailed...")
-            detailed_action.triggered.connect(
-                lambda: self._show_detailed_view(
-                    selected_plot.compound_name, selected_plot.sample_name
-                )
-            )
         else:
-            # Add disabled detailed view action to show it's not available
-            detailed_action = context_menu.addAction("View Detailed...")
+            # Case: Right-clicked background.
+            # Disable detailed view entirely.
             detailed_action.setEnabled(False)
-            detailed_action.setToolTip("Available only with single plot selection")
+            detailed_action.setToolTip("Right-click a specific plot to view details")
 
         # Show menu at position - use popup() instead of exec() for better behavior
         context_menu.popup(global_pos)

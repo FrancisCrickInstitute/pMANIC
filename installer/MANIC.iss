@@ -1,7 +1,7 @@
 [Setup]
 AppId=MANIC
 AppName=MANIC
-AppVersion=4.0.0
+AppVersion=4.0.01
 DefaultDirName={pf}\MANIC
 DefaultGroupName=MANIC
 UninstallDisplayIcon={app}\MANIC.exe

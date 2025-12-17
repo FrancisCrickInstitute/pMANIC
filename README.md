@@ -92,8 +92,6 @@ Please first check if you bug or issue has already been reported by visiting the
 
 4. Click **Submit**. We’ll review and follow up if we need more details.
 
-If you prefer a longer walkthrough with pictures and examples, see: **[How to Report Bugs and Request Features](docs/How_to_Report_Issues.md)**.
-
 ---
 
 ## Developer Instructions

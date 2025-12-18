@@ -216,6 +216,9 @@ class Toolbar(QWidget):
             self.on_internal_standard_selected
         )
         self.compound_list.compound_deleted.connect(self.on_compound_deleted)
+        self.compound_list.internal_standard_cleared.connect(
+            self.on_internal_standard_cleared
+        )
 
     # --- Signal Handlers ---
     def on_samples_selection_changed(self):
@@ -354,3 +357,8 @@ class Toolbar(QWidget):
         except Exception as e:
             print(f"Failed to update baseline setting: {e}")
             self._set_baseline_checkbox_from_compound(compound_name)
+
+    def on_internal_standard_cleared(self):
+        """Handler for clearing the internal standard."""
+        self.standard.clear_internal_standard()  # Calls existing method
+        self.internal_standard_selected.emit(None)  # Notify MainWindow standard is gone

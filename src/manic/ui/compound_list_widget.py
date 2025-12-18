@@ -1,7 +1,7 @@
 from typing import List
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QMessageBox
 
 from manic.constants import FONT
@@ -10,6 +10,7 @@ from manic.constants import FONT
 class CompoundListWidget(QListWidget):
     internal_standard_selected = Signal(str)
     compound_deleted = Signal(str)
+    internal_standard_cleared = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -70,8 +71,9 @@ class CompoundListWidget(QListWidget):
     def _show_context_menu(self, position):
         """Show context menu when right-clicking on a compound"""
         item = self.itemAt(position)
+        menu = QMenu(self)
+
         if item and not item.text().startswith("- No"):
-            menu = QMenu(self)
             # Set menu style to ensure black text on white background
             menu.setStyleSheet("""
                 QMenu {
@@ -105,7 +107,14 @@ class CompoundListWidget(QListWidget):
                 lambda: self._confirm_delete_compound(item.text())
             )
 
-            menu.exec_(self.mapToGlobal(position))
+        # Add the Clear action (available even if no item is right-clicked)
+        clear_std_action = QAction("Clear Internal Standard", self)
+        clear_std_action.triggered.connect(
+            lambda: self.internal_standard_cleared.emit()
+        )
+        menu.addAction(clear_std_action)
+
+        menu.exec_(self.mapToGlobal(position))
 
     def _confirm_delete_compound(self, compound_name: str):
         """Show confirmation dialog before deleting compound"""

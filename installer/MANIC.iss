@@ -12,6 +12,19 @@ SolidCompression=yes
 WizardStyle=modern
 DisableDirPage=no
 DisableProgramGroupPage=no
+ArchitecturesInstallIn64BitMode=x64
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  // Run this logic right before the actual installation (file copying) begins
+  if CurStep = ssInstall then
+  begin
+    // Forcefully delete the docs directory and all its contents
+    // Parameters: Path, IsDir, DeleteFiles, DeleteSubdirs
+    DelTree(ExpandConstant('{app}\docs'), True, True, True);
+  end;
+end;
 
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\docs"

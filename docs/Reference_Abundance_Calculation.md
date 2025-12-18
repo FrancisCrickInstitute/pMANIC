@@ -19,7 +19,7 @@ $$
 $$
 
 ### Path B: Relative Abundance
-Used when an Internal Standard is selected, but the metabolite has an `amount_in_std_mix` of 0 or missing. This bypasses the MRRF to avoid unscientific scaling.
+Used when an Internal Standard is selected, but the metabolite has an `amount_in_std_mix` of 0 or missing. This bypasses the MRRF to avoid inappropriate scaling.
 
 $$
 \text{Abundance}_{rel} = \frac{\text{Area}_{total} \times \text{Amount}_{IS}}{\text{Area}_{IS}}

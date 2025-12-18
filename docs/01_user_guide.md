@@ -90,19 +90,14 @@ The selected compound must meet specific criteria in your compound definition fi
 * **Calibration Amount:** `amount_in_std_mix` must be defined and `> 0`. This is the concentration present in the standard mixture (MM) files.
 * **Universal Presence:** The compound must be detectable in all samples and standards.
 
-> **Tip (Auto-Selection):** If your compound list includes "scyllo-inositol" and has a valid `int_std_amount`, MANIC attempts to select it automatically upon loading. Check the verification step below to see if this has already occurred.
-
 **Procedure**   
 1.  Locate the **Compounds** list widget in the left sidebar.
 2.  **Right-click** on the name of your internal standard compound.
 3.  Select **"Set as Internal Standard"** from the context menu.
+4.  To remove a selection, right-click anywhere in the list and select **"Clear Internal Standard"**.
 
-**Verification**   
-Confirm the selection was applied:
-* The **Standard** status indicator (located below the data indicators) will turn **green**.
-* The text inside the indicator will change to display the name of the selected compound (e.g., `-- scyllo-Inositol --`).
-
-*Note: If you proceed to "Export Data" without a valid internal standard selected (or if the selected compound is missing the required amount fields), the export process will be aborted to prevent invalid quantification.*
+**Verification** * **Standard Selected:** Indicator turns **green** and shows the compound name.
+* **No Standard:** Indicator turns **red** and shows `-- No Standard Selected --`.
 
 ---
 
@@ -183,8 +178,8 @@ If you make a mistake or want to revert to the original library definitions:
 Generate the final analytical report. This process calculates all results, applies MRRF calibration, and produces two files: a comprehensive Excel workbook and a detailed session changelog.
 
 **Prerequisites**   
-* **Internal Standard:** You must have a valid internal standard selected (see [Step 3](#step-3-configure-internal-standard)). The export option will be disabled otherwise.
-* **Data Validity:** Ensure all required metadata (especially `int_std_amount` and `amount_in_std_mix`) is present in your compound definitions.
+**Data Validity:** Ensure required metadata (especially `int_std_amount` and `amount_in_std_mix`) is present for calibrated compounds.
+* **Note on Standards:** While an Internal Standard is recommended for "nmol" results, you may proceed without one to export raw **Peak Areas**.
 
 **Procedure**   
 
@@ -192,8 +187,8 @@ Generate the final analytical report. This process calculates all results, appli
 2.  In the file dialog, choose a name and location for your output file (e.g., `experiment_results.xlsx`) and click **Save**.
 3.  **Select Integration Method:** A dialog will appear asking you to choose a mode:
     * **Time-based (Recommended):** Calculates peak areas using actual time units (intensity × minutes). This is the scientifically accurate default.
-    * **Legacy (MATLAB-compatible):** Uses unit-spacing integration (sum of intensities). Use this *only* if you need to match numerical values from the legacy MATLAB tool (values will be ~100× larger).
-4.  Click **OK** to begin processing.
+    * **Legacy (MATLAB-compatible):** Uses unit-spacing integration (sum of intensities). Use this *only* if you need to match numerical values from the legacy MATLAB tool (values will be ~100× larger). Click **OK** to begin processing.
+4. If no internal standard is selected, a **warning dialog** will appear explaining that results will be exported as unnormalized "Peak Area". Click **Yes** to proceed. 
 
 > **Note on Processing:** MANIC will perform a final check to ensure natural isotope corrections have been applied. If not, a progress bar will appear as it calculates these corrections for all labeled compounds to ensure data integrity.
 
@@ -212,7 +207,7 @@ The Excel file contains five worksheets representing successive stages of analys
 | **3. Isotope Ratios** | Normalized distributions where all isotopologues for a compound sum to 1.0. Used for comparing labeling patterns independent of concentration. |
 | **4. % Label Incorporation** | The percentage of the metabolite pool that has incorporated the experimental label. Includes background correction derived from standard (MM) files. |
 | **5. % Carbons Labelled** | The weighted average enrichment of the total carbon pool. Useful for distinguishing between light (M+1) and heavy (M+N) labeling patterns. |
-| **6. Abundances** | Absolute metabolite amounts (in nmol). Calculated using the internal standard and MRRF calibration. |
+| **6. Abundances** | Absolute amounts (nmol), Relative ratios, or raw Peak Areas depending on standard selection. |
 
 **Validation & Errors**   
 * **Invalid Peaks:** Cells corresponding to peaks that failed the minimum area validation (red plots) will be highlighted with a **light red background** in the Excel file.
@@ -341,5 +336,3 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 | **Validation** | Manual visual check | Automatic red/white quality indicators. |
 
 * **Correction Math:** 📖 [Natural Isotope Correction Algorithm](Reference_Natural_Isotope_Correction.md)
-
-

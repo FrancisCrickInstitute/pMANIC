@@ -11,6 +11,9 @@ Instead of requiring you to manually inspect every chromatogram for noise, the s
 
 A peak is considered **Invalid/Weak** (and flagged red) if its total integrated area is too small compared to the Internal Standard in that same sample.  
 
+> **⚠️ Requirement: Internal Standard**
+> Automated validation requires an Internal Standard to be selected. If no standard is selected, all peaks are treated as "Valid" (white) by default.
+
 ### Formula
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 
@@ -42,7 +45,7 @@ When reviewing integration, look at the background colour of the mini-plots:
 ### 2. In the Exported Excel File (Step 5)
 In the final results workbook (specifically the **Abundances** sheet):
 * **Normal Cells:** Valid data.
-* **Red Cells:** The value was calculated, but the underlying peak failed validation. Treat these quantitative results with caution.
+* **Red Cells:** The value was calculated, but the underlying peak failed validation. Treat these quantitative results with caution. This highlighting is disabled if no internal standard was used for the export.
 
 ---
 

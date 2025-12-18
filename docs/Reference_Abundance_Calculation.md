@@ -1,34 +1,45 @@
 # Reference: Abundance Calculation & MRRF
 
 ## Overview
-The **Abundances** sheet in the final export reports the absolute amount of each metabolite in your samples (in nanomoles).
+The **Abundances** sheet in the final export reports the absolute amount of each metabolite in your samples (in nanomoles), relative ratios, or raw peak areas depending on your configuration.
 
-This quantification relies on an **Internal Standard (IS)** to normalize for instrument variability (such as injection volume differences) and a **Metabolite Response Ratio Factor (MRRF)** to correct for the fact that different compounds ionize with different efficiencies.
+This quantification typically relies on an **Internal Standard (IS)** to normalize for instrument variability and a **Metabolite Response Ratio Factor (MRRF)** to correct for ionization efficiency.
 
 ---
 
-## 1. The Abundance Formula
+## 1. The Abundance Formulas
 
-MANIC calculates the abundance for every metabolite in every sample using the following equation:
+MANIC selects the mathematical path based on the metadata provided in your compound list and whether an Internal Standard is selected.
+
+### Path A: Absolute Abundance (nmol)
+Used when an Internal Standard is selected and the metabolite has an `amount_in_std_mix > 0`.
 
 $$
-\text{Abundance}_{met} = \frac{\text{Area}_{total} \times \text{Amount}_{IS}}{\text{Area}_{IS} \times \text{MRRF}}
+\text{Abundance}_{abs} = \frac{\text{Area}_{total} \times \text{Amount}_{IS}}{\text{Area}_{IS} \times \text{MRRF}}
+$$
+
+### Path B: Relative Abundance
+Used when an Internal Standard is selected, but the metabolite has an `amount_in_std_mix` of 0 or missing. This bypasses the MRRF to avoid unscientific scaling.
+
+$$
+\text{Abundance}_{rel} = \frac{\text{Area}_{total} \times \text{Amount}_{IS}}{\text{Area}_{IS}}
+$$
+
+### Path C: Peak Area
+Used when **No Internal Standard** is selected. This reports the raw integrated signal.
+
+$$
+\text{Abundance}_{area} = \text{Area}_{total}
 $$
 
 ### Variable Definitions
 
 | Variable | Description | Source |
 | :--- | :--- | :--- |
-| **$\text{Abundance}_{met}$** | The calculated amount (nmol). | Output Result |
-| **$\text{Area}_{total}$** | The **Total Corrected Area** of the metabolite (Sum of all isotopologues). | *Corrected Values* Sheet |
-| **$\text{Amount}_{IS}$** | The known amount of Internal Standard added to this specific sample. | Compound List (`int_std_amount`) |
-| **$\text{Area}_{IS}$** | The **M+0 Corrected Area** of the Internal Standard. | *Corrected Values* Sheet |
-| **MRRF** | The Metabolite Response Ratio Factor. | Calculated from Standards (see below) |
-
-> **⚠️ Technical Note: M+0 vs. Total Area**
-> To maintain strict compatibility with the legacy MATLAB algorithms:
-> * **Target Metabolites** use the sum of **all** corrected isotopologues (`Total Signal`).
-> * **The Internal Standard** uses **only the M+0** corrected isotopologue (`M+0 Signal`).
+| **Area_{total}** | The **Total Corrected Area** of the metabolite (Sum of all isotopologues). | *Corrected Values* Sheet |
+| **Amount_{IS}** | The known amount of Internal Standard added to this specific sample. | Compound List (`int_std_amount`) |
+| **Area_{IS}** | The **M+0 Corrected Area** of the Internal Standard. | *Corrected Values* Sheet |
+| **MRRF** | The Metabolite Response Ratio Factor. | Calculated from Standards |
 
 ---
 
@@ -64,19 +75,17 @@ $$
 
 ## 3. Data Requirements
 
-For these calculations to execute, your **Compound List** must be populated with the following metadata. Missing values will cause the export to fail with an error.
-
 | Column | Requirement | Usage in Formula |
 | :--- | :--- | :--- |
-| `int_std_amount` | **Sample Dose.** The amount of IS added to biological samples. | Used as $\text{Amount}_{IS}$ for normal samples. |
-| `amount_in_std_mix` | **Calibration Dose.** The amount present in the Standard Mixture (MM) files. | Used to calculate MRRF slopes.<br>Also used as $\text{Amount}_{IS}$ if the sample itself is an MM file. |
-| `mm_files` | **File Pattern.** (e.g., `*MM*`) | Identifies which files should be used to calculate the MRRF. |
+| `int_std_amount` | **Sample Dose.** | Used as Amount_{IS} for normal samples. |
+| `amount_in_std_mix` | **Calibration Dose.** | Used to calculate MRRF. If 0, the metabolite uses "Relative" mode. |
 
 ### Dynamic Amount Switching
 MANIC is "context-aware" regarding the Internal Standard amount:
 1.  **For Biological Samples:** It uses `int_std_amount`.
 2.  **For Standard Mixture (MM) Files:** It uses `amount_in_std_mix`.
 This ensures that if you verify your standard files in the "Abundances" sheet, they are quantified correctly using their own specific concentration, even if it differs from the biological samples.
+
 
 ---
 
@@ -85,5 +94,8 @@ This ensures that if you verify your standard files in the "Abundances" sheet, t
 ### The Internal Standard Itself
 In the Abundances sheet, the row for the Internal Standard compound does not undergo calculation. Instead, it simply reports the **Known Amount** (`int_std_amount` or `amount_in_std_mix`) to confirm what value was used for that sample.
 
+### No Internal Standard Selected
+If you clear the internal standard selection, MANIC will export the sum of corrected isotopologue areas for all compounds. The units in the Excel header will automatically change to **"Peak Area"**.
+
 ### Missing Calibration
-If a metabolite cannot be calibrated (e.g., it was not found in the MM files, or `amount_in_std_mix` was 0), MANIC defaults the MRRF to **1.0** and logs a warning. The calculated abundances will essentially be relative to the IS but not absolutely quantified.
+If a metabolite has no `amount_in_std_mix` defined, it is treated as **Relative**. It is normalized to the Internal Standard signal but is not scaled by an MRRF.

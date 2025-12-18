@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List
+from typing import List
 
 from manic.models.database import get_connection
 
@@ -26,12 +26,22 @@ def write(
     worksheet = workbook.add_worksheet("Abundances")
     invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
 
+    # Helper to get values from either a sqlite Row or a dictionary safely
+    def _row_get(row, key):
+        try:
+            return row[key]
+        except Exception:
+            try:
+                return row.get(key)
+            except Exception:
+                return None
+
     if provider is None:
         with get_connection() as conn:
             compounds_query = """
                 SELECT compound_name, mass0, retention_time, amount_in_std_mix, int_std_amount, mm_files
-                FROM compounds 
-                WHERE deleted=0 
+                FROM compounds
+                WHERE deleted=0
                 ORDER BY id
             """
             compounds = list(conn.execute(compounds_query))
@@ -82,8 +92,11 @@ def write(
 
     worksheet.write(4, 0, "Units")
     worksheet.write(4, 1, None)
-    for col in range(len(compound_names)):
-        worksheet.write(4, col + 2, "nmol")
+    for col, compound_row in enumerate(compounds):
+        # Change: refer to amount as "Relative" rather than "nmol" if amount_in_std_mix is 0 or missing
+        amt_in_mix = _row_get(compound_row, "amount_in_std_mix")
+        unit = "nmol" if amt_in_mix and float(amt_in_mix) > 0 else "Relative"
+        worksheet.write(4, col + 2, unit)
 
     # Pre-calculate MRRF values using MM files and internal standard
     if not getattr(exporter, "internal_standard_compound", None):
@@ -101,16 +114,6 @@ def write(
             compounds, exporter.internal_standard_compound
         )
     )
-
-    # Get internal standard amount from compound metadata
-    def _row_get(row, key):
-        try:
-            return row[key]
-        except Exception:
-            try:
-                return row.get(key)
-            except Exception:
-                return None
 
     intstd_rows = [
         c
@@ -177,7 +180,6 @@ def write(
                 exporter.internal_standard_compound, [0.0]
             )
             # MATLAB uses only M+0 for internal standard normalization (processIntegrals.m line 24)
-            # internalStandardCorrection = integrationData(metaboliteStandard).ionsRawCorr(:, 1)
             internal_std_signal = (
                 internal_std_data[0]
                 if internal_std_data and len(internal_std_data) > 0
@@ -198,26 +200,42 @@ def write(
             iso_data = sample_data.get(compound_name, [0.0])
             total_signal = sum(iso_data)
 
+            # Change: Determine if we are calculating Absolute (nmol) or Relative abundance
+            amt_in_mix = _row_get(compound_row, "amount_in_std_mix")
+            is_relative = not (amt_in_mix and float(amt_in_mix) > 0)
+
             if (
                 exporter.internal_standard_compound
                 and compound_name != exporter.internal_standard_compound
             ):
-                mrrf = mrrf_values.get(compound_name, 1.0)
-                if internal_std_signal > 0 and mrrf > 0:
-                    calibrated_abundance = (
-                        total_signal
-                        * (sample_internal_std_amount / internal_std_signal)
-                        * (1 / mrrf)
-                    )
-                    logger.debug(
-                        f"Abundance for {compound_name}: total_signal={total_signal:.1f}, "
-                        f"sample_int_std_amount={sample_internal_std_amount}, int_std_signal={internal_std_signal:.1f}, "
-                        f"mrrf={mrrf:.3f}, result={calibrated_abundance:.3f} nmol"
-                    )
+                if internal_std_signal > 0:
+                    if is_relative:
+                        # Calculation for Relative Abundance: Ratio normalized to Internal Standard signal
+                        calibrated_abundance = (
+                            total_signal / internal_std_signal
+                        ) * sample_internal_std_amount
+                        logger.debug(
+                            f"Relative abundance for {compound_name}: {calibrated_abundance:.3f}"
+                        )
+                    else:
+                        # Calculation for Absolute Abundance (nmol) using MRRF
+                        mrrf = mrrf_values.get(compound_name, 1.0)
+                        if mrrf > 0:
+                            calibrated_abundance = (
+                                total_signal
+                                * (sample_internal_std_amount / internal_std_signal)
+                                * (1 / mrrf)
+                            )
+                        else:
+                            calibrated_abundance = 0.0
+                        logger.debug(
+                            f"Abundance for {compound_name}: total_signal={total_signal:.1f}, "
+                            f"mrrf={mrrf:.3f}, result={calibrated_abundance:.3f} nmol"
+                        )
                 else:
                     calibrated_abundance = 0.0
                     logger.debug(
-                        f"No valid calibration for {compound_name} (int_std_signal={internal_std_signal:.3f}, mrrf={mrrf:.3f})"
+                        f"No valid calibration for {compound_name} (int_std_signal={internal_std_signal:.3f})"
                     )
             elif (
                 exporter.internal_standard_compound

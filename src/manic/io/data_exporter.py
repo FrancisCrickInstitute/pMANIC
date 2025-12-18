@@ -19,15 +19,25 @@ from typing import Dict, List, Optional
 import numpy as np
 import xlsxwriter
 
-from manic.io.data_provider import DataProvider
 from manic.io.changelog_writer import generate_changelog
+from manic.io.data_provider import DataProvider
+from manic.sheet_generators import (
+    abundances as sheet_abundances,
+)
+from manic.sheet_generators import (
+    carbon_enrichment as sheet_carbon_enrichment,
+)
+from manic.sheet_generators import (
+    corrected_values as sheet_corrected_values,
+)
+from manic.sheet_generators import (
+    isotope_ratios as sheet_isotope_ratios,
+)
+from manic.sheet_generators import (
+    label_incorporation as sheet_label_incorporation,
+)
 from manic.sheet_generators import (
     raw_values as sheet_raw_values,
-    corrected_values as sheet_corrected_values,
-    isotope_ratios as sheet_isotope_ratios,
-    label_incorporation as sheet_label_incorporation,
-    abundances as sheet_abundances,
-    carbon_enrichment as sheet_carbon_enrichment,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,6 +93,7 @@ class DataExporter:
         Returns:
             Dict mapping sample_name -> {compound_name: is_valid}
         """
+        # Change: Validation (area ratio vs standard) cannot be performed without an internal standard
         if not self.internal_standard_compound or self.min_peak_area_ratio <= 0:
             return {}
 
@@ -232,7 +243,7 @@ class DataExporter:
                         64,
                         80,
                         validation_data=validation_data,
-                        provider=self._provider
+                        provider=self._provider,
                     )
                 except Exception as e:
                     logger.error(f"Error in % Carbons Labelled sheet: {e}")
@@ -281,17 +292,6 @@ class DataExporter:
     ):
         """
         Export Raw Values sheet - direct instrument signals (uncorrected peak areas).
-
-        Format matches the reference xlsx exactly:
-        Row 1: Compound Name | None | [Compound names repeated for each isotopologue]
-        Row 2: Mass | None | [Mass values repeated for each isotopologue]
-        Row 3: Isotope | None | [0, 1, 2, 3... for each isotopologue]
-        Row 4: tR | None | [Retention times repeated for each isotopologue]
-        Row 5+: None | [Sample names] | [Data values]
-
-        This is the starting point data: direct, uncorrected signal intensity from the
-        instrument including all natural isotope abundance, baseline noise, and
-        experimental artifacts.
         """
         from manic.sheet_generators import raw_values as _sheet_raw
 
@@ -304,12 +304,6 @@ class DataExporter:
     ):
         """
         Export Corrected Values sheet - natural isotope abundance corrected signals.
-
-        Format matches the reference xlsx exactly (same as Raw Values).
-
-        This data has the predictable signal from naturally occurring isotopes
-        mathematically removed using the compound's chemical formula correction matrix.
-        This is the clean, deconvoluted signal representing true experimental labeling.
         """
         from manic.sheet_generators import corrected_values as _sheet_corrected
 
@@ -322,11 +316,6 @@ class DataExporter:
     ):
         """
         Export Isotope Ratios sheet - normalized corrected values (sum to 1.0).
-
-        Format matches the reference xlsx exactly (same structure as Raw Values and Corrected Values).
-
-        Takes the Corrected Values data and normalizes it so all isotopologues
-        for a given compound sum to 1.0, showing the fractional distribution of the label.
         """
         from manic.sheet_generators import isotope_ratios as _sheet_iso
 
@@ -339,14 +328,6 @@ class DataExporter:
     ):
         """
         Export Abundances sheet - absolute metabolite concentrations.
-
-        Format matches reference xlsx exactly:
-        - Only M+0 isotopologue for each compound (total abundance)
-        - Includes Units row after tR row
-        - Uses compound-based structure (not isotopologue-based)
-
-        Uses internal standard calibration to convert corrected signals into
-        absolute biological quantities.
         """
         from manic.sheet_generators import abundances as _sheet_abund
 
@@ -359,15 +340,6 @@ class DataExporter:
     ):
         """
         Export % Label Incorporation sheet - percentage of experimental label incorporation.
-
-        Format matches reference xlsx exactly:
-        - Only M+0 isotopologue for each compound (base for calculation)
-        - Same structure as Abundances but without Units row
-        - Uses compound-based structure (not isotopologue-based)
-
-        Calculates the true percentage of metabolite that has incorporated the
-        experimental label, correcting for experimental artifacts using background
-        ratios from standard samples.
         """
         from manic.sheet_generators import label_incorporation as _sheet_label
 
@@ -380,9 +352,12 @@ class DataExporter:
         return self._provider.get_background_ratios(compounds)
 
     def _calculate_mrrf_values(
-        self, compounds, internal_standard_compound: str
+        self, compounds, internal_standard_compound: Optional[str]
     ) -> Dict[str, float]:
         """Delegate to provider for cached MRRF calculation."""
+        # Return empty results if no internal standard is provided
+        if not internal_standard_compound:
+            return {}
         return self._provider.get_mrrf_values(compounds, internal_standard_compound)
 
     def _calculate_peak_areas(
@@ -418,29 +393,12 @@ class DataExporter:
     def _get_sample_raw_data(self, sample_name: str) -> Dict[str, List[float]]:
         """
         Get integrated raw EIC data for all compounds in a sample.
-        Uses bulk data loading for improved performance.
-
-        Args:
-            sample_name: Name of the sample
-
-        Returns:
-            Dictionary mapping compound names to lists of isotopologue peak areas
         """
         return self._provider.get_sample_raw_data(sample_name)
 
     def _get_sample_corrected_data(self, sample_name: str) -> Dict[str, List[float]]:
         """
         Get integrated EIC data for all compounds in a sample.
-        Uses bulk data loading for improved performance.
-
-        For labeled compounds (label_atoms > 0): fetches corrected data from eic_corrected table
-        For unlabeled compounds (label_atoms = 0): fetches raw data directly from eic table
-
-        Args:
-            sample_name: Name of the sample
-
-        Returns:
-            Dictionary mapping compound names to lists of isotopologue peak areas
         """
         # Use bulk data loading for better performance
         return self._provider.get_sample_corrected_data(sample_name)

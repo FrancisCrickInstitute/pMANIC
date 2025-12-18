@@ -92,76 +92,83 @@ def write(
 
     worksheet.write(4, 0, "Units")
     worksheet.write(4, 1, None)
+    is_std_selected = exporter.internal_standard_compound is not None
     for col, compound_row in enumerate(compounds):
-        # Change: refer to amount as "Relative" rather than "nmol" if amount_in_std_mix is 0 or missing
-        amt_in_mix = _row_get(compound_row, "amount_in_std_mix")
-        unit = "nmol" if amt_in_mix and float(amt_in_mix) > 0 else "Relative"
+        if not is_std_selected:
+            unit = "Peak Area"
+        else:
+            # refer to amount as "Relative" rather than "nmol" if amount_in_std_mix is 0 or missing
+            amt_in_mix = _row_get(compound_row, "amount_in_std_mix")
+            unit = "nmol" if amt_in_mix and float(amt_in_mix) > 0 else "Relative"
         worksheet.write(4, col + 2, unit)
 
     # Pre-calculate MRRF values using MM files and internal standard
-    if not getattr(exporter, "internal_standard_compound", None):
-        raise ValueError(
-            "Internal standard must be set before generating Abundances sheet"
+    mrrf_values = {}
+    if exporter.internal_standard_compound:
+        logger.info(
+            f"Calculating MRRF values using internal standard: {exporter.internal_standard_compound}"
         )
-
-    logger.info(
-        f"Calculating MRRF values using internal standard: {exporter.internal_standard_compound}"
-    )
-    mrrf_values = (
-        provider.get_mrrf_values(compounds, exporter.internal_standard_compound)
-        if provider is not None
-        else exporter._calculate_mrrf_values(
-            compounds, exporter.internal_standard_compound
-        )
-    )
-
-    intstd_rows = [
-        c
-        for c in compounds
-        if _row_get(c, "compound_name") == exporter.internal_standard_compound
-    ]
-    if not intstd_rows:
-        raise ValueError(
-            f"Internal standard '{exporter.internal_standard_compound}' not found in compound list"
-        )
-
-    def _resolve_mm_samples(mm_field):
-        resolver = None
-        if provider is not None and hasattr(provider, "resolve_mm_samples"):
-            resolver = getattr(provider, "resolve_mm_samples")
-        elif hasattr(exporter, "_resolve_mm_samples"):
-            resolver = getattr(exporter, "_resolve_mm_samples")
-
-        if not resolver or not mm_field:
-            return set()
-
-        try:
-            return set(resolver(mm_field))
-        except Exception as exc:
-            logger.warning(
-                "Failed to resolve MM samples for internal standard %s: %s",
-                exporter.internal_standard_compound,
-                exc,
+        mrrf_values = (
+            provider.get_mrrf_values(compounds, exporter.internal_standard_compound)
+            if provider is not None
+            else exporter._calculate_mrrf_values(
+                compounds, exporter.internal_standard_compound
             )
-            return set()
-
-    intstd_row = intstd_rows[0]
-    int_std_amount_val = _row_get(intstd_row, "int_std_amount")
-    if int_std_amount_val is None:
-        raise ValueError(
-            f"Internal standard '{exporter.internal_standard_compound}' is missing 'int_std_amount'"
         )
-    internal_std_amount_default = float(int_std_amount_val)
 
-    amount_in_mix_val = _row_get(intstd_row, "amount_in_std_mix")
-    if amount_in_mix_val is None:
-        raise ValueError(
-            f"Internal standard '{exporter.internal_standard_compound}' is missing 'amount_in_std_mix'"
-        )
-    internal_std_amount_mm = float(amount_in_mix_val)
+    # Resolve internal standard metadata if selected
+    internal_std_amount_default = 1.0
+    internal_std_amount_mm = 1.0
+    internal_std_mm_samples = set()
 
-    mm_field = _row_get(intstd_row, "mm_files")
-    internal_std_mm_samples = _resolve_mm_samples(mm_field)
+    if exporter.internal_standard_compound:
+        intstd_rows = [
+            c
+            for c in compounds
+            if _row_get(c, "compound_name") == exporter.internal_standard_compound
+        ]
+        if not intstd_rows:
+            raise ValueError(
+                f"Internal standard '{exporter.internal_standard_compound}' not found in compound list"
+            )
+
+        def _resolve_mm_samples(mm_field):
+            resolver = None
+            if provider is not None and hasattr(provider, "resolve_mm_samples"):
+                resolver = getattr(provider, "resolve_mm_samples")
+            elif hasattr(exporter, "_resolve_mm_samples"):
+                resolver = getattr(exporter, "_resolve_mm_samples")
+
+            if not resolver or not mm_field:
+                return set()
+
+            try:
+                return set(resolver(mm_field))
+            except Exception as exc:
+                logger.warning(
+                    "Failed to resolve MM samples for internal standard %s: %s",
+                    exporter.internal_standard_compound,
+                    exc,
+                )
+                return set()
+
+        intstd_row = intstd_rows[0]
+        int_std_amount_val = _row_get(intstd_row, "int_std_amount")
+        if int_std_amount_val is None:
+            raise ValueError(
+                f"Internal standard '{exporter.internal_standard_compound}' is missing 'int_std_amount'"
+            )
+        internal_std_amount_default = float(int_std_amount_val)
+
+        amount_in_mix_val = _row_get(intstd_row, "amount_in_std_mix")
+        if amount_in_mix_val is None:
+            raise ValueError(
+                f"Internal standard '{exporter.internal_standard_compound}' is missing 'amount_in_std_mix'"
+            )
+        internal_std_amount_mm = float(amount_in_mix_val)
+
+        mm_field = _row_get(intstd_row, "mm_files")
+        internal_std_mm_samples = _resolve_mm_samples(mm_field)
 
     # Rows 6+: values per sample
     for sample_idx, sample_name in enumerate(samples):
@@ -200,7 +207,7 @@ def write(
             iso_data = sample_data.get(compound_name, [0.0])
             total_signal = sum(iso_data)
 
-            # Change: Determine if we are calculating Absolute (nmol) or Relative abundance
+            # Determine if we are calculating Absolute (nmol) or Relative abundance
             amt_in_mix = _row_get(compound_row, "amount_in_std_mix")
             is_relative = not (amt_in_mix and float(amt_in_mix) > 0)
 
@@ -250,9 +257,10 @@ def write(
                     f"Internal standard {compound_name} abundance: {calibrated_abundance} nmol (known amount)"
                 )
             else:
-                calibrated_abundance = 0.0
+                # No Internal Standard selected: output unscaled Total Signal (Sum of isotopologues)
+                calibrated_abundance = total_signal
                 logger.debug(
-                    f"No internal standard calibration available for {compound_name}"
+                    f"No internal standard: Outputting Peak Area for {compound_name}: {calibrated_abundance:.1f}"
                 )
 
             if validation_data and sample_name in validation_data:
@@ -270,9 +278,9 @@ def write(
             )
             progress_callback(int(progress))
 
-        if getattr(exporter, "internal_standard_compound", None):
-            logger.info("Abundances sheet created with MRRF calibration applied")
-        else:
-            logger.info(
-                "Abundances sheet created with raw abundance values (no internal standard)"
-            )
+    if getattr(exporter, "internal_standard_compound", None):
+        logger.info("Abundances sheet created with MRRF calibration applied")
+    else:
+        logger.info(
+            "Abundances sheet created with raw abundance values (no internal standard)"
+        )

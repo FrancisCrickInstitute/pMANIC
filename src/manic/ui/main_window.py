@@ -377,13 +377,13 @@ class MainWindow(QMainWindow):
         # Export Session: enabled if compound data loaded
         self.export_method_action.setEnabled(self.compound_data_loaded)
 
-        # Export Data: enabled only if compound data, CDF data loaded, AND internal standard selected
+        # Export Data: enabled only if compound data, CDF data loaded
         internal_standard = self.toolbar.get_internal_standard()
         has_internal_standard = (
             internal_standard is not None and internal_standard != ""
         )
         self.export_data_action.setEnabled(
-            self.compound_data_loaded and self.cdf_data_loaded and has_internal_standard
+            self.compound_data_loaded and self.cdf_data_loaded
         )
 
         # Import Session: enabled only if both compound and CDF data loaded
@@ -2093,6 +2093,15 @@ class MainWindow(QMainWindow):
 
             # Get current internal standard selection from toolbar
             internal_standard = self.toolbar.get_internal_standard()
+
+            if not internal_standard:
+                reply = self._show_question_dialog(
+                    "No Internal Standard Selected",
+                    "You have not selected an internal standard. Proceed with export?",
+                    "Abundance values will represent 'Peak Area' (Sum of corrected isotopologues). ",
+                )
+                if reply != QMessageBox.Yes:
+                    return
 
             # Create progress dialog
             progress_dialog = QProgressDialog(

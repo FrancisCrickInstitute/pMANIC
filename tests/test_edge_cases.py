@@ -18,9 +18,7 @@ class TestZeroHandling:
         time = np.linspace(0, 10, 100)
         intensity = np.zeros(100)
 
-        areas = calculate_peak_areas(
-            time, intensity, 0, 5.0, 1.0, 1.0
-        )
+        areas = calculate_peak_areas(time, intensity, 0, 5.0, 1.0, 1.0)
 
         assert len(areas) == 1
         assert areas[0] == 0.0
@@ -33,12 +31,12 @@ class TestZeroHandling:
         # Calculate ratio - should handle division by zero
         total = sum(isotopologue_data)
         if total > 0:
-            ratios = [x/total for x in isotopologue_data]
+            ratios = [x / total for x in isotopologue_data]
         else:
             ratios = [0.0] * len(isotopologue_data)
 
         assert ratios[0] == 0.0
-        assert abs(ratios[1] - 100.0/150.0) < 0.001
+        assert abs(ratios[1] - 100.0 / 150.0) < 0.001
 
     def test_all_zero_isotopologues(self):
         """Test when all isotopologues are zero."""
@@ -49,7 +47,7 @@ class TestZeroHandling:
 
         # Ratio calculation should handle gracefully
         if total > 0:
-            ratios = [x/total for x in data]
+            ratios = [x / total for x in data]
         else:
             ratios = [0.0] * len(data)
 
@@ -60,7 +58,7 @@ class TestZeroHandling:
         data = [0.0, 0.0, 100.0, 0.0]
 
         total = sum(data)
-        ratios = [x/total for x in data]
+        ratios = [x / total for x in data]
 
         assert ratios[2] == 1.0
         assert sum(ratios) == 1.0
@@ -79,7 +77,9 @@ class TestDivisionByZero:
 
         # Should handle gracefully - typically returns 1.0 as default
         if mean_is_signal > 0 and is_conc > 0:
-            mrrf = (mean_metabolite_signal / metabolite_conc) / (mean_is_signal / is_conc)
+            mrrf = (mean_metabolite_signal / metabolite_conc) / (
+                mean_is_signal / is_conc
+            )
         else:
             mrrf = 1.0  # Default when calculation fails
 
@@ -140,7 +140,7 @@ class TestMissingData:
         sample_data = {}  # No compounds
 
         # Request data for missing compound
-        compound_data = sample_data.get('MissingCompound', [0.0])
+        compound_data = sample_data.get("MissingCompound", [0.0])
 
         assert compound_data == [0.0]
 
@@ -190,8 +190,8 @@ class TestBoundaryConditions:
         # This means some data outside RT window won't be captured
         rt = 5.0
         rt_window = 0.2  # Only captures 4.8 to 5.2
-        loffset = 1.0     # Wants 4.0 to 5.0
-        roffset = 1.0     # Wants 5.0 to 6.0
+        loffset = 1.0  # Wants 4.0 to 5.0
+        roffset = 1.0  # Wants 5.0 to 6.0
 
         # Filter by RT window first (as done in EIC extraction)
         rt_mask = (time >= rt - rt_window) & (time <= rt + rt_window)
@@ -202,8 +202,7 @@ class TestBoundaryConditions:
         # This will miss data!
         if len(filtered_time) > 0:
             areas = calculate_peak_areas(
-                filtered_time, filtered_intensity,
-                0, rt, loffset, roffset
+                filtered_time, filtered_intensity, 0, rt, loffset, roffset
             )
         else:
             areas = [0.0]
@@ -217,9 +216,7 @@ class TestBoundaryConditions:
         intensity = np.array([100, 200, 300, 400, 500])
 
         # Integration: 4.0 < t < 6.0 (strict inequality)
-        areas = calculate_peak_areas(
-            time, intensity, 0, 5.0, 1.0, 1.0
-        )
+        areas = calculate_peak_areas(time, intensity, 0, 5.0, 1.0, 1.0)
 
         # Should only include point at t=5.0
         # Points at 4.0 and 6.0 are excluded
@@ -232,9 +229,7 @@ class TestBoundaryConditions:
         time = np.linspace(0, 10, 100)
         intensity = np.ones(100) * 1e10  # Very large
 
-        areas = calculate_peak_areas(
-            time, intensity, 0, 5.0, 1.0, 1.0
-        )
+        areas = calculate_peak_areas(time, intensity, 0, 5.0, 1.0, 1.0)
 
         assert areas[0] > 1e9  # Should handle large numbers
 
@@ -243,9 +238,7 @@ class TestBoundaryConditions:
         time = np.linspace(0, 10, 100)
         intensity = np.ones(100) * 1e-10  # Very small
 
-        areas = calculate_peak_areas(
-            time, intensity, 0, 5.0, 1.0, 1.0
-        )
+        areas = calculate_peak_areas(time, intensity, 0, 5.0, 1.0, 1.0)
 
         assert areas[0] > 0  # Should still integrate
         assert areas[0] < 1e-8  # But result is small
@@ -261,7 +254,10 @@ class TestCorrectionEdgeCases:
         # Unlabeled compound applies 1x1 correction matrix
         intensity = np.array([[100, 200, 300]]).astype(float)
         corrected = corrector.correct_time_series(
-            intensity, 'C6H12O6', 'C', 0  # label_atoms = 0
+            intensity,
+            "C6H12O6",
+            "C",
+            0,  # label_atoms = 0
         )
 
         # Shape should be preserved
@@ -275,14 +271,14 @@ class TestCorrectionEdgeCases:
         corrector = NaturalAbundanceCorrector()
 
         # Extreme case: M+1 > M+0 (unrealistic but possible with noise)
-        intensity = np.array([
-            [10],   # Very low M+0
-            [100]   # Very high M+1
-        ]).astype(float)
+        intensity = np.array(
+            [
+                [10],  # Very low M+0
+                [100],  # Very high M+1
+            ]
+        ).astype(float)
 
-        corrected = corrector.correct_time_series(
-            intensity, 'C1', 'C', 1
-        )
+        corrected = corrector.correct_time_series(intensity, "C1", "C", 1)
 
         # Should still produce non-negative results
         assert np.all(corrected >= 0)
@@ -295,7 +291,7 @@ class TestCorrectionEdgeCases:
         # This is actually hard to trigger with real formulas
         # but test the handling anyway
         try:
-            matrix = corrector.build_correction_matrix('C1', 'C', 1)
+            matrix = corrector.build_correction_matrix("C1", "C", 1)
             # Matrix should be invertible
             det = np.linalg.det(matrix)
             assert abs(det) > 1e-10  # Not singular
@@ -366,36 +362,37 @@ class TestAbundanceCalculations:
         The code incorrectly used int_std_amount (1.0) for the internal standard's
         own abundance, causing it to be doubled. It should use amount_in_std_mix (0.5).
         """
-        from types import SimpleNamespace
         from io import BytesIO
+        from types import SimpleNamespace
+
         import xlsxwriter
 
         # Mock exporter with internal standard set
-        exporter = SimpleNamespace(internal_standard_compound='scyllo-Ins')
+        exporter = SimpleNamespace(internal_standard_compound="scyllo-Ins")
 
         # Mock provider that returns corrected data
         class MockProvider:
             def __init__(self):
-                self._samples = ['Sample_MM1', 'Sample1']
+                self._samples = ["Sample_MM1", "Sample1"]
 
             def get_all_compounds(self):
                 return [
                     {
-                        'compound_name': 'scyllo-Ins',
-                        'mass0': 318.0,
-                        'retention_time': 15.5,
-                        'amount_in_std_mix': 0.5,  # Actual amount in standard mix
-                        'int_std_amount': 1.0,     # Normalization factor (wrong if used for abundance)
-                        'mm_files': '*_MM*'
+                        "compound_name": "scyllo-Ins",
+                        "mass0": 318.0,
+                        "retention_time": 15.5,
+                        "amount_in_std_mix": 0.5,  # Actual amount in standard mix
+                        "int_std_amount": 1.0,  # Normalization factor (wrong if used for abundance)
+                        "mm_files": "*_MM*",
                     },
                     {
-                        'compound_name': 'Pyruvate',
-                        'mass0': 174.0,
-                        'retention_time': 7.17,
-                        'amount_in_std_mix': 20.0,
-                        'int_std_amount': None,
-                        'mm_files': '*_MM*'
-                    }
+                        "compound_name": "Pyruvate",
+                        "mass0": 174.0,
+                        "retention_time": 7.17,
+                        "amount_in_std_mix": 20.0,
+                        "int_std_amount": None,
+                        "mm_files": "*_MM*",
+                    },
                 ]
 
             def get_all_samples(self):
@@ -403,34 +400,35 @@ class TestAbundanceCalculations:
 
             def get_sample_corrected_data(self, sample_name):
                 base_data = {
-                    'scyllo-Ins': [1000.0],  # M+0 signal for internal standard
-                    'Pyruvate': [500.0, 100.0, 50.0]  # M+0, M+1, M+2
+                    "scyllo-Ins": [1000.0],  # M+0 signal for internal standard
+                    "Pyruvate": [500.0, 100.0, 50.0],  # M+0, M+1, M+2
                 }
                 return base_data
 
             def get_mrrf_values(self, compounds, internal_std):
-                return {'Pyruvate': 2.0}
+                return {"Pyruvate": 2.0}
 
             def resolve_mm_samples(self, mm_field):
                 if not mm_field:
                     return []
-                return [sample for sample in self._samples if 'MM' in sample]
+                return [sample for sample in self._samples if "MM" in sample]
 
         provider = MockProvider()
 
         # Create a workbook in memory
         output = BytesIO()
-        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+        workbook = xlsxwriter.Workbook(output, {"in_memory": True})
 
         # Import and call the abundances sheet generator
         from manic.sheet_generators import abundances
+
         abundances.write(
             workbook,
             exporter,
             progress_callback=None,
             start_progress=0,
             end_progress=100,
-            provider=provider
+            provider=provider,
         )
 
         workbook.close()
@@ -438,16 +436,17 @@ class TestAbundanceCalculations:
         # Read back the workbook to check values
         output.seek(0)
         from openpyxl import load_workbook
+
         wb = load_workbook(output)
-        ws = wb['Abundances']
+        ws = wb["Abundances"]
 
         # Headers are in rows 1-5, data starts at row 6
         # Column structure: [empty, Sample, Compound1, Compound2, ...]
         # scyllo-Ins should be in column 3 (index C)
         # Sample rows: row 6 = Sample_MM1, row 7 = Sample1
 
-        scyllo_ins_abundance_mm = ws['C6'].value  # Sample_MM1 (MM file)
-        scyllo_ins_abundance_non_mm = ws['C7'].value  # Sample1 (non-MM)
+        scyllo_ins_abundance_mm = ws["C6"].value  # Sample_MM1 (MM file)
+        scyllo_ins_abundance_non_mm = ws["C7"].value  # Sample1 (non-MM)
 
         # MM samples should use amount_in_std_mix, regular samples use int_std_amount
         assert scyllo_ins_abundance_mm == 0.5, (
@@ -458,17 +457,18 @@ class TestAbundanceCalculations:
         )
 
         # Non-internal-standard metabolite should also be scaled differently per sample
-        pyruvate_mm = ws['D6'].value
-        pyruvate_non_mm = ws['D7'].value
+        pyruvate_mm = ws["D6"].value
+        pyruvate_non_mm = ws["D7"].value
 
         # Expected values based on formula: total_signal=650, IS signal=1000, MRRF=2
         assert pyruvate_mm == pytest.approx(0.1625)
         assert pyruvate_non_mm == pytest.approx(0.325)
 
-    def test_abundances_require_internal_standard(self):
-        """Export must fail if no internal standard is configured."""
-        from types import SimpleNamespace
+    def test_abundances_no_internal_standard_success(self):
+        """Verify export succeeds without internal standard (Peak Area mode)."""
         from io import BytesIO
+        from types import SimpleNamespace
+
         import xlsxwriter
 
         exporter = SimpleNamespace(internal_standard_compound=None)
@@ -477,20 +477,20 @@ class TestAbundanceCalculations:
             def get_all_compounds(self):
                 return [
                     {
-                        'compound_name': 'scyllo-Ins',
-                        'mass0': 318.0,
-                        'retention_time': 15.5,
-                        'amount_in_std_mix': 0.5,
-                        'int_std_amount': 1.0,
-                        'mm_files': '*_MM*'
+                        "compound_name": "scyllo-Ins",
+                        "mass0": 318.0,
+                        "retention_time": 15.5,
+                        "amount_in_std_mix": 0.5,
+                        "int_std_amount": 1.0,
+                        "mm_files": "*_MM*",
                     }
                 ]
 
             def get_all_samples(self):
-                return ['Sample1']
+                return ["Sample1"]
 
             def get_sample_corrected_data(self, sample_name):
-                return {'scyllo-Ins': [1000.0]}
+                return {"scyllo-Ins": [1000.0]}
 
             def get_mrrf_values(self, compounds, internal_std):
                 return {}
@@ -502,25 +502,30 @@ class TestAbundanceCalculations:
 
         provider = DummyProvider()
         output = BytesIO()
-        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-        with pytest.raises(ValueError, match="Internal standard must be set"):
-            abundances.write(
-                workbook,
-                exporter,
-                progress_callback=None,
-                start_progress=0,
-                end_progress=100,
-                provider=provider,
-            )
+        workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+
+        # This should no longer raise ValueError
+        abundances.write(
+            workbook,
+            exporter,
+            progress_callback=None,
+            start_progress=0,
+            end_progress=100,
+            provider=provider,
+        )
         workbook.close()
+
+        # Verify output was generated
+        assert output.tell() > 0
 
     def test_internal_standard_missing_amounts(self):
         """Exporter should fail fast when required IS amounts are missing."""
-        from types import SimpleNamespace
         from io import BytesIO
+        from types import SimpleNamespace
+
         import xlsxwriter
 
-        exporter = SimpleNamespace(internal_standard_compound='scyllo-Ins')
+        exporter = SimpleNamespace(internal_standard_compound="scyllo-Ins")
 
         class MissingAmountProvider:
             def __init__(self, *, missing_field):
@@ -528,21 +533,21 @@ class TestAbundanceCalculations:
 
             def get_all_compounds(self):
                 base = {
-                    'compound_name': 'scyllo-Ins',
-                    'mass0': 318.0,
-                    'retention_time': 15.5,
-                    'amount_in_std_mix': 0.5,
-                    'int_std_amount': 1.0,
-                    'mm_files': '*_MM*'
+                    "compound_name": "scyllo-Ins",
+                    "mass0": 318.0,
+                    "retention_time": 15.5,
+                    "amount_in_std_mix": 0.5,
+                    "int_std_amount": 1.0,
+                    "mm_files": "*_MM*",
                 }
                 base[self._missing_field] = None
                 return [base]
 
             def get_all_samples(self):
-                return ['Sample1']
+                return ["Sample1"]
 
             def get_sample_corrected_data(self, sample_name):
-                return {'scyllo-Ins': [1000.0]}
+                return {"scyllo-Ins": [1000.0]}
 
             def get_mrrf_values(self, compounds, internal_std):
                 return {}
@@ -553,12 +558,12 @@ class TestAbundanceCalculations:
         from manic.sheet_generators import abundances
 
         for missing_field, expected_msg in (
-            ('int_std_amount', "'int_std_amount'"),
-            ('amount_in_std_mix', "'amount_in_std_mix'"),
+            ("int_std_amount", "'int_std_amount'"),
+            ("amount_in_std_mix", "'amount_in_std_mix'"),
         ):
             provider = MissingAmountProvider(missing_field=missing_field)
             output = BytesIO()
-            workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+            workbook = xlsxwriter.Workbook(output, {"in_memory": True})
             with pytest.raises(ValueError, match=expected_msg):
                 abundances.write(
                     workbook,

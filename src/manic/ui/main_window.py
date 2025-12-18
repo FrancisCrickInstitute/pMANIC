@@ -1416,7 +1416,7 @@ class MainWindow(QMainWindow):
                 compounds_path,
                 raw_values_path,
                 out_path,
-                internal_standard=internal_standard or self.internal_standard,
+                internal_standard=internal_standard,
                 use_legacy_integration=self.use_legacy_integration,
                 progress_callback=progress_cb,
             )

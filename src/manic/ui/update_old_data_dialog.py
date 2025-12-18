@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QDialogButtonBox, QComboBox
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
 )
 
 
 class UpdateOldDataDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Update Old Data")
+        self.setWindowTitle("Isotope Correct External Data")
         self.setModal(True)
 
         self.compounds_path = None
@@ -61,15 +66,22 @@ class UpdateOldDataDialog(QDialog):
 
     def _browse_compounds(self):
         from PySide6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getOpenFileName(self, "Select Compounds File", "", "Excel/CSV (*.xlsx *.xls *.csv);;All files (*.*)")
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Compounds File",
+            "",
+            "Excel/CSV (*.xlsx *.xls *.csv);;All files (*.*)",
+        )
         if path:
             self.compounds_path = path
             self.c_edit.setText(path)
             # Populate internal standard dropdown from compounds file
             try:
                 from manic.io.legacy_rebuild import _read_compounds_as_dicts
+
                 compounds = _read_compounds_as_dicts(path)
-                names = [c['compound_name'] for c in compounds]
+                names = [c["compound_name"] for c in compounds]
                 self.is_combo.clear()
                 self.is_combo.addItem("(None)")
                 for n in names:
@@ -82,7 +94,10 @@ class UpdateOldDataDialog(QDialog):
 
     def _browse_raw(self):
         from PySide6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getOpenFileName(self, "Select Raw Values Workbook", "", "Excel (*.xlsx);;All files (*.*)")
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Raw Values Workbook", "", "Excel (*.xlsx);;All files (*.*)"
+        )
         if path:
             self.raw_values_path = path
             self.r_edit.setText(path)

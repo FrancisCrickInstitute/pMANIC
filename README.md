@@ -15,7 +15,7 @@ Built with Python and PySide6, it serves as a successor to the legacy MATLAB [MA
 ### For Users
 * **[Getting Started / User Guide](docs/01_user_guide.md)** - *The primary manual. Step-by-step instructions for import, integration, and export.*
 * **[Understanding the Output](/docs/Workflow_Data_Interpretation.md)** - *How to interpret the results exported in the excel workbook.*
-* **[Updating Old Data](docs/Workflow_Updating_Old_Data.md)** - *How to re-process legacy result files without raw CDF data.*
+* **[Isotope Correct External Data](docs/Workflow_Isotope_Correct_External_Data.m)** - *How to re-process results files without raw CDF data.*
 
 ### Technical Reference
 * **[Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)** - *Explanation of the matrix-based correction algorithm.*

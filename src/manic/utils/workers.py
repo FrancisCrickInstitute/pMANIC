@@ -46,8 +46,10 @@ class UpdateCheckWorker(QThread):
 
                 if latest_version > current_version:
                     self.result.emit(True, tag_name, html_url)
+                    print(f"Latest version: {latest_version}")
                 else:
                     self.result.emit(False, tag_name, html_url)
+                    print(f"Latest version: {latest_version}")
 
         except Exception as e:
             # Silently fail on network errors or api limits

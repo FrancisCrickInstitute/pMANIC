@@ -5,11 +5,14 @@ from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QMessageBox
 
 from manic.constants import FONT
+from manic.models.database import get_deleted_compounds, soft_delete_compound
+from manic.ui.compound_recovery_dialog import CompoundRecoveryDialog
 
 
 class CompoundListWidget(QListWidget):
     internal_standard_selected = Signal(str)
-    compound_deleted = Signal(str)
+    compounds_deleted = Signal(list)  # Emits list of deleted compound names
+    compounds_restored = Signal(list)  # Emits list of restored compound names
     internal_standard_cleared = Signal()
 
     def __init__(self, parent=None):
@@ -68,30 +71,50 @@ class CompoundListWidget(QListWidget):
         if self.currentItem():
             self.itemSelectionChanged.emit()
 
+    def _get_total_compound_count(self) -> int:
+        """Get total number of real compounds (excluding placeholder)"""
+        count = 0
+        for i in range(self.count()):
+            item = self.item(i)
+            if item and not item.text().startswith("- No"):
+                count += 1
+        return count
+
     def _show_context_menu(self, position):
         """Show context menu when right-clicking on a compound"""
         item = self.itemAt(position)
         menu = QMenu(self)
 
-        if item and not item.text().startswith("- No"):
-            # Set menu style to ensure black text on white background
-            menu.setStyleSheet("""
-                QMenu {
-                    background-color: white;
-                    color: black;
-                    border: none;
-                }
-                QMenu::item {
-                    background-color: white;
-                    color: black;
-                    padding: 5px 15px;
-                }
-                QMenu::item:selected {
-                    background-color: #e0e0e0;
-                    color: black;
-                }
-            """)
+        # Set menu style to ensure black text on white background
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: white;
+                color: black;
+                border: none;
+            }
+            QMenu::item {
+                background-color: white;
+                color: black;
+                padding: 5px 15px;
+            }
+            QMenu::item:selected {
+                background-color: #e0e0e0;
+                color: black;
+            }
+            QMenu::item:disabled {
+                color: #999999;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #d0d0d0;
+                margin: 4px 10px;
+            }
+        """)
 
+        # Check if we clicked on a valid compound
+        valid_item = item and not item.text().startswith("- No")
+
+        if valid_item:
             # Add "Select as Internal Standard" action
             select_standard_action = menu.addAction("Select as Internal Standard")
             select_standard_action.triggered.connect(
@@ -103,11 +126,28 @@ class CompoundListWidget(QListWidget):
 
             # Add "Delete Compound" action
             delete_action = menu.addAction("Delete Compound")
+            
+            # Disable delete if this is the only compound
+            total_compounds = self._get_total_compound_count()
+            can_delete = total_compounds > 1
+            delete_action.setEnabled(can_delete)
             delete_action.triggered.connect(
                 lambda: self._confirm_delete_compound(item.text())
             )
 
-        # Add the Clear action (available even if no item is right-clicked)
+            # Add separator
+            menu.addSeparator()
+
+        # Recover action (always available)
+        recover_action = menu.addAction("Recover Deleted Compounds...")
+        deleted_compounds = get_deleted_compounds()
+        recover_action.setEnabled(len(deleted_compounds) > 0)
+        recover_action.triggered.connect(self._show_recovery_dialog)
+
+        # Add separator
+        menu.addSeparator()
+
+        # Add the Clear action (always available)
         clear_std_action = QAction("Clear Internal Standard", self)
         clear_std_action.triggered.connect(
             lambda: self.internal_standard_cleared.emit()
@@ -121,15 +161,10 @@ class CompoundListWidget(QListWidget):
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Delete Compound")
         msg_box.setText(f"Are you sure you want to delete compound '{compound_name}'?")
-        msg_box.setInformativeText(
-            "This will remove the compound from the list and from any exported data. "
-            "You can restore it later from Settings > Recover Deleted Compounds."
-        )
         msg_box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-        # Remove the icon to match the rest of the app
 
         # Style the message box with clean styling, no borders or images
         msg_box.setStyleSheet("""
@@ -169,4 +204,12 @@ class CompoundListWidget(QListWidget):
         reply = msg_box.exec()
 
         if reply == QMessageBox.StandardButton.Yes:
-            self.compound_deleted.emit(compound_name)
+            # Perform deletion
+            if soft_delete_compound(compound_name):
+                self.compounds_deleted.emit([compound_name])
+
+    def _show_recovery_dialog(self):
+        """Show the compound recovery dialog"""
+        dialog = CompoundRecoveryDialog(self)
+        dialog.compounds_restored.connect(self.compounds_restored.emit)
+        dialog.exec()

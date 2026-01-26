@@ -31,8 +31,11 @@ class Toolbar(QWidget):
     # Signal for when internal standard is selected
     internal_standard_selected = Signal(str)
 
-    # Signal for when a compound is deleted
-    compound_deleted = Signal(str)
+    # Signal for when compounds are deleted
+    compounds_deleted = Signal(list)
+
+    # Signal for when compounds are restored
+    compounds_restored = Signal(list)
 
     # Signal for when samples are deleted
     samples_deleted = Signal(list)
@@ -221,7 +224,8 @@ class Toolbar(QWidget):
         self.compound_list.internal_standard_selected.connect(
             self.on_internal_standard_selected
         )
-        self.compound_list.compound_deleted.connect(self.on_compound_deleted)
+        self.compound_list.compounds_deleted.connect(self.compounds_deleted.emit)
+        self.compound_list.compounds_restored.connect(self.compounds_restored.emit)
         self.compound_list.internal_standard_cleared.connect(
             self.on_internal_standard_cleared
         )
@@ -264,13 +268,6 @@ class Toolbar(QWidget):
         """
         self.standard.set_internal_standard(compound_name)
         self.internal_standard_selected.emit(compound_name)
-
-    def on_compound_deleted(self, compound_name: str):
-        """
-        Handler for when a compound is deleted.
-        Forwards the signal to the main window.
-        """
-        self.compound_deleted.emit(compound_name)
 
     # --- Public Methods ---
     def update_label_colours(self, raw_data_loaded, compound_list_loaded):

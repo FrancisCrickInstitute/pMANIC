@@ -9,3 +9,4 @@ build/*
 outputs/*
 oldmanic/*
 agents.md
+*temp/

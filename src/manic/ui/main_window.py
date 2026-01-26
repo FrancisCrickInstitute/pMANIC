@@ -30,13 +30,13 @@ from PySide6.QtWidgets import (
 from manic.__version__ import APP_NAME, __version__
 from manic.io.compounds_import import import_compound_excel
 from manic.io.data_exporter import DataExporter
+from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
-from manic.models.database import clear_database, soft_delete_compound
+from manic.models.database import clear_database
 from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
-from manic.ui.recovery_dialog import RecoveryDialog
 from manic.utils.paths import docs_path, resource_path
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import (
@@ -101,7 +101,8 @@ class MainWindow(QMainWindow):
         self.toolbar.internal_standard_selected.connect(
             self.on_internal_standard_selected
         )
-        self.toolbar.compound_deleted.connect(self.on_compound_deleted)
+        self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
+        self.toolbar.compounds_restored.connect(self.on_compounds_restored)
         self.toolbar.samples_deleted.connect(self.on_samples_deleted)
         self.toolbar.samples_restored.connect(self.on_samples_restored)
 
@@ -211,14 +212,6 @@ class MainWindow(QMainWindow):
         self.clear_session_action.triggered.connect(self.clear_session)
         # Add the clear session action to the file menu
         file_menu.addAction(self.clear_session_action)
-
-        # Add separator before recovery and export
-        file_menu.addSeparator()
-
-        # Recovery dialog action
-        self.recovery_action = QAction("Recover Deleted Compounds...", self)
-        self.recovery_action.triggered.connect(self.show_recovery_dialog)
-        file_menu.addAction(self.recovery_action)
 
         # Add separator before export data
         file_menu.addSeparator()
@@ -564,8 +557,6 @@ class MainWindow(QMainWindow):
 
         try:
             if self._validation_provider is None:
-                from manic.io.data_provider import DataProvider
-
                 self._validation_provider = DataProvider(
                     use_legacy_integration=self.use_legacy_integration
                 )
@@ -665,50 +656,65 @@ class MainWindow(QMainWindow):
         samples = self.toolbar.get_selected_samples()
         self.on_plot_button(compound_selected, samples)
 
-    def on_compound_deleted(self, compound_name: str):
+    def on_compounds_deleted(self, compound_names: list):
         """
-        This method will be called when a compound is deleted.
-        Updates the compound list and selects the next available compound.
+        Handle compound deletion - refresh UI and invalidate caches.
+        Called when compounds are soft-deleted via the context menu.
         """
-        # Prevent cascading deletion events
         if self._deleting_compound:
             return
 
         self._deleting_compound = True
 
         try:
-            # Perform soft delete in database
-            if soft_delete_compound(compound_name):
-                # Get updated compound list
-                active_compounds = list_compound_names()
+            # Clear the graph view
+            self.graph_view.clear_all_plots()
 
-                # Clear the graph view first before updating the list
-                self.graph_view.clear_all_plots()
+            # Force UI refresh
+            QCoreApplication.processEvents()
+            self.graph_view.update()
+            self.graph_view.repaint()
+            QCoreApplication.processEvents()
 
-                # Force complete UI refresh to eliminate any visual artifacts
-                from PySide6.QtCore import QCoreApplication
+            # Refresh compound list
+            active_compounds = list_compound_names()
+            self.toolbar.update_compound_list(active_compounds)
 
-                QCoreApplication.processEvents()
-                self.graph_view.update()
-                self.graph_view.repaint()
-                QCoreApplication.processEvents()
+            # Invalidate caches
+            data_provider = DataProvider()
+            data_provider.invalidate_cache()
 
-                # Update compound list (signals are blocked during update)
-                self.toolbar.update_compound_list(active_compounds)
+            if self._validation_provider:
+                self._validation_provider.invalidate_cache()
 
-                logger.info(f"Compound '{compound_name}' deleted successfully.")
+            logger.info(f"Deleted {len(compound_names)} compound(s)")
 
-                if not active_compounds:
-                    logger.info("No compounds remaining after deletion.")
-            else:
-                logger.error(
-                    f"Failed to delete compound '{compound_name}' from database"
-                )
         except Exception as e:
             logger.error(f"Error during compound deletion: {e}")
         finally:
-            # Always reset the flag
             self._deleting_compound = False
+
+    def on_compounds_restored(self, compound_names: list):
+        """
+        Handle compound restoration - refresh UI and invalidate caches.
+        Called when compounds are restored via the recovery dialog.
+        """
+        try:
+            # Refresh compound list
+            active_compounds = list_compound_names()
+            self.toolbar.update_compound_list(active_compounds)
+
+            # Invalidate caches
+            data_provider = DataProvider()
+            data_provider.invalidate_cache()
+
+            if self._validation_provider:
+                self._validation_provider.invalidate_cache()
+
+            logger.info(f"Restored {len(compound_names)} compound(s)")
+
+        except Exception as e:
+            logger.error(f"Error during compound restoration: {e}")
 
     def on_samples_deleted(self, sample_names: list):
         """
@@ -735,7 +741,6 @@ class MainWindow(QMainWindow):
             self.toolbar.update_sample_list(active_samples)
 
             # Invalidate caches
-            from manic.io.data_provider import DataProvider
             data_provider = DataProvider()
             data_provider.invalidate_cache()
 
@@ -760,7 +765,6 @@ class MainWindow(QMainWindow):
             self.toolbar.update_sample_list(active_samples)
 
             # Invalidate caches
-            from manic.io.data_provider import DataProvider
             data_provider = DataProvider()
             data_provider.invalidate_cache()
 
@@ -1102,8 +1106,6 @@ class MainWindow(QMainWindow):
         )
 
         # Invalidate caches
-        from manic.io.data_provider import DataProvider
-
         data_provider = DataProvider()
         data_provider.invalidate_cache()
 
@@ -1643,21 +1645,6 @@ class MainWindow(QMainWindow):
                     current_samples = self.toolbar.get_selected_samples()
                     if current_compound and current_samples:
                         self.on_plot_button(current_compound, current_samples)
-
-    def show_recovery_dialog(self):
-        """Show dialog to recover deleted compounds."""
-        dialog = RecoveryDialog(self)
-        result = dialog.exec()
-
-        if result == QDialog.DialogCode.Accepted:
-            # Refresh compound list in case compounds were restored
-            active_compounds = list_compound_names()
-            self.toolbar.update_compound_list(active_compounds)
-
-            # Auto-select first compound if available
-            if active_compounds:
-                self.toolbar.compound_list.setCurrentRow(0)
-                logger.info("Compound list refreshed after recovery")
 
     def _create_documentation_menu(self, docs_menu):
         """Create documentation menu with available markdown files."""

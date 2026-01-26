@@ -236,28 +236,10 @@ def soft_delete_compound(compound_name: str) -> bool:
         return success
 
 
-def restore_compound(compound_name: str) -> bool:
-    """
-    Restore a soft-deleted compound by setting deleted = 0.
-    Returns True if compound was found and restored.
-    """
-    with get_connection() as conn:
-        cursor = conn.execute(
-            "UPDATE compounds SET deleted = 0 WHERE compound_name = ? AND deleted = 1",
-            (compound_name,)
-        )
-        success = cursor.rowcount > 0
-        if success:
-            logger.info(f"Restored compound: {compound_name}")
-        else:
-            logger.warning(f"Deleted compound not found for restoration: {compound_name}")
-        return success
-
-
-def get_deleted_compounds():
+def get_deleted_compounds() -> List[str]:
     """
     Get list of soft-deleted compound names.
-    Returns list of compound names.
+    Returns list of compound names sorted alphabetically.
     """
     with get_connection() as conn:
         rows = conn.execute(
@@ -266,15 +248,27 @@ def get_deleted_compounds():
         return [row["compound_name"] for row in rows]
 
 
-def restore_all_compounds() -> int:
+def restore_compounds(compound_names: List[str]) -> int:
     """
-    Restore all soft-deleted compounds.
-    Returns number of compounds restored.
+    Restore multiple soft-deleted compounds by setting deleted = 0.
+
+    Args:
+        compound_names: List of compound names to restore.
+
+    Returns:
+        Count of compounds actually restored.
     """
+    if not compound_names:
+        return 0
     with get_connection() as conn:
-        cursor = conn.execute("UPDATE compounds SET deleted = 0 WHERE deleted = 1")
+        placeholders = ",".join("?" * len(compound_names))
+        cursor = conn.execute(
+            f"UPDATE compounds SET deleted = 0 WHERE compound_name IN ({placeholders}) AND deleted = 1",
+            compound_names
+        )
         count = cursor.rowcount
-        logger.info(f"Restored {count} compounds")
+        if count > 0:
+            logger.info(f"Restored {count} compound(s)")
         return count
 
 
@@ -315,31 +309,23 @@ def soft_delete_samples(sample_names: List[str]) -> int:
         return count
 
 
-def restore_sample(sample_name: str) -> bool:
-    """
-    Restore a soft-deleted sample by setting deleted = 0.
-    Returns True if sample was found and restored.
-    """
-    with get_connection() as conn:
-        cursor = conn.execute(
-            "UPDATE samples SET deleted = 0 WHERE sample_name = ? AND deleted = 1",
-            (sample_name,)
-        )
-        success = cursor.rowcount > 0
-        return success
-
-
 def restore_samples(sample_names: List[str]) -> int:
     """
     Restore multiple soft-deleted samples by setting deleted = 0.
-    Returns count of samples restored.
+
+    Args:
+        sample_names: List of sample names to restore.
+
+    Returns:
+        Count of samples actually restored.
     """
     if not sample_names:
         return 0
     with get_connection() as conn:
-        cursor = conn.executemany(
-            "UPDATE samples SET deleted = 0 WHERE sample_name = ? AND deleted = 1",
-            [(name,) for name in sample_names]
+        placeholders = ",".join("?" * len(sample_names))
+        cursor = conn.execute(
+            f"UPDATE samples SET deleted = 0 WHERE sample_name IN ({placeholders}) AND deleted = 1",
+            sample_names
         )
         count = cursor.rowcount
         if count > 0:

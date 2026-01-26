@@ -51,6 +51,17 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
         """
         session_overrides = conn.execute(session_query).fetchall()
 
+        # Get deleted items for audit trail
+        deleted_compounds_query = """
+            SELECT compound_name FROM compounds WHERE deleted = 1 ORDER BY compound_name
+        """
+        deleted_compounds = conn.execute(deleted_compounds_query).fetchall()
+
+        deleted_samples_query = """
+            SELECT sample_name FROM samples WHERE deleted = 1 ORDER BY sample_name
+        """
+        deleted_samples = conn.execute(deleted_samples_query).fetchall()
+
     changelog_content = f"""# MANIC Export Session Changelog
 
 ## Export Information
@@ -69,9 +80,28 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
 ## Data Summary
 - **Total Compounds:** {len(compounds)}
 - **Total Samples:** {len(samples)}
+- **Deleted Compounds:** {len(deleted_compounds)}
+- **Deleted Samples:** {len(deleted_samples)}
 - **Session Parameter Overrides:** {len(session_overrides)}
 
 """
+
+    # Deleted Items section (only if any exist)
+    if deleted_compounds or deleted_samples:
+        changelog_content += "## Deleted Items\n"
+        changelog_content += "The following items were excluded from this export:\n\n"
+        
+        if deleted_compounds:
+            changelog_content += f"### Deleted Compounds ({len(deleted_compounds)})\n"
+            for compound in deleted_compounds:
+                changelog_content += f"- {compound['compound_name']}\n"
+            changelog_content += "\n"
+        
+        if deleted_samples:
+            changelog_content += f"### Deleted Samples ({len(deleted_samples)})\n"
+            for sample in deleted_samples:
+                changelog_content += f"- {sample['sample_name']}\n"
+            changelog_content += "\n"
 
     # Compounds table
     changelog_content += format_compounds_table_for_data_export(compounds) + "\n"

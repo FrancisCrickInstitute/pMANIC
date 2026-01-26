@@ -172,6 +172,47 @@ If you make a mistake or want to revert to the original library definitions:
 
 ---
 
+## Step 4b: Managing Samples and Compounds
+
+**Objective**   
+Remove unwanted samples or compounds from your analysis without deleting the underlying data. This is useful for excluding failed injections, QC samples, or irrelevant metabolites from your final export.
+
+### Deleting Items
+
+You can delete samples or compounds directly from their respective list widgets.
+
+**Procedure**
+1.  Locate the **Samples** or **Compounds** list in the left sidebar.
+2.  **For samples:** Select one or more items using `Ctrl` (Windows/Linux) or `Cmd` (Mac) + click.  
+    **For compounds:** Select a single item (compounds use single-selection).
+3.  **Right-click** on your selection.
+4.  Select **"Delete Sample"** / **"Delete N Samples"** or **"Delete Compound"** from the context menu.
+5.  Confirm the deletion in the dialog that appears.
+
+**Important Notes**
+*   You cannot delete *all* samples or *all* compounds. At least one must remain.
+*   Deleted items are excluded from plots, calculations, and exports.
+*   Deletion is reversible—see below.
+
+### Recovering Deleted Items
+
+Deleted items are not permanently removed. They are "soft deleted" and can be restored at any time during your session.
+
+**Procedure**
+1.  **Right-click** anywhere in the **Samples** or **Compounds** list.
+2.  Select **"Recover Deleted Samples..."** or **"Recover Deleted Compounds..."**.
+    *   *This option is grayed out if no items have been deleted.*
+3.  In the recovery dialog, select the items you wish to restore (multi-select is supported).
+4.  Click **"Restore Selected"**.
+
+Restored items will immediately reappear in their respective lists and be included in subsequent analyses and exports.
+
+### Deleted Items in Exports
+
+When you export data, the changelog file will include a **"Deleted Items"** section listing any compounds or samples that were excluded. This provides a complete audit trail of what was—and was not—included in your final results.
+
+---
+
 ## Step 5: Export Results
 
 **Objective**   
@@ -195,7 +236,7 @@ Generate the final analytical report. This process calculates all results, appli
 **Output Files**   
 The export generates two files in your selected directory:
 1.  **Data File (`.xlsx`):** The multi-sheet workbook containing your results.
-2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, and a table of all session-specific integration overrides. This serves as an audit trail for reproducibility.
+2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, any deleted items excluded from export, and a table of all session-specific integration overrides. This serves as an audit trail for reproducibility.
 
 **Workbook Structure**   
 The Excel file contains five worksheets representing successive stages of analysis:

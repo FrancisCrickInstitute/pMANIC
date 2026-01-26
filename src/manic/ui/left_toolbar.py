@@ -34,6 +34,12 @@ class Toolbar(QWidget):
     # Signal for when a compound is deleted
     compound_deleted = Signal(str)
 
+    # Signal for when samples are deleted
+    samples_deleted = Signal(list)
+
+    # Signal for when samples are restored
+    samples_restored = Signal(list)
+
     # Signal emitted when baseline correction checkbox is toggled
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
@@ -219,6 +225,8 @@ class Toolbar(QWidget):
         self.compound_list.internal_standard_cleared.connect(
             self.on_internal_standard_cleared
         )
+        self.sample_list.samples_deleted.connect(self.samples_deleted.emit)
+        self.sample_list.samples_restored.connect(self.samples_restored.emit)
 
     # --- Signal Handlers ---
     def on_samples_selection_changed(self):

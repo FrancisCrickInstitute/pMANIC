@@ -59,6 +59,9 @@ class MainWindow(QMainWindow):
         # Flag to prevent cascading compound deletion events
         self._deleting_compound = False
 
+        # Flag to prevent cascading sample deletion events
+        self._deleting_samples = False
+
         # Set window icon
         self._set_window_icon()
         self.progress_bar = QProgressBar()
@@ -99,6 +102,8 @@ class MainWindow(QMainWindow):
             self.on_internal_standard_selected
         )
         self.toolbar.compound_deleted.connect(self.on_compound_deleted)
+        self.toolbar.samples_deleted.connect(self.on_samples_deleted)
+        self.toolbar.samples_restored.connect(self.on_samples_restored)
 
         # Start update check in background
         self._check_for_updates()
@@ -704,6 +709,68 @@ class MainWindow(QMainWindow):
         finally:
             # Always reset the flag
             self._deleting_compound = False
+
+    def on_samples_deleted(self, sample_names: list):
+        """
+        Handle sample deletion - refresh UI and invalidate caches.
+        Called when samples are soft-deleted via the context menu.
+        """
+        if self._deleting_samples:
+            return
+
+        self._deleting_samples = True
+
+        try:
+            # Clear the graph view
+            self.graph_view.clear_all_plots()
+
+            # Force UI refresh
+            QCoreApplication.processEvents()
+            self.graph_view.update()
+            self.graph_view.repaint()
+            QCoreApplication.processEvents()
+
+            # Refresh sample list
+            active_samples = list_active_samples()
+            self.toolbar.update_sample_list(active_samples)
+
+            # Invalidate caches
+            from manic.io.data_provider import DataProvider
+            data_provider = DataProvider()
+            data_provider.invalidate_cache()
+
+            if self._validation_provider:
+                self._validation_provider.invalidate_cache()
+
+            logger.info(f"Deleted {len(sample_names)} sample(s)")
+
+        except Exception as e:
+            logger.error(f"Error during sample deletion: {e}")
+        finally:
+            self._deleting_samples = False
+
+    def on_samples_restored(self, sample_names: list):
+        """
+        Handle sample restoration - refresh UI and invalidate caches.
+        Called when samples are restored via the recovery dialog.
+        """
+        try:
+            # Refresh sample list
+            active_samples = list_active_samples()
+            self.toolbar.update_sample_list(active_samples)
+
+            # Invalidate caches
+            from manic.io.data_provider import DataProvider
+            data_provider = DataProvider()
+            data_provider.invalidate_cache()
+
+            if self._validation_provider:
+                self._validation_provider.invalidate_cache()
+
+            logger.info(f"Restored {len(sample_names)} sample(s)")
+
+        except Exception as e:
+            logger.error(f"Error during sample restoration: {e}")
 
     def on_samples_selected(self, samples_selected):
         compound = self.toolbar.get_selected_compound()

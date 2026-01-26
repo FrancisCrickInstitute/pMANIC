@@ -3,6 +3,8 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import List
+
 from manic.utils.paths import resource_path
 
 logger = logging.getLogger(__name__)
@@ -274,6 +276,87 @@ def restore_all_compounds() -> int:
         count = cursor.rowcount
         logger.info(f"Restored {count} compounds")
         return count
+
+
+# =============================================================================
+# Sample soft delete/restore functions
+# =============================================================================
+
+
+def soft_delete_sample(sample_name: str) -> bool:
+    """
+    Soft delete a sample by setting deleted = 1.
+    Returns True if sample was found and deleted.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE samples SET deleted = 1 WHERE sample_name = ? AND deleted = 0",
+            (sample_name,)
+        )
+        success = cursor.rowcount > 0
+        return success
+
+
+def soft_delete_samples(sample_names: List[str]) -> int:
+    """
+    Soft delete multiple samples by setting deleted = 1.
+    Returns count of samples deleted.
+    """
+    if not sample_names:
+        return 0
+    with get_connection() as conn:
+        cursor = conn.executemany(
+            "UPDATE samples SET deleted = 1 WHERE sample_name = ? AND deleted = 0",
+            [(name,) for name in sample_names]
+        )
+        count = cursor.rowcount
+        if count > 0:
+            logger.info(f"Soft deleted {count} sample(s)")
+        return count
+
+
+def restore_sample(sample_name: str) -> bool:
+    """
+    Restore a soft-deleted sample by setting deleted = 0.
+    Returns True if sample was found and restored.
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE samples SET deleted = 0 WHERE sample_name = ? AND deleted = 1",
+            (sample_name,)
+        )
+        success = cursor.rowcount > 0
+        return success
+
+
+def restore_samples(sample_names: List[str]) -> int:
+    """
+    Restore multiple soft-deleted samples by setting deleted = 0.
+    Returns count of samples restored.
+    """
+    if not sample_names:
+        return 0
+    with get_connection() as conn:
+        cursor = conn.executemany(
+            "UPDATE samples SET deleted = 0 WHERE sample_name = ? AND deleted = 1",
+            [(name,) for name in sample_names]
+        )
+        count = cursor.rowcount
+        if count > 0:
+            logger.info(f"Restored {count} sample(s)")
+        return count
+
+
+def get_deleted_samples() -> List[str]:
+    """
+    Get list of soft-deleted sample names.
+    Returns list of sample names sorted alphabetically.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT sample_name FROM samples WHERE deleted = 1 ORDER BY sample_name"
+        ).fetchall()
+        return [row["sample_name"] for row in rows]
 
 
 def clear_database(progress_callback=None, fast_mode=True):

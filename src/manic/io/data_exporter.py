@@ -80,6 +80,10 @@ class DataExporter:
             self._provider.set_use_legacy_integration(use_legacy)
             self._invalidate_cache()
 
+    def set_min_peak_area_ratio(self, ratio: float):
+        """Set the minimum peak area ratio for validation highlighting."""
+        self.min_peak_area_ratio = ratio
+
     def _invalidate_cache(self):
         """Invalidate all caches when parameters change."""
         self._provider.invalidate_cache()

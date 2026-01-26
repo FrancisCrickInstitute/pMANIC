@@ -2116,6 +2116,7 @@ class MainWindow(QMainWindow):
             exporter = DataExporter()
             exporter.set_internal_standard(internal_standard)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
+            exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
 
             # Progress callback function
             def update_progress(value):

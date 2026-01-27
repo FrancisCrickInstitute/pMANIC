@@ -63,6 +63,10 @@ class DataExporter:
         # Minimum peak area ratio for validation highlighting
         self.min_peak_area_ratio = 0.05
 
+        # Which isotopologue peak (M+N) to use as the internal standard reference peak
+        # across validation + abundance + MRRF. Default is 0 (M0).
+        self.internal_standard_reference_isotope = 0
+
     def _resolve_mm_samples(self, mm_files_field: Optional[str]) -> List[str]:
         """Delegate to provider to resolve MM sample patterns."""
         return self._provider.resolve_mm_samples(mm_files_field)
@@ -83,6 +87,22 @@ class DataExporter:
     def set_min_peak_area_ratio(self, ratio: float):
         """Set the minimum peak area ratio for validation highlighting."""
         self.min_peak_area_ratio = ratio
+
+    def set_internal_standard_reference_isotope(self, isotope_index: int) -> None:
+        """Set internal standard reference isotopologue (M+N).
+
+        This value is used for:
+        - validation threshold reference peak
+        - internal standard normalization in Abundances
+        - MRRF calculation
+        """
+        isotope_index_int = int(isotope_index)
+        if isotope_index_int < 0:
+            isotope_index_int = 0
+
+        if self.internal_standard_reference_isotope != isotope_index_int:
+            self.internal_standard_reference_isotope = isotope_index_int
+            self._invalidate_cache()
 
     def _invalidate_cache(self):
         """Invalidate all caches when parameters change."""
@@ -111,6 +131,7 @@ class DataExporter:
                     compound_name,
                     self.internal_standard_compound,
                     self.min_peak_area_ratio,
+                    internal_standard_isotope_index=self.internal_standard_reference_isotope,
                 )
                 validation_data[sample][compound_name] = is_valid
 
@@ -362,7 +383,11 @@ class DataExporter:
         # Return empty results if no internal standard is provided
         if not internal_standard_compound:
             return {}
-        return self._provider.get_mrrf_values(compounds, internal_standard_compound)
+        return self._provider.get_mrrf_values(
+            compounds,
+            internal_standard_compound,
+            internal_standard_isotope_index=self.internal_standard_reference_isotope,
+        )
 
     def _calculate_peak_areas(
         self,

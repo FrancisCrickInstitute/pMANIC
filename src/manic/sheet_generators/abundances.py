@@ -108,13 +108,24 @@ def write(
         logger.info(
             f"Calculating MRRF values using internal standard: {exporter.internal_standard_compound}"
         )
-        mrrf_values = (
-            provider.get_mrrf_values(compounds, exporter.internal_standard_compound)
-            if provider is not None
-            else exporter._calculate_mrrf_values(
+        if provider is not None:
+            idx = int(getattr(exporter, "internal_standard_reference_isotope", 0))
+            try:
+                mrrf_values = provider.get_mrrf_values(
+                    compounds,
+                    exporter.internal_standard_compound,
+                    internal_standard_isotope_index=idx,
+                )
+            except TypeError:
+                # Backward-compatible: some tests/providers implement older signature.
+                mrrf_values = provider.get_mrrf_values(
+                    compounds,
+                    exporter.internal_standard_compound,
+                )
+        else:
+            mrrf_values = exporter._calculate_mrrf_values(
                 compounds, exporter.internal_standard_compound
             )
-        )
 
     # Resolve internal standard metadata if selected
     internal_std_amount_default = 1.0
@@ -186,10 +197,11 @@ def write(
             internal_std_data = sample_data.get(
                 exporter.internal_standard_compound, [0.0]
             )
-            # MATLAB uses only M+0 for internal standard normalization (processIntegrals.m line 24)
+            # Internal standard normalization uses configured reference peak (M+N)
+            idx = int(getattr(exporter, "internal_standard_reference_isotope", 0))
             internal_std_signal = (
-                internal_std_data[0]
-                if internal_std_data and len(internal_std_data) > 0
+                internal_std_data[idx]
+                if internal_std_data and 0 <= idx < len(internal_std_data)
                 else 0.0
             )
             sample_internal_std_amount = (

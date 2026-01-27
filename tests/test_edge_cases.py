@@ -368,7 +368,10 @@ class TestAbundanceCalculations:
         import xlsxwriter
 
         # Mock exporter with internal standard set
-        exporter = SimpleNamespace(internal_standard_compound="scyllo-Ins")
+        exporter = SimpleNamespace(
+            internal_standard_compound="scyllo-Ins",
+            internal_standard_reference_isotope=0,
+        )
 
         # Mock provider that returns corrected data
         class MockProvider:
@@ -525,9 +528,13 @@ class TestAbundanceCalculations:
 
         import xlsxwriter
 
-        exporter = SimpleNamespace(internal_standard_compound="scyllo-Ins")
+        exporter = SimpleNamespace(
+            internal_standard_compound="scyllo-Ins",
+            internal_standard_reference_isotope=0,
+        )
 
         class MissingAmountProvider:
+
             def __init__(self, *, missing_field):
                 self._missing_field = missing_field
 

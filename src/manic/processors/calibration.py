@@ -69,10 +69,16 @@ def calculate_background_ratios(provider, compounds: List[dict]) -> Dict[str, fl
 
 
 def calculate_mrrf_values(
-    provider, compounds: List[dict], internal_standard_compound: str
+    provider,
+    compounds: List[dict],
+    internal_standard_compound: str,
+    *,
+    internal_standard_isotope_index: int = 0,
 ) -> Dict[str, float]:
     """
-    Calculate MRRF values using MM files (original DataExporter logic, unchanged).
+    Calculate MRRF values using MM files.
+
+    Internal standard signal uses the configured reference peak (M+N).
     """
     mrrf_values: Dict[str, float] = {}
 
@@ -145,9 +151,13 @@ def calculate_mrrf_values(
         for mm_sample in internal_std_mm_samples:
             sample_data = provider.get_sample_corrected_data(mm_sample)
             iso_data = sample_data.get(internal_standard_compound, [0.0])
-            # Use M+0 only for internal standard signal (match MATLAB)
-            m0_signal = float(iso_data[0]) if iso_data else 0.0
-            internal_std_signals.append(m0_signal)
+            # Use configured internal standard reference peak (M+N)
+            idx = int(internal_standard_isotope_index)
+            if 0 <= idx < len(iso_data):
+                ref_signal = float(iso_data[idx])
+            else:
+                ref_signal = 0.0
+            internal_std_signals.append(ref_signal)
 
         mean_metabolite_signal = (
             float(sum(metabolite_signals) / len(metabolite_signals))

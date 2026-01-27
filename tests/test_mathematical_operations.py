@@ -492,6 +492,27 @@ class TestCalibrations:
         assert abs(mrrf['A'] - 2.5) < 1e-9
         assert abs(mrrf['ISTD'] - 1.0) < 1e-9
 
+        # Same data but using IS M+1 as the reference peak.
+        samples_map_ref = {
+            'std1': {
+                'A': [100.0, 0.0],
+                'ISTD': [20.0, 2.0],
+            },
+            'std2': {
+                'A': [200.0, 0.0],
+                'ISTD': [40.0, 4.0],
+            },
+        }
+        provider_ref = StubProvider(samples_map_ref)
+
+        mrrf_ref = calculate_mrrf_values(
+            provider_ref, compounds, 'ISTD', internal_standard_isotope_index=1
+        )
+        # Means: metabolite=150; internal std (M1)= (2+4)/2=3
+        # MRRF = (150/2.0) / (3/1.0) = 75/3 = 25
+        assert abs(mrrf_ref['A'] - 25.0) < 1e-9
+        assert abs(mrrf_ref['ISTD'] - 1.0) < 1e-9
+
 
 # ============================================================================
 # PERFORMANCE TESTS

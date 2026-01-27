@@ -18,7 +18,7 @@ A peak is considered **Invalid/Weak** (and flagged red) if its total integrated 
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 
 * **$\text{Area}_{metabolite}$**: The total raw area of the target peak.
-* **$\text{Area}_{IS}$**: The M0 raw area of the Internal Standard in the current sample.
+* **$\text{Area}_{IS}$**: The internal standard reference peak area (M+N, default M+0) in the current sample.
 * **$\text{Threshold}$**: The configurable percentage limit (Default: **0.05** or 5%).
 
 ### Example
@@ -54,6 +54,10 @@ In the final results workbook (specifically the **Abundances** sheet):
 You can adjust the strictness of this check in the settings.
 
 **Settings → Minimum Peak Area...**
+
+Optionally, if your internal standard is labelled, you can choose which isotopologue peak is used as the reference peak:
+
+**Settings → Labelled Internal Standard...**
 
 * **Default:** `0.05` (5%)
 * **Range:** `0.0` to `1.0`

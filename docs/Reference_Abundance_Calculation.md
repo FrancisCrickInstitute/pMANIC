@@ -38,7 +38,7 @@ $$
 | :--- | :--- | :--- |
 | **Area_{total}** | The **Total Corrected Area** of the metabolite (Sum of all isotopologues). | *Corrected Values* Sheet |
 | **Amount_{IS}** | The known amount of Internal Standard added to this specific sample. | Compound List (`int_std_amount`) |
-| **Area_{IS}** | The **M+0 Corrected Area** of the Internal Standard. | *Corrected Values* Sheet |
+| **Area_{IS}** | The **reference peak corrected area** of the Internal Standard (M+N, default M+0). | *Corrected Values* Sheet |
 | **MRRF** | The Metabolite Response Ratio Factor. | Calculated from Standards |
 
 ---
@@ -63,7 +63,7 @@ $$
 
 * **$\text{Area}_{total, std}$**: Total corrected area of the metabolite in a Standard Mixture (MM) file.
 * **$\text{Conc}_{std}$**: The known amount defined in `amount_in_std_mix`.
-* **$\text{Area}_{IS, std}$**: M+0 corrected area of the Internal Standard in an MM file.
+* **$\text{Area}_{IS, std}$**: Reference peak corrected area of the Internal Standard (M+N) in an MM file.
 * **$\text{Conc}_{IS}$**: The known amount of Internal Standard in the mix (`amount_in_std_mix`).
 
 ### Interpretation
@@ -72,6 +72,16 @@ $$
 * **MRRF < 1.0**: The metabolite produces a weaker signal.
 
 ---
+
+## 3. Internal Standard Reference Peak
+
+By default MANIC uses the internal standard **M+0** peak as the reference peak for normalization, peak validation, and MRRF calculation.
+
+If your internal standard is labelled, you can change this in:
+
+**Settings → Labelled Internal Standard...**
+
+Changing the internal standard compound resets the reference peak back to **M+0**.
 
 ## 3. Data Requirements
 

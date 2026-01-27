@@ -95,7 +95,7 @@ DEFAULT_RT_WINDOW = 0.2  # minutes (half-window)
 DEFAULT_RT_WINDOW_BUFFER = 0.1  # minutes
 
 # Peak area validation
-DEFAULT_MIN_PEAK_HEIGHT_RATIO = 0.05  # Fraction of internal standard M0 area for minimum peak validation
+DEFAULT_MIN_PEAK_HEIGHT_RATIO = 0.05  # Fraction of internal standard reference peak area for minimum peak validation
 
 # Integration method options
 DEFAULT_USE_LEGACY_INTEGRATION = False  # Time-based by default (scientifically accurate)

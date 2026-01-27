@@ -332,26 +332,36 @@ class DataProvider:
         areas = sample_data.get(compound_name, [])
         return float(sum(areas)) if areas else 0.0
 
-    def get_compound_m0_area(self, sample_name: str, compound_name: str) -> float:
-        """Get the M0 isotopologue area for a compound in a sample."""
+    def get_compound_isotope_area(
+        self, sample_name: str, compound_name: str, isotope_index: int
+    ) -> float:
+        """Get the selected isotopologue area (M+isotope_index) for a compound."""
+        if isotope_index < 0:
+            return 0.0
+
         sample_data = self.get_sample_corrected_data(sample_name)
         areas = sample_data.get(compound_name, [])
-        if not areas:
+        if not areas or isotope_index >= len(areas):
             return 0.0
-        return float(areas[0])
+        return float(areas[isotope_index])
+
+    def get_compound_m0_area(self, sample_name: str, compound_name: str) -> float:
+        """Get the M0 isotopologue area for a compound in a sample."""
+        return self.get_compound_isotope_area(sample_name, compound_name, 0)
 
     def validate_peak_area(
-        self, 
-        sample_name: str, 
+        self,
+        sample_name: str,
         compound_name: str,
-        internal_standard: str, 
-        min_ratio: float
+        internal_standard: str,
+        min_ratio: float,
+        internal_standard_isotope_index: int = 0,
     ) -> bool:
         """
         Validate if a compound's total peak area meets the minimum threshold.
         
         The validation compares the compound's total area (sum of all isotopologues)
-        against a threshold calculated as: internal_standard_m0 × min_ratio.
+        against a threshold calculated as: internal_standard_reference_peak × min_ratio.
         
         This ensures peaks are large enough relative to the internal standard to be
         considered reliable for quantification.
@@ -363,9 +373,9 @@ class DataProvider:
             min_ratio: Minimum ratio threshold (e.g., 0.05 for 5%)
             
         Returns:
-            True if compound total area >= (internal standard M0 × min_ratio)
+            True if compound total area >= (internal standard reference peak × min_ratio)
             True if validation is disabled (min_ratio <= 0 or no internal standard)
-            True if internal standard M0 has no signal (cannot validate)
+            True if the reference peak has no signal (cannot validate)
             False otherwise (compound fails validation)
             
         Example:
@@ -377,47 +387,52 @@ class DataProvider:
             return True
         
         compound_total = self.get_compound_total_area(sample_name, compound_name)
-        is_m0 = self.get_compound_m0_area(sample_name, internal_standard)
+        is_ref = self.get_compound_isotope_area(
+            sample_name, internal_standard, internal_standard_isotope_index
+        )
 
-        if is_m0 <= 0:
+        if is_ref <= 0:
             return True
 
-        threshold = is_m0 * min_ratio
+        threshold = is_ref * min_ratio
         return compound_total >= threshold
 
     def get_sample_peak_metrics(
-        self, 
-        sample_name: str, 
-        internal_standard: str
+        self,
+        sample_name: str,
+        internal_standard: str,
+        internal_standard_isotope_index: int = 0,
     ) -> Dict[str, Dict[str, float]]:
         """
         Get total area metrics for all compounds in a sample for validation.
         
         Returns a dictionary mapping each compound to its total area and the
-        internal standard's M0 area. Useful for batch validation or export.
+        internal standard's reference peak area. Useful for batch validation or export.
         
         Args:
             sample_name: Name of the sample
             internal_standard: Name of the internal standard compound
             
         Returns:
-            Dictionary of {compound_name: {"compound_total": float, "internal_standard_m0": float}}
+            Dictionary of {compound_name: {"compound_total": float, "internal_standard_reference": float}}
 
         Example:
             {
-                "Pyruvate": {"compound_total": 175.0, "internal_standard_m0": 550.0},
-                "Lactate": {"compound_total": 125.0, "internal_standard_m0": 550.0}
+                "Pyruvate": {"compound_total": 175.0, "internal_standard_reference": 550.0},
+                "Lactate": {"compound_total": 125.0, "internal_standard_reference": 550.0}
             }
         """
         sample_data = self.get_sample_corrected_data(sample_name)
-        is_m0 = self.get_compound_m0_area(sample_name, internal_standard)
+        is_ref = self.get_compound_isotope_area(
+            sample_name, internal_standard, internal_standard_isotope_index
+        )
 
         metrics = {}
         for compound_name, areas in sample_data.items():
             compound_total = float(sum(areas)) if areas else 0.0
             metrics[compound_name] = {
                 "compound_total": compound_total,
-                "internal_standard_m0": is_m0
+                "internal_standard_reference": is_ref,
             }
         
         return metrics
@@ -432,12 +447,28 @@ class DataProvider:
         self._background_ratios_cache[cache_key] = values
         return values
 
-    def get_mrrf_values(self, compounds: List[dict], internal_standard_compound: str) -> Dict[str, float]:
+    def get_mrrf_values(
+        self,
+        compounds: List[dict],
+        internal_standard_compound: str,
+        internal_standard_isotope_index: int = 0,
+    ) -> Dict[str, float]:
         from manic.processors.calibration import calculate_mrrf_values
-        cache_key = f"mrrf_{len(compounds)}_{internal_standard_compound}_{self.use_legacy_integration}"
+
+        cache_key = (
+            f"mrrf_{len(compounds)}_{internal_standard_compound}_"
+            f"{internal_standard_isotope_index}_{self.use_legacy_integration}"
+        )
         if cache_key in self._mrrf_cache:
             logger.debug("Using cached MRRF values")
             return self._mrrf_cache[cache_key]
-        values = calculate_mrrf_values(self, compounds, internal_standard_compound)
+        values = calculate_mrrf_values(
+            self,
+            compounds,
+            internal_standard_compound,
+            internal_standard_isotope_index=internal_standard_isotope_index,
+        )
         self._mrrf_cache[cache_key] = values
         return values
+
+

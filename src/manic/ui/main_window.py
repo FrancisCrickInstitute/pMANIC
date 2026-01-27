@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QSplitter,
     QVBoxLayout,
     QWidget,
+    QComboBox,
+    QFormLayout,
 )
 
 from manic.__version__ import APP_NAME, __version__
@@ -33,7 +35,7 @@ from manic.io.data_exporter import DataExporter
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
-from manic.models.database import clear_database
+from manic.models.database import clear_database, get_connection
 from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
@@ -82,8 +84,13 @@ class MainWindow(QMainWindow):
         # Mass tolerance setting (default 0.2 Da)
         self.mass_tolerance = 0.2
 
-        # Minimum peak height setting (as ratio of internal standard height)
+        # Minimum peak area ratio setting (fraction of internal std reference peak)
         self.min_peak_height_ratio = 0.05
+
+        # Labelled internal standard setting: which isotopologue peak (M+N) is used
+        # as the internal standard "reference peak" across validation + abundance + MRRF.
+        # Resets to 0 (M0) whenever internal standard changes.
+        self.internal_standard_reference_isotope = 0
 
         # Integration method setting
         self.use_legacy_integration = False  # Time-based by default
@@ -277,6 +284,14 @@ class MainWindow(QMainWindow):
         self.min_peak_height_action = QAction("Minimum Peak Area...", self)
         self.min_peak_height_action.triggered.connect(self.show_min_peak_height_dialog)
         settings_menu.addAction(self.min_peak_height_action)
+
+        self.labelled_internal_standard_action = QAction(
+            "Labelled Internal Standard...", self
+        )
+        self.labelled_internal_standard_action.triggered.connect(
+            self.show_labelled_internal_standard_dialog
+        )
+        settings_menu.addAction(self.labelled_internal_standard_action)
 
         # Natural abundance correction toggle action
         self.nat_abundance_toggle = QAction(
@@ -578,7 +593,7 @@ class MainWindow(QMainWindow):
         Validate if the compound's total peak area meets the minimum threshold.
 
         This method compares the sum of all isotopologue peak areas for the compound
-        against a threshold calculated as: internal_standard_m0 × min_peak_height_ratio.
+        against a threshold calculated as: internal_standard_reference_peak × min_peak_height_ratio.
 
         Both the compound and internal standard use their own integration boundaries
         (retention time ± offsets), which respect session overrides.
@@ -605,6 +620,7 @@ class MainWindow(QMainWindow):
                 compound_name,
                 internal_standard,
                 self.min_peak_height_ratio,
+                internal_standard_isotope_index=self.internal_standard_reference_isotope,
             )
 
         except Exception as e:
@@ -824,6 +840,13 @@ class MainWindow(QMainWindow):
         Handle internal standard selection changes.
         Updates menu states when internal standard is selected/deselected.
         """
+        # Reset labelled-IS reference peak to M0 whenever standard changes
+        self.internal_standard_reference_isotope = 0
+
+        # Invalidate validation cache since threshold may change
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+
         # Update menu states to enable/disable Export Data based on internal standard selection
         self._update_menu_states()
 
@@ -1628,9 +1651,9 @@ class MainWindow(QMainWindow):
 
         # Info label
         info_label = QLabel(
-            "Set the minimum peak area threshold as a fraction of the internal standard M0 area.\n"
+            "Set the minimum peak area threshold as a fraction of the internal standard reference peak area.\n"
             "Peaks below this threshold will be highlighted with a red background.\n"
-            "This validation only applies to the m0 peak (unlabeled isotope)."
+            "Peak validation compares compound total area vs the internal standard reference peak."
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
@@ -1652,7 +1675,7 @@ class MainWindow(QMainWindow):
         peak_area_layout.addWidget(peak_area_spinbox)
 
         # Add explanation
-        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard M0 area)")
+        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard reference peak area)")
         explanation_label.setStyleSheet("color: gray; font-style: italic;")
         peak_area_layout.addWidget(explanation_label)
 
@@ -1684,6 +1707,97 @@ class MainWindow(QMainWindow):
                     current_samples = self.toolbar.get_selected_samples()
                     if current_compound and current_samples:
                         self.on_plot_button(current_compound, current_samples)
+
+    def show_labelled_internal_standard_dialog(self) -> None:
+        """Choose which internal standard isotopologue (M+N) is the reference peak."""
+        internal_standard = self.toolbar.get_internal_standard()
+        if not internal_standard:
+            msg = self._create_message_box(
+                "information",
+                "Labelled Internal Standard",
+                "No internal standard selected.",
+                "Select an internal standard first, then choose the reference peak (M+N).",
+            )
+            msg.exec()
+            return
+
+        try:
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT label_atoms FROM compounds WHERE compound_name = ? AND deleted = 0",
+                    (internal_standard,),
+                ).fetchone()
+        except Exception as exc:
+            logger.error("Failed reading internal standard label_atoms: %s", exc)
+            row = None
+
+        label_atoms = 0
+        try:
+            if row is not None:
+                label_atoms = int(row["label_atoms"]) if row["label_atoms"] is not None else 0
+        except Exception:
+            try:
+                label_atoms = int(row[0]) if row and row[0] is not None else 0
+            except Exception:
+                label_atoms = 0
+
+        if label_atoms < 0:
+            label_atoms = 0
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Labelled Internal Standard")
+        dialog.setModal(True)
+        dialog.resize(520, 220)
+
+        layout = QVBoxLayout(dialog)
+
+        info_label = QLabel(
+            "Select which internal standard isotopologue peak is the reference peak (M+N).\n"
+            "This reference peak is used for peak validation, abundance normalization, and MRRF calculations.\n"
+            "Changing the internal standard compound resets this setting to M0."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        form = QFormLayout()
+
+        combo = QComboBox()
+        for idx in range(label_atoms + 1):
+            combo.addItem(f"M+{idx}", idx)
+
+        current_idx = int(getattr(self, "internal_standard_reference_isotope", 0))
+        if current_idx < 0:
+            current_idx = 0
+        if current_idx > label_atoms:
+            current_idx = 0
+        combo.setCurrentIndex(current_idx)
+
+        form.addRow(QLabel(f"Internal Standard: {internal_standard}"), QLabel(""))
+        form.addRow("Reference Peak:", combo)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        new_idx = int(combo.currentData())
+        if new_idx != self.internal_standard_reference_isotope:
+            self.internal_standard_reference_isotope = new_idx
+
+            # Invalidate validation cache (threshold reference peak changed)
+            if self._validation_provider is not None:
+                self._validation_provider.invalidate_cache()
+
+            # Refresh plots if data is loaded
+            if self.cdf_data_loaded and self.compound_data_loaded:
+                current_compound = self.toolbar.get_selected_compound()
+                current_samples = self.toolbar.get_selected_samples()
+                if current_compound and current_samples:
+                    self.on_plot_button(current_compound, current_samples)
 
     def _create_documentation_menu(self, docs_menu):
         """Create documentation menu with available markdown files."""
@@ -2210,6 +2324,9 @@ class MainWindow(QMainWindow):
             exporter.set_internal_standard(internal_standard)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
+            exporter.set_internal_standard_reference_isotope(
+                self.internal_standard_reference_isotope
+            )
 
             # Progress callback function
             def update_progress(value):

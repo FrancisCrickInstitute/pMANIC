@@ -18,7 +18,7 @@ A peak is considered **Invalid/Weak** (and flagged red) if its total integrated 
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 
 * **$\text{Area}_{metabolite}$**: The total raw area of the target peak.
-* **$\text{Area}_{IS}$**: The total raw area of the Internal Standard in the current sample.
+* **$\text{Area}_{IS}$**: The M0 raw area of the Internal Standard in the current sample.
 * **$\text{Threshold}$**: The configurable percentage limit (Default: **0.05** or 5%).
 
 ### Example

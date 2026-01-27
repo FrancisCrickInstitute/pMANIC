@@ -313,24 +313,32 @@ class DataProvider:
     def get_compound_total_area(self, sample_name: str, compound_name: str) -> float:
         """
         Get the sum of all isotopologue peak areas for a compound in a sample.
-        
+
         This returns the total integrated area across all isotopologues (M0, M1, M2, etc.)
         for the specified compound. The areas are already integrated using the compound's
         own retention time and offset boundaries (respecting session overrides).
-        
+
         Args:
             sample_name: Name of the sample to query
             compound_name: Name of the compound to query
-            
+
         Returns:
             Total area (sum of all isotopologue areas), or 0.0 if compound not found
-            
+
         Example:
             If compound has isotopologue areas [100.0, 50.0, 25.0], returns 175.0
         """
         sample_data = self.get_sample_corrected_data(sample_name)
         areas = sample_data.get(compound_name, [])
         return float(sum(areas)) if areas else 0.0
+
+    def get_compound_m0_area(self, sample_name: str, compound_name: str) -> float:
+        """Get the M0 isotopologue area for a compound in a sample."""
+        sample_data = self.get_sample_corrected_data(sample_name)
+        areas = sample_data.get(compound_name, [])
+        if not areas:
+            return 0.0
+        return float(areas[0])
 
     def validate_peak_area(
         self, 
@@ -343,7 +351,7 @@ class DataProvider:
         Validate if a compound's total peak area meets the minimum threshold.
         
         The validation compares the compound's total area (sum of all isotopologues)
-        against a threshold calculated as: internal_standard_total × min_ratio.
+        against a threshold calculated as: internal_standard_m0 × min_ratio.
         
         This ensures peaks are large enough relative to the internal standard to be
         considered reliable for quantification.
@@ -355,13 +363,13 @@ class DataProvider:
             min_ratio: Minimum ratio threshold (e.g., 0.05 for 5%)
             
         Returns:
-            True if compound total area >= (internal standard total × min_ratio)
+            True if compound total area >= (internal standard M0 × min_ratio)
             True if validation is disabled (min_ratio <= 0 or no internal standard)
-            True if internal standard has no signal (cannot validate)
+            True if internal standard M0 has no signal (cannot validate)
             False otherwise (compound fails validation)
             
         Example:
-            Compound total = 17.5, IS total = 200.0, ratio = 0.05
+            Compound total = 17.5, IS M0 = 200.0, ratio = 0.05
             Threshold = 200.0 × 0.05 = 10.0
             17.5 >= 10.0 → Returns True (valid)
         """
@@ -369,12 +377,12 @@ class DataProvider:
             return True
         
         compound_total = self.get_compound_total_area(sample_name, compound_name)
-        is_total = self.get_compound_total_area(sample_name, internal_standard)
-        
-        if is_total <= 0:
+        is_m0 = self.get_compound_m0_area(sample_name, internal_standard)
+
+        if is_m0 <= 0:
             return True
-        
-        threshold = is_total * min_ratio
+
+        threshold = is_m0 * min_ratio
         return compound_total >= threshold
 
     def get_sample_peak_metrics(
@@ -386,30 +394,30 @@ class DataProvider:
         Get total area metrics for all compounds in a sample for validation.
         
         Returns a dictionary mapping each compound to its total area and the
-        internal standard's total area. Useful for batch validation or export.
+        internal standard's M0 area. Useful for batch validation or export.
         
         Args:
             sample_name: Name of the sample
             internal_standard: Name of the internal standard compound
             
         Returns:
-            Dictionary of {compound_name: {"compound_total": float, "internal_standard_total": float}}
-            
+            Dictionary of {compound_name: {"compound_total": float, "internal_standard_m0": float}}
+
         Example:
             {
-                "Pyruvate": {"compound_total": 175.0, "internal_standard_total": 550.0},
-                "Lactate": {"compound_total": 125.0, "internal_standard_total": 550.0}
+                "Pyruvate": {"compound_total": 175.0, "internal_standard_m0": 550.0},
+                "Lactate": {"compound_total": 125.0, "internal_standard_m0": 550.0}
             }
         """
         sample_data = self.get_sample_corrected_data(sample_name)
-        is_total = self.get_compound_total_area(sample_name, internal_standard)
-        
+        is_m0 = self.get_compound_m0_area(sample_name, internal_standard)
+
         metrics = {}
         for compound_name, areas in sample_data.items():
             compound_total = float(sum(areas)) if areas else 0.0
             metrics[compound_name] = {
                 "compound_total": compound_total,
-                "internal_standard_total": is_total
+                "internal_standard_m0": is_m0
             }
         
         return metrics

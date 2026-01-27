@@ -112,7 +112,7 @@ Upon selecting a compound, MANIC displays a grid of mini-plots, one for each act
 * **Blue Dashed Lines:** The integration boundaries (`tR - loffset` and `tR + roffset`).
 * **Background Color:**
     * **White:** Good peak (area is above threshold).
-    * **Red:** Weak peak (area is < 5% of internal standard).
+    * **Red:** Weak peak (area is < 5% of internal standard M0).
     * **Green:** Currently selected for editing.
 
 **Procedure**

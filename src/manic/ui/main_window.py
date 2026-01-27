@@ -578,7 +578,7 @@ class MainWindow(QMainWindow):
         Validate if the compound's total peak area meets the minimum threshold.
 
         This method compares the sum of all isotopologue peak areas for the compound
-        against a threshold calculated as: internal_standard_total × min_peak_height_ratio.
+        against a threshold calculated as: internal_standard_m0 × min_peak_height_ratio.
 
         Both the compound and internal standard use their own integration boundaries
         (retention time ± offsets), which respect session overrides.
@@ -1618,9 +1618,9 @@ class MainWindow(QMainWindow):
                     self._on_mass_tolerance_changed(new_value)
 
     def show_min_peak_height_dialog(self):
-        """Show dialog to edit minimum peak height setting."""
+        """Show dialog to edit minimum peak area setting."""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Minimum Peak Height Settings")
+        dialog.setWindowTitle("Minimum Peak Area Settings")
         dialog.setModal(True)
         dialog.resize(500, 280)
 
@@ -1628,7 +1628,7 @@ class MainWindow(QMainWindow):
 
         # Info label
         info_label = QLabel(
-            "Set the minimum peak height threshold as a fraction of the internal standard height.\n"
+            "Set the minimum peak area threshold as a fraction of the internal standard M0 area.\n"
             "Peaks below this threshold will be highlighted with a red background.\n"
             "This validation only applies to the m0 peak (unlabeled isotope)."
         )
@@ -1636,28 +1636,28 @@ class MainWindow(QMainWindow):
         layout.addWidget(info_label)
 
         # Min peak area input
-        peak_height_layout = QHBoxLayout()
-        peak_height_label = QLabel("Minimum Area Ratio:")
-        peak_height_layout.addWidget(peak_height_label)
+        peak_area_layout = QHBoxLayout()
+        peak_area_label = QLabel("Minimum Area Ratio:")
+        peak_area_layout.addWidget(peak_area_label)
 
-        peak_height_spinbox = QDoubleSpinBox()
-        peak_height_spinbox.setRange(0.001, 1.0)
-        peak_height_spinbox.setSingleStep(0.001)
-        peak_height_spinbox.setDecimals(3)
-        peak_height_spinbox.setValue(self.min_peak_height_ratio)
-        peak_height_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
-        peak_height_spinbox.setStyleSheet(
+        peak_area_spinbox = QDoubleSpinBox()
+        peak_area_spinbox.setRange(0.001, 1.0)
+        peak_area_spinbox.setSingleStep(0.001)
+        peak_area_spinbox.setDecimals(3)
+        peak_area_spinbox.setValue(self.min_peak_height_ratio)
+        peak_area_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
+        peak_area_spinbox.setStyleSheet(
             "QDoubleSpinBox { background-color: white; color: black; }"
         )
-        peak_height_layout.addWidget(peak_height_spinbox)
+        peak_area_layout.addWidget(peak_area_spinbox)
 
         # Add explanation
-        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard total area)")
+        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard M0 area)")
         explanation_label.setStyleSheet("color: gray; font-style: italic;")
-        peak_height_layout.addWidget(explanation_label)
+        peak_area_layout.addWidget(explanation_label)
 
-        peak_height_layout.addStretch()
-        layout.addLayout(peak_height_layout)
+        peak_area_layout.addStretch()
+        layout.addLayout(peak_area_layout)
 
         # Buttons
         buttons = QDialogButtonBox(
@@ -1670,12 +1670,12 @@ class MainWindow(QMainWindow):
         # Show dialog and handle result
         if dialog.exec() == QDialog.Accepted:
             old_value = self.min_peak_height_ratio
-            new_value = peak_height_spinbox.value()
+            new_value = peak_area_spinbox.value()
             self.min_peak_height_ratio = new_value
 
             if old_value != new_value:
                 logger.info(
-                    f"Minimum peak height ratio changed from {old_value:.3f} to {new_value:.3f}"
+                    f"Minimum peak area ratio changed from {old_value:.3f} to {new_value:.3f}"
                 )
 
                 # Refresh plots if data is loaded to apply new validation

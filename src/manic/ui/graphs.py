@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Set
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QEvent, QMargins, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsTextItem,
@@ -30,6 +30,25 @@ from manic.utils.timer import measure_time
 from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
 
 logger = logging.getLogger(__name__)
+
+
+class ElidingLabel(QLabel):
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None):
+        super().__init__(text, parent)
+        self._full_text = text
+
+    def setText(self, text: str) -> None:
+        self._full_text = text
+        super().setText(text)
+
+    def fullText(self) -> str:
+        return self._full_text
+
+    def resizeEvent(self, event):
+        fm = QFontMetrics(self.font())
+        elided = fm.elidedText(self._full_text, Qt.ElideRight, self.width())
+        super().setText(elided)
+        super().resizeEvent(event)
 
 
 class ClickableChartView(QChartView):
@@ -110,6 +129,11 @@ class GraphView(QWidget):
 
         # Track whether to use corrected data
         self.use_corrected = False  # Default to using uncorrected data
+
+        # Track max grid dimensions we've used, so we can reliably reset
+        # stretch/min-size for any historical rows/cols when the grid shrinks.
+        self._max_rows_seen = 0
+        self._max_cols_seen = 0
 
         # Chart object pooling for performance optimization
         # Maintains reusable chart containers to avoid expensive creation/destruction cycles
@@ -278,7 +302,23 @@ class GraphView(QWidget):
         cols = math.ceil(math.sqrt(num))
         rows = math.ceil(num / cols)
 
-        # Set stretch factors once, outside the loop
+        self._max_rows_seen = max(self._max_rows_seen, rows)
+        self._max_cols_seen = max(self._max_cols_seen, cols)
+
+        # Clear ALL stretch factors/min sizes for any historical rows/cols,
+        # then set stretch=1 only for active rows/cols.
+        # This is critical when reducing sample count.
+        max_rows_to_reset = max(self._max_rows_seen, self._layout.rowCount())
+        max_cols_to_reset = max(self._max_cols_seen, self._layout.columnCount())
+
+        for i in range(max_rows_to_reset):
+            self._layout.setRowStretch(i, 0)
+            self._layout.setRowMinimumHeight(i, 0)
+        for i in range(max_cols_to_reset):
+            self._layout.setColumnStretch(i, 0)
+            self._layout.setColumnMinimumWidth(i, 0)
+
+        # Set stretch factors for active rows/cols
         for col in range(cols):
             self._layout.setColumnStretch(col, 1)
         for row in range(rows):
@@ -607,14 +647,17 @@ class GraphView(QWidget):
         # Create the plot
         chart_view = self._build_plot(eic)
 
-        # Create caption label with adaptive sizing for large datasets
-        caption = QLabel(eic.sample_name)
+        # Create caption label with fixed height + elided text
+        caption = ElidingLabel(eic.sample_name)
         caption.setAlignment(Qt.AlignCenter)
         caption.setFont(create_font(8, QFont.Weight.Bold))  # Cross-platform font
         caption.setStyleSheet("color: black; padding: 1px;")
-        caption.setWordWrap(True)  # Allow text wrapping for long sample names
-        caption.setMinimumHeight(15)  # Ensure minimum visibility
-        caption.setMaximumHeight(25)  # Increase max height for better visibility
+        # Fixed height prevents QGridLayout rows from becoming uneven due to
+        # per-row max sizeHint() differences when some captions wrap.
+        caption.setWordWrap(False)
+        caption.setFixedHeight(18)
+        caption.setToolTip(eic.sample_name)
+        caption.setText(eic.sample_name)
 
         # Create container widget
         container = QWidget()
@@ -668,6 +711,12 @@ class GraphView(QWidget):
             # Ensure the chart view is properly reset and not selected
             chart_view.set_selected(False)
 
+            # Reset container sizing to clear any cached geometry from previous use
+            # This is critical when widgets are moved to a different row/col
+            container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            container.setMinimumSize(0, 0)
+            chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            chart_view.setMinimumSize(0, 0)
             # Disconnect existing signals to avoid multiple connections
             # Suppress RuntimeWarnings about failed disconnections
             with warnings.catch_warnings():
@@ -1168,8 +1217,9 @@ class GraphView(QWidget):
                 baseline_series.attachAxis(y_axis)
 
     def _update_graph_sizes(self) -> None:
-        # Invalidate the layout to force recalculation
+        # Invalidate first, then activate to force recalculation
         self._layout.invalidate()
+        self._layout.activate()
         self._layout.update()
 
         # Update the parent widget geometry
@@ -1177,7 +1227,6 @@ class GraphView(QWidget):
         if parent:
             parent.updateGeometry()
             parent.update()
-            parent.repaint()
 
     def _apply_validation_styling(self, container: QWidget, is_valid: bool):
         """
@@ -1225,6 +1274,10 @@ class GraphView(QWidget):
 
             self._container_pool.clear()
             self._available_containers.clear()
+
+            # Reset tracked grid size on full teardown
+            self._max_rows_seen = 0
+            self._max_cols_seen = 0
         else:
             # Normal clearing with pooling - fast for regular operations
             # Return containers to pool for reuse
@@ -1237,18 +1290,27 @@ class GraphView(QWidget):
                 if widget is not None:
                     # Check if widget is a pooled container before deletion
                     if widget in self._container_pool:
-                        # Don't delete pooled containers, they're already handled
-                        pass
+                        # Ensure pooled containers are parented to the view itself
+                        # so they aren't destroyed when the layout is deleted
+                        widget.setParent(self)
                     else:
                         # Safe to delete non-pooled widgets
                         widget.deleteLater()
 
-        # Clear any stretch factors from previous layouts
-        for i in range(self._layout.columnCount()):
-            self._layout.setColumnStretch(i, 0)
-        for i in range(self._layout.rowCount()):
-            self._layout.setRowStretch(i, 0)
+        # purge persistent row/col tracking by resetting stretches
+        # Recreating the layout causes a crash because the old layout
+        # remains associated with the widget in ways that deleteLater()
+        # doesn't handle immediately during the plot cycle.
+        max_rows_to_reset = max(self._max_rows_seen, self._layout.rowCount())
+        max_cols_to_reset = max(self._max_cols_seen, self._layout.columnCount())
 
-        # Force complete repaint of the widget
+        for i in range(max_cols_to_reset):
+            self._layout.setColumnStretch(i, 0)
+            self._layout.setColumnMinimumWidth(i, 0)
+        for i in range(max_rows_to_reset):
+            self._layout.setRowStretch(i, 0)
+            self._layout.setRowMinimumHeight(i, 0)
+
+        # Force repaint/update. Prefer update() over repaint() to avoid synchronous paints.
+        self.updateGeometry()
         self.update()
-        self.repaint()

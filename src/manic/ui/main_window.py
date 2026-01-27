@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, Qt, QThread, QUrl
+from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QDesktopServices,  # Add this for opening URLs
@@ -37,6 +37,8 @@ from manic.models.database import clear_database
 from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
+from manic.ui.toast_notification import ToastNotification
+from manic.ui.toast_notification import ToastNotification
 from manic.utils.paths import docs_path, resource_path
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import (
@@ -117,9 +119,11 @@ class MainWindow(QMainWindow):
         self._update_worker.start()
 
     def _on_update_check_finished(
-        self, has_update: bool, latest_version: str, url: str
+        self, success: bool, has_update: bool, latest_version: str, url: str
     ):
         """Handle the result of the update check."""
+        self._show_update_check_toast(success, has_update, latest_version)
+
         if has_update:
             msg = self._create_message_box(
                 "information",
@@ -133,6 +137,41 @@ class MainWindow(QMainWindow):
 
             if msg.exec() == QMessageBox.Yes:
                 QDesktopServices.openUrl(QUrl(url))
+
+    def _show_update_check_toast(
+        self,
+        success: bool,
+        has_update: bool,
+        latest_version: str,
+    ) -> None:
+        if not success:
+            message = "Update check failed"
+        elif has_update:
+            message = f"Update available (v{latest_version})"
+        else:
+            message = "No updates available"
+
+        toast = ToastNotification(message, parent=self, timeout_ms=7000)
+
+        # Place it above the status bar, bottom-right.
+        toast.adjustSize()
+        margin = 16
+        status_h = self.statusBar().height() if self.statusBar() else 0
+        x = self.width() - toast.width() - margin
+        y = self.height() - toast.height() - margin - status_h
+        toast.move(max(margin, x), max(margin, y))
+        toast.show()
+
+        def _reposition():
+            if not toast.isVisible():
+                return
+            status_h_local = self.statusBar().height() if self.statusBar() else 0
+            x_local = self.width() - toast.width() - margin
+            y_local = self.height() - toast.height() - margin - status_h_local
+            toast.move(max(margin, x_local), max(margin, y_local))
+
+        # Reposition once after the window has had a layout pass.
+        QTimer.singleShot(0, _reposition)
 
     def setup_ui(self):
         """

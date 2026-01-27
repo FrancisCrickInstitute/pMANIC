@@ -14,8 +14,8 @@ from manic.io.eic_importer import (
 
 
 class UpdateCheckWorker(QThread):
-    # Signal emits: (has_update, latest_version_str, download_url)
-    result = Signal(bool, str, str)
+    # Signal emits: (success, has_update, latest_version_str, download_url)
+    result = Signal(bool, bool, str, str)
 
     # Configure your repository here
     REPO_OWNER = "FrancisCrickInstitute"
@@ -37,7 +37,7 @@ class UpdateCheckWorker(QThread):
                 html_url = data.get("html_url", "")
 
                 if not tag_name:
-                    self.result.emit(False, "", "")
+                    self.result.emit(False, False, "", "")
                     return
 
                 # Parse versions into tuples for comparison (e.g., "4.0.1" -> (4, 0, 1))
@@ -45,16 +45,14 @@ class UpdateCheckWorker(QThread):
                 current_version = __version_info__
 
                 if latest_version > current_version:
-                    self.result.emit(True, tag_name, html_url)
-                    print(f"Latest version: {latest_version}")
+                    self.result.emit(True, True, tag_name, html_url)
                 else:
-                    self.result.emit(False, tag_name, html_url)
-                    print(f"Latest version: {latest_version}")
+                    self.result.emit(True, False, tag_name, html_url)
 
         except Exception as e:
             # Silently fail on network errors or api limits
             print(f"Update check failed: {e}")
-            self.result.emit(False, "", "")
+            self.result.emit(False, False, "", "")
 
     def _parse_version(self, version_str: str) -> Tuple[int, ...]:
         """Convert '1.2.3' string to (1, 2, 3) tuple."""

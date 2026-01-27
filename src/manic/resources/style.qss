@@ -3,6 +3,32 @@ QMainWindow#mainWindow {
     background-color: #F0F0F0;
 }
 
+/* Toast notification */
+QWidget#toastNotification {
+    background-color: rgba(255, 255, 255, 0.95);
+    border: 1px solid #d0d0d0;
+    border-radius: 8px;
+}
+
+QLabel#toastLabel {
+    color: #212529;
+}
+
+QPushButton#toastCloseButton {
+    background-color: transparent;
+    color: #666666;
+    border: none;
+    padding: 0px 6px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+QPushButton#toastCloseButton:hover {
+    background-color: #e9ecef;
+    border-radius: 6px;
+    color: #212529;
+}
+
 QWidget#centralWidget {
     background-color: #F0F0F0;
 }

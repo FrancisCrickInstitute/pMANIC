@@ -2,7 +2,13 @@ from typing import List
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QMessageBox
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+)
 
 from manic.constants import FONT
 from manic.models.database import get_deleted_samples, soft_delete_samples
@@ -21,6 +27,7 @@ class SampleListWidget(QListWidget):
         self.setMinimumHeight(80)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+        self.itemSelectionChanged.connect(self._center_current_item_if_single_selected)
         # Custom scrollbar styling with rounded edges
         self.setStyleSheet("""
             QScrollBar:vertical {
@@ -49,6 +56,17 @@ class SampleListWidget(QListWidget):
         self.addItem(item)
         self.setCurrentItem(item)
 
+    def _center_current_item_if_single_selected(self):
+        selected_items = self.selectedItems()
+        if len(selected_items) != 1:
+            return
+
+        item = self.currentItem() or selected_items[0]
+        if not item or item.text().startswith("- No"):
+            return
+
+        self.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
+
     def update_samples(self, samples: List[str]):
         self.clear()
         if not samples:
@@ -57,6 +75,8 @@ class SampleListWidget(QListWidget):
             for s in samples:
                 self.addItem(QListWidgetItem(s))
             self.selectAll()
+
+        self._center_current_item_if_single_selected()
 
     def _get_valid_selected_samples(self) -> List[str]:
         """Get selected sample names, excluding placeholder items"""

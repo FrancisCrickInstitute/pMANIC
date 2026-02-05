@@ -2,7 +2,13 @@ from typing import List
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QFont
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QMessageBox
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+)
 
 from manic.constants import FONT
 from manic.models.database import get_deleted_compounds, soft_delete_compound
@@ -23,8 +29,10 @@ class CompoundListWidget(QListWidget):
         self.setMinimumHeight(80)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+        self.itemSelectionChanged.connect(self._center_current_item)
         # Track pending selection index for post-deletion selection
         self._pending_selection_index = None
+
         # Custom scrollbar styling with rounded edges
         self.setStyleSheet("""
             QScrollBar:vertical {
@@ -53,6 +61,12 @@ class CompoundListWidget(QListWidget):
         self.addItem(item)
         self.setCurrentItem(item)
 
+    def _center_current_item(self):
+        item = self.currentItem()
+        if not item or item.text().startswith("- No"):
+            return
+        self.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
+
     def update_compounds(self, compounds: List[str]):
         # Block signals during update to prevent multiple selection events
         self.blockSignals(True)
@@ -77,6 +91,7 @@ class CompoundListWidget(QListWidget):
         # Emit a single selection changed signal if we have a selection
         if self.currentItem():
             self.itemSelectionChanged.emit()
+            self._center_current_item()
 
     def _get_total_compound_count(self) -> int:
         """Get total number of real compounds (excluding placeholder)"""

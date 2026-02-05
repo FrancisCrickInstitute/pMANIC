@@ -419,14 +419,23 @@ class GraphView(QWidget):
         context_menu.setAttribute(Qt.WA_DeleteOnClose)
         context_menu.aboutToHide.connect(self._on_context_menu_closed)
 
-        # Add select all/deselect actions (always available)
+        # Selection actions
         select_all_action = context_menu.addAction("Select All")
         select_all_action.triggered.connect(self.select_all_plots)
 
         deselect_all_action = context_menu.addAction("Deselect All")
         deselect_all_action.triggered.connect(self.clear_selection)
 
-        # Add separator before detailed view option
+        select_only_action = context_menu.addAction("Select Only This Sample")
+        if clicked_plot is not None:
+            select_only_action.triggered.connect(
+                lambda: self.select_only_plot(clicked_plot)
+            )
+        else:
+            select_only_action.setEnabled(False)
+            select_only_action.setToolTip("Right-click a specific plot")
+
+        # Plot-specific actions
         context_menu.addSeparator()
 
         # Add detailed view action
@@ -493,6 +502,29 @@ class GraphView(QWidget):
             plot.set_selected(False)
         self._selected_plots.clear()
         self.selection_changed.emit([])
+
+    def select_only_plot(self, plot: ClickableChartView):
+        """Select only the provided plot, deselecting all others."""
+        if plot is None:
+            return
+
+        if plot not in self._current_plots:
+            return
+
+        if (
+            len(self._selected_plots) == 1
+            and plot in self._selected_plots
+            and plot.is_selected
+        ):
+            return
+
+        for selected_plot in list(self._selected_plots):
+            selected_plot.set_selected(False)
+        self._selected_plots.clear()
+
+        plot.set_selected(True)
+        self._selected_plots.add(plot)
+        self.selection_changed.emit([plot.sample_name])
 
     def clear_all_plots(self, force_destroy: bool = True):
         """Clear all plots from the graph view

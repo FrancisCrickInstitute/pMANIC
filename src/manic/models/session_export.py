@@ -12,7 +12,13 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from manic.models.database import get_connection
+from manic.models.database import (
+    get_connection,
+    restore_compounds,
+    restore_samples,
+    soft_delete_compound,
+    soft_delete_sample,
+)
 from manic.__version__ import __version__, APP_NAME
 from manic.io.changelog_sections import (
     format_compounds_table_for_session_export,
@@ -73,7 +79,6 @@ def export_session_method(export_path: str) -> bool:
                 SELECT compound_name, retention_time, loffset, roffset,
                        mass0, label_atoms, deleted
                 FROM compounds
-                WHERE deleted = 0
                 ORDER BY compound_name
             """)
 
@@ -86,6 +91,7 @@ def export_session_method(export_path: str) -> bool:
                         "roffset": row["roffset"],
                         "mass0": row["mass0"],
                         "label_atoms": row["label_atoms"],
+                        "deleted": row["deleted"],
                     }
                 )
 
@@ -112,6 +118,12 @@ def export_session_method(export_path: str) -> bool:
 
             method_data["session_overrides"] = session_overrides
 
+            # Export deleted sample names
+            cursor = conn.execute("""
+                SELECT sample_name FROM samples WHERE deleted = 1 ORDER BY sample_name
+            """)
+            method_data["deleted_samples"] = [row["sample_name"] for row in cursor.fetchall()]
+
         # Add metadata
         method_data["export_metadata"] = {
             "export_date": datetime.datetime.now().isoformat(),
@@ -137,25 +149,28 @@ def export_session_method(export_path: str) -> bool:
         return False
 
 
-def import_session_overrides(import_path: str) -> bool:
+def import_session_overrides(import_path: str) -> tuple[bool, bool]:
     """
     Import session overrides from a method file.
 
     This should only be called after both compounds and CDF data have been loaded.
-    It imports the session-specific integration boundary overrides.
+    It imports the session-specific integration boundary overrides and syncs
+    the deleted state of compounds and samples.
 
     Args:
         import_path: Path to the method file to import
 
     Returns:
-        True if import successful, False otherwise
+        Tuple of (success, has_deletion_data):
+        - success: True if import successful, False otherwise
+        - has_deletion_data: True if the file contained deletion info, False for legacy format
     """
     try:
         import_path = Path(import_path)
 
         if not import_path.exists():
             logger.error(f"Import file does not exist: {import_path}")
-            return False
+            return False, False
 
         # Load method data
         with open(import_path, "r", encoding="utf-8") as f:
@@ -163,9 +178,43 @@ def import_session_overrides(import_path: str) -> bool:
 
         # Import session overrides directly to database
         session_overrides = method_data.get("session_overrides", [])
+        compounds = method_data.get("compounds", [])
+
+        # Check if this is a legacy format (no deletion data)
+        has_deletion_data = (
+            any("deleted" in c for c in compounds) or
+            "deleted_samples" in method_data
+        )
+
+        if has_deletion_data:
+            # Sync compound deleted state with import
+            compounds_to_restore = [c["compound_name"] for c in compounds if not c.get("deleted", 0)]
+            compounds_to_delete = [c["compound_name"] for c in compounds if c.get("deleted", 0)]
+
+            if compounds_to_restore:
+                restored = restore_compounds(compounds_to_restore)
+                if restored:
+                    logger.info(f"Restored {restored} previously deleted compound(s)")
+
+            for name in compounds_to_delete:
+                soft_delete_compound(name)
+
+            # Sync sample deleted state with import
+            deleted_samples_in_import = set(method_data.get("deleted_samples", []))
+            active_samples_in_import = {o["sample_name"] for o in session_overrides}
+
+            samples_to_restore = list(active_samples_in_import - deleted_samples_in_import)
+            if samples_to_restore:
+                restored = restore_samples(samples_to_restore)
+                if restored:
+                    logger.info(f"Restored {restored} previously deleted sample(s)")
+
+            for name in deleted_samples_in_import:
+                soft_delete_sample(name)
+
         if not session_overrides:
             logger.info("No session overrides to import")
-            return True
+            return True, has_deletion_data
 
         applied_count = 0
         skipped_count = 0
@@ -174,12 +223,12 @@ def import_session_overrides(import_path: str) -> bool:
             for override in session_overrides:
                 # Check if both compound and sample exist
                 compound_exists = conn.execute(
-                    "SELECT 1 FROM compounds WHERE compound_name = ? AND deleted = 0",
+                    "SELECT 1 FROM compounds WHERE compound_name = ?",
                     (override["compound_name"],),
                 ).fetchone()
 
                 sample_exists = conn.execute(
-                    "SELECT 1 FROM samples WHERE sample_name = ? AND deleted = 0",
+                    "SELECT 1 FROM samples WHERE sample_name = ?",
                     (override["sample_name"],),
                 ).fetchone()
 
@@ -209,11 +258,11 @@ def import_session_overrides(import_path: str) -> bool:
         logger.info(
             f"Imported {applied_count} session overrides, skipped {skipped_count}"
         )
-        return True
+        return True, has_deletion_data
 
     except Exception as e:
         logger.error(f"Failed to import session overrides: {e}")
-        return False
+        return False, False
 
 
 def validate_method_file(file_path: str) -> tuple[bool, Optional[str]]:
@@ -295,6 +344,7 @@ def get_method_info(file_path: str) -> Optional[Dict[str, Any]]:
         # Basic counts
         compounds = method_data.get("compounds", [])
         session_overrides = method_data.get("session_overrides", [])
+        deleted_samples = method_data.get("deleted_samples", [])
 
         info["compound_count"] = len(compounds)
         info["session_override_count"] = len(session_overrides)
@@ -302,6 +352,15 @@ def get_method_info(file_path: str) -> Optional[Dict[str, Any]]:
         # Get unique sample names from overrides
         unique_samples = set(override["sample_name"] for override in session_overrides)
         info["expected_sample_count"] = len(unique_samples)
+
+        # Deletion data info
+        deleted_compounds = [c for c in compounds if c.get("deleted", 0)]
+        info["deleted_compound_count"] = len(deleted_compounds)
+        info["deleted_sample_count"] = len(deleted_samples)
+        info["has_deletion_data"] = (
+            any("deleted" in c for c in compounds) or
+            "deleted_samples" in method_data
+        )
 
         # File size
         file_path = Path(file_path)

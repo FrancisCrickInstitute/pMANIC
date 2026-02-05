@@ -1449,16 +1449,21 @@ class MainWindow(QMainWindow):
 
             # Get method info to show what will be imported
             method_info = get_method_info(file_path)
-            if method_info and method_info["session_override_count"] > 0:
-                info_text = (
-                    f"Session contains:\n"
-                    f"• {method_info['session_override_count']} integration overrides\n"
-                    f"• Expected samples: {method_info['expected_sample_count']}\n\n"
-                    f"This will import session-specific integration boundaries.\n"
-                    f"Any existing session overrides will be replaced.\n\n"
-                    f"Continue with session import?"
+            if not method_info:
+                msg_box = self._create_message_box(
+                    "warning",
+                    "Invalid Session File",
+                    "Could not read session file information.",
                 )
-            else:
+                msg_box.exec()
+                return
+
+            has_overrides = method_info["session_override_count"] > 0
+            has_deletion_data = method_info.get("has_deletion_data", False)
+            deleted_compound_count = method_info.get("deleted_compound_count", 0)
+            deleted_sample_count = method_info.get("deleted_sample_count", 0)
+
+            if not has_overrides and not has_deletion_data:
                 msg_box = self._create_message_box(
                     "information",
                     "No Session Data",
@@ -1466,6 +1471,26 @@ class MainWindow(QMainWindow):
                 )
                 msg_box.exec()
                 return
+
+            # Build info text based on what the session contains
+            info_lines = ["Session contains:"]
+            if has_overrides:
+                info_lines.append(f"• {method_info['session_override_count']} integration overrides")
+                info_lines.append(f"• Expected samples: {method_info['expected_sample_count']}")
+            if has_deletion_data:
+                if deleted_compound_count > 0:
+                    info_lines.append(f"• {deleted_compound_count} deleted compound(s)")
+                if deleted_sample_count > 0:
+                    info_lines.append(f"• {deleted_sample_count} deleted sample(s)")
+            info_lines.append("")
+            if has_overrides:
+                info_lines.append("This will import session-specific integration boundaries.")
+                info_lines.append("Any existing session overrides will be replaced.")
+            if has_deletion_data:
+                info_lines.append("Compound and sample deletion states will be synchronized.")
+            info_lines.append("")
+            info_lines.append("Continue with session import?")
+            info_text = "\n".join(info_lines)
 
             # Confirm import
             reply = self._show_question_dialog(
@@ -1476,9 +1501,21 @@ class MainWindow(QMainWindow):
                 return
 
             # Import the session overrides
-            success = import_session_overrides(file_path)
+            success, has_deletion_data = import_session_overrides(file_path)
 
             if success:
+                # Show warning for legacy format without deletion data
+                if not has_deletion_data:
+                    legacy_msg = self._create_message_box(
+                        "warning",
+                        "Legacy Session Format",
+                        "This session was exported with an older version of MANIC.",
+                        "The session file does not contain deletion information, "
+                        "so the deleted/restored state of compounds and samples cannot be synchronized.\n\n"
+                        "To include deletion state in future exports, re-export the session with the current version.",
+                    )
+                    legacy_msg.exec()
+
                 msg_box = self._create_message_box(
                     "information",
                     "Session Import Successful",
@@ -1572,6 +1609,12 @@ class MainWindow(QMainWindow):
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""
         try:
+            # Refresh compound and sample lists to reflect deletion state changes
+            active_compounds = list_compound_names()
+            active_samples = list_active_samples()
+            self.toolbar.update_compound_list(active_compounds)
+            self.toolbar.update_sample_list(active_samples)
+
             # If we have compound and samples selected, refresh the display
             selected_compound = self.toolbar.get_selected_compound()
             selected_samples = self.toolbar.get_selected_samples()
@@ -1894,7 +1937,7 @@ class MainWindow(QMainWindow):
                 # Temporarily disconnect signals to prevent cascading events during clear
                 self.toolbar.samples_selected.disconnect()
                 self.toolbar.compound_selected.disconnect()
-                self.toolbar.compound_deleted.disconnect()
+                self.toolbar.compounds_deleted.disconnect()
 
                 progress.setValue(10)
                 progress.setLabelText("Clearing UI state...")
@@ -1968,7 +2011,7 @@ class MainWindow(QMainWindow):
                 # Reconnect signals
                 self.toolbar.samples_selected.connect(self.on_samples_selected)
                 self.toolbar.compound_selected.connect(self.on_compound_selected)
-                self.toolbar.compound_deleted.connect(self.on_compound_deleted)
+                self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
 
                 # Update menu states
                 self._update_menu_states()
@@ -1998,7 +2041,7 @@ class MainWindow(QMainWindow):
                 try:
                     self.toolbar.samples_selected.connect(self.on_samples_selected)
                     self.toolbar.compound_selected.connect(self.on_compound_selected)
-                    self.toolbar.compound_deleted.connect(self.on_compound_deleted)
+                    self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
                 except Exception as ex:
                     pass  # Signals might already be connected
                     logger.error(f"{ex}")

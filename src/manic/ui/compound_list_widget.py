@@ -23,6 +23,8 @@ class CompoundListWidget(QListWidget):
         self.setMinimumHeight(80)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+        # Track pending selection index for post-deletion selection
+        self._pending_selection_index = None
         # Custom scrollbar styling with rounded edges
         self.setStyleSheet("""
             QScrollBar:vertical {
@@ -61,8 +63,13 @@ class CompoundListWidget(QListWidget):
         else:
             for c in compounds:
                 self.addItem(QListWidgetItem(c))
-            # select first by default
-            self.setCurrentRow(0)
+            # Select appropriate row (pending selection from deletion, or first by default)
+            if self._pending_selection_index is not None:
+                row_to_select = min(self._pending_selection_index, len(compounds) - 1)
+                self.setCurrentRow(row_to_select)
+                self._pending_selection_index = None
+            else:
+                self.setCurrentRow(0)
 
         # Re-enable signals after update is complete
         self.blockSignals(False)
@@ -204,6 +211,17 @@ class CompoundListWidget(QListWidget):
         reply = msg_box.exec()
 
         if reply == QMessageBox.StandardButton.Yes:
+            # Calculate the next index to select after deletion
+            current_index = self.currentRow()
+            total_before = self._get_total_compound_count()
+
+            if current_index >= total_before - 1:
+                # Deleting last item, select the new last item (previous one)
+                self._pending_selection_index = max(0, current_index - 1)
+            else:
+                # Deleting non-last item, stay at same index (next item moves up)
+                self._pending_selection_index = current_index
+
             # Perform deletion
             if soft_delete_compound(compound_name):
                 self.compounds_deleted.emit([compound_name])

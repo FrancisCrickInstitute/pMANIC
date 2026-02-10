@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
+    QLabel,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -133,11 +134,23 @@ class Toolbar(QWidget):
             self.standard, alignment=Qt.AlignmentFlag.AlignCenter
         )
 
+        self.mz_indicator = QLabel("m/z - --")
+        self.mz_indicator.setFont(self.standard.font())
+        self.mz_indicator.setAlignment(Qt.AlignCenter)
+        self.mz_indicator.setFixedSize(self.standard.size())
+        self.mz_indicator.setStyleSheet(
+            "background-color: #e9ecef; color: black; border-radius: 10px; padding: 2px;"
+        )
+        indicators_layout.addWidget(
+            self.mz_indicator, alignment=Qt.AlignmentFlag.AlignCenter
+        )
+
         # Compact the container to fit content size
         indicators_container.setMaximumHeight(
             self.loaded_data.sizeHint().height()
             + self.standard.sizeHint().height()
-            + 20  # Account for margins, spacing, and extra vertical gap
+            + self.mz_indicator.sizeHint().height()
+            + 24  # Account for margins, spacing, and extra vertical gap
         )
 
         # Add the container to the main layout with no stretch
@@ -254,12 +267,16 @@ class Toolbar(QWidget):
         if selected_items:
             selected_text = selected_items[0].text()
             self.compound_selected.emit(selected_text)
+            self._set_mz_indicator_from_compound(selected_text)
             # Initial fill - will be updated by plot selection logic after plotting
             self.fill_integration_window(selected_text)
             # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
         else:
             self.compound_selected.emit("")
+            self.mz_indicator.setText("m/z - --")
+
+
 
     def on_internal_standard_selected(self, compound_name: str):
         """
@@ -277,6 +294,7 @@ class Toolbar(QWidget):
     def update_compound_list(self, compounds: List[str]):
         """Update the compounds list widget"""
         self.compound_list.update_compounds(compounds)
+        self._set_mz_indicator_from_compound(self.get_selected_compound())
 
     def update_sample_list(self, samples: List[str]):
         """Update the samples list widget"""
@@ -322,6 +340,13 @@ class Toolbar(QWidget):
         populated fields with base compound data, overwriting session values.
         """
         pass
+
+    def _set_mz_indicator_from_compound(self, compound_name: str) -> None:
+        try:
+            comp = read_compound(compound_name)
+            self.mz_indicator.setText(f"m/z - {comp.mass0}")
+        except Exception:
+            self.mz_indicator.setText("m/z - --")
 
     def _set_baseline_checkbox_from_compound(self, compound_name: str):
         """Set baseline correction checkbox state from compound data."""

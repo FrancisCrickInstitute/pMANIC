@@ -11,20 +11,23 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QPainter
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QHBoxLayout
+from PySide6.QtGui import QColor, QCursor, QFont, QPainter
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QToolTip, QVBoxLayout
 
 from manic.ui.colors import label_colors
 
 
 class ChartPopupDialog(QDialog):
     """Modal dialog showing an enlarged version of toolbar charts with sample names visible."""
-    
+
     def __init__(self, chart_type: str, title: str, data, sample_names: List[str], parent=None):
         super().__init__(parent)
         self.chart_type = chart_type
         self.data = data
         self.sample_names = sample_names
+
+        self._hover_categories: list[str] | None = None
+        self._total_abundance_scale_factor: float = 1.0
         
         self.setWindowTitle(f"MANIC - {title}")
         self.setModal(True)
@@ -122,11 +125,18 @@ class ChartPopupDialog(QDialog):
         max_abundance = float(np.max(self.data)) if len(self.data) > 0 else 1.0
         scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
         scale_factor = 10**scale_exp if scale_exp != 0 else 1
+        self._total_abundance_scale_factor = float(scale_factor)
         
         # Add scaled abundance values
         for abundance in self.data:
             scaled_abundance = abundance / scale_factor
             bar_set.append(scaled_abundance)
+
+        bar_set.hovered.connect(
+            lambda status, index, bs=bar_set: self._on_total_abundance_bar_hover(
+                bs, status, index
+            )
+        )
         
         bar_series.append(bar_set)
         self.chart.addSeries(bar_series)
@@ -166,6 +176,11 @@ class ChartPopupDialog(QDialog):
                     ratio = 1.0 if i == 0 else 0.0  # Single trace case
                 bar_set.append(ratio)
             
+            bar_set.hovered.connect(
+                lambda status, index, bs=bar_set: self._on_stacked_bar_segment_hover(
+                    bs, status, index
+                )
+            )
             stacked_series.append(bar_set)
         
         self.chart.addSeries(stacked_series)
@@ -182,6 +197,62 @@ class ChartPopupDialog(QDialog):
         stacked_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         stacked_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
     
+    def closeEvent(self, event) -> None:
+        QToolTip.hideText()
+        super().closeEvent(event)
+
+    def _sample_name_for_hover_index(self, index: int) -> str | None:
+        if index < 0:
+            return None
+
+        if self._hover_categories is None:
+            return None
+
+        if index >= len(self._hover_categories):
+            return None
+
+        return self._hover_categories[index]
+
+    def _on_stacked_bar_segment_hover(
+        self, bar_set: QBarSet, status: bool, index: int
+    ) -> None:
+        if not status:
+            QToolTip.hideText()
+            return
+
+        sample_name = self._sample_name_for_hover_index(index)
+        if sample_name is None:
+            return
+
+        ratio = float(bar_set.at(index))
+        percent = ratio * 100.0
+        mx_label = bar_set.label()
+
+        QToolTip.showText(
+            QCursor.pos(),
+            f"{sample_name}\n{mx_label}: {percent:.1f}%",
+            self.chart_view,
+        )
+
+    def _on_total_abundance_bar_hover(
+        self, bar_set: QBarSet, status: bool, index: int
+    ) -> None:
+        if not status:
+            QToolTip.hideText()
+            return
+
+        sample_name = self._sample_name_for_hover_index(index)
+        if sample_name is None:
+            return
+
+        scaled_value = float(bar_set.at(index))
+
+        QToolTip.showText(
+            QCursor.pos(),
+            f"{sample_name}\nTotal: {scaled_value:.3g}",
+            self.chart_view,
+        )
+
     def _setup_total_abundance_axes(self, max_abundance: float, scale_exp: int, scale_factor: float):
         """Setup axes for total abundance chart."""
         # Remove existing axes
@@ -217,6 +288,8 @@ class ChartPopupDialog(QDialog):
         # Add axes to chart
         self.chart.addAxis(x_axis, Qt.AlignBottom)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
+
+        self._hover_categories = list(reversed_names)
     
     def _setup_isotopologue_axes(self):
         """Setup axes for isotopologue chart."""
@@ -237,6 +310,7 @@ class ChartPopupDialog(QDialog):
         # Y-axis (vertical): Sample names - NOW VISIBLE
         y_axis = QBarCategoryAxis()
         y_axis.append(self.sample_names)
+        self._hover_categories = list(self.sample_names)
         y_axis.setLabelsFont(QFont("Arial", 10))
         y_axis.setGridLineVisible(False)
         y_axis.setLabelsVisible(True)  # Show sample names

@@ -565,10 +565,30 @@ class MainWindow(QMainWindow):
 
     def _import_ok(self, rows: int):
         self.progress_dialog.close()
-        msg_box = self._create_message_box(
-            "information", "Import OK", f"Data for {rows} EICs successfully extracted."
+
+        # Non-blocking success notification (avoid modal popup)
+        toast = ToastNotification(
+            f"Imported {rows} EICs", parent=self, timeout_ms=7000
         )
-        msg_box.exec()
+        toast.adjustSize()
+        margin = 16
+        status_h = self.statusBar().height() if self.statusBar() else 0
+        x = self.width() - toast.width() - margin
+        y = self.height() - toast.height() - margin - status_h
+        toast.move(max(margin, x), max(margin, y))
+        toast.show()
+
+        def _reposition():
+            if not toast.isVisible():
+                return
+            status_h_local = self.statusBar().height() if self.statusBar() else 0
+            x_local = self.width() - toast.width() - margin
+            y_local = self.height() - toast.height() - margin - status_h_local
+            toast.move(max(margin, x_local), max(margin, y_local))
+
+        # Reposition once after the window has had a layout pass.
+        QTimer.singleShot(0, _reposition)
+
         # set raw data indicator to green
         self.toolbar.update_label_colours(True, True)
 

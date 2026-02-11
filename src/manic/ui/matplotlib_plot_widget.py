@@ -123,11 +123,11 @@ class CompactNavigationToolbar(QWidget):
             }}
         """
 
-        # Reset button: returns plot to original view state
+        # Reset button: returns plot to a deterministic data-fitted view state
         self.home_btn = QToolButton()
         self.home_btn.setText("↻")  # Circular arrow for reset
         self.home_btn.setToolTip("Reset view")
-        self.home_btn.clicked.connect(self.toolbar.home)
+        self.home_btn.clicked.connect(self._reset_view)
         self.home_btn.setStyleSheet(button_style)
         layout.addWidget(self.home_btn)
 
@@ -170,6 +170,69 @@ class CompactNavigationToolbar(QWidget):
         else:
             self.toolbar.zoom()  # Toggle off
 
+    def _reset_view(self):
+        """Reset to a fit-to-data view.
+
+        Matplotlib's nav-stack home can become unstable in Qt embed cases,
+        especially for stem plots. This computes limits from the artists we draw.
+        """
+        try:
+            # Turn off active modes first
+            if self.pan_btn.isChecked():
+                self.pan_btn.setChecked(False)
+                self.toolbar.pan()
+            if self.zoom_btn.isChecked():
+                self.zoom_btn.setChecked(False)
+                self.toolbar.zoom()
+
+            fig = getattr(self.canvas, "figure", None)
+            if fig is None or not fig.axes:
+                return
+            ax = fig.axes[0]
+
+            # Prefer stored line data when available
+            data_lines = getattr(self.parent(), "data_lines", None)
+            stem_data = getattr(self.parent(), "_last_stem_data", None)
+
+            if stem_data is not None:
+                x_data, y_data = stem_data
+                if x_data is None or y_data is None or len(x_data) == 0:
+                    return
+                x_min = float(np.min(x_data))
+                x_max = float(np.max(x_data))
+                x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 10.0
+                ax.set_xlim(max(0.0, x_min - x_padding), x_max + x_padding)
+
+                y_max = float(np.max(y_data))
+                ax.set_ylim(0.0, y_max * 1.1 if y_max > 0 else 1.0)
+            elif data_lines:
+                all_x = []
+                all_y = []
+                for x_vals, y_vals in data_lines:
+                    if x_vals is None or y_vals is None or len(x_vals) == 0:
+                        continue
+                    all_x.append(np.asarray(x_vals, dtype=np.float64))
+                    all_y.append(np.asarray(y_vals, dtype=np.float64))
+                if not all_x or not all_y:
+                    return
+                x_concat = np.concatenate(all_x)
+                y_concat = np.concatenate(all_y)
+                x_min = float(np.min(x_concat))
+                x_max = float(np.max(x_concat))
+                y_min = float(np.min(y_concat))
+                y_max = float(np.max(y_concat))
+                x_pad = (x_max - x_min) * 0.02 if x_max > x_min else 1.0
+                y_pad = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+                ax.set_xlim(x_min - x_pad, x_max + x_pad)
+                ax.set_ylim(y_min - y_pad, y_max + y_pad)
+            else:
+                ax.relim()
+                ax.autoscale_view()
+
+            self.canvas.draw_idle()
+        except Exception as e:
+            logger.error(f"Failed to reset view: {e}")
+
     def cleanup(self):
         """Cleanup toolbar resources."""
         if hasattr(self, "toolbar") and self.toolbar:
@@ -198,6 +261,7 @@ class MatplotlibPlotWidget(QWidget):
 
         # Initialize data storage for plot management
         self.data_lines = []
+        self._last_stem_data = None
 
         self._setup_ui()
 
@@ -383,7 +447,11 @@ class MatplotlibPlotWidget(QWidget):
 
             if len(x_data) == 0:
                 logger.warning("No valid MS data to plot")
+                self._last_stem_data = None
                 return
+
+            # Store stem data for robust reset behavior
+            self._last_stem_data = (x_data, y_data)
 
             # Use matplotlib stem plot
             markerline, stemlines, baseline = self.ax.stem(x_data, y_data, basefmt=" ")

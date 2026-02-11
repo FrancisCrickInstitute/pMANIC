@@ -252,7 +252,7 @@ The Excel file contains five worksheets representing successive stages of analys
 
 **Validation & Errors**   
 * **Invalid Peaks:** Cells corresponding to peaks that failed the minimum area validation (red plots) will be highlighted with a **light red background** in the Excel file.
-* **Abundance Errors:** If the internal standard is missing required calibration fields (`int_std_amount` or `amount_in_std_mix`), the export will stop with an error message to prevent the generation of incorrect quantitative data.
+* **Abundance Errors:** If the internal standard is missing required calibration fields (`int_std_amount` or `amount_in_std_mix`), MANIC will prompt you to either **cancel** and fix the compound list, or **continue** in unnormalized **Peak Area** mode for that export.
 
 ---
 

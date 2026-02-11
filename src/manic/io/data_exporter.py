@@ -43,6 +43,55 @@ from manic.sheet_generators import (
 logger = logging.getLogger(__name__)
 
 
+def validate_internal_standard_metadata(
+    provider: DataProvider, internal_standard_compound: Optional[str]
+) -> tuple[bool, list[str]]:
+    """Validate internal standard metadata required for calibrated exports.
+
+    Returns:
+        (ok, problems)
+
+    Notes:
+        The internal standard requires:
+        - int_std_amount > 0 (amount added to biological samples)
+        - amount_in_std_mix > 0 (concentration in standard mixture / MM files)
+
+        If either field is missing or 0, the export UI can fall back to Peak Area mode.
+    """
+
+    if not internal_standard_compound:
+        return True, []
+
+    compounds = provider.get_all_compounds()
+    intstd_rows = [
+        c for c in compounds if c["compound_name"] == internal_standard_compound
+    ]
+
+    if not intstd_rows:
+        return (
+            False,
+            [
+                (
+                    f"Internal standard '{internal_standard_compound}' not found in compound list"
+                )
+            ],
+        )
+
+    intstd_row = intstd_rows[0]
+
+    problems: list[str] = []
+
+    int_std_amount_val = intstd_row["int_std_amount"]
+    if int_std_amount_val is None or float(int_std_amount_val) <= 0:
+        problems.append("Missing or zero 'int_std_amount'")
+
+    amount_in_std_mix_val = intstd_row["amount_in_std_mix"]
+    if amount_in_std_mix_val is None or float(amount_in_std_mix_val) <= 0:
+        problems.append("Missing or zero 'amount_in_std_mix'")
+
+    return (len(problems) == 0), problems
+
+
 class DataExporter:
     """
     Streaming Excel exporter for mass spectrometry data.
@@ -138,7 +187,7 @@ class DataExporter:
         return validation_data
 
     def _integrate_peak(
-        self, intensity_data: np.ndarray, time_data: np.ndarray = None
+        self, intensity_data: np.ndarray, time_data: Optional[np.ndarray] = None
     ) -> float:
         """Delegates to processors.integration.integrate_peak (backward-compatible stub)."""
         from manic.processors.integration import integrate_peak
@@ -394,9 +443,9 @@ class DataExporter:
         time_data: np.ndarray,
         intensity_data: np.ndarray,
         label_atoms: int,
-        retention_time: float = None,
-        loffset: float = None,
-        roffset: float = None,
+        retention_time: Optional[float] = None,
+        loffset: Optional[float] = None,
+        roffset: Optional[float] = None,
     ) -> List[float]:
         """Delegates to processors.integration.calculate_peak_areas (backward-compatible stub)."""
         from manic.processors.integration import calculate_peak_areas as _calc

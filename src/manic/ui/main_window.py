@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 
 from manic.__version__ import APP_NAME, __version__
 from manic.io.compounds_import import import_compound_excel
-from manic.io.data_exporter import DataExporter
+from manic.io.data_exporter import DataExporter, validate_internal_standard_metadata
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
@@ -2374,6 +2374,8 @@ class MainWindow(QMainWindow):
             # Get current internal standard selection from toolbar
             internal_standard = self.toolbar.get_internal_standard()
 
+            internal_standard_for_export = internal_standard
+
             if not internal_standard:
                 reply = self._show_question_dialog(
                     "No Internal Standard Selected",
@@ -2382,6 +2384,29 @@ class MainWindow(QMainWindow):
                 )
                 if reply != QMessageBox.Yes:
                     return
+            else:
+                ok, problems = validate_internal_standard_metadata(
+                    DataProvider(use_legacy_integration=self.use_legacy_integration),
+                    internal_standard,
+                )
+                if not ok:
+                    problems_text = "\n".join(f"• {p}" for p in problems)
+                    reply = self._show_question_dialog(
+                        "Internal Standard Metadata Missing",
+                        (
+                            f"Internal standard '{internal_standard}' is missing required metadata. "
+                            "Proceed with export in Peak Area mode instead?"
+                        ),
+                        (
+                            "Fix the compound list and re-import to enable calibrated Abundances.\n\n"
+                            "Problems found:\n"
+                            f"{problems_text}\n\n"
+                            "If you continue, MANIC will export without an internal standard."
+                        ),
+                    )
+                    if reply != QMessageBox.Yes:
+                        return
+                    internal_standard_for_export = None
 
             # Create progress dialog
             progress_dialog = QProgressDialog(
@@ -2394,7 +2419,7 @@ class MainWindow(QMainWindow):
 
             # Create exporter and set internal standard and integration mode
             exporter = DataExporter()
-            exporter.set_internal_standard(internal_standard)
+            exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
             exporter.set_internal_standard_reference_isotope(

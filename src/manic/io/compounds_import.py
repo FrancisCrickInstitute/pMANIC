@@ -167,17 +167,36 @@ def import_compound_excel(filepath: str | Path) -> int:
             "Please provide a compound list with all required columns."
         )
 
+    # ---- hard-fail validation: retention times must be present -----
+    # When retention times are missing, CDF import can fail later with unclear errors.
+    # Fail early (on compound list load) with a simple actionable message.
+    def _is_missing_tr(v) -> bool:
+        if pd.isna(v):
+            return True
+        if isinstance(v, str) and not v.strip():
+            return True
+        try:
+            return not pd.notna(float(v))
+        except Exception:
+            return True
+
+    if any(_is_missing_tr(v) for v in df["tr"].tolist()):
+        raise ValueError(
+            "Compound list contains rows missing retention time (tR). "
+            "Please fill in tR (minutes) for all compounds and reload the compound list."
+        )
+
     # ---- validate & prepare parameter list -----------------------
     # iterable of tuples required format for sqlite
     params: list[tuple] = []
     for idx, row in df.iterrows():
         try:
             # Get optional fields with defaults using pandas Series safe access
-            formula = row["formula"] if "formula" in row and pd.notna(row["formula"]) else None
-            label_type = row["labeltype"] if "labeltype" in row and pd.notna(row["labeltype"]) else "C"
-            tbdms = int(row["tbdms"]) if "tbdms" in row and pd.notna(row["tbdms"]) else 0
-            meox = int(row["meox"]) if "meox" in row and pd.notna(row["meox"]) else 0
-            me = int(row["me"]) if "me" in row and pd.notna(row["me"]) else 0
+            formula = row["formula"] if pd.notna(row["formula"]) else None
+            label_type = row["labeltype"] if pd.notna(row["labeltype"]) else "C"
+            tbdms = int(row["tbdms"]) if pd.notna(row["tbdms"]) else 0
+            meox = int(row["meox"]) if pd.notna(row["meox"]) else 0
+            me = int(row["me"]) if pd.notna(row["me"]) else 0
 
             # Get new MRRF and MM file fields (normalized keys cover variants with spaces/underscores)
             amount_in_std_mix = (

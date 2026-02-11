@@ -84,8 +84,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'MANIC',
         'CFBundleDisplayName': 'MANIC',
-        'CFBundleVersion': '4.0.1',
-        'CFBundleShortVersionString': '4.0.1',
+        'CFBundleVersion': '4.1.0',
+        'CFBundleShortVersionString': '4.1.0',
         'NSHighResolutionCapable': 'True',
     },
 )

@@ -52,12 +52,13 @@ def write(
     """
     worksheet = workbook.add_worksheet("% Carbons Labelled")
     invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
+    baseline_off_header_format = workbook.add_format({"bg_color": "#FFF2CC"})
 
     # 1. Fetch Metadata
     if provider is None:
         with get_connection() as conn:
             compounds_query = """
-                SELECT compound_name, mass0, retention_time, label_atoms, mm_files
+                SELECT compound_name, mass0, retention_time, label_atoms, mm_files, baseline_correction
                 FROM compounds
                 WHERE deleted=0
                 ORDER BY id
@@ -132,8 +133,16 @@ def write(
 
     worksheet.write(0, 0, "Compound Name")
     worksheet.write(0, 1, None)
-    for col, name in enumerate(compound_names):
-        worksheet.write(0, col + 2, name)
+    for col, compound_row in enumerate(compounds):
+        if isinstance(compound_row, dict):
+            name = compound_row["compound_name"]
+            baseline_flag = bool(compound_row.get("baseline_correction"))
+        else:
+            name = compound_row["compound_name"]
+            baseline_flag = bool(compound_row["baseline_correction"])
+
+        header_fmt = None if baseline_flag else baseline_off_header_format
+        worksheet.write(0, col + 2, name, header_fmt)
 
     worksheet.write(1, 0, "Mass")
     worksheet.write(1, 1, None)

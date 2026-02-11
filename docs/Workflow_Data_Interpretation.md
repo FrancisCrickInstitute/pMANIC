@@ -97,10 +97,15 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 ## Color Codes & Validation
 MANIC automatically validates every peak during export. You may see coloured cells in your Excel file:
 
-* **⚪ White (Normal):** Valid peak. Area > Threshold.
+* **⚪ White (Normal):** No warning/flag applied.
 * **🔴 Light Red (Warning):** **Low Intensity.**
-    * The total peak area was less than **5%** (default) of the Internal Standard's area.
+    * The peak area was less than **5%** (default) of the Internal Standard reference peak area.
     * *Action:* Check the raw chromatogram. This data may be noise.
+* **🟡 Pale Yellow (Info):** **Baseline correction disabled** for this compound.
+    * Highlights the compound name in the header row across sheets.
+    * This corresponds to the compound's **Baseline correction** checkbox being unchecked in the UI.
+* **⬜ Grey (Info):** **Relative units** in the **Abundances** sheet.
+    * In the Abundances sheet "Units" row, a grey cell indicates the value is reported as `Relative`/`rel` rather than `nmol`.
 
 > **📖 Deep Dive:**
 > See **[Reference: Peak Validation](Reference_Peak_Validation.md)** for details on threshold algorithms and how to adjust them.

@@ -25,6 +25,8 @@ def write(
     """
     worksheet = workbook.add_worksheet("Abundances")
     invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
+    rel_unit_format = workbook.add_format({"bg_color": "#D9D9D9"})
+    baseline_off_header_format = workbook.add_format({"bg_color": "#FFF2CC"})
 
     # Helper to get values from either a sqlite Row or a dictionary safely
     def _row_get(row, key):
@@ -39,7 +41,7 @@ def write(
     if provider is None:
         with get_connection() as conn:
             compounds_query = """
-                SELECT compound_name, mass0, retention_time, amount_in_std_mix, int_std_amount, mm_files
+                SELECT compound_name, mass0, retention_time, amount_in_std_mix, int_std_amount, mm_files, baseline_correction
                 FROM compounds
                 WHERE deleted=0
                 ORDER BY id
@@ -72,8 +74,11 @@ def write(
     # Headers (5 rows)
     worksheet.write(0, 0, "Compound Name")
     worksheet.write(0, 1, None)
-    for col, compound_name in enumerate(compound_names):
-        worksheet.write(0, col + 2, compound_name)
+    for col, compound_row in enumerate(compounds):
+        compound_name = compound_row["compound_name"]
+        baseline_flag = bool(_row_get(compound_row, "baseline_correction"))
+        header_fmt = None if baseline_flag else baseline_off_header_format
+        worksheet.write(0, col + 2, compound_name, header_fmt)
 
     worksheet.write(1, 0, "Mass")
     worksheet.write(1, 1, None)
@@ -100,7 +105,9 @@ def write(
             # refer to amount as "Relative" rather than "nmol" if amount_in_std_mix is 0 or missing
             amt_in_mix = _row_get(compound_row, "amount_in_std_mix")
             unit = "nmol" if amt_in_mix and float(amt_in_mix) > 0 else "Relative"
-        worksheet.write(4, col + 2, unit)
+
+        unit_fmt = rel_unit_format if str(unit).strip().lower() in {"rel", "relative"} else None
+        worksheet.write(4, col + 2, unit, unit_fmt)
 
     # Pre-calculate MRRF values using MM files and internal standard
     mrrf_values = {}

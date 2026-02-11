@@ -22,12 +22,13 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     
     # Create format for invalid cells (light red background)
     invalid_format = workbook.add_format({'bg_color': '#FFCCCC'})
+    baseline_off_header_format = workbook.add_format({'bg_color': '#FFF2CC'})
 
     # Get all compounds and samples
     if provider is None:
         with get_connection() as conn:
             compounds_query = """
-                SELECT compound_name, label_atoms, mass0, retention_time, mm_files
+                SELECT compound_name, label_atoms, mass0, retention_time, mm_files, baseline_correction
                 FROM compounds 
                 WHERE deleted=0 
                 ORDER BY id
@@ -45,11 +46,24 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     isotopes = []
     retention_times = []
 
+    baseline_by_name = {
+        (
+            compound_row.get("compound_name")
+            if isinstance(compound_row, dict)
+            else compound_row["compound_name"]
+        ): bool(
+            compound_row.get("baseline_correction")
+            if isinstance(compound_row, dict)
+            else compound_row["baseline_correction"]
+        )
+        for compound_row in compounds
+    }
+
     for compound_row in compounds:
-        compound_name = compound_row['compound_name']
-        label_atoms = compound_row['label_atoms'] or 0
-        mass0 = compound_row['mass0'] or 0
-        rt = compound_row['retention_time'] or 0
+        compound_name = compound_row["compound_name"]
+        label_atoms = compound_row["label_atoms"] or 0
+        mass0 = compound_row["mass0"] or 0
+        rt = compound_row["retention_time"] or 0
 
         num_isotopologues = label_atoms + 1
 
@@ -63,7 +77,9 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     worksheet.write(0, 0, 'Compound Name')
     worksheet.write(0, 1, None)
     for col, compound_name in enumerate(compound_names):
-        worksheet.write(0, col + 2, compound_name)
+        baseline_flag = baseline_by_name.get(compound_name, True)
+        header_fmt = None if baseline_flag else baseline_off_header_format
+        worksheet.write(0, col + 2, compound_name, header_fmt)
 
     worksheet.write(1, 0, 'Mass')
     worksheet.write(1, 1, None)

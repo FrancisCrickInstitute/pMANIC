@@ -46,7 +46,7 @@ class DataProvider:
         with get_connection() as conn:
             sql = (
                 "SELECT compound_name, label_atoms, mass0, retention_time, loffset, roffset, "
-                "amount_in_std_mix, int_std_amount, mm_files, formula "
+                "amount_in_std_mix, int_std_amount, mm_files, formula, baseline_correction "
                 "FROM compounds WHERE deleted=0 ORDER BY id"
             )
             return list(conn.execute(sql))

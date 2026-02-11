@@ -2,6 +2,8 @@ import logging
 import os
 from pathlib import Path
 
+import numpy as np
+
 from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
@@ -35,6 +37,8 @@ from manic.io.data_exporter import DataExporter, validate_internal_standard_meta
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
+from manic.io.compound_reader import read_compound_with_session
+from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
@@ -693,10 +697,21 @@ class MainWindow(QMainWindow):
                 abundances, eics = (
                     self.toolbar.isotopologue_ratios.get_last_total_abundances()
                 )
+
+                # Fallback: total abundance should always be available, even for unlabeled
+                # (single-trace) compounds where the isotopologue widget clears itself.
+                if abundances is None:
+                    abundances = self._calculate_total_abundances_fallback(
+                        compound_name, current_eics
+                    )
+                    eics = current_eics
+
                 if abundances is not None:
                     self.toolbar.total_abundance.update_abundance_from_data(
                         compound_name, eics, abundances
                     )
+                else:
+                    self.toolbar.total_abundance._clear_chart()
         except LookupError as err:
             msg_box = self._create_message_box("warning", "Missing data", str(err))
             msg_box.exec()
@@ -722,6 +737,33 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error getting current EICs: {e}")
             return []
+
+    def _calculate_total_abundances_fallback(self, compound_name: str, eics):
+        """Compute total abundances directly from single-trace EICs.
+
+        This is a fallback path so Total Abundance can still render when the
+        isotopologue widget doesn't populate its cached abundance array.
+        """
+        if not eics or not compound_name:
+            return None
+
+        abundances = []
+        for eic in eics:
+            compound = read_compound_with_session(compound_name, eic.sample_name)
+            baseline_correction = bool(getattr(compound, "baseline_correction", 0))
+
+            isotope_areas = calculate_peak_areas(
+                eic.time,
+                eic.intensity,
+                label_atoms=0,
+                retention_time=compound.retention_time,
+                loffset=compound.loffset,
+                roffset=compound.roffset,
+                baseline_correction=baseline_correction,
+            )
+            abundances.append(float(sum(isotope_areas)))
+
+        return np.asarray(abundances, dtype=float)
 
     def on_compound_selected(self, compound_selected):
         """
@@ -887,14 +929,19 @@ class MainWindow(QMainWindow):
                 current_compound, current_eics
             )
 
-            # Share calculated abundances
-            abundances, eics = (
-                self.toolbar.isotopologue_ratios.get_last_total_abundances()
-            )
+
+            if abundances is None:
+                abundances = self._calculate_total_abundances_fallback(
+                    current_compound, current_eics
+                )
+                eics = current_eics
+
             if abundances is not None:
                 self.toolbar.total_abundance.update_abundance_from_data(
                     current_compound, eics, abundances
                 )
+            else:
+                self.toolbar.total_abundance._clear_chart()
 
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         """Handle when session data is applied - refresh plots to show updated parameters"""

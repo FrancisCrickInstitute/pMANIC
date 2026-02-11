@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 class UpdateOldDataDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Isotope Correct External Data")
+        self.setWindowTitle("Process External Data")
         self.setModal(True)
 
         self.compounds_path = None

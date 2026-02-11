@@ -1,7 +1,7 @@
-# Workflow: Isotope Correct External Data
+# Workflow: Process External Data
 
 ## Overview
-The **Isotope Correct External Data** feature allows you to re-process external results using MANIC's algorithms, even if you have lost the original raw mass spectrometry files (CDFs).
+The **Process External Data** feature allows you to re-process external results using MANIC's algorithms, even if you have lost the original raw mass spectrometry files (CDFs).
 
 It reads a **"Raw Values"** Excel file, pairs it with a **Compound List**, and generates a fully calculated result workbook (including Corrected Values, % Label, and Abundances).
 
@@ -19,7 +19,7 @@ Use this workflow **only** if:
 
 Because the original raw time-series data is missing, MANIC cannot perform its standard **Per-Timepoint Correction**. Instead, it must use an **Approximate Mode**:
 
-| Standard Workflow | Approximate Mode (Isotope Correct External Data) |
+| Standard Workflow | Approximate Mode (Process External Data) |
 | :--- | :--- |
 | **1. Correct Timepoints** (Matrix algebra on every scan) | **1. Sum Totals** (Read integer areas from Excel) |
 | **2. Integrate** ("Clean" peak area) | **2. Correct Totals** (Apply matrix algebra to the single sum) |
@@ -37,7 +37,7 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 * **Matching Compound List:** A Compound Definition file (Step 1) that matches the metabolite names in your legacy file. This is required to provide the *Molecular Formulas* and *Label Atoms* needed for correction.
 
 ### Steps
-1.  Navigate to **File → Isotope Correct External Data...**.
+1.  Navigate to **File → Process External Data...**.
 2.  **Select Results File:** Browse to your inputs file.
 3.  **Select Compound List:** Browse to the corresponding definition file.
 4.  **Output Filename:** Choose where to save the new results (e.g., `reprocessed_results.xlsx`).

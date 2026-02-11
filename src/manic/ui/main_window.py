@@ -269,7 +269,7 @@ class MainWindow(QMainWindow):
 
         # Add separator and Update Old Data action
         file_menu.addSeparator()
-        self.update_old_data_action = QAction("Isotope Correct External Data...", self)
+        self.update_old_data_action = QAction("Process External Data...", self)
         self.update_old_data_action.triggered.connect(self.update_old_data)
         file_menu.addAction(self.update_old_data_action)
 
@@ -1600,7 +1600,7 @@ class MainWindow(QMainWindow):
             return
 
         progress_dialog = QProgressDialog("Rebuilding data export...", "", 0, 100, self)
-        progress_dialog.setWindowTitle("Isotope Correct External Data")
+        progress_dialog.setWindowTitle("Process External Data")
         progress_dialog.setWindowModality(Qt.WindowModal)
         progress_dialog.setMinimumDuration(0)
         progress_dialog.setCancelButton(None)

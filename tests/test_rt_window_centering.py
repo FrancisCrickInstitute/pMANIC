@@ -14,6 +14,7 @@ from manic.ui.integration_window_widget import (
     calculate_integration_boundaries,
     calculate_minimum_rt_window,
     check_boundaries_within_window,
+    IntegrationWindow,
 )
 
 
@@ -241,14 +242,42 @@ class TestEdgeCases:
 
 class TestBufferConstant:
     """Test that buffer constant is accessible and works correctly."""
-    
+
     def test_buffer_from_constants(self):
         """Test that default buffer can be imported from constants."""
         from manic.constants import DEFAULT_RT_WINDOW_BUFFER
-        
+
         # Buffer should be a positive number
         assert DEFAULT_RT_WINDOW_BUFFER > 0
-        
+
         # Test it works with the calculation function
-        min_window = calculate_minimum_rt_window(0.2, 0.3, buffer=DEFAULT_RT_WINDOW_BUFFER)
+        min_window = calculate_minimum_rt_window(
+            0.2, 0.3, buffer=DEFAULT_RT_WINDOW_BUFFER
+        )
         assert min_window == 0.3 + DEFAULT_RT_WINDOW_BUFFER
+
+
+class TestPerSampleReloadChecking:
+    def test_reload_check_uses_per_sample_rt(self):
+        # Avoid constructing QWidget subclasses in tests (requires a QApplication).
+        w = IntegrationWindow.__new__(IntegrationWindow)
+        w._current_compound = "cmpd"
+        w._data_window_bounds = {
+            ("cmpd", "s1"): (9.0, 11.0),
+            ("cmpd", "s2"): (19.0, 21.0),
+        }
+
+        # same offsets, different RTs per sample
+        sample_rts = {"s1": 10.0, "s2": 20.0}
+
+        # boundaries stay within each window
+        need_reload = w._get_samples_needing_reload_with_sample_rts(
+            sample_rts, new_loffset=0.5, new_roffset=0.5, samples_to_check=["s1", "s2"]
+        )
+        assert need_reload == []
+
+        # now make offsets big enough to exceed both windows
+        need_reload = w._get_samples_needing_reload_with_sample_rts(
+            sample_rts, new_loffset=2.0, new_roffset=2.0, samples_to_check=["s1", "s2"]
+        )
+        assert set(need_reload) == {"s1", "s2"}

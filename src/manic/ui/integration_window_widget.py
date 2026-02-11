@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Signal
@@ -23,9 +25,53 @@ from manic.utils.utils import load_stylesheet
 # due to integration boundaries falling outside the currently stored data window.
 
 
+def _parse_rt_text(rt_text: str) -> tuple[str, float, Optional[tuple[float, float]]]:
+    """Parse an RT input field value.
+
+    Returns:
+        (mode, rt_value, rt_range)
+
+    Where:
+        - mode is "single" or "range"
+        - rt_value is the representative RT (single value, or min_rt for a range)
+        - rt_range is (min_rt, max_rt) when mode == "range", else None
+
+    Raises:
+        ValueError if the format is invalid.
+    """
+    """Parse an RT input field value.
+
+    Returns:
+        ("single", rt_float) OR ("range", (min_rt, max_rt))
+
+    Raises:
+        ValueError if the format is invalid.
+    """
+    import re
+
+    text = (rt_text or "").strip()
+    if not text:
+        raise ValueError("Retention time cannot be empty")
+
+    # Robust range parsing: allow whitespace variations around '-'
+    m = re.match(r"^\s*([0-9]*\.?[0-9]+)\s*-\s*([0-9]*\.?[0-9]+)\s*$", text)
+    if m:
+        min_rt = float(m.group(1))
+        max_rt = float(m.group(2))
+        if min_rt <= 0 or max_rt <= 0 or min_rt > max_rt:
+            raise ValueError("Invalid retention time range")
+        return "range", min_rt, (min_rt, max_rt)
+
+    rt = float(text)
+    if rt <= 0:
+        raise ValueError("Retention time must be positive")
+    return "single", rt, None
+
+
 def calculate_integration_boundaries(
     rt: float, loffset: float, roffset: float
 ) -> tuple[float, float]:
+
     """
     Calculate left and right integration boundaries from retention time and offsets.
 
@@ -140,8 +186,11 @@ class IntegrationWindow(QGroupBox):
         self._data_window_bounds: Dict[Tuple[str, str], Tuple[float, float]] = {}
 
         # Store pending session update when reload is triggered
-        # Tuple of (retention_time, loffset, roffset, samples_to_apply)
-        self._pending_session_update: Optional[Tuple[float, float, float, List[str]]] = None
+        # Tuple of (retention_time_or_None, loffset, roffset, samples_to_apply)
+        # If retention_time is None, retain each sample's existing RT (offset-only apply).
+        self._pending_session_update: Optional[
+            Tuple[Optional[float], float, float, List[str]]
+        ] = None
         
         # Track which samples were actually regenerated (for bounds refresh)
         self._samples_regenerated: List[str] = []
@@ -177,10 +226,9 @@ class IntegrationWindow(QGroupBox):
     ):
         """Show a message using the main window's styled message box helper."""
         main_window = self._get_main_window()
-        if main_window:
-            msg_box = main_window._create_message_box(
-                msg_type, title, text, informative_text, self
-            )
+        if main_window and hasattr(main_window, "_create_message_box"):
+            create_box = getattr(main_window, "_create_message_box")
+            msg_box = create_box(msg_type, title, text, informative_text, self)
             return msg_box.exec()
         else:
             # Fallback to standard message box if main window not found
@@ -327,7 +375,7 @@ class IntegrationWindow(QGroupBox):
                 line_edit.clear()
 
     def populate_fields_from_plots(
-        self, compound_name: str, selected_samples: list, all_samples: list = None
+        self, compound_name: str, selected_samples: list, all_samples: Optional[list] = None
     ):
         """Populate fields based on plot selection state
 
@@ -617,6 +665,48 @@ class IntegrationWindow(QGroupBox):
         
         return samples_needing_reload
 
+    def _get_samples_needing_reload_with_sample_rts(
+        self,
+        sample_rts: Dict[str, float],
+        new_loffset: float,
+        new_roffset: float,
+        samples_to_check: List[str],
+    ) -> List[str]:
+        """Like _get_samples_needing_reload, but uses per-sample RTs.
+
+        This supports "offset-only" applies when the UI shows a tR range.
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        samples_needing_reload: List[str] = []
+
+        for sample_name in samples_to_check:
+            if sample_name not in sample_rts:
+                samples_needing_reload.append(sample_name)
+                continue
+
+            new_rt = sample_rts[sample_name]
+            left_boundary, right_boundary = calculate_integration_boundaries(
+                new_rt, new_loffset, new_roffset
+            )
+
+            key = (self._current_compound, sample_name)
+            if key not in self._data_window_bounds:
+                logger.debug(f"No bounds info for {sample_name} - marking for reload")
+                samples_needing_reload.append(sample_name)
+                continue
+
+            window_min, window_max = self._data_window_bounds[key]
+            boundaries_fit = check_boundaries_within_window(
+                left_boundary, right_boundary, window_min, window_max
+            )
+            if not boundaries_fit:
+                samples_needing_reload.append(sample_name)
+
+        return samples_needing_reload
+
     def refresh_data_window_bounds(self, compound_name: str, sample_names: List[str]):
         """
         Refresh stored data window bounds after EIC reload.
@@ -671,10 +761,35 @@ class IntegrationWindow(QGroupBox):
 
             retention_time, loffset, roffset = input_values
 
+            tr_field = self.findChild(QLineEdit, "tr_input")
+            tr_text = tr_field.text().strip() if tr_field else ""
+
+            # If we're applying to multiple samples and the tR field is a range ("min - max"),
+            # treat this as an offset-only update. Preserve each sample's current retention time
+            # so we don't clobber per-sample session overrides.
+            try:
+                rt_mode, _rt_value, _rt_range = _parse_rt_text(tr_text)
+            except ValueError:
+                rt_mode = "single"
+
+            preserve_sample_rts = (len(samples_to_apply) > 1 and rt_mode == "range")
+
             # Determine which samples need reload (check each sample independently)
-            samples_needing_reload = self._get_samples_needing_reload(
-                retention_time, loffset, roffset, samples_to_apply
-            )
+            # In offset-only mode, use each sample's existing RT for boundary checks.
+            if preserve_sample_rts:
+                sample_rts = {
+                    sample_name: read_compound_with_session(
+                        self._current_compound, sample_name
+                    ).retention_time
+                    for sample_name in samples_to_apply
+                }
+                samples_needing_reload = self._get_samples_needing_reload_with_sample_rts(
+                    sample_rts, loffset, roffset, samples_to_apply
+                )
+            else:
+                samples_needing_reload = self._get_samples_needing_reload(
+                    retention_time, loffset, roffset, samples_to_apply
+                )
 
             if samples_needing_reload:
                 import logging
@@ -704,7 +819,10 @@ class IntegrationWindow(QGroupBox):
 
                 # Store pending session update to be applied after reload completes
                 # Apply to ALL originally selected samples, not just those needing reload
-                self._pending_session_update = (retention_time, loffset, roffset, samples_to_apply)
+                # If we're preserving per-sample RTs, store only offsets for later apply.
+                # We can't persist per-sample RTs in this tuple, so we recompute them after reload.
+                pending_rt = None if preserve_sample_rts else retention_time
+                self._pending_session_update = (pending_rt, loffset, roffset, samples_to_apply)
                 
                 # Track which samples are being regenerated (for bounds refresh)
                 self._samples_regenerated = samples_needing_reload.copy()
@@ -719,13 +837,21 @@ class IntegrationWindow(QGroupBox):
                 return
 
             # No reload needed - update session activity data immediately
-            SessionActivityService.update_session_data(
-                compound_name=self._current_compound,
-                sample_names=samples_to_apply,
-                retention_time=retention_time,
-                loffset=loffset,
-                roffset=roffset,
-            )
+            if preserve_sample_rts:
+                SessionActivityService.update_offsets_preserve_rt(
+                    compound_name=self._current_compound,
+                    sample_names=samples_to_apply,
+                    loffset=loffset,
+                    roffset=roffset,
+                )
+            else:
+                SessionActivityService.update_session_data(
+                    compound_name=self._current_compound,
+                    sample_names=samples_to_apply,
+                    retention_time=retention_time,
+                    loffset=loffset,
+                    roffset=roffset,
+                )
 
             # Emit signal to trigger plot refresh
             self.session_data_applied.emit(self._current_compound, samples_to_apply)
@@ -797,21 +923,17 @@ class IntegrationWindow(QGroupBox):
             ro_field = self.findChild(QLineEdit, "ro_input")
             tr_field = self.findChild(QLineEdit, "tr_input")
 
-            if not all([lo_field, ro_field, tr_field]):
+            if lo_field is None or ro_field is None or tr_field is None:
                 raise ValueError("Could not find required input fields")
 
             # Parse and validate retention time
             try:
-                retention_time_text = tr_field.text().strip()
-                if not retention_time_text:
-                    raise ValueError("Retention time cannot be empty")
-                # Handle range format (e.g., "7.4 - 7.5") by taking first value
-                if " - " in retention_time_text:
-                    retention_time_text = retention_time_text.split(" - ")[0]
-                retention_time = float(retention_time_text)
+                rt_mode, retention_time, _rt_range = _parse_rt_text(tr_field.text())
             except ValueError:
                 self._show_message(
-                    "warning", "Invalid Input", "Retention time must be a valid number"
+                    "warning",
+                    "Invalid Input",
+                    "Retention time must be a single number or a range (e.g., '7.4 - 7.5')",
                 )
                 tr_field.setFocus()
                 return None

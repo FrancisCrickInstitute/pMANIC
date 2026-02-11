@@ -1272,13 +1272,23 @@ class MainWindow(QMainWindow):
 
                 from manic.models.session_activity import SessionActivityService
 
-                SessionActivityService.update_session_data(
-                    compound_name=self.graph_view.get_current_compound(),
-                    sample_names=samples_to_apply,
-                    retention_time=retention_time,
-                    loffset=loffset,
-                    roffset=roffset,
-                )
+                compound_name = self.graph_view.get_current_compound()
+
+                if retention_time is None:
+                    SessionActivityService.update_offsets_preserve_rt(
+                        compound_name=compound_name,
+                        sample_names=samples_to_apply,
+                        loffset=loffset,
+                        roffset=roffset,
+                    )
+                else:
+                    SessionActivityService.update_session_data(
+                        compound_name=compound_name,
+                        sample_names=samples_to_apply,
+                        retention_time=retention_time,
+                        loffset=loffset,
+                        roffset=roffset,
+                    )
 
                 # Refresh data window bounds for the regenerated samples
                 # Use the list of samples that were actually regenerated, not all samples_to_apply

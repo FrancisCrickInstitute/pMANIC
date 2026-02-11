@@ -32,11 +32,112 @@ class SessionData:
 class SessionActivityService:
     """
     Service for managing session activity data that overrides default compound parameters.
-    
+
     This service provides CRUD operations for the session_activity table, allowing
     users to apply temporary modifications to compound parameters on a per-sample basis.
     Session data takes precedence over default compound data when present.
     """
+
+    @staticmethod
+    def update_offsets_preserve_rt(
+        compound_name: str,
+        sample_names: List[str],
+        loffset: float,
+        roffset: float,
+    ) -> None:
+        """Update offsets for samples while preserving each sample's RT.
+
+        Used when the UI displays a tR range across multiple samples.
+        This performs the update in a single transaction for performance.
+        """
+        if not compound_name or not isinstance(compound_name, str):
+            raise ValueError("Compound name must be a non-empty string")
+
+        if not sample_names or not isinstance(sample_names, list):
+            raise ValueError("Sample names must be a non-empty list")
+
+        if not all(isinstance(name, str) and name.strip() for name in sample_names):
+            raise ValueError("All sample names must be non-empty strings")
+
+        try:
+            loffset = float(loffset)
+            roffset = float(roffset)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Offset values must be numeric: {e}")
+
+        if loffset < 0:
+            raise ValueError("Left offset cannot be negative")
+        if roffset < 0:
+            raise ValueError("Right offset cannot be negative")
+
+        placeholders = ",".join(["?"] * len(sample_names))
+
+        try:
+            with get_connection() as conn:
+                base_row = conn.execute(
+                    """
+                    SELECT retention_time
+                    FROM compounds
+                    WHERE compound_name = ? AND deleted = 0
+                    LIMIT 1
+                    """,
+                    (compound_name,),
+                ).fetchone()
+
+                if base_row is None or base_row["retention_time"] is None:
+                    raise ValueError(f"Compound not found: {compound_name}")
+
+                base_rt = float(base_row["retention_time"])
+
+                override_rows = conn.execute(
+                    f"""
+                    SELECT sample_name, retention_time
+                    FROM session_activity
+                    WHERE compound_name = ?
+                      AND sample_deleted = 0
+                      AND sample_name IN ({placeholders})
+                    """,
+                    (compound_name, *sample_names),
+                ).fetchall()
+
+                override_rt_by_sample = {
+                    row["sample_name"]: float(row["retention_time"]) for row in override_rows
+                }
+
+                delete_sql = """
+                    DELETE FROM session_activity
+                    WHERE compound_name = ? AND sample_name = ?
+                """
+
+                insert_sql = """
+                    INSERT INTO session_activity
+                        (compound_name, sample_name, retention_time, loffset, roffset, sample_deleted)
+                    VALUES (?, ?, ?, ?, ?, 0)
+                """
+
+                delete_params = [(compound_name, s) for s in sample_names]
+                conn.executemany(delete_sql, delete_params)
+
+                insert_params = []
+                for sample_name in sample_names:
+                    sample_rt = override_rt_by_sample.get(sample_name, base_rt)
+                    insert_params.append(
+                        (
+                            compound_name,
+                            sample_name,
+                            float(sample_rt),
+                            float(loffset),
+                            float(roffset),
+                        )
+                    )
+
+                conn.executemany(insert_sql, insert_params)
+
+        except Exception as e:
+            logger.error(
+                f"Failed to update offsets (preserve RT) for compound '{compound_name}': {e}"
+            )
+            raise
 
     @staticmethod
     def update_session_data(

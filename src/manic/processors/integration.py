@@ -5,6 +5,8 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from manic.processors.deconvolution import deconvolve_eic, deconvolution_enabled
+
 logger = logging.getLogger(__name__)
 
 BASELINE_NUM_POINTS = 3  # Number of points to sample at each edge for baseline fitting
@@ -202,6 +204,7 @@ def calculate_peak_areas(
     *,
     use_legacy: bool = False,
     baseline_correction: bool = False,
+    deconvolution_stringency: str = "off",
 ) -> List[float]:
     """
     Calculate integrated peak areas for each isotopologue from EIC data.
@@ -217,6 +220,7 @@ def calculate_peak_areas(
         roffset: Right offset from retention time
         use_legacy: If True, use unit-spacing integration (MATLAB v3.3.0 compatible)
         baseline_correction: If True, subtract linear baseline from peak area
+        deconvolution_stringency: off/low/medium/high chromatographic component splitting
 
     Returns:
         List of integrated peak areas, one per isotopologue
@@ -273,6 +277,20 @@ def calculate_peak_areas(
         td, idata = apply_integration_boundaries(time_data, intensity_data)
         if len(td) == 0:
             return [0.0]
+
+        if deconvolution_enabled(deconvolution_stringency):
+            deconvolved = deconvolve_eic(
+                td,
+                idata,
+                retention_time=retention_time,
+                stringency=deconvolution_stringency,
+            )
+            idata = deconvolved.selected
+            selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
+            if np.any(selected_mask):
+                td = td[selected_mask]
+                idata = idata[selected_mask]
+
         total_area = integrate_peak(idata, td, use_legacy=use_legacy)
 
         # Apply baseline correction if enabled
@@ -302,6 +320,26 @@ def calculate_peak_areas(
 
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
+        if deconvolution_enabled(deconvolution_stringency):
+            deconvolved = deconvolve_eic(
+                td,
+                intensity_matrix,
+                retention_time=retention_time,
+                stringency=deconvolution_stringency,
+            )
+            selected = np.asarray(deconvolved.selected, dtype=np.float64)
+            selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
+            return [
+                _integrate_deconvolved_trace(
+                    td,
+                    selected[i, :],
+                    selected_mask[i, :],
+                    use_legacy=use_legacy,
+                    baseline_correction=baseline_correction,
+                )
+                for i in range(num_isotopologues)
+            ]
+
         if use_legacy:
             total_areas = np.trapezoid(intensity_matrix, axis=1)
         else:
@@ -327,3 +365,29 @@ def calculate_peak_areas(
             f"Got total elements: {len(intensity_data)}. Error: {e}"
         )
         return [0.0] * num_isotopologues
+
+
+def _integrate_deconvolved_trace(
+    time_data: np.ndarray,
+    intensity_data: np.ndarray,
+    selected_mask: np.ndarray,
+    *,
+    use_legacy: bool,
+    baseline_correction: bool,
+) -> float:
+    """Integrate one deconvolved component using only its selected support."""
+    mask = np.asarray(selected_mask, dtype=bool)
+    if not np.any(mask):
+        return 0.0
+
+    td = np.asarray(time_data, dtype=np.float64)[mask]
+    idata = np.asarray(intensity_data, dtype=np.float64)[mask]
+    if td.size == 0:
+        return 0.0
+
+    total_area = integrate_peak(idata, td, use_legacy=use_legacy)
+    if baseline_correction:
+        baseline_area = compute_baseline_area(td, idata, use_legacy=use_legacy)
+        if baseline_area is not None:
+            total_area = max(0.0, total_area - baseline_area)
+    return float(total_area)

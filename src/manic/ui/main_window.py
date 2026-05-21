@@ -44,7 +44,6 @@ from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.toast_notification import ToastNotification
-from manic.ui.toast_notification import ToastNotification
 from manic.utils.paths import docs_path, resource_path
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import (
@@ -98,6 +97,7 @@ class MainWindow(QMainWindow):
 
         # Integration method setting
         self.use_legacy_integration = False  # Time-based by default
+        self.deconvolution_stringency = "medium"
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -297,6 +297,14 @@ class MainWindow(QMainWindow):
         )
         settings_menu.addAction(self.labelled_internal_standard_action)
 
+        self.deconvolution_stringency_action = QAction(
+            "Deconvolution Stringency: Medium", self
+        )
+        self.deconvolution_stringency_action.triggered.connect(
+            self.show_deconvolution_stringency_dialog
+        )
+        settings_menu.addAction(self.deconvolution_stringency_action)
+
         # Natural abundance correction toggle action
         self.nat_abundance_toggle = QAction(
             "Preview Natural Abundance Correction: Off", self
@@ -338,6 +346,10 @@ class MainWindow(QMainWindow):
 
         # Initialize natural abundance correction state
         self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
+        self.toolbar.isotopologue_ratios.set_deconvolution_stringency(
+            self.deconvolution_stringency
+        )
+        self.graph_view.set_deconvolution_stringency(self.deconvolution_stringency)
 
         # Connect the toolbar's custom signals to handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
@@ -434,10 +446,6 @@ class MainWindow(QMainWindow):
         self.export_method_action.setEnabled(self.compound_data_loaded)
 
         # Export Data: enabled only if compound data, CDF data loaded
-        internal_standard = self.toolbar.get_internal_standard()
-        has_internal_standard = (
-            internal_standard is not None and internal_standard != ""
-        )
         self.export_data_action.setEnabled(
             self.compound_data_loaded and self.cdf_data_loaded
         )
@@ -636,7 +644,8 @@ class MainWindow(QMainWindow):
         try:
             if self._validation_provider is None:
                 self._validation_provider = DataProvider(
-                    use_legacy_integration=self.use_legacy_integration
+                    use_legacy_integration=self.use_legacy_integration,
+                    deconvolution_stringency=self.deconvolution_stringency,
                 )
 
             return self._validation_provider.validate_peak_area(
@@ -760,6 +769,7 @@ class MainWindow(QMainWindow):
                 loffset=compound.loffset,
                 roffset=compound.roffset,
                 baseline_correction=baseline_correction,
+                deconvolution_stringency=self.deconvolution_stringency,
             )
             abundances.append(float(sum(isotope_areas)))
 
@@ -929,7 +939,9 @@ class MainWindow(QMainWindow):
                 current_compound, current_eics
             )
 
-
+            abundances, eics = (
+                self.toolbar.isotopologue_ratios.get_last_total_abundances()
+            )
             if abundances is None:
                 abundances = self._calculate_total_abundances_fallback(
                     current_compound, current_eics
@@ -1828,6 +1840,68 @@ class MainWindow(QMainWindow):
                     if current_compound and current_samples:
                         self.on_plot_button(current_compound, current_samples)
 
+    def show_deconvolution_stringency_dialog(self):
+        """Show dialog to edit chromatographic deconvolution stringency."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Deconvolution Stringency")
+        dialog.setModal(True)
+        dialog.resize(420, 160)
+
+        layout = QVBoxLayout(dialog)
+        info_label = QLabel(
+            "Choose how aggressively MANIC splits overlapping chromatographic peaks."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        form_layout = QFormLayout()
+        combo = QComboBox()
+        options = [
+            ("Off", "off"),
+            ("Low", "low"),
+            ("Medium", "medium"),
+            ("High", "high"),
+        ]
+        for label, value in options:
+            combo.addItem(label, value)
+        current_index = next(
+            (
+                i
+                for i, (_, value) in enumerate(options)
+                if value == self.deconvolution_stringency
+            ),
+            2,
+        )
+        combo.setCurrentIndex(current_index)
+        form_layout.addRow("Stringency:", combo)
+        layout.addLayout(form_layout)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() == QDialog.Accepted:
+            new_value = combo.currentData()
+            if new_value != self.deconvolution_stringency:
+                self.deconvolution_stringency = new_value
+                self.deconvolution_stringency_action.setText(
+                    f"Deconvolution Stringency: {combo.currentText()}"
+                )
+                self.graph_view.set_deconvolution_stringency(new_value)
+                self.toolbar.isotopologue_ratios.set_deconvolution_stringency(
+                    new_value
+                )
+                if self._validation_provider is not None:
+                    self._validation_provider.set_deconvolution_stringency(new_value)
+                if self.cdf_data_loaded and self.compound_data_loaded:
+                    current_compound = self.toolbar.get_selected_compound()
+                    current_samples = self.toolbar.get_selected_samples()
+                    if current_compound and current_samples:
+                        self.on_plot_button(current_compound, current_samples)
+
     def show_labelled_internal_standard_dialog(self) -> None:
         """Choose which internal standard isotopologue (M+N) is the reference peak."""
         internal_standard = self.toolbar.get_internal_standard()
@@ -2468,6 +2542,7 @@ class MainWindow(QMainWindow):
             exporter = DataExporter()
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
+            exporter.set_deconvolution_stringency(self.deconvolution_stringency)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
             exporter.set_internal_standard_reference_isotope(
                 self.internal_standard_reference_isotope

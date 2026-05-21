@@ -17,8 +17,14 @@ class DataProvider:
     Centralizes database access, data loading, and caching for exports.
     """
 
-    def __init__(self, *, use_legacy_integration: bool = False):
+    def __init__(
+        self,
+        *,
+        use_legacy_integration: bool = False,
+        deconvolution_stringency: str = "off",
+    ):
         self.use_legacy_integration = use_legacy_integration
+        self.deconvolution_stringency = deconvolution_stringency
         self._mrrf_cache: Dict[str, Dict[str, float]] = {}
         self._background_ratios_cache: Dict[str, Dict[str, float]] = {}
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
@@ -28,6 +34,11 @@ class DataProvider:
     def set_use_legacy_integration(self, use_legacy: bool) -> None:
         if self.use_legacy_integration != use_legacy:
             self.use_legacy_integration = use_legacy
+            self.invalidate_cache()
+
+    def set_deconvolution_stringency(self, stringency: str) -> None:
+        if self.deconvolution_stringency != stringency:
+            self.deconvolution_stringency = stringency
             self.invalidate_cache()
 
     def invalidate_cache(self) -> None:
@@ -176,6 +187,7 @@ class DataProvider:
                     row['roffset'],
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
+                    deconvolution_stringency=self.deconvolution_stringency,
                 )
                 raw_data[sample_name][compound_name] = areas
 
@@ -225,6 +237,7 @@ class DataProvider:
                     row['roffset'],
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
+                    deconvolution_stringency=self.deconvolution_stringency,
                 )
                 corrected_data[sample_name][compound_name] = areas
 
@@ -302,6 +315,7 @@ class DataProvider:
                     roffset,
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
+                    deconvolution_stringency=self.deconvolution_stringency,
                 )
                 sample_data[compound_name] = areas
         return sample_data
@@ -470,5 +484,4 @@ class DataProvider:
         )
         self._mrrf_cache[cache_key] = values
         return values
-
 

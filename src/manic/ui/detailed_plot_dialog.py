@@ -45,6 +45,7 @@ from manic.constants import (
 from manic.io.cdf_data_extractor import ensure_ms_data_for_time
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.tic_reader import read_tic
+from manic.processors.deconvolution import deconvolve_eic, deconvolution_enabled
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.ui.colors import label_colors  # Import the same colors as main window
@@ -71,11 +72,13 @@ class DetailedPlotDialog(QDialog):
         sample_name: str,
         parent=None,
         use_corrected: bool = False,
+        deconvolution_stringency: str = "off",
     ):
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
         self.use_corrected = use_corrected  # Store the isotope correction flag
+        self.deconvolution_stringency = deconvolution_stringency
 
         # Initialize data containers
         self.eic_data = None
@@ -402,36 +405,7 @@ class DetailedPlotDialog(QDialog):
         try:
             # Reset plot area before rendering
             self.eic_plot.clear_plot()
-
-            # Render primary EIC trace
-            if self.eic_data.intensity.ndim == 1:
-                # Single isotopologue: apply primary color scheme
-                qcolor = label_colors[0]
-                color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
-                self.eic_plot.plot_line(
-                    self.eic_data.time,
-                    self.eic_data.intensity,
-                    color=color,
-                    width=PLOT_LINE_WIDTH,
-                    name=f"{self.compound_name} EIC",
-                )
-            else:
-                # Multiple isotopologues: apply consistent color palette
-                for i in range(
-                    min(self.eic_data.intensity.shape[0], len(label_colors))
-                ):
-                    # Convert QColor to RGB string for plot_line
-                    qcolor = label_colors[i]
-                    color = (
-                        f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
-                    )
-                    self.eic_plot.plot_line(
-                        self.eic_data.time,
-                        self.eic_data.intensity[i, :],
-                        color=color,
-                        width=PLOT_LINE_WIDTH,
-                        name=f"M+{i}",
-                    )
+            self._plot_eic_traces()
 
             # Calculate and display integration boundaries
             rt = self.compound_info.retention_time
@@ -528,6 +502,93 @@ class DetailedPlotDialog(QDialog):
                         name="",
                         style="dashed",
                     )
+
+    def _add_deconvolution_overlays(self):
+        """Draw excluded deconvolved components as lighter dotted traces."""
+        if (
+            not self.compound_info
+            or not self.eic_data
+            or not deconvolution_enabled(self.deconvolution_stringency)
+        ):
+            return
+
+        result = deconvolve_eic(
+            self.eic_data.time,
+            self.eic_data.intensity,
+            retention_time=self.compound_info.retention_time,
+            loffset=self.compound_info.loffset,
+            roffset=self.compound_info.roffset,
+            stringency=self.deconvolution_stringency,
+        )
+        if not result.excluded:
+            return
+
+        multi_trace = self.eic_data.intensity.ndim > 1
+        for excluded, excluded_mask in zip(result.excluded, result.excluded_masks):
+            traces = excluded if multi_trace else excluded.reshape(1, -1)
+            masks = excluded_mask if multi_trace else excluded_mask.reshape(1, -1)
+            for i, trace in enumerate(traces):
+                trace_mask = masks[i, :]
+                if not np.any(trace_mask):
+                    continue
+                display_trace = np.array(trace, dtype=np.float64, copy=True)
+                display_trace[~trace_mask] = np.nan
+                qcolor = label_colors[i % len(label_colors)] if multi_trace else label_colors[0]
+                color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},0.38)"
+                self.eic_plot.plot_line(
+                    self.eic_data.time,
+                    display_trace,
+                    color=color,
+                    width=1.2,
+                    name="",
+                    style="dotted",
+                )
+
+    def _plot_eic_traces(self):
+        """Draw raw context plus selected/excluded deconvolution components."""
+        result = None
+        if deconvolution_enabled(self.deconvolution_stringency):
+            result = deconvolve_eic(
+                self.eic_data.time,
+                self.eic_data.intensity,
+                retention_time=self.compound_info.retention_time,
+                loffset=self.compound_info.loffset,
+                roffset=self.compound_info.roffset,
+                stringency=self.deconvolution_stringency,
+            )
+            if not result.excluded:
+                result = None
+
+        if result is None:
+            self._plot_trace_matrix(self.eic_data.intensity, selected=True)
+            return
+
+        self._plot_trace_matrix(self.eic_data.intensity, selected=False, alpha=0.32)
+        selected = np.array(result.selected, dtype=np.float64, copy=True)
+        selected_mask = np.asarray(result.selected_mask, dtype=bool)
+        selected[~selected_mask] = np.nan
+        self._plot_trace_matrix(selected, selected=True)
+        self._add_deconvolution_overlays()
+
+    def _plot_trace_matrix(
+        self,
+        intensity: np.ndarray,
+        *,
+        selected: bool,
+        alpha: float = 1.0,
+    ):
+        matrix = intensity if intensity.ndim > 1 else intensity.reshape(1, -1)
+        multi_trace = intensity.ndim > 1
+        for i, trace in enumerate(matrix):
+            qcolor = label_colors[i % len(label_colors)] if multi_trace else label_colors[0]
+            color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
+            self.eic_plot.plot_line(
+                self.eic_data.time,
+                trace,
+                color=color,
+                width=PLOT_LINE_WIDTH if selected else 1.0,
+                name=f"M+{i}" if selected and multi_trace else "",
+            )
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""

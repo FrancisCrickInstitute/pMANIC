@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
+from manic.processors.deconvolution import deconvolve_eic, deconvolution_enabled
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
@@ -129,6 +130,7 @@ class GraphView(QWidget):
 
         # Track whether to use corrected data
         self.use_corrected = False  # Default to using uncorrected data
+        self.deconvolution_stringency = "off"
 
         # Track max grid dimensions we've used, so we can reliably reset
         # stretch/min-size for any historical rows/cols when the grid shrinks.
@@ -269,6 +271,10 @@ class GraphView(QWidget):
         logger.info(
             f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data"
         )
+
+    def set_deconvolution_stringency(self, stringency: str):
+        """Set chromatographic deconvolution stringency for plot overlays."""
+        self.deconvolution_stringency = stringency
 
     # public function
     def plot_compound(
@@ -472,6 +478,7 @@ class GraphView(QWidget):
                 sample_name=sample_name,
                 parent=self,
                 use_corrected=self.use_corrected,
+                deconvolution_stringency=self.deconvolution_stringency,
             )
             dialog.exec()
 
@@ -828,16 +835,14 @@ class GraphView(QWidget):
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
 
             eic_intensity = eic.intensity
-            multi_trace = eic_intensity.ndim > 1
 
             # Compute y_max and scaling (with edge case handling)
-            all_intensities = eic_intensity.flatten() if multi_trace else eic_intensity
+            all_intensities = eic_intensity.flatten()
             unscaled_y_max = float(np.max(all_intensities))
             scale_exp = (
                 int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
             )
             scale_factor = 10**scale_exp
-            scaled_intensity = eic_intensity / scale_factor
             scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
 
             # Reuse existing axes
@@ -846,33 +851,16 @@ class GraphView(QWidget):
             y_axis = axes[1] if len(axes) > 1 else None
 
             # Create new series with updated data
-            if multi_trace:
-                # Pre-create pens for multi-trace to reuse
-                pens = [
-                    QPen(label_colors[i % len(label_colors)], 2)
-                    for i in range(len(scaled_intensity))
-                ]
-
-                for i, intensity in enumerate(scaled_intensity):
-                    series = QLineSeries()
-                    for x, y in zip(eic.time, intensity):
-                        series.append(x, y)
-                    series.setPen(pens[i])
-                    series.setName(f"Label {i}")
-                    chart.addSeries(series)
-                    if x_axis and y_axis:
-                        series.attachAxis(x_axis)
-                        series.attachAxis(y_axis)
-            else:
-                series = QLineSeries()
-                dark_red_pen = QPen(dark_red_colour, 2)
-                for x, y in zip(eic.time, scaled_intensity):
-                    series.append(x, y)
-                series.setPen(dark_red_pen)
-                chart.addSeries(series)
-                if x_axis and y_axis:
-                    series.attachAxis(x_axis)
-                    series.attachAxis(y_axis)
+            if x_axis and y_axis:
+                self._add_eic_series(
+                    chart,
+                    x_axis,
+                    y_axis,
+                    eic.time,
+                    eic_intensity,
+                    compound,
+                    scale_factor,
+                )
 
             # Update axis ranges
             if x_axis and y_axis:
@@ -1008,19 +996,16 @@ class GraphView(QWidget):
         chart.legend().hide()
 
         eic_intensity = eic.intensity
-        multi_trace = eic_intensity.ndim > 1
 
         # Compute y_max and scaling (with edge case handling)
-        all_intensities = eic_intensity.flatten() if multi_trace else eic_intensity
+        all_intensities = eic_intensity.flatten()
         unscaled_y_max = float(np.max(all_intensities))
         scale_exp = int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
         scale_factor = 10**scale_exp
-        scaled_intensity = eic_intensity / scale_factor
         scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
 
-        # Create reusable font and dark red pen
+        # Create reusable font
         font = create_font(8)  # Cross-platform font
-        dark_red_pen = QPen(dark_red_colour, 2)
 
         # Create axes
         x_axis = QValueAxis()
@@ -1028,30 +1013,15 @@ class GraphView(QWidget):
         chart.addAxis(x_axis, Qt.AlignBottom)
         chart.addAxis(y_axis, Qt.AlignLeft)
 
-        if multi_trace:
-            # Pre-create pens for multi-trace to reuse
-            pens = [
-                QPen(label_colors[i % len(label_colors)], 2)
-                for i in range(len(scaled_intensity))
-            ]
-
-            for i, intensity in enumerate(scaled_intensity):
-                series = QLineSeries()
-                for x, y in zip(eic.time, intensity):
-                    series.append(x, y)
-                series.setPen(pens[i])
-                series.setName(f"Label {i}")  # Or use actual mass if you want
-                chart.addSeries(series)
-                series.attachAxis(x_axis)
-                series.attachAxis(y_axis)
-        else:
-            series = QLineSeries()
-            for x, y in zip(eic.time, scaled_intensity):
-                series.append(x, y)
-            series.setPen(dark_red_pen)
-            chart.addSeries(series)
-            series.attachAxis(x_axis)
-            series.attachAxis(y_axis)
+        self._add_eic_series(
+            chart,
+            x_axis,
+            y_axis,
+            eic.time,
+            eic_intensity,
+            compound,
+            scale_factor,
+        )
 
         # Set up axes
         x_axis.setGridLineVisible(False)
@@ -1247,6 +1217,176 @@ class GraphView(QWidget):
                 chart.addSeries(baseline_series)
                 baseline_series.attachAxis(x_axis)
                 baseline_series.attachAxis(y_axis)
+
+    def _add_deconvolution_overlays(
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        eic_time: np.ndarray,
+        eic_intensity: np.ndarray,
+        compound,
+        scale_factor: float,
+    ):
+        """Draw excluded deconvolved components as lighter dotted traces."""
+        if not deconvolution_enabled(self.deconvolution_stringency):
+            return
+
+        result = deconvolve_eic(
+            eic_time,
+            eic_intensity,
+            retention_time=compound.retention_time,
+            loffset=compound.loffset,
+            roffset=compound.roffset,
+            stringency=self.deconvolution_stringency,
+        )
+        if not result.excluded:
+            return
+
+        multi_trace = eic_intensity.ndim > 1
+        for excluded, excluded_mask in zip(result.excluded, result.excluded_masks):
+            traces = excluded if multi_trace else excluded.reshape(1, -1)
+            masks = excluded_mask if multi_trace else excluded_mask.reshape(1, -1)
+            for i, trace in enumerate(traces):
+                trace_mask = masks[i, :]
+                if not np.any(trace_mask):
+                    continue
+                qcolor = (
+                    label_colors[i % len(label_colors)]
+                    if multi_trace
+                    else dark_red_colour
+                )
+                overlay_color = QColor(qcolor)
+                overlay_color.setAlpha(95)
+                pen = QPen(overlay_color, 1.2)
+                pen.setStyle(Qt.DotLine)
+
+                series = QLineSeries()
+                scaled_trace = trace / scale_factor if scale_factor != 0 else trace
+                for x, y, keep in zip(eic_time, scaled_trace, trace_mask):
+                    if not keep or not np.isfinite(y):
+                        continue
+                    series.append(float(x), float(y))
+                series.setPen(pen)
+                chart.addSeries(series)
+                series.attachAxis(x_axis)
+                series.attachAxis(y_axis)
+
+    def _add_eic_series(
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        eic_time: np.ndarray,
+        eic_intensity: np.ndarray,
+        compound,
+        scale_factor: float,
+    ):
+        """Draw raw context plus deconvolved selected/excluded components."""
+        result = None
+        if deconvolution_enabled(self.deconvolution_stringency):
+            result = deconvolve_eic(
+                eic_time,
+                eic_intensity,
+                retention_time=compound.retention_time,
+                loffset=compound.loffset,
+                roffset=compound.roffset,
+                stringency=self.deconvolution_stringency,
+            )
+            if not result.excluded:
+                result = None
+
+        if result is None:
+            self._add_trace_series(
+                chart,
+                x_axis,
+                y_axis,
+                eic_time,
+                eic_intensity,
+                scale_factor,
+                selected=False,
+                raw_context=False,
+            )
+            return
+
+        self._add_trace_series(
+            chart,
+            x_axis,
+            y_axis,
+            eic_time,
+            eic_intensity,
+            scale_factor,
+            selected=False,
+            raw_context=True,
+        )
+        self._add_trace_series(
+            chart,
+            x_axis,
+            y_axis,
+            eic_time,
+            result.selected,
+            scale_factor,
+            selected=True,
+            selected_mask=result.selected_mask,
+            raw_context=False,
+        )
+        self._add_deconvolution_overlays(
+            chart,
+            x_axis,
+            y_axis,
+            eic_time,
+            eic_intensity,
+            compound,
+            scale_factor,
+        )
+
+    def _add_trace_series(
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        eic_time: np.ndarray,
+        eic_intensity: np.ndarray,
+        scale_factor: float,
+        *,
+        selected: bool,
+        raw_context: bool,
+        selected_mask: np.ndarray | None = None,
+    ):
+        matrix = eic_intensity if eic_intensity.ndim > 1 else eic_intensity.reshape(1, -1)
+        mask_matrix = None
+        if selected_mask is not None:
+            mask_matrix = (
+                selected_mask
+                if selected_mask.ndim > 1
+                else selected_mask.reshape(1, -1)
+            )
+
+        multi_trace = eic_intensity.ndim > 1
+        for i, trace in enumerate(matrix):
+            qcolor = label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
+            pen_color = QColor(qcolor)
+            if raw_context:
+                pen_color.setAlpha(75)
+                width = 1.0
+            else:
+                width = 2.2 if selected else 2.0
+
+            pen = QPen(pen_color, width)
+            series = QLineSeries()
+            scaled_trace = trace / scale_factor if scale_factor != 0 else trace
+            trace_mask = mask_matrix[i, :] if mask_matrix is not None else None
+            for x, y, idx in zip(eic_time, scaled_trace, range(len(scaled_trace))):
+                if trace_mask is not None and not trace_mask[idx]:
+                    continue
+                if np.isfinite(y):
+                    series.append(float(x), float(y))
+            series.setPen(pen)
+            if not raw_context:
+                series.setName(f"Label {i}" if multi_trace else "")
+            chart.addSeries(series)
+            series.attachAxis(x_axis)
+            series.attachAxis(y_axis)
 
     def _update_graph_sizes(self) -> None:
         # Invalidate first, then activate to force recalculation

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+from scipy.optimize import least_squares
 from scipy.signal import find_peaks, peak_widths
 
 DeconvolutionStringency = Literal["off", "low", "medium", "high"]
@@ -147,23 +148,111 @@ def _deconvolve_matrix(
 
         selected[trace_index, :] = 0.0
         selected_mask[trace_index, :] = False
+        fitted = _fit_component_model(window_time, window_trace, components)
         for component_index, component in enumerate(components):
             local_slice = slice(component.left, component.right + 1)
             global_indices = window_indices[local_slice]
             centers.append(float(window_time[component.apex]))
 
             if component_index == selected_index:
-                selected[trace_index, global_indices] = window_trace[local_slice]
-                selected_mask[trace_index, global_indices] = True
+                if fitted is not None:
+                    selected[trace_index, window_indices] = (
+                        fitted["baseline"] + fitted["components"][component_index]
+                    )
+                    selected_mask[trace_index, window_indices] = True
+                else:
+                    selected[trace_index, global_indices] = window_trace[local_slice]
+                    selected_mask[trace_index, global_indices] = True
             else:
                 component_matrix = np.zeros_like(matrix)
-                component_matrix[trace_index, global_indices] = window_trace[local_slice]
+                if fitted is not None:
+                    component_trace = fitted["baseline"] + fitted["components"][component_index]
+                    component_matrix[trace_index, window_indices] = component_trace
+                else:
+                    component_matrix[trace_index, global_indices] = window_trace[local_slice]
                 component_mask = np.zeros_like(matrix, dtype=bool)
-                component_mask[trace_index, global_indices] = True
+                component_mask[trace_index, window_indices if fitted is not None else global_indices] = True
                 excluded.append(component_matrix)
                 excluded_masks.append(component_mask)
 
     return selected, selected_mask, excluded, excluded_masks, centers
+
+
+def _fit_component_model(
+    time: np.ndarray, intensity: np.ndarray, components: list[ComponentWindow]
+) -> dict[str, np.ndarray] | None:
+    """
+    Fit a simple linear-baseline plus Gaussian-components model.
+
+    This is intentionally conservative: if fitting fails, callers fall back to
+    observed component windows. The fitted path is used to reconstruct smooth
+    component curves rather than hard-cut chromatographic fragments.
+    """
+    if time.size < 5 or len(components) <= 1:
+        return None
+
+    x = np.asarray(time, dtype=np.float64)
+    y = np.maximum(np.asarray(intensity, dtype=np.float64), 0.0)
+    x0 = float(x[0])
+    x_rel = x - x0
+    x_span = float(x_rel[-1] - x_rel[0])
+    if x_span <= 0:
+        return None
+
+    dt = float(np.median(np.diff(x))) if x.size > 1 else x_span
+    min_sigma = max(dt, x_span / 500.0)
+    max_sigma = max(min_sigma * 2.0, x_span / 2.0)
+
+    baseline_start = float(np.percentile(y[: max(3, min(8, y.size))], 20))
+    baseline_end = float(np.percentile(y[-max(3, min(8, y.size)) :], 20))
+    initial: list[float] = [
+        baseline_start,
+        (baseline_end - baseline_start) / x_span,
+    ]
+    lower: list[float] = [0.0, -np.inf]
+    upper: list[float] = [float(np.max(y)), np.inf]
+
+    baseline_guess = initial[0] + initial[1] * x_rel
+    for component in components:
+        center = float(x_rel[component.apex])
+        width = max(float(component.right - component.left) * dt / 4.0, min_sigma)
+        height = max(float(y[component.apex] - baseline_guess[component.apex]), 0.0)
+        left_center = float(x_rel[component.left])
+        right_center = float(x_rel[component.right])
+        initial.extend([height, center, width])
+        lower.extend([0.0, left_center, min_sigma])
+        upper.extend([float(np.max(y) * 2.0), right_center, max_sigma])
+
+    def unpack(params: np.ndarray) -> tuple[np.ndarray, list[np.ndarray]]:
+        baseline = params[0] + params[1] * x_rel
+        fitted_components: list[np.ndarray] = []
+        for offset in range(2, len(params), 3):
+            amp, center, sigma = params[offset : offset + 3]
+            fitted_components.append(amp * np.exp(-0.5 * ((x_rel - center) / sigma) ** 2))
+        return baseline, fitted_components
+
+    def residual(params: np.ndarray) -> np.ndarray:
+        baseline, fitted_components = unpack(params)
+        return baseline + np.sum(fitted_components, axis=0) - y
+
+    try:
+        result = least_squares(
+            residual,
+            x0=np.asarray(initial, dtype=np.float64),
+            bounds=(np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)),
+            max_nfev=300,
+        )
+    except Exception:
+        return None
+
+    if not result.success:
+        return None
+
+    baseline, fitted_components = unpack(result.x)
+    return {
+        "baseline": np.maximum(baseline, 0.0),
+        "components": np.asarray(fitted_components, dtype=np.float64),
+    }
 
 
 def _unchanged_result(time: np.ndarray, intensity: np.ndarray) -> EICDeconvolutionResult:

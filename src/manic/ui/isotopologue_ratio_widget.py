@@ -42,7 +42,7 @@ class IsotopologueRatioWidget(QWidget):
 
         # Flag to use corrected data when available
         self.use_corrected = True
-        self.deconvolution_stringency = "off"
+        self.chromatographic_peak_deconvolution_stringency = "off"
 
         # Create chart and chart view
         self.chart = QChart()
@@ -175,7 +175,7 @@ class IsotopologueRatioWidget(QWidget):
                     loffset=loffset,
                     roffset=roffset,
                     baseline_correction=baseline_correction,
-                    deconvolution_stringency=self.deconvolution_stringency,
+                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
                 )
                 total_area = sum(isotope_areas)
                 ratios.append(np.array([1.0]))  # 100% for single isotope
@@ -204,7 +204,7 @@ class IsotopologueRatioWidget(QWidget):
                     loffset=loffset,
                     roffset=roffset,
                     baseline_correction=baseline_correction,
-                    deconvolution_stringency=self.deconvolution_stringency,
+                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
                 )
 
                 # Calculate total abundance (sum of all isotopologue areas)
@@ -389,9 +389,9 @@ class IsotopologueRatioWidget(QWidget):
             logger.info(f"Refreshing display for {self._current_compound}")
             self.update_ratios(self._current_compound, self._current_eics)
 
-    def set_deconvolution_stringency(self, stringency: str) -> None:
-        """Set chromatographic deconvolution stringency for area calculations."""
-        self.deconvolution_stringency = stringency
+    def set_chromatographic_peak_deconvolution_stringency(self, stringency: str) -> None:
+        """Set chromatographic peak deconvolution stringency for area calculations."""
+        self.chromatographic_peak_deconvolution_stringency = stringency
         if self._current_eics and self._current_compound:
             logger.info(f"Refreshing display for {self._current_compound}")
             self.update_ratios(self._current_compound, self._current_eics)

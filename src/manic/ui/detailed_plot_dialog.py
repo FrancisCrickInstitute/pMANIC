@@ -45,7 +45,10 @@ from manic.constants import (
 from manic.io.cdf_data_extractor import ensure_ms_data_for_time
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.tic_reader import read_tic
-from manic.processors.deconvolution import deconvolve_eic, deconvolution_enabled
+from manic.processors.chromatographic_peak_deconvolution import (
+    chromatographic_peak_deconvolution_enabled,
+    deconvolve_eic,
+)
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.ui.colors import label_colors  # Import the same colors as main window
@@ -72,13 +75,13 @@ class DetailedPlotDialog(QDialog):
         sample_name: str,
         parent=None,
         use_corrected: bool = False,
-        deconvolution_stringency: str = "off",
+        chromatographic_peak_deconvolution_stringency: str = "off",
     ):
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
         self.use_corrected = use_corrected  # Store the isotope correction flag
-        self.deconvolution_stringency = deconvolution_stringency
+        self.chromatographic_peak_deconvolution_stringency = chromatographic_peak_deconvolution_stringency
 
         # Initialize data containers
         self.eic_data = None
@@ -503,12 +506,12 @@ class DetailedPlotDialog(QDialog):
                         style="dashed",
                     )
 
-    def _add_deconvolution_overlays(self):
+    def _add_chromatographic_peak_deconvolution_overlays(self):
         """Draw excluded deconvolved components as lighter dotted traces."""
         if (
             not self.compound_info
             or not self.eic_data
-            or not deconvolution_enabled(self.deconvolution_stringency)
+            or not chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency)
         ):
             return
 
@@ -518,7 +521,7 @@ class DetailedPlotDialog(QDialog):
             retention_time=self.compound_info.retention_time,
             loffset=self.compound_info.loffset,
             roffset=self.compound_info.roffset,
-            stringency=self.deconvolution_stringency,
+            stringency=self.chromatographic_peak_deconvolution_stringency,
         )
         if not result.excluded:
             return
@@ -545,16 +548,16 @@ class DetailedPlotDialog(QDialog):
                 )
 
     def _plot_eic_traces(self):
-        """Draw raw context plus selected/excluded deconvolution components."""
+        """Draw raw context plus selected/excluded chromatographic peak deconvolution components."""
         result = None
-        if deconvolution_enabled(self.deconvolution_stringency):
+        if chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
             result = deconvolve_eic(
                 self.eic_data.time,
                 self.eic_data.intensity,
                 retention_time=self.compound_info.retention_time,
                 loffset=self.compound_info.loffset,
                 roffset=self.compound_info.roffset,
-                stringency=self.deconvolution_stringency,
+                stringency=self.chromatographic_peak_deconvolution_stringency,
             )
             if not result.excluded:
                 result = None
@@ -568,7 +571,7 @@ class DetailedPlotDialog(QDialog):
         selected_mask = np.asarray(result.selected_mask, dtype=bool)
         selected[~selected_mask] = np.nan
         self._plot_trace_matrix(selected, selected=True)
-        self._add_deconvolution_overlays()
+        self._add_chromatographic_peak_deconvolution_overlays()
 
     def _plot_trace_matrix(
         self,

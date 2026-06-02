@@ -5,7 +5,10 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from manic.processors.deconvolution import deconvolve_eic, deconvolution_enabled
+from manic.processors.chromatographic_peak_deconvolution import (
+    chromatographic_peak_deconvolution_enabled,
+    deconvolve_eic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +207,7 @@ def calculate_peak_areas(
     *,
     use_legacy: bool = False,
     baseline_correction: bool = False,
-    deconvolution_stringency: str = "off",
+    chromatographic_peak_deconvolution_stringency: str = "off",
 ) -> List[float]:
     """
     Calculate integrated peak areas for each isotopologue from EIC data.
@@ -220,7 +223,7 @@ def calculate_peak_areas(
         roffset: Right offset from retention time
         use_legacy: If True, use unit-spacing integration (MATLAB v3.3.0 compatible)
         baseline_correction: If True, subtract linear baseline from peak area
-        deconvolution_stringency: off/low/medium/high chromatographic component splitting
+        chromatographic_peak_deconvolution_stringency: off/low/medium/high chromatographic peak component splitting
 
     Returns:
         List of integrated peak areas, one per isotopologue
@@ -278,12 +281,12 @@ def calculate_peak_areas(
         if len(td) == 0:
             return [0.0]
 
-        if deconvolution_enabled(deconvolution_stringency):
+        if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
             deconvolved = deconvolve_eic(
                 td,
                 idata,
                 retention_time=retention_time,
-                stringency=deconvolution_stringency,
+                stringency=chromatographic_peak_deconvolution_stringency,
             )
             idata = deconvolved.selected
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
@@ -320,12 +323,12 @@ def calculate_peak_areas(
 
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
-        if deconvolution_enabled(deconvolution_stringency):
+        if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
             deconvolved = deconvolve_eic(
                 td,
                 intensity_matrix,
                 retention_time=retention_time,
-                stringency=deconvolution_stringency,
+                stringency=chromatographic_peak_deconvolution_stringency,
             )
             selected = np.asarray(deconvolved.selected, dtype=np.float64)
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)

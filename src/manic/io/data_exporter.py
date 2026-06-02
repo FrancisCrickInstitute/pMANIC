@@ -105,11 +105,11 @@ class DataExporter:
         self.internal_standard_compound = None  # Set by UI before export
         # Time-based by default (matches app/UI defaults and docs)
         self.use_legacy_integration = False
-        self.deconvolution_stringency = "off"
+        self.chromatographic_peak_deconvolution_stringency = "off"
         # Centralized data provider for DB access and caching
         self._provider = DataProvider(
             use_legacy_integration=self.use_legacy_integration,
-            deconvolution_stringency=self.deconvolution_stringency,
+            chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
         )
         # Minimum peak area ratio for validation highlighting
         self.min_peak_area_ratio = 0.05
@@ -135,11 +135,11 @@ class DataExporter:
             self._provider.set_use_legacy_integration(use_legacy)
             self._invalidate_cache()
 
-    def set_deconvolution_stringency(self, stringency: str):
-        """Set chromatographic deconvolution stringency for integration."""
-        if self.deconvolution_stringency != stringency:
-            self.deconvolution_stringency = stringency
-            self._provider.set_deconvolution_stringency(stringency)
+    def set_chromatographic_peak_deconvolution_stringency(self, stringency: str):
+        """Set chromatographic peak deconvolution stringency for integration."""
+        if self.chromatographic_peak_deconvolution_stringency != stringency:
+            self.chromatographic_peak_deconvolution_stringency = stringency
+            self._provider.set_chromatographic_peak_deconvolution_stringency(stringency)
             self._invalidate_cache()
 
     def set_min_peak_area_ratio(self, ratio: float):
@@ -467,7 +467,7 @@ class DataExporter:
             loffset,
             roffset,
             use_legacy=self.use_legacy_integration,
-            deconvolution_stringency=self.deconvolution_stringency,
+            chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
         )
 
     def _get_total_sample_count(self) -> int:

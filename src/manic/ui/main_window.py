@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
 
         # Integration method setting
         self.use_legacy_integration = False  # Time-based by default
-        self.deconvolution_stringency = "medium"
+        self.chromatographic_peak_deconvolution_stringency = "medium"
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -297,13 +297,13 @@ class MainWindow(QMainWindow):
         )
         settings_menu.addAction(self.labelled_internal_standard_action)
 
-        self.deconvolution_stringency_action = QAction(
-            "Deconvolution Stringency: Medium", self
+        self.chromatographic_peak_deconvolution_stringency_action = QAction(
+            "Chromatographic Peak Deconvolution Stringency: Medium", self
         )
-        self.deconvolution_stringency_action.triggered.connect(
-            self.show_deconvolution_stringency_dialog
+        self.chromatographic_peak_deconvolution_stringency_action.triggered.connect(
+            self.show_chromatographic_peak_deconvolution_stringency_dialog
         )
-        settings_menu.addAction(self.deconvolution_stringency_action)
+        settings_menu.addAction(self.chromatographic_peak_deconvolution_stringency_action)
 
         # Natural abundance correction toggle action
         self.nat_abundance_toggle = QAction(
@@ -346,10 +346,10 @@ class MainWindow(QMainWindow):
 
         # Initialize natural abundance correction state
         self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
-        self.toolbar.isotopologue_ratios.set_deconvolution_stringency(
-            self.deconvolution_stringency
+        self.toolbar.isotopologue_ratios.set_chromatographic_peak_deconvolution_stringency(
+            self.chromatographic_peak_deconvolution_stringency
         )
-        self.graph_view.set_deconvolution_stringency(self.deconvolution_stringency)
+        self.graph_view.set_chromatographic_peak_deconvolution_stringency(self.chromatographic_peak_deconvolution_stringency)
 
         # Connect the toolbar's custom signals to handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
@@ -645,7 +645,7 @@ class MainWindow(QMainWindow):
             if self._validation_provider is None:
                 self._validation_provider = DataProvider(
                     use_legacy_integration=self.use_legacy_integration,
-                    deconvolution_stringency=self.deconvolution_stringency,
+                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
                 )
 
             return self._validation_provider.validate_peak_area(
@@ -769,7 +769,7 @@ class MainWindow(QMainWindow):
                 loffset=compound.loffset,
                 roffset=compound.roffset,
                 baseline_correction=baseline_correction,
-                deconvolution_stringency=self.deconvolution_stringency,
+                chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
             )
             abundances.append(float(sum(isotope_areas)))
 
@@ -1840,10 +1840,10 @@ class MainWindow(QMainWindow):
                     if current_compound and current_samples:
                         self.on_plot_button(current_compound, current_samples)
 
-    def show_deconvolution_stringency_dialog(self):
-        """Show dialog to edit chromatographic deconvolution stringency."""
+    def show_chromatographic_peak_deconvolution_stringency_dialog(self):
+        """Show dialog to edit chromatographic peak deconvolution stringency."""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Deconvolution Stringency")
+        dialog.setWindowTitle("Chromatographic Peak Deconvolution Stringency")
         dialog.setModal(True)
         dialog.resize(420, 160)
 
@@ -1868,7 +1868,7 @@ class MainWindow(QMainWindow):
             (
                 i
                 for i, (_, value) in enumerate(options)
-                if value == self.deconvolution_stringency
+                if value == self.chromatographic_peak_deconvolution_stringency
             ),
             2,
         )
@@ -1885,17 +1885,17 @@ class MainWindow(QMainWindow):
 
         if dialog.exec() == QDialog.Accepted:
             new_value = combo.currentData()
-            if new_value != self.deconvolution_stringency:
-                self.deconvolution_stringency = new_value
-                self.deconvolution_stringency_action.setText(
-                    f"Deconvolution Stringency: {combo.currentText()}"
+            if new_value != self.chromatographic_peak_deconvolution_stringency:
+                self.chromatographic_peak_deconvolution_stringency = new_value
+                self.chromatographic_peak_deconvolution_stringency_action.setText(
+                    f"Chromatographic Peak Deconvolution Stringency: {combo.currentText()}"
                 )
-                self.graph_view.set_deconvolution_stringency(new_value)
-                self.toolbar.isotopologue_ratios.set_deconvolution_stringency(
+                self.graph_view.set_chromatographic_peak_deconvolution_stringency(new_value)
+                self.toolbar.isotopologue_ratios.set_chromatographic_peak_deconvolution_stringency(
                     new_value
                 )
                 if self._validation_provider is not None:
-                    self._validation_provider.set_deconvolution_stringency(new_value)
+                    self._validation_provider.set_chromatographic_peak_deconvolution_stringency(new_value)
                 if self.cdf_data_loaded and self.compound_data_loaded:
                     current_compound = self.toolbar.get_selected_compound()
                     current_samples = self.toolbar.get_selected_samples()
@@ -2542,7 +2542,7 @@ class MainWindow(QMainWindow):
             exporter = DataExporter()
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
-            exporter.set_deconvolution_stringency(self.deconvolution_stringency)
+            exporter.set_chromatographic_peak_deconvolution_stringency(self.chromatographic_peak_deconvolution_stringency)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
             exporter.set_internal_standard_reference_isotope(
                 self.internal_standard_reference_isotope

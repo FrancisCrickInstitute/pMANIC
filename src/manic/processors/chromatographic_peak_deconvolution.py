@@ -7,11 +7,11 @@ import numpy as np
 from scipy.optimize import least_squares
 from scipy.signal import find_peaks, peak_widths
 
-DeconvolutionStringency = Literal["off", "low", "medium", "high"]
+ChromatographicPeakDeconvolutionStringency = Literal["off", "low", "medium", "high"]
 
 
 @dataclass(frozen=True)
-class DeconvolutionParameters:
+class ChromatographicPeakDeconvolutionParameters:
     smooth_points: int
     min_prominence_fraction: float
     min_height_fraction: float
@@ -26,7 +26,7 @@ class ComponentWindow:
 
 
 @dataclass(frozen=True)
-class EICDeconvolutionResult:
+class EICChromatographicPeakDeconvolutionResult:
     selected: np.ndarray
     selected_mask: np.ndarray
     excluded: list[np.ndarray]
@@ -35,11 +35,11 @@ class EICDeconvolutionResult:
     component_centers: list[float]
 
 
-STRINGENCY_PRESETS: dict[str, DeconvolutionParameters] = {
+STRINGENCY_PRESETS: dict[str, ChromatographicPeakDeconvolutionParameters] = {
     # Low is deliberately permissive for visible shoulders.
-    "low": DeconvolutionParameters(3, 0.03, 0.03, 2.0),
-    "medium": DeconvolutionParameters(5, 0.08, 0.05, 3.0),
-    "high": DeconvolutionParameters(7, 0.15, 0.08, 4.0),
+    "low": ChromatographicPeakDeconvolutionParameters(3, 0.03, 0.03, 2.0),
+    "medium": ChromatographicPeakDeconvolutionParameters(5, 0.08, 0.05, 3.0),
+    "high": ChromatographicPeakDeconvolutionParameters(7, 0.15, 0.08, 4.0),
 }
 
 
@@ -48,7 +48,7 @@ def normalize_stringency(value: str | None) -> str:
     return value if value in {"off", "low", "medium", "high"} else "off"
 
 
-def deconvolution_enabled(value: str | None) -> bool:
+def chromatographic_peak_deconvolution_enabled(value: str | None) -> bool:
     return normalize_stringency(value) != "off"
 
 
@@ -60,7 +60,7 @@ def deconvolve_eic(
     loffset: float | None = None,
     roffset: float | None = None,
     stringency: str | None = "off",
-) -> EICDeconvolutionResult:
+) -> EICChromatographicPeakDeconvolutionResult:
     """
     Split an EIC into chromatographic components and select the one nearest RT.
 
@@ -103,7 +103,7 @@ def deconvolve_eic(
             )
         ),
     )
-    return EICDeconvolutionResult(
+    return EICChromatographicPeakDeconvolutionResult(
         selected=_restore_shape(selected, was_1d),
         selected_mask=_restore_shape(selected_mask, was_1d),
         excluded=[_restore_shape(component, was_1d) for component in excluded],
@@ -120,7 +120,7 @@ def _deconvolve_matrix(
     matrix: np.ndarray,
     mask: np.ndarray,
     retention_time: float | None,
-    params: DeconvolutionParameters,
+    params: ChromatographicPeakDeconvolutionParameters,
 ) -> tuple[np.ndarray, np.ndarray, list[np.ndarray], list[np.ndarray], list[float]]:
     selected = matrix.copy()
     selected_mask = np.ones_like(matrix, dtype=bool)
@@ -255,14 +255,14 @@ def _fit_component_model(
     }
 
 
-def _unchanged_result(time: np.ndarray, intensity: np.ndarray) -> EICDeconvolutionResult:
+def _unchanged_result(time: np.ndarray, intensity: np.ndarray) -> EICChromatographicPeakDeconvolutionResult:
     if time.size and intensity.size:
         matrix, _ = _as_trace_matrix(np.asarray(intensity, dtype=np.float64))
         trace = np.sum(matrix, axis=0)
         center = float(time[np.argmax(trace)]) if trace.size == time.size else None
     else:
         center = None
-    return EICDeconvolutionResult(
+    return EICChromatographicPeakDeconvolutionResult(
         selected=np.asarray(intensity, dtype=np.float64),
         selected_mask=np.ones_like(np.asarray(intensity), dtype=bool),
         excluded=[],
@@ -307,7 +307,7 @@ def _smooth(y: np.ndarray, points: int) -> np.ndarray:
 
 
 def _detect_components(
-    detection_trace: np.ndarray, params: DeconvolutionParameters
+    detection_trace: np.ndarray, params: ChromatographicPeakDeconvolutionParameters
 ) -> list[ComponentWindow]:
     y = np.maximum(np.asarray(detection_trace, dtype=np.float64), 0.0)
     if y.size < 3 or float(np.max(y)) <= 0:

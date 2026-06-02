@@ -23,7 +23,10 @@ from PySide6.QtWidgets import (
 from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
-from manic.processors.deconvolution import deconvolve_eic, deconvolution_enabled
+from manic.processors.chromatographic_peak_deconvolution import (
+    chromatographic_peak_deconvolution_enabled,
+    deconvolve_eic,
+)
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
@@ -130,7 +133,7 @@ class GraphView(QWidget):
 
         # Track whether to use corrected data
         self.use_corrected = False  # Default to using uncorrected data
-        self.deconvolution_stringency = "off"
+        self.chromatographic_peak_deconvolution_stringency = "off"
 
         # Track max grid dimensions we've used, so we can reliably reset
         # stretch/min-size for any historical rows/cols when the grid shrinks.
@@ -272,9 +275,9 @@ class GraphView(QWidget):
             f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data"
         )
 
-    def set_deconvolution_stringency(self, stringency: str):
-        """Set chromatographic deconvolution stringency for plot overlays."""
-        self.deconvolution_stringency = stringency
+    def set_chromatographic_peak_deconvolution_stringency(self, stringency: str):
+        """Set chromatographic peak deconvolution stringency for plot overlays."""
+        self.chromatographic_peak_deconvolution_stringency = stringency
 
     # public function
     def plot_compound(
@@ -478,7 +481,7 @@ class GraphView(QWidget):
                 sample_name=sample_name,
                 parent=self,
                 use_corrected=self.use_corrected,
-                deconvolution_stringency=self.deconvolution_stringency,
+                chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
             )
             dialog.exec()
 
@@ -1218,7 +1221,7 @@ class GraphView(QWidget):
                 baseline_series.attachAxis(x_axis)
                 baseline_series.attachAxis(y_axis)
 
-    def _add_deconvolution_overlays(
+    def _add_chromatographic_peak_deconvolution_overlays(
         self,
         chart,
         x_axis,
@@ -1229,7 +1232,7 @@ class GraphView(QWidget):
         scale_factor: float,
     ):
         """Draw excluded deconvolved components as lighter dotted traces."""
-        if not deconvolution_enabled(self.deconvolution_stringency):
+        if not chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
             return
 
         result = deconvolve_eic(
@@ -1238,7 +1241,7 @@ class GraphView(QWidget):
             retention_time=compound.retention_time,
             loffset=compound.loffset,
             roffset=compound.roffset,
-            stringency=self.deconvolution_stringency,
+            stringency=self.chromatographic_peak_deconvolution_stringency,
         )
         if not result.excluded:
             return
@@ -1284,14 +1287,14 @@ class GraphView(QWidget):
     ):
         """Draw raw context plus deconvolved selected/excluded components."""
         result = None
-        if deconvolution_enabled(self.deconvolution_stringency):
+        if chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
             result = deconvolve_eic(
                 eic_time,
                 eic_intensity,
                 retention_time=compound.retention_time,
                 loffset=compound.loffset,
                 roffset=compound.roffset,
-                stringency=self.deconvolution_stringency,
+                stringency=self.chromatographic_peak_deconvolution_stringency,
             )
             if not result.excluded:
                 result = None
@@ -1330,7 +1333,7 @@ class GraphView(QWidget):
             selected_mask=result.selected_mask,
             raw_context=False,
         )
-        self._add_deconvolution_overlays(
+        self._add_chromatographic_peak_deconvolution_overlays(
             chart,
             x_axis,
             y_axis,

@@ -1166,6 +1166,55 @@ class GraphView(QWidget):
 
         logger.debug(f"Drawing baseline lines for {compound.compound_name}")
 
+        if chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
+            result = deconvolve_eic(
+                eic_time,
+                eic_intensity,
+                retention_time=compound.retention_time,
+                loffset=compound.loffset,
+                roffset=compound.roffset,
+                stringency=self.chromatographic_peak_deconvolution_stringency,
+            )
+            selected_matrix = (
+                result.selected if eic_intensity.ndim > 1 else result.selected.reshape(1, -1)
+            )
+            mask_matrix = (
+                result.selected_mask
+                if eic_intensity.ndim > 1
+                else result.selected_mask.reshape(1, -1)
+            )
+            drew_baseline = False
+            for i, selected_trace in enumerate(selected_matrix):
+                trace_mask = np.asarray(mask_matrix[i, :], dtype=bool)
+                if not np.any(trace_mask):
+                    continue
+                baseline_result = compute_linear_baseline(
+                    eic_time[trace_mask], selected_trace[trace_mask]
+                )
+                if baseline_result is None:
+                    continue
+                td_base, baseline_y = baseline_result
+                baseline_y_scaled = (
+                    baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                )
+                qcolor = (
+                    label_colors[i % len(label_colors)]
+                    if eic_intensity.ndim > 1
+                    else dark_red_colour
+                )
+                baseline_series = QLineSeries()
+                baseline_series.append(td_base[0], baseline_y_scaled[0])
+                baseline_series.append(td_base[-1], baseline_y_scaled[-1])
+                baseline_pen = QPen(qcolor, 1.2)
+                baseline_pen.setStyle(Qt.DashLine)
+                baseline_series.setPen(baseline_pen)
+                chart.addSeries(baseline_series)
+                baseline_series.attachAxis(x_axis)
+                baseline_series.attachAxis(y_axis)
+                drew_baseline = True
+            if drew_baseline:
+                return
+
         # Calculate integration window boundaries
         l_boundary = compound.retention_time - compound.loffset
         r_boundary = compound.retention_time + compound.roffset

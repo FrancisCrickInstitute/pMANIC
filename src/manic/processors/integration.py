@@ -277,22 +277,31 @@ def calculate_peak_areas(
 
     # Unlabeled compound - single trace
     if (label_atoms or 0) == 0:
-        td, idata = apply_integration_boundaries(time_data, intensity_data)
-        if len(td) == 0:
-            return [0.0]
-
         if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
             deconvolved = deconvolve_eic(
-                td,
-                idata,
+                time_data,
+                intensity_data,
                 retention_time=retention_time,
+                loffset=loffset,
+                roffset=roffset,
                 stringency=chromatographic_peak_deconvolution_stringency,
             )
             idata = deconvolved.selected
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
-            if np.any(selected_mask):
-                td = td[selected_mask]
-                idata = idata[selected_mask]
+            if not np.any(selected_mask):
+                return [0.0]
+            total_area = _integrate_deconvolved_trace(
+                np.asarray(time_data, dtype=np.float64),
+                np.asarray(idata, dtype=np.float64),
+                selected_mask,
+                use_legacy=use_legacy,
+                baseline_correction=baseline_correction,
+            )
+            return [float(total_area)]
+        else:
+            td, idata = apply_integration_boundaries(time_data, intensity_data)
+            if len(td) == 0:
+                return [0.0]
 
         total_area = integrate_peak(idata, td, use_legacy=use_legacy)
 
@@ -314,27 +323,22 @@ def calculate_peak_areas(
         # Reshape intensity data for isotopologues FIRST
         intensity_reshaped = intensity_data.reshape(num_isotopologues, num_time_points)
 
-        # THEN apply integration boundaries to the reshaped data
-        td, intensity_reshaped = apply_integration_boundaries(
-            time_data, intensity_reshaped
-        )
-        if len(td) == 0:
-            return [0.0] * num_isotopologues
-
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
         if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
             deconvolved = deconvolve_eic(
-                td,
+                time_data,
                 intensity_matrix,
                 retention_time=retention_time,
+                loffset=loffset,
+                roffset=roffset,
                 stringency=chromatographic_peak_deconvolution_stringency,
             )
             selected = np.asarray(deconvolved.selected, dtype=np.float64)
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
             return [
                 _integrate_deconvolved_trace(
-                    td,
+                    np.asarray(time_data, dtype=np.float64),
                     selected[i, :],
                     selected_mask[i, :],
                     use_legacy=use_legacy,
@@ -342,6 +346,14 @@ def calculate_peak_areas(
                 )
                 for i in range(num_isotopologues)
             ]
+
+        # Apply integration boundaries only after deciding deconvolution is off.
+        td, intensity_reshaped = apply_integration_boundaries(
+            time_data, intensity_reshaped
+        )
+        if len(td) == 0:
+            return [0.0] * num_isotopologues
+        intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
         if use_legacy:
             total_areas = np.trapezoid(intensity_matrix, axis=1)

@@ -6,8 +6,23 @@ from typing import Literal
 import numpy as np
 from scipy.optimize import least_squares
 from scipy.signal import find_peaks, peak_widths
+from scipy.stats import exponnorm
 
-ChromatographicPeakDeconvolutionStringency = Literal["off", "low", "medium", "high"]
+ChromatographicPeakDeconvolutionStringency = Literal[
+    "off",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "low",
+    "medium",
+    "high",
+]
+PeakShapeModel = Literal["gaussian", "bi_gaussian", "emg"]
+MIN_DECONVOLUTION_CONTEXT_MINUTES = 0.25
 
 
 @dataclass(frozen=True)
@@ -16,6 +31,11 @@ class ChromatographicPeakDeconvolutionParameters:
     min_prominence_fraction: float
     min_height_fraction: float
     min_width_points: float
+    max_components: int
+    bic_improvement: float
+    min_component_fraction: float
+    shape_models: tuple[PeakShapeModel, ...]
+    max_nfev: int
 
 
 @dataclass(frozen=True)
@@ -23,6 +43,16 @@ class ComponentWindow:
     left: int
     apex: int
     right: int
+
+
+@dataclass(frozen=True)
+class FittedComponentModel:
+    baseline: np.ndarray
+    components: np.ndarray
+    centers: np.ndarray
+    bic: float
+    rss: float
+    shape_model: PeakShapeModel
 
 
 @dataclass(frozen=True)
@@ -36,16 +66,35 @@ class EICChromatographicPeakDeconvolutionResult:
 
 
 STRINGENCY_PRESETS: dict[str, ChromatographicPeakDeconvolutionParameters] = {
-    # Low is deliberately permissive for visible shoulders.
-    "low": ChromatographicPeakDeconvolutionParameters(3, 0.03, 0.03, 2.0),
-    "medium": ChromatographicPeakDeconvolutionParameters(5, 0.08, 0.05, 3.0),
-    "high": ChromatographicPeakDeconvolutionParameters(7, 0.15, 0.08, 4.0),
+    "1": ChromatographicPeakDeconvolutionParameters(
+        13, 0.25, 0.12, 7.0, 2, 14.0, 0.04, ("gaussian",), 160
+    ),
+    "2": ChromatographicPeakDeconvolutionParameters(
+        11, 0.18, 0.10, 6.0, 2, 12.0, 0.03, ("gaussian",), 180
+    ),
+    "3": ChromatographicPeakDeconvolutionParameters(
+        9, 0.12, 0.08, 5.0, 3, 9.0, 0.02, ("gaussian", "bi_gaussian"), 220
+    ),
+    "4": ChromatographicPeakDeconvolutionParameters(
+        7, 0.08, 0.05, 4.0, 3, 6.0, 0.015, ("gaussian", "bi_gaussian"), 260
+    ),
+    "5": ChromatographicPeakDeconvolutionParameters(
+        5, 0.05, 0.04, 3.0, 4, 4.0, 0.01, ("gaussian", "bi_gaussian"), 320
+    ),
+    "6": ChromatographicPeakDeconvolutionParameters(
+        3, 0.03, 0.03, 2.0, 4, 2.0, 0.0075, ("gaussian", "bi_gaussian", "emg"), 380
+    ),
+    "7": ChromatographicPeakDeconvolutionParameters(
+        1, 0.02, 0.02, 1.5, 5, 0.0, 0.005, ("gaussian", "bi_gaussian", "emg"), 450
+    ),
 }
+STRINGENCY_ALIASES = {"low": "2", "medium": "4", "high": "6"}
 
 
 def normalize_stringency(value: str | None) -> str:
     value = (value or "off").lower().strip()
-    return value if value in {"off", "low", "medium", "high"} else "off"
+    value = STRINGENCY_ALIASES.get(value, value)
+    return value if value == "off" or value in STRINGENCY_PRESETS else "off"
 
 
 def chromatographic_peak_deconvolution_enabled(value: str | None) -> bool:
@@ -64,8 +113,10 @@ def deconvolve_eic(
     """
     Split an EIC into chromatographic components and select the one nearest RT.
 
-    Multi-isotopologue EICs are evaluated per trace. This catches mass-channel
-    specific shoulders that can disappear when traces are summed together.
+    Deconvolution-on mode always fits and reconstructs the selected window,
+    including single-component windows. Multi-isotopologue inputs are fit as a
+    matrix: each component has one shared elution shape and non-negative channel
+    weights.
     """
     mode = normalize_stringency(stringency)
     time = np.asarray(time_data, dtype=np.float64)
@@ -78,30 +129,33 @@ def deconvolve_eic(
     if matrix.shape[1] != time.size:
         return _unchanged_result(time, intensity)
 
-    mask = _window_mask(time, retention_time, loffset, roffset)
-    if np.count_nonzero(mask) < 3:
-        return _unchanged_result(time, intensity)
+    integration_mask = _window_mask(time, retention_time, loffset, roffset)
+    if np.count_nonzero(integration_mask) == 0:
+        return _masked_result(time, intensity, integration_mask)
+
+    fit_mask = _deconvolution_fit_mask(time, retention_time, loffset, roffset)
+    fit_mask = fit_mask | integration_mask
+    if np.count_nonzero(fit_mask) < 5:
+        return _masked_result(time, intensity, integration_mask)
 
     selected, selected_mask, excluded, excluded_masks, centers = _deconvolve_matrix(
         time,
         matrix,
-        mask,
+        fit_mask,
+        integration_mask,
         retention_time,
         STRINGENCY_PRESETS[mode],
     )
-    if not excluded:
-        return _unchanged_result(time, intensity)
 
-    selected_center = min(
-        centers,
-        key=lambda center: abs(
-            center
-            - (
-                retention_time
-                if retention_time is not None
-                else float(time[np.argmax(np.sum(matrix, axis=0))])
-            )
-        ),
+    target_rt = (
+        retention_time
+        if retention_time is not None
+        else float(time[np.argmax(np.sum(matrix, axis=0))])
+    )
+    selected_center = (
+        min(centers, key=lambda center: abs(center - target_rt))
+        if centers
+        else float(target_rt)
     )
     return EICChromatographicPeakDeconvolutionResult(
         selected=_restore_shape(selected, was_1d),
@@ -111,136 +165,220 @@ def deconvolve_eic(
             _restore_shape(component, was_1d) for component in excluded_masks
         ],
         selected_center=selected_center,
-        component_centers=sorted(set(centers)),
+        component_centers=sorted(set(centers)) if centers else [selected_center],
     )
 
 
 def _deconvolve_matrix(
     time: np.ndarray,
     matrix: np.ndarray,
-    mask: np.ndarray,
+    fit_mask: np.ndarray,
+    integration_mask: np.ndarray,
     retention_time: float | None,
     params: ChromatographicPeakDeconvolutionParameters,
-) -> tuple[np.ndarray, np.ndarray, list[np.ndarray], list[np.ndarray], list[float]]:
-    selected = matrix.copy()
-    selected_mask = np.ones_like(matrix, dtype=bool)
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    list[np.ndarray],
+    list[np.ndarray],
+    list[float],
+]:
+    fit_indices = np.flatnonzero(fit_mask)
+    integration_indices = np.flatnonzero(integration_mask)
+    window_time = time[fit_mask]
+    window_matrix = np.maximum(np.asarray(matrix[:, fit_mask], dtype=np.float64), 0.0)
+
+    fitted = _fit_joint_component_model(window_time, window_matrix, params)
+    if fitted is None:
+        selected_mask = np.zeros_like(matrix, dtype=bool)
+        selected_mask[:, integration_indices] = True
+        return matrix.copy(), selected_mask, [], [], []
+
+    target_rt = (
+        retention_time
+        if retention_time is not None
+        else float(window_time[np.argmax(np.sum(window_matrix, axis=0))])
+    )
+    selected_index = int(
+        np.argmin([abs(float(center) - float(target_rt)) for center in fitted.centers])
+    )
+
+    selected = np.zeros_like(matrix, dtype=np.float64)
+    selected_mask = np.zeros_like(matrix, dtype=bool)
+    selected[:, fit_indices] = fitted.baseline + fitted.components[selected_index]
+    selected_mask[:, integration_indices] = True
+
     excluded: list[np.ndarray] = []
     excluded_masks: list[np.ndarray] = []
-    centers: list[float] = []
-    window_indices = np.flatnonzero(mask)
-    window_time = time[mask]
-
-    for trace_index, trace in enumerate(matrix):
-        window_trace = trace[mask]
-        components = _detect_components(window_trace, params)
-        if len(components) <= 1:
+    for component_index in range(fitted.components.shape[0]):
+        if component_index == selected_index:
             continue
-
-        target_rt = (
-            retention_time
-            if retention_time is not None
-            else float(window_time[np.argmax(window_trace)])
+        component_matrix = np.zeros_like(matrix, dtype=np.float64)
+        component_matrix[:, fit_indices] = (
+            fitted.baseline + fitted.components[component_index]
         )
-        selected_index = min(
-            range(len(components)),
-            key=lambda i: abs(float(window_time[components[i].apex]) - float(target_rt)),
-        )
+        component_mask = np.zeros_like(matrix, dtype=bool)
+        component_mask[:, fit_indices] = True
+        excluded.append(component_matrix)
+        excluded_masks.append(component_mask)
 
-        selected[trace_index, :] = 0.0
-        selected_mask[trace_index, :] = False
-        fitted = _fit_component_model(window_time, window_trace, components)
-        for component_index, component in enumerate(components):
-            local_slice = slice(component.left, component.right + 1)
-            global_indices = window_indices[local_slice]
-            centers.append(float(window_time[component.apex]))
-
-            if component_index == selected_index:
-                if fitted is not None:
-                    selected[trace_index, window_indices] = (
-                        fitted["baseline"] + fitted["components"][component_index]
-                    )
-                    selected_mask[trace_index, window_indices] = True
-                else:
-                    selected[trace_index, global_indices] = window_trace[local_slice]
-                    selected_mask[trace_index, global_indices] = True
-            else:
-                component_matrix = np.zeros_like(matrix)
-                if fitted is not None:
-                    component_trace = fitted["baseline"] + fitted["components"][component_index]
-                    component_matrix[trace_index, window_indices] = component_trace
-                else:
-                    component_matrix[trace_index, global_indices] = window_trace[local_slice]
-                component_mask = np.zeros_like(matrix, dtype=bool)
-                component_mask[trace_index, window_indices if fitted is not None else global_indices] = True
-                excluded.append(component_matrix)
-                excluded_masks.append(component_mask)
-
-    return selected, selected_mask, excluded, excluded_masks, centers
+    return (
+        selected,
+        selected_mask,
+        excluded,
+        excluded_masks,
+        [float(center) for center in fitted.centers],
+    )
 
 
-def _fit_component_model(
-    time: np.ndarray, intensity: np.ndarray, components: list[ComponentWindow]
-) -> dict[str, np.ndarray] | None:
-    """
-    Fit a simple linear-baseline plus Gaussian-components model.
-
-    This is intentionally conservative: if fitting fails, callers fall back to
-    observed component windows. The fitted path is used to reconstruct smooth
-    component curves rather than hard-cut chromatographic fragments.
-    """
-    if time.size < 5 or len(components) <= 1:
+def _fit_joint_component_model(
+    time: np.ndarray,
+    matrix: np.ndarray,
+    params: ChromatographicPeakDeconvolutionParameters,
+) -> FittedComponentModel | None:
+    if time.size < 5 or matrix.size == 0:
         return None
 
     x = np.asarray(time, dtype=np.float64)
-    y = np.maximum(np.asarray(intensity, dtype=np.float64), 0.0)
+    y = np.maximum(np.asarray(matrix, dtype=np.float64), 0.0)
+    channels, points = y.shape
     x0 = float(x[0])
     x_rel = x - x0
     x_span = float(x_rel[-1] - x_rel[0])
-    if x_span <= 0:
+    if x_span <= 0 or channels == 0 or points == 0:
         return None
 
     dt = float(np.median(np.diff(x))) if x.size > 1 else x_span
     min_sigma = max(dt, x_span / 500.0)
     max_sigma = max(min_sigma * 2.0, x_span / 2.0)
+    max_y = max(float(np.max(y)), np.finfo(float).eps)
 
-    baseline_start = float(np.percentile(y[: max(3, min(8, y.size))], 20))
-    baseline_end = float(np.percentile(y[-max(3, min(8, y.size)) :], 20))
-    initial: list[float] = [
-        baseline_start,
-        (baseline_end - baseline_start) / x_span,
-    ]
-    lower: list[float] = [0.0, -np.inf]
-    upper: list[float] = [float(np.max(y)), np.inf]
+    seed_indices = _candidate_peak_indices(y, params)
+    max_components = max(1, min(params.max_components, len(seed_indices), points // 3))
 
-    baseline_guess = initial[0] + initial[1] * x_rel
-    for component in components:
-        center = float(x_rel[component.apex])
-        width = max(float(component.right - component.left) * dt / 4.0, min_sigma)
-        height = max(float(y[component.apex] - baseline_guess[component.apex]), 0.0)
-        left_center = float(x_rel[component.left])
-        right_center = float(x_rel[component.right])
-        initial.extend([height, center, width])
-        lower.extend([0.0, left_center, min_sigma])
-        upper.extend([float(np.max(y) * 2.0), right_center, max_sigma])
+    best: FittedComponentModel | None = None
+    for component_count in range(1, max_components + 1):
+        initial_centers = sorted(
+            float(x_rel[index]) for index in seed_indices[:component_count]
+        )
+        for shape_model in params.shape_models:
+            fitted = _fit_shape_candidate(
+                x_rel,
+                y,
+                initial_centers,
+                shape_model,
+                min_sigma,
+                max_sigma,
+                max_y,
+                params,
+            )
+            if fitted is None or not _is_usable_fit(fitted, params, min_sigma):
+                continue
+            fitted = FittedComponentModel(
+                baseline=fitted.baseline,
+                components=fitted.components,
+                centers=fitted.centers + x0,
+                bic=fitted.bic,
+                rss=fitted.rss,
+                shape_model=fitted.shape_model,
+            )
+            if best is None or fitted.bic < best.bic - params.bic_improvement:
+                best = fitted
 
-    def unpack(params: np.ndarray) -> tuple[np.ndarray, list[np.ndarray]]:
-        baseline = params[0] + params[1] * x_rel
-        fitted_components: list[np.ndarray] = []
-        for offset in range(2, len(params), 3):
-            amp, center, sigma = params[offset : offset + 3]
-            fitted_components.append(amp * np.exp(-0.5 * ((x_rel - center) / sigma) ** 2))
-        return baseline, fitted_components
+    return best
 
-    def residual(params: np.ndarray) -> np.ndarray:
-        baseline, fitted_components = unpack(params)
-        return baseline + np.sum(fitted_components, axis=0) - y
+
+def _fit_shape_candidate(
+    x_rel: np.ndarray,
+    y: np.ndarray,
+    initial_centers: list[float],
+    shape_model: PeakShapeModel,
+    min_sigma: float,
+    max_sigma: float,
+    max_y: float,
+    params: ChromatographicPeakDeconvolutionParameters,
+) -> FittedComponentModel | None:
+    channels, _ = y.shape
+    component_count = len(initial_centers)
+    edge_points = max(3, min(8, y.shape[1]))
+    edge_baseline = np.minimum(
+        np.percentile(y[:, :edge_points], 20, axis=1),
+        np.percentile(y[:, -edge_points:], 20, axis=1),
+    )
+    window_baseline = np.percentile(y, 10, axis=1)
+    baseline_guess = np.minimum(edge_baseline, window_baseline)
+    baseline_upper = np.maximum(
+        np.percentile(y, 35, axis=1),
+        np.maximum(baseline_guess * 3.0, max_y * 0.02),
+    )
+    channel_scale = np.maximum(
+        np.percentile(y, 95, axis=1) - baseline_guess,
+        max(max_y * 1e-6, np.finfo(float).eps),
+    )
+
+    initial: list[float] = []
+    lower: list[float] = []
+    upper: list[float] = []
+
+    initial.extend(float(value) for value in baseline_guess)
+    lower.extend([0.0] * channels)
+    upper.extend(float(value) for value in baseline_upper)
+
+    for channel in range(channels):
+        for center in initial_centers:
+            apex_index = int(np.argmin(np.abs(x_rel - center)))
+            height = max(
+                float(y[channel, apex_index] - baseline_guess[channel]),
+                0.0,
+            )
+            initial.append(height)
+            lower.append(0.0)
+            upper.append(max_y * 2.0)
+
+    for center in initial_centers:
+        initial.extend(_initial_shape_params(shape_model, center, min_sigma))
+        low, high = _shape_param_bounds(shape_model, x_rel, min_sigma, max_sigma)
+        lower.extend(low)
+        upper.extend(high)
+
+    def unpack(values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        cursor = 0
+        intercept = values[cursor : cursor + channels]
+        cursor += channels
+        weights = values[cursor : cursor + channels * component_count].reshape(
+            channels, component_count
+        )
+        cursor += channels * component_count
+
+        shapes: list[np.ndarray] = []
+        centers: list[float] = []
+        for _ in range(component_count):
+            param_count = _shape_param_count(shape_model)
+            shape_params = values[cursor : cursor + param_count]
+            cursor += param_count
+            centers.append(float(shape_params[0]))
+            shapes.append(_component_shape(x_rel, shape_model, shape_params))
+
+        order = np.argsort(centers)
+        sorted_centers = np.asarray(centers, dtype=np.float64)[order]
+        shape_matrix = np.asarray(shapes, dtype=np.float64)[order]
+        sorted_weights = weights[:, order]
+
+        baseline = np.repeat(intercept[:, None], x_rel.size, axis=1)
+        components = sorted_weights.T[:, :, None] * shape_matrix[:, None, :]
+        return np.maximum(baseline, 0.0), components, sorted_centers
+
+    def residual(values: np.ndarray) -> np.ndarray:
+        baseline, components, _ = unpack(values)
+        total = baseline + np.sum(components, axis=0)
+        return ((total - y) / channel_scale[:, None]).ravel()
 
     try:
         result = least_squares(
             residual,
             x0=np.asarray(initial, dtype=np.float64),
             bounds=(np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)),
-            max_nfev=300,
+            max_nfev=params.max_nfev,
         )
     except Exception:
         return None
@@ -248,14 +386,148 @@ def _fit_component_model(
     if not result.success:
         return None
 
-    baseline, fitted_components = unpack(result.x)
-    return {
-        "baseline": np.maximum(baseline, 0.0),
-        "components": np.asarray(fitted_components, dtype=np.float64),
-    }
+    baseline, components, centers = unpack(result.x)
+    scaled_residual = (baseline + np.sum(components, axis=0) - y) / channel_scale[:, None]
+    rss = float(np.sum(scaled_residual**2))
+    observation_count = int(y.size)
+    parameter_count = int(result.x.size)
+    bic = observation_count * np.log(max(rss / observation_count, np.finfo(float).eps))
+    bic += parameter_count * np.log(max(observation_count, 2))
+    return FittedComponentModel(
+        baseline=baseline,
+        components=np.maximum(components, 0.0),
+        centers=centers,
+        bic=float(bic),
+        rss=rss,
+        shape_model=shape_model,
+    )
 
 
-def _unchanged_result(time: np.ndarray, intensity: np.ndarray) -> EICChromatographicPeakDeconvolutionResult:
+def _candidate_peak_indices(
+    matrix: np.ndarray, params: ChromatographicPeakDeconvolutionParameters
+) -> list[int]:
+    traces = [np.sum(matrix, axis=0), *[trace for trace in matrix]]
+    candidates: list[tuple[int, float]] = []
+
+    for trace in traces:
+        for component in _detect_components(trace, params):
+            candidates.append((component.apex, float(trace[component.apex])))
+
+    if not candidates:
+        summed = np.sum(matrix, axis=0)
+        candidates.append((int(np.argmax(summed)), float(np.max(summed))))
+
+    min_distance = max(1, int(np.floor(params.min_width_points / 2.0)))
+    candidates.sort(key=lambda item: item[1], reverse=True)
+    merged: list[tuple[int, float]] = []
+    for index, score in candidates:
+        if all(abs(index - kept_index) > min_distance for kept_index, _ in merged):
+            merged.append((index, score))
+
+    merged.sort(key=lambda item: item[1], reverse=True)
+    return [index for index, _ in merged]
+
+
+def _is_usable_fit(
+    fitted: FittedComponentModel,
+    params: ChromatographicPeakDeconvolutionParameters,
+    min_sigma: float,
+) -> bool:
+    if fitted.components.size == 0 or not np.isfinite(fitted.bic):
+        return False
+
+    centers = np.sort(fitted.centers)
+    if centers.size > 1 and np.min(np.diff(centers)) < min_sigma:
+        return False
+
+    component_by_channel = np.sum(fitted.components, axis=2)
+    channel_totals = np.sum(component_by_channel, axis=0)
+    if float(np.sum(channel_totals)) <= 0:
+        return False
+    channel_totals = np.maximum(channel_totals, np.finfo(float).eps)
+    component_channel_fraction = component_by_channel / channel_totals[None, :]
+    if np.any(np.max(component_channel_fraction, axis=1) < params.min_component_fraction):
+        return False
+
+    return bool(np.all(np.isfinite(fitted.components)))
+
+
+def _initial_shape_params(
+    shape_model: PeakShapeModel, center: float, min_sigma: float
+) -> list[float]:
+    if shape_model == "gaussian":
+        return [center, min_sigma * 2.0]
+    if shape_model == "bi_gaussian":
+        return [center, min_sigma * 2.0, min_sigma * 2.0]
+    return [center, min_sigma * 2.0, min_sigma * 2.0]
+
+
+def _shape_param_bounds(
+    shape_model: PeakShapeModel,
+    x_rel: np.ndarray,
+    min_sigma: float,
+    max_sigma: float,
+) -> tuple[list[float], list[float]]:
+    center_bounds = [float(x_rel[0]), float(x_rel[-1])]
+    if shape_model == "gaussian":
+        return [center_bounds[0], min_sigma], [center_bounds[1], max_sigma]
+    if shape_model == "bi_gaussian":
+        return (
+            [center_bounds[0], min_sigma, min_sigma],
+            [center_bounds[1], max_sigma, max_sigma],
+        )
+    return (
+        [center_bounds[0], min_sigma, min_sigma],
+        [center_bounds[1], max_sigma, max_sigma * 4.0],
+    )
+
+
+def _shape_param_count(shape_model: PeakShapeModel) -> int:
+    return 2 if shape_model == "gaussian" else 3
+
+
+def _component_shape(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values: np.ndarray
+) -> np.ndarray:
+    if shape_model == "gaussian":
+        center, sigma = values
+        shape = np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
+    elif shape_model == "bi_gaussian":
+        center, sigma_left, sigma_right = values
+        sigma = np.where(x_rel < center, sigma_left, sigma_right)
+        shape = np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
+    else:
+        center, sigma, tau = values
+        shape = exponnorm.pdf(x_rel, K=max(tau / sigma, 1e-6), loc=center, scale=sigma)
+
+    max_shape = float(np.max(shape)) if shape.size else 0.0
+    if max_shape <= 0 or not np.isfinite(max_shape):
+        return np.zeros_like(x_rel, dtype=np.float64)
+    return np.asarray(shape / max_shape, dtype=np.float64)
+
+
+def _masked_result(
+    time: np.ndarray, intensity: np.ndarray, mask: np.ndarray
+) -> EICChromatographicPeakDeconvolutionResult:
+    matrix, was_1d = _as_trace_matrix(np.asarray(intensity, dtype=np.float64))
+    selected_mask = np.zeros_like(matrix, dtype=bool)
+    if mask.size == matrix.shape[1]:
+        selected_mask[:, mask] = True
+    trace = np.sum(matrix, axis=0) if matrix.size else np.array([], dtype=np.float64)
+    center = float(time[np.argmax(trace)]) if trace.size == time.size else None
+    return EICChromatographicPeakDeconvolutionResult(
+        selected=np.asarray(intensity, dtype=np.float64),
+        selected_mask=_restore_shape(selected_mask, was_1d),
+        excluded=[],
+        excluded_masks=[],
+        selected_center=center,
+        component_centers=[center] if center is not None else [],
+    )
+
+
+def _unchanged_result(
+    time: np.ndarray, intensity: np.ndarray
+) -> EICChromatographicPeakDeconvolutionResult:
     if time.size and intensity.size:
         matrix, _ = _as_trace_matrix(np.asarray(intensity, dtype=np.float64))
         trace = np.sum(matrix, axis=0)
@@ -293,6 +565,23 @@ def _window_mask(
     if retention_time is None or loffset is None or roffset is None:
         return np.ones(time.shape, dtype=bool)
     return (time > retention_time - loffset) & (time < retention_time + roffset)
+
+
+def _deconvolution_fit_mask(
+    time: np.ndarray,
+    retention_time: float | None,
+    loffset: float | None,
+    roffset: float | None,
+) -> np.ndarray:
+    if retention_time is None:
+        return np.ones(time.shape, dtype=bool)
+
+    context = max(
+        MIN_DECONVOLUTION_CONTEXT_MINUTES,
+        float(loffset or 0.0),
+        float(roffset or 0.0),
+    )
+    return (time > retention_time - context) & (time < retention_time + context)
 
 
 def _smooth(y: np.ndarray, points: int) -> np.ndarray:

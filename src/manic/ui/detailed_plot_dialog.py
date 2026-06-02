@@ -461,6 +461,52 @@ class DetailedPlotDialog(QDialog):
         if not baseline_flag:
             return
 
+        if chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
+            result = deconvolve_eic(
+                self.eic_data.time,
+                self.eic_data.intensity,
+                retention_time=self.compound_info.retention_time,
+                loffset=self.compound_info.loffset,
+                roffset=self.compound_info.roffset,
+                stringency=self.chromatographic_peak_deconvolution_stringency,
+            )
+            selected_matrix = (
+                result.selected
+                if self.eic_data.intensity.ndim > 1
+                else result.selected.reshape(1, -1)
+            )
+            mask_matrix = (
+                result.selected_mask
+                if self.eic_data.intensity.ndim > 1
+                else result.selected_mask.reshape(1, -1)
+            )
+            drew_baseline = False
+            for i, selected_trace in enumerate(selected_matrix):
+                trace_mask = np.asarray(mask_matrix[i, :], dtype=bool)
+                if not np.any(trace_mask):
+                    continue
+                baseline_result = compute_linear_baseline(
+                    self.eic_data.time[trace_mask], selected_trace[trace_mask]
+                )
+                if baseline_result is None:
+                    continue
+                td_base, baseline_y = baseline_result
+                qcolor = label_colors[i % len(label_colors)]
+                color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
+                baseline_x = np.array([td_base[0], td_base[-1]])
+                baseline_y_vals = np.array([baseline_y[0], baseline_y[-1]])
+                self.eic_plot.plot_line(
+                    baseline_x,
+                    baseline_y_vals,
+                    color=color,
+                    width=1.2,
+                    name="",
+                    style="dashed",
+                )
+                drew_baseline = True
+            if drew_baseline:
+                return
+
         # Create window mask (strict boundaries like integration)
         mask = (self.eic_data.time > left_bound) & (self.eic_data.time < right_bound)
         if not np.any(mask):

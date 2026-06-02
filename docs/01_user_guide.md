@@ -323,6 +323,13 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 * **Scope:** This is a per-compound setting. Toggling it affects all samples for the selected compound.
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
+### Chromatographic Peak Deconvolution
+**Settings → Chromatographic Peak Deconvolution Stringency...**
+* **Default:** `Level 4`
+* **Function:** Fits chromatographic peak shapes inside the integration window and selects the component nearest the expected retention time. This can separate overlapping peaks before area calculation.
+* **Levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered.
+* **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
+
 ### Natural Abundance Correction
 **Settings → Natural Abundance Correction** (Toggle)
 * **Function:** Controls the visualization mode of the main chromatogram plots.

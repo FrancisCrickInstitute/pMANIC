@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
 
         # Integration method setting
         self.use_legacy_integration = False  # Time-based by default
-        self.chromatographic_peak_deconvolution_stringency = "medium"
+        self.chromatographic_peak_deconvolution_stringency = "4"
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -298,7 +298,7 @@ class MainWindow(QMainWindow):
         settings_menu.addAction(self.labelled_internal_standard_action)
 
         self.chromatographic_peak_deconvolution_stringency_action = QAction(
-            "Chromatographic Peak Deconvolution Stringency: Medium", self
+            "Chromatographic Peak Deconvolution Stringency: 4", self
         )
         self.chromatographic_peak_deconvolution_stringency_action.triggered.connect(
             self.show_chromatographic_peak_deconvolution_stringency_dialog
@@ -1845,36 +1845,60 @@ class MainWindow(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle("Chromatographic Peak Deconvolution Stringency")
         dialog.setModal(True)
-        dialog.resize(420, 160)
+        dialog.resize(640, 260)
+        dialog.setMinimumWidth(600)
 
         layout = QVBoxLayout(dialog)
         info_label = QLabel(
-            "Choose how aggressively MANIC splits overlapping chromatographic peaks."
+            "Choose how aggressively MANIC fits and separates overlapping "
+            "chromatographic peaks before integration."
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
         form_layout = QFormLayout()
         combo = QComboBox()
+        combo.setMinimumWidth(460)
+        combo.setMinimumContentsLength(42)
+        combo.setMaxVisibleItems(8)
+        combo.view().setMinimumWidth(520)
+        combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
         options = [
-            ("Off", "off"),
-            ("Low", "low"),
-            ("Medium", "medium"),
-            ("High", "high"),
+            ("Off - no chromatographic deconvolution", "off"),
+            ("Level 1 - coarsest, fastest, obvious overlaps only", "1"),
+            ("Level 2 - conservative splitting", "2"),
+            ("Level 3 - moderate-low resolution", "3"),
+            ("Level 4 - default balanced resolution", "4"),
+            ("Level 5 - moderate-high resolution", "5"),
+            ("Level 6 - high resolution, includes EMG tailing model", "6"),
+            ("Level 7 - finest, slowest, weakest shoulders considered", "7"),
         ]
+        legacy_values = {"low": "2", "medium": "4", "high": "6"}
+        current_value = legacy_values.get(
+            self.chromatographic_peak_deconvolution_stringency,
+            self.chromatographic_peak_deconvolution_stringency,
+        )
         for label, value in options:
             combo.addItem(label, value)
         current_index = next(
             (
                 i
                 for i, (_, value) in enumerate(options)
-                if value == self.chromatographic_peak_deconvolution_stringency
+                if value == current_value
             ),
-            2,
+            4,
         )
         combo.setCurrentIndex(current_index)
-        form_layout.addRow("Stringency:", combo)
+        form_layout.addRow("Resolution:", combo)
         layout.addLayout(form_layout)
+
+        hint_label = QLabel(
+            "Lower levels are faster and less likely to split noise. Higher levels "
+            "try narrower components and may take longer on dense or noisy peaks."
+        )
+        hint_label.setWordWrap(True)
+        hint_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(hint_label)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
@@ -1887,8 +1911,9 @@ class MainWindow(QMainWindow):
             new_value = combo.currentData()
             if new_value != self.chromatographic_peak_deconvolution_stringency:
                 self.chromatographic_peak_deconvolution_stringency = new_value
+                action_label = "Off" if new_value == "off" else f"Level {new_value}"
                 self.chromatographic_peak_deconvolution_stringency_action.setText(
-                    f"Chromatographic Peak Deconvolution Stringency: {combo.currentText()}"
+                    f"Chromatographic Peak Deconvolution Stringency: {action_label}"
                 )
                 self.graph_view.set_chromatographic_peak_deconvolution_stringency(new_value)
                 self.toolbar.isotopologue_ratios.set_chromatographic_peak_deconvolution_stringency(

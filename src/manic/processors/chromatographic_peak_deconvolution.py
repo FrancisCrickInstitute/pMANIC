@@ -406,7 +406,7 @@ def _deconvolve_matrix(
     )
 
 
-@functools.lru_cache(maxsize=256)
+@functools.lru_cache(maxsize=8192)
 def _fit_joint_component_model_cached(
     time_bytes: bytes,
     matrix_bytes: bytes,

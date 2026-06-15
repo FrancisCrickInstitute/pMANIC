@@ -8,6 +8,15 @@ When enabled, MANIC fits a chromatographic context around the expected retention
 
 The integration offsets do not define the fitted curve. They only cut out the part of the selected fitted curve that contributes to the final area. This prevents moving an integration boundary from changing the shape of the fitted peak itself.
 
+## One curve for display and integration
+
+When deconvolution is on, the fitted peak is a continuous analytic model (Gaussian, Bi-Gaussian, or EMG). MANIC keeps that continuous model and uses the *same* curve for both the picture and the number:
+
+- **Plots** (grid view and the detailed view) draw the model evaluated on a dense grid, so the selected peak is a genuinely smooth curve rather than straight lines joining the acquisition scan points. The faint raw EIC is still drawn underneath, untouched.
+- **Integration** integrates that same dense model over the loffset/roffset window, instead of trapezoidal integration of the model sampled only at the scan points.
+
+This guarantees the displayed peak is exactly what is integrated. Because trapezoidal integration of a smooth peak is already accurate, the exported areas change only marginally versus the previous scan-point integration (typically well under 0.1% for normally sampled peaks, and at most a couple of percent for very coarsely sampled peaks), always in the more accurate direction. Legacy (unit-spacing) integration is unaffected and remains scan-point based. The raw trace is never smoothed.
+
 If baseline correction is enabled, MANIC keeps the usual edge-based baseline correction but applies it to the selected deconvolved signal. Excluded components are removed before the baseline is estimated.
 
 ## Joint Isotopologue Model

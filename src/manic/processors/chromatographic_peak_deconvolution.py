@@ -64,6 +64,59 @@ class FittedComponentModel:
     bic: float
     rss: float
     shape_model: PeakShapeModel
+    # Continuous-model parameters, so the fitted curve can be re-evaluated on any
+    # time grid (rather than only at the acquisition scan points). Centers are in
+    # window-relative coordinates (add x0 to get absolute time); norms hold the
+    # per-component normalization (max of the raw shape over the fit window).
+    shape_params: np.ndarray | None = None
+    norms: np.ndarray | None = None
+    weights: np.ndarray | None = None
+    intercept: np.ndarray | None = None
+    x0: float = 0.0
+
+
+@dataclass(frozen=True)
+class DeconvolutionModel:
+    """The continuous fitted model, evaluable on any time grid.
+
+    This lets both display and integration use the exact same smooth curve the
+    optimiser found, instead of its values sampled at the acquisition scans.
+    """
+
+    x0: float
+    shape_model: PeakShapeModel
+    shape_params: np.ndarray  # (n_components, n_shape_params), centers in x_rel
+    norms: np.ndarray  # (n_components,)
+    intercept: np.ndarray  # (n_channels,) >= 0
+    weights: np.ndarray  # (n_channels, n_components) >= 0
+    selected_index: int
+    fit_left: float
+    fit_right: float
+    integration_left: float
+    integration_right: float
+    was_1d: bool = False
+
+    @property
+    def n_components(self) -> int:
+        return int(self.shape_params.shape[0])
+
+    def evaluate(self, time_grid: np.ndarray, component_index: int) -> np.ndarray:
+        """Return baseline + component on ``time_grid`` for every channel.
+
+        Shape is (n_channels, len(grid)), or (len(grid),) for 1-D inputs.
+        """
+        grid = np.asarray(time_grid, dtype=np.float64)
+        raw = _component_shape_raw(
+            grid - self.x0, self.shape_model, self.shape_params[component_index]
+        )
+        norm = float(self.norms[component_index])
+        unit = raw / norm if norm > 0 and np.isfinite(norm) else np.zeros_like(raw)
+        component = self.weights[:, component_index][:, None] * unit[None, :]
+        out = np.maximum(self.intercept[:, None] + component, 0.0)
+        return out[0] if self.was_1d else out
+
+    def evaluate_selected(self, time_grid: np.ndarray) -> np.ndarray:
+        return self.evaluate(time_grid, self.selected_index)
 
 
 @dataclass(frozen=True)
@@ -74,6 +127,7 @@ class EICChromatographicPeakDeconvolutionResult:
     excluded_masks: list[np.ndarray]
     selected_center: float | None
     component_centers: list[float]
+    model: DeconvolutionModel | None = None
 
 
 STRINGENCY_PRESETS: dict[str, ChromatographicPeakDeconvolutionParameters] = {
@@ -160,14 +214,18 @@ def deconvolve_eic(
     if np.count_nonzero(fit_mask) < 5:
         return _masked_result(time, intensity, integration_mask)
 
-    selected, selected_mask, excluded, excluded_masks, centers = _deconvolve_matrix(
-        time,
-        matrix,
-        fit_mask,
-        integration_mask,
-        retention_time,
-        params,
+    selected, selected_mask, excluded, excluded_masks, centers, model = (
+        _deconvolve_matrix(
+            time,
+            matrix,
+            fit_mask,
+            integration_mask,
+            retention_time,
+            params,
+        )
     )
+    if model is not None and was_1d:
+        model = dataclasses.replace(model, was_1d=True)
 
     target_rt = (
         retention_time
@@ -188,6 +246,7 @@ def deconvolve_eic(
         ],
         selected_center=selected_center,
         component_centers=sorted(set(centers)) if centers else [selected_center],
+        model=model,
     )
 
 
@@ -204,6 +263,7 @@ def _deconvolve_matrix(
     list[np.ndarray],
     list[np.ndarray],
     list[float],
+    DeconvolutionModel | None,
 ]:
     fit_indices = np.flatnonzero(fit_mask)
     integration_indices = np.flatnonzero(integration_mask)
@@ -222,7 +282,7 @@ def _deconvolve_matrix(
     if fitted is None:
         selected_mask = np.zeros_like(matrix, dtype=bool)
         selected_mask[:, integration_indices] = True
-        return matrix.copy(), selected_mask, [], [], []
+        return matrix.copy(), selected_mask, [], [], [], None
 
     target_rt = (
         retention_time
@@ -252,12 +312,35 @@ def _deconvolve_matrix(
         excluded.append(component_matrix)
         excluded_masks.append(component_mask)
 
+    model: DeconvolutionModel | None = None
+    if (
+        fitted.shape_params is not None
+        and fitted.norms is not None
+        and fitted.weights is not None
+        and fitted.intercept is not None
+        and integration_indices.size > 0
+    ):
+        model = DeconvolutionModel(
+            x0=float(fitted.x0),
+            shape_model=fitted.shape_model,
+            shape_params=np.asarray(fitted.shape_params, dtype=np.float64),
+            norms=np.asarray(fitted.norms, dtype=np.float64),
+            intercept=np.maximum(np.asarray(fitted.intercept, dtype=np.float64), 0.0),
+            weights=np.maximum(np.asarray(fitted.weights, dtype=np.float64), 0.0),
+            selected_index=selected_index,
+            fit_left=float(time[fit_indices[0]]),
+            fit_right=float(time[fit_indices[-1]]),
+            integration_left=float(time[integration_indices[0]]),
+            integration_right=float(time[integration_indices[-1]]),
+        )
+
     return (
         selected,
         selected_mask,
         excluded,
         excluded_masks,
         [float(center) for center in fitted.centers],
+        model,
     )
 
 
@@ -336,6 +419,11 @@ def _fit_joint_component_model(
                 bic=fitted.bic,
                 rss=fitted.rss,
                 shape_model=fitted.shape_model,
+                shape_params=fitted.shape_params,
+                norms=fitted.norms,
+                weights=fitted.weights,
+                intercept=fitted.intercept,
+                x0=x0,
             )
             if best_at_count is None or fitted.bic < best_at_count.bic - params.bic_improvement:
                 best_at_count = fitted
@@ -444,6 +532,20 @@ def _fit_shape_candidate(
     parameter_count = channels * (1 + component_count) + int(result.x.size)
     bic = observation_count * np.log(max(rss / observation_count, np.finfo(float).eps))
     bic += parameter_count * np.log(max(observation_count, 2))
+
+    # Capture the continuous-model parameters in the same (center-sorted) order as
+    # ``centers``/``components`` so the fit can be re-evaluated on any time grid.
+    ordered_params = np.asarray(result.x, dtype=np.float64).reshape(
+        component_count, param_count
+    )
+    ordered_params = ordered_params[np.argsort(ordered_params[:, 0])]
+    norms = np.array(
+        [
+            float(np.max(_component_shape_raw(x_rel, shape_model, ordered_params[k])))
+            for k in range(component_count)
+        ],
+        dtype=np.float64,
+    )
     return FittedComponentModel(
         baseline=np.maximum(baseline, 0.0),
         components=np.maximum(components, 0.0),
@@ -451,6 +553,11 @@ def _fit_shape_candidate(
         bic=float(bic),
         rss=rss,
         shape_model=shape_model,
+        shape_params=ordered_params,
+        norms=norms,
+        weights=np.maximum(weights, 0.0),
+        intercept=np.maximum(intercept, 0.0),
+        x0=0.0,
     )
 
 
@@ -569,9 +676,10 @@ def _shape_param_count(shape_model: PeakShapeModel) -> int:
     return 2 if shape_model == "gaussian" else 3
 
 
-def _component_shape(
+def _component_shape_raw(
     x_rel: np.ndarray, shape_model: PeakShapeModel, values: np.ndarray
 ) -> np.ndarray:
+    """Evaluate the (un-normalized) peak shape on an arbitrary time grid."""
     if shape_model == "gaussian":
         center, sigma = values
         shape = np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
@@ -585,11 +693,17 @@ def _component_shape(
         tau = max(float(tau), np.finfo(float).eps)
         offset = x_rel - center
         # Stable EMG via the scaled complementary error function; the leading
-        # 1/(2*tau) constant is dropped because the shape is max-normalized below.
+        # 1/(2*tau) constant is dropped because the shape is max-normalized later.
         # z is clipped to keep erfcx finite far out in the (negligible) tail.
         z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
         shape = np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
+    return np.asarray(shape, dtype=np.float64)
 
+
+def _component_shape(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values: np.ndarray
+) -> np.ndarray:
+    shape = _component_shape_raw(x_rel, shape_model, values)
     max_shape = float(np.max(shape)) if shape.size else 0.0
     if max_shape <= 0 or not np.isfinite(max_shape):
         return np.zeros_like(x_rel, dtype=np.float64)

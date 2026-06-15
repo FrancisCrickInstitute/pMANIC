@@ -1284,61 +1284,60 @@ class GraphView(QWidget):
                 baseline_series.attachAxis(x_axis)
                 baseline_series.attachAxis(y_axis)
 
-    def _add_chromatographic_peak_deconvolution_overlays(
+    def _add_model_component_series(
         self,
         chart,
         x_axis,
         y_axis,
-        eic_time: np.ndarray,
-        eic_intensity: np.ndarray,
-        compound,
+        model,
+        component_index: int,
+        *,
+        multi_trace: bool,
         scale_factor: float,
+        selected: bool,
     ):
-        """Draw excluded deconvolved components as lighter dotted traces."""
-        if not chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
-            return
+        """Draw one fitted component as the continuous model curve.
 
-        result = deconvolve_eic(
-            eic_time,
-            eic_intensity,
-            retention_time=compound.retention_time,
-            loffset=compound.loffset,
-            roffset=compound.roffset,
-            stringency=getattr(compound, "deconvolution_level", "off"),
-            fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
+        The exact same smooth model is what integration uses, so the displayed
+        peak and the exported area come from one source. The selected component
+        is drawn over the integration window; excluded ones over the fit window.
+        """
+        t_left, t_right = (
+            (model.integration_left, model.integration_right)
+            if selected
+            else (model.fit_left, model.fit_right)
         )
-        if not result.excluded:
+        if not (t_right > t_left):
             return
 
-        multi_trace = eic_intensity.ndim > 1
-        for excluded, excluded_mask in zip(result.excluded, result.excluded_masks):
-            traces = excluded if multi_trace else excluded.reshape(1, -1)
-            masks = excluded_mask if multi_trace else excluded_mask.reshape(1, -1)
-            for i, trace in enumerate(traces):
-                trace_mask = masks[i, :]
-                if not np.any(trace_mask):
-                    continue
-                qcolor = (
-                    label_colors[i % len(label_colors)]
-                    if multi_trace
-                    else dark_red_colour
-                )
+        grid = np.linspace(t_left, t_right, 256)
+        values = model.evaluate(grid, component_index)
+        matrix = values if values.ndim > 1 else values.reshape(1, -1)
+        for i, row in enumerate(matrix):
+            qcolor = (
+                label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
+            )
+            if selected:
+                pen = QPen(QColor(qcolor), 2.2)
+            else:
                 overlay_color = QColor(qcolor)
                 overlay_color.setAlpha(95)
                 pen = QPen(overlay_color, 1.2)
                 pen.setStyle(Qt.DotLine)
 
-                series = QLineSeries()
-                scaled_trace = trace / scale_factor if scale_factor != 0 else trace
-                keep = np.asarray(trace_mask, dtype=bool) & np.isfinite(scaled_trace)
-                if np.any(keep):
-                    xs = np.ascontiguousarray(eic_time[keep], dtype=np.float64)
-                    ys = np.ascontiguousarray(scaled_trace[keep], dtype=np.float64)
-                    series.appendNp(xs, ys)
-                series.setPen(pen)
-                chart.addSeries(series)
-                series.attachAxis(x_axis)
-                series.attachAxis(y_axis)
+            scaled = row / scale_factor if scale_factor != 0 else row
+            finite = np.isfinite(scaled)
+            if not np.any(finite):
+                continue
+            series = QLineSeries()
+            series.appendNp(
+                np.ascontiguousarray(grid[finite], dtype=np.float64),
+                np.ascontiguousarray(scaled[finite], dtype=np.float64),
+            )
+            series.setPen(pen)
+            chart.addSeries(series)
+            series.attachAxis(x_axis)
+            series.attachAxis(y_axis)
 
     def _add_eic_series(
         self,
@@ -1362,10 +1361,10 @@ class GraphView(QWidget):
                 stringency=getattr(compound, "deconvolution_level", "off"),
                 fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
             )
-            if not result.excluded:
-                result = None
 
-        if result is None:
+        model = result.model if result is not None else None
+        if model is None:
+            # Deconvolution off, or the fit failed and fell back to the raw trace.
             self._add_trace_series(
                 chart,
                 x_axis,
@@ -1378,6 +1377,7 @@ class GraphView(QWidget):
             )
             return
 
+        multi_trace = eic_intensity.ndim > 1
         self._add_trace_series(
             chart,
             x_axis,
@@ -1388,26 +1388,29 @@ class GraphView(QWidget):
             selected=False,
             raw_context=True,
         )
-        self._add_trace_series(
+        self._add_model_component_series(
             chart,
             x_axis,
             y_axis,
-            eic_time,
-            result.selected,
-            scale_factor,
+            model,
+            model.selected_index,
+            multi_trace=multi_trace,
+            scale_factor=scale_factor,
             selected=True,
-            selected_mask=result.selected_mask,
-            raw_context=False,
         )
-        self._add_chromatographic_peak_deconvolution_overlays(
-            chart,
-            x_axis,
-            y_axis,
-            eic_time,
-            eic_intensity,
-            compound,
-            scale_factor,
-        )
+        for component_index in range(model.n_components):
+            if component_index == model.selected_index:
+                continue
+            self._add_model_component_series(
+                chart,
+                x_axis,
+                y_axis,
+                model,
+                component_index,
+                multi_trace=multi_trace,
+                scale_factor=scale_factor,
+                selected=False,
+            )
 
     def _add_trace_series(
         self,
@@ -1450,7 +1453,10 @@ class GraphView(QWidget):
             if np.any(keep):
                 xs = np.ascontiguousarray(eic_time[keep], dtype=np.float64)
                 ys = np.ascontiguousarray(scaled_trace[keep], dtype=np.float64)
-                series.appendNp(xs, ys)
+                series.appendNp(
+                    np.ascontiguousarray(xs, dtype=np.float64),
+                    np.ascontiguousarray(ys, dtype=np.float64),
+                )
             series.setPen(pen)
             if not raw_context:
                 series.setName(f"Label {i}" if multi_trace else "")

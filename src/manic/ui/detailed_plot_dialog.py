@@ -53,7 +53,6 @@ from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.ui.colors import label_colors  # Import the same colors as main window
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
-
 logger = logging.getLogger(__name__)
 
 
@@ -551,46 +550,39 @@ class DetailedPlotDialog(QDialog):
                         style="dashed",
                     )
 
-    def _add_chromatographic_peak_deconvolution_overlays(self):
-        """Draw excluded deconvolved components as lighter dotted traces."""
-        if (
-            not self.compound_info
-            or not self.eic_data
-            or not chromatographic_peak_deconvolution_enabled(getattr(self.compound_info, "deconvolution_level", "off"))
-        ):
-            return
+    def _plot_model_component(self, model, component_index: int, *, selected: bool):
+        """Draw one fitted component as the continuous model curve.
 
-        result = deconvolve_eic(
-            self.eic_data.time,
-            self.eic_data.intensity,
-            retention_time=self.compound_info.retention_time,
-            loffset=self.compound_info.loffset,
-            roffset=self.compound_info.roffset,
-            stringency=getattr(self.compound_info, "deconvolution_level", "off"),
-            fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
-        )
-        if not result.excluded:
-            return
-
+        This is the same smooth model integration uses, evaluated on a dense grid
+        so the displayed peak and the exported area come from a single source.
+        """
         multi_trace = self.eic_data.intensity.ndim > 1
-        for excluded, excluded_mask in zip(result.excluded, result.excluded_masks):
-            traces = excluded if multi_trace else excluded.reshape(1, -1)
-            masks = excluded_mask if multi_trace else excluded_mask.reshape(1, -1)
-            for i, trace in enumerate(traces):
-                trace_mask = masks[i, :]
-                if not np.any(trace_mask):
-                    continue
-                display_trace = np.array(trace, dtype=np.float64, copy=True)
-                display_trace[~trace_mask] = np.nan
-                qcolor = label_colors[i % len(label_colors)] if multi_trace else label_colors[0]
+        t_left, t_right = (
+            (model.integration_left, model.integration_right)
+            if selected
+            else (model.fit_left, model.fit_right)
+        )
+        if not (t_right > t_left):
+            return
+
+        grid = np.linspace(t_left, t_right, 256)
+        values = model.evaluate(grid, component_index)
+        matrix = values if values.ndim > 1 else values.reshape(1, -1)
+        for i, row in enumerate(matrix):
+            qcolor = label_colors[i % len(label_colors)] if multi_trace else label_colors[0]
+            if selected:
+                color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},1.0)"
+                self.eic_plot.plot_line(
+                    grid,
+                    row,
+                    color=color,
+                    width=PLOT_LINE_WIDTH,
+                    name=f"M+{i}" if multi_trace else "",
+                )
+            else:
                 color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},0.38)"
                 self.eic_plot.plot_line(
-                    self.eic_data.time,
-                    display_trace,
-                    color=color,
-                    width=1.2,
-                    name="",
-                    style="dotted",
+                    grid, row, color=color, width=1.2, name="", style="dotted"
                 )
 
     def _plot_eic_traces(self):
@@ -606,19 +598,18 @@ class DetailedPlotDialog(QDialog):
                 stringency=getattr(self.compound_info, "deconvolution_level", "off"),
                 fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
             )
-            if not result.excluded:
-                result = None
 
-        if result is None:
+        model = result.model if result is not None else None
+        if model is None:
             self._plot_trace_matrix(self.eic_data.intensity, selected=True)
             return
 
         self._plot_trace_matrix(self.eic_data.intensity, selected=False, alpha=0.32)
-        selected = np.array(result.selected, dtype=np.float64, copy=True)
-        selected_mask = np.asarray(result.selected_mask, dtype=bool)
-        selected[~selected_mask] = np.nan
-        self._plot_trace_matrix(selected, selected=True)
-        self._add_chromatographic_peak_deconvolution_overlays()
+        self._plot_model_component(model, model.selected_index, selected=True)
+        for component_index in range(model.n_components):
+            if component_index == model.selected_index:
+                continue
+            self._plot_model_component(model, component_index, selected=False)
 
     def _plot_trace_matrix(
         self,
@@ -629,11 +620,12 @@ class DetailedPlotDialog(QDialog):
     ):
         matrix = intensity if intensity.ndim > 1 else intensity.reshape(1, -1)
         multi_trace = intensity.ndim > 1
+        time = np.asarray(self.eic_data.time, dtype=np.float64)
         for i, trace in enumerate(matrix):
             qcolor = label_colors[i % len(label_colors)] if multi_trace else label_colors[0]
             color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
             self.eic_plot.plot_line(
-                self.eic_data.time,
+                time,
                 trace,
                 color=color,
                 width=PLOT_LINE_WIDTH if selected else 1.0,

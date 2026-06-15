@@ -292,6 +292,17 @@ def calculate_peak_areas(
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
             if not np.any(selected_mask):
                 return [0.0]
+            if deconvolved.model is not None and not use_legacy:
+                td = np.asarray(time_data, dtype=np.float64)
+                return [
+                    _integrate_model_component(
+                        deconvolved.model,
+                        td[selected_mask],
+                        np.asarray(idata, dtype=np.float64)[selected_mask],
+                        channel=0,
+                        baseline_correction=baseline_correction,
+                    )
+                ]
             total_area = _integrate_deconvolved_trace(
                 np.asarray(time_data, dtype=np.float64),
                 np.asarray(idata, dtype=np.float64),
@@ -339,6 +350,18 @@ def calculate_peak_areas(
             )
             selected = np.asarray(deconvolved.selected, dtype=np.float64)
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
+            if deconvolved.model is not None and not use_legacy:
+                td = np.asarray(time_data, dtype=np.float64)
+                return [
+                    _integrate_model_component(
+                        deconvolved.model,
+                        td[selected_mask[i, :]],
+                        selected[i, selected_mask[i, :]],
+                        channel=i,
+                        baseline_correction=baseline_correction,
+                    )
+                    for i in range(num_isotopologues)
+                ]
             return [
                 _integrate_deconvolved_trace(
                     np.asarray(time_data, dtype=np.float64),
@@ -383,6 +406,42 @@ def calculate_peak_areas(
             f"Got total elements: {len(intensity_data)}. Error: {e}"
         )
         return [0.0] * num_isotopologues
+
+
+def _integrate_model_component(
+    model,
+    scan_time: np.ndarray,
+    scan_values: np.ndarray,
+    *,
+    channel: int,
+    baseline_correction: bool,
+    samples_per_scan: int = 16,
+) -> float:
+    """Integrate the continuous fitted model over the integration window.
+
+    Uses the same smooth curve that is drawn on screen (evaluated on a dense
+    grid) rather than the model's values sampled at the acquisition scans, so
+    the exported area matches the displayed peak and captures the curved apex
+    that a coarse scan-point trapezoid under-counts. Only used for time-based
+    (non-legacy) integration; the integration limits are unchanged.
+    """
+    scan_time = np.asarray(scan_time, dtype=np.float64)
+    if scan_time.size == 0:
+        return 0.0
+
+    n_points = max(65, int(scan_time.size) * samples_per_scan)
+    grid = np.linspace(model.integration_left, model.integration_right, n_points)
+    values = model.evaluate(grid, model.selected_index)
+    channel_values = values[channel] if values.ndim > 1 else values
+
+    total_area = float(np.trapezoid(channel_values, grid))
+    if baseline_correction:
+        baseline_area = compute_baseline_area(
+            scan_time, np.asarray(scan_values, dtype=np.float64), use_legacy=False
+        )
+        if baseline_area is not None:
+            total_area = max(0.0, total_area - baseline_area)
+    return float(total_area)
 
 
 def _integrate_deconvolved_trace(

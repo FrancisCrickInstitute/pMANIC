@@ -379,3 +379,87 @@ def test_baseline_correction_uses_selected_component_support_after_chromatograph
     )
 
     assert 0 < with_baseline[0] < without_baseline[0]
+
+
+def test_deconvolution_exposes_continuous_model_matching_scan_points():
+    time = np.linspace(8.0, 9.0, 80)
+    intensity = np.vstack(
+        [
+            _gaussian(time, 8.58, 0.02, 1000.0) + 5.0,
+            _gaussian(time, 8.58, 0.02, 400.0) + 2.0,
+        ]
+    )
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=8.58,
+        loffset=0.1,
+        roffset=0.1,
+        stringency="4",
+    )
+
+    model = result.model
+    assert model is not None
+    # The continuous model reproduces the sampled selected curve exactly at the
+    # acquisition scan points (it only adds detail between them).
+    mask0 = np.asarray(result.selected_mask[0], dtype=bool)
+    evaluated = model.evaluate_selected(time[mask0])
+    assert evaluated[0] == pytest.approx(result.selected[0][mask0], abs=1e-9)
+    # Evaluating on a denser grid stays within the same window.
+    grid = np.linspace(model.integration_left, model.integration_right, 200)
+    dense = model.evaluate_selected(grid)
+    assert dense.shape == (2, 200)
+
+
+def test_dense_model_integration_recovers_true_area_on_sparse_sampling():
+    # A peak sampled coarsely so a scan-point trapezoid under-counts the apex.
+    time = np.arange(8.50, 8.66, 0.02)
+    height = 1000.0
+    width = 0.018
+    intensity = np.vstack(
+        [_gaussian(time, 8.581, width, height), _gaussian(time, 8.581, width, height * 0.4)]
+    )
+
+    areas = calculate_peak_areas(
+        time,
+        intensity.flatten(),
+        label_atoms=1,
+        retention_time=8.581,
+        loffset=0.05,
+        roffset=0.05,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+    raw_areas = calculate_peak_areas(
+        time,
+        intensity.flatten(),
+        label_atoms=1,
+        retention_time=8.581,
+        loffset=0.05,
+        roffset=0.05,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+
+    true_area = height * width * np.sqrt(2.0 * np.pi)
+    # Dense model integration is closer to the analytic Gaussian area than the
+    # coarse raw trapezoid, and preserves the true 2.5:1 isotopologue ratio.
+    assert abs(areas[0] - true_area) < abs(raw_areas[0] - true_area)
+    assert areas[0] / areas[1] == pytest.approx(2.5, rel=1e-3)
+
+
+def test_legacy_integration_ignores_dense_model():
+    # Legacy (unit-spacing) integration must remain scan-point based, unchanged.
+    time = np.linspace(8.0, 9.0, 80)
+    intensity = _gaussian(time, 8.58, 0.02, 1000.0) + 5.0
+
+    legacy = calculate_peak_areas(
+        time,
+        intensity,
+        label_atoms=0,
+        retention_time=8.58,
+        loffset=0.1,
+        roffset=0.1,
+        use_legacy=True,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+    assert legacy[0] > 0

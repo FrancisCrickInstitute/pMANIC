@@ -334,6 +334,7 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
     * `Gaussian` - symmetric peaks only.
     * `Bi-Gaussian` - asymmetric peaks with separate left/right widths.
     * `EMG` - exponentially modified Gaussian for tailing peaks.
+* **What you see is what's integrated:** When on, MANIC fits a model even for a single clean peak (with nothing to separate, it simply fits one component) and integrates that fitted curve rather than the raw points. The grid and detailed plots draw that same fitted curve over the faint raw trace, so the displayed peak matches the exported area. Set the level to `Off` to integrate the raw trace directly.
 * **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto (compound_name)`, or `Deconvolution: Off`.
 * **Logging:** The per-compound resolution and fit type are recorded in the export changelog so processed results are reproducible.
 * **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)

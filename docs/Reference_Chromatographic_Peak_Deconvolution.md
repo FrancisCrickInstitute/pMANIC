@@ -4,13 +4,13 @@
 
 Chromatographic peak deconvolution separates partially overlapping extracted ion chromatogram (EIC) signals before peak area integration. In MANIC this is distinct from natural isotope correction: chromatographic deconvolution works in retention-time space, while natural isotope correction works across isotopologue abundances after integration.
 
-When enabled, MANIC fits a chromatographic context around the expected retention time instead of using the raw trace directly. Even a single visible peak is smoothed and reconstructed by the model; if multiple components are supported by the data, the component nearest the expected retention time is selected for integration and the other components are excluded.
+When enabled, MANIC fits a chromatographic context around the expected retention time. Crucially, the fitted model only *replaces* the raw trace when there is something genuine to deconvolve: if the window contains two or more overlapping peaks and the fit is good, the component nearest the expected retention time is selected for integration and the others are excluded. For a well-resolved single peak there is nothing to separate, so MANIC integrates and displays the **raw trace** directly - this matches standard practice (raw integration is the reference method for resolved peaks) and avoids the risk of a curve fit distorting a clean peak.
 
 The integration offsets do not define the fitted curve. They only cut out the part of the selected fitted curve that contributes to the final area. This prevents moving an integration boundary from changing the shape of the fitted peak itself.
 
 ## One curve for display and integration
 
-When deconvolution is on, the fitted peak is a continuous analytic model (Gaussian, Bi-Gaussian, or EMG). MANIC keeps that continuous model and uses the *same* curve for both the picture and the number:
+When deconvolution is on **and warranted** (a genuine overlap with a good fit), the fitted peak is a continuous analytic model (Gaussian, Bi-Gaussian, or EMG). MANIC keeps that continuous model and uses the *same* curve for both the picture and the number:
 
 - **Plots** (grid view and the detailed view) draw the model evaluated on a dense grid, so the selected peak is a genuinely smooth curve rather than straight lines joining the acquisition scan points. The faint raw EIC is still drawn underneath, untouched.
 - **Integration** integrates that same dense model over the loffset/roffset window, instead of trapezoidal integration of the model sampled only at the scan points.
@@ -108,13 +108,27 @@ Repeated work is also avoided by caching: identical fits (same window data, leve
 
 ## Behaviour on Messy or Unfittable Traces
 
-Deconvolution is designed to degrade gracefully and never block integration:
+Deconvolution is designed to degrade gracefully and never block integration. Two checks run **before** the expensive fit (so the fit is skipped entirely in the common cases), and a quality net runs **after** it:
 
 - **Deconvolution off, too few points, or an empty integration window:** the raw trace is used unchanged.
+- **No genuine overlap to resolve (the resolved-peak early-out):** before fitting, MANIC detects how many peaks the raw window contains (`_detect_components`). If there are fewer than two, there is nothing to deconvolve, so it **skips the fit entirely** and integrates the raw trace. Because most targeted peaks are single and well-resolved, this is the dominant export speedup - a clean single peak costs essentially nothing instead of a full curve fit that would only be discarded.
+- **A window that is too messy to be worth fitting (the noise gate):** also before any curve fitting, MANIC scores the window's smoothness as the lag-1 autocorrelation of its first differences. A real elution peak rises then falls, so consecutive slopes share sign (a positive score) even when the peak is sparsely sampled or weak; pure noise alternates sign (a score near -0.5). Windows scoring below the active threshold are skipped outright - no model is fit, no overlay is drawn, and integration uses the raw trace. This is both a correctness choice (fitting noise is meaningless) and the single biggest export speedup, because noise-dominated windows are otherwise the most expensive to fit and are discarded anyway.
+
+  The gate is a **per-compound** setting chosen from four presets (stored in `compounds.deconvolution_noise_gate`, mapped to thresholds in `NOISE_GATE_PRESETS`):
+
+  | Preset | Threshold | Behaviour |
+  |---|---|---|
+  | `off` | `None` | gate disabled - always attempt a fit (only flat/empty windows are skipped) |
+  | `lenient` | `-0.3` | skip only near-pure noise |
+  | `balanced` (default) | `-0.1` | skip noise and weak-peak-in-heavy-noise |
+  | `aggressive` | `+0.1` | only fit clearly smooth peaks |
+
+  The default `balanced` (`-0.1`) sits in the empty gap between the noise population (~`-0.5`) and genuine peaks (`>= +0.3`), biased slightly toward keeping borderline peaks (the safer error for quantitation, since the usable-fit checks can still reject a poor fit). Change it per compound in the deconvolution dialog.
 - **A fit is attempted but no usable model is found** (the optimizer fails to converge, or every candidate is rejected for being non-finite or contributing too little signal): MANIC falls back to **integrating the raw trace over the loffset/roffset window** - exactly the result you would get with deconvolution turned off. No component overlays are drawn, and the plot simply shows the raw EIC.
+- **A fit succeeds but does not reproduce the data (the fit-quality net):** after fitting an apparent overlap, MANIC checks the result (`_fit_reproduces_window`). The model is kept **only** when (a) the fit actually uses at least two components and (b) the reconstruction reproduces the raw window well (relative residual at or below `FIT_QUALITY_MAX_REL_RESIDUAL`). If the fit collapses to one component or does not match the data - for example a clean peak that got over-split with the wrong fragment selected - MANIC discards the model and integrates the **raw trace** instead. This is the safeguard against a clean peak being mangled by an over-flexible or mis-converged fit, which would badly under-count the area.
 - **Unexpected numerical failure during fitting:** any error in the fit is caught and treated as "no usable model", so it routes to the same raw-trace fallback rather than raising an error. This protects both interactive plotting and bulk export.
 
-In short, a messy trace that cannot be deconvolved produces the same area as the non-deconvolution path; it does not zero out, blank the plot, or abort an export.
+In short, MANIC only lets the model replace the raw trace for genuine, well-fit overlaps; in every other case - off, too few points, too messy, no usable fit, a resolved single peak, or a poor fit - it integrates and displays the raw trace. It never zeroes out, blanks the plot, or aborts an export.
 
 ## Scientific Background
 

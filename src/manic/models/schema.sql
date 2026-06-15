@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS compounds (
     baseline_correction INTEGER DEFAULT 1,  -- Enable linear baseline subtraction for this compound
     deconvolution_level TEXT DEFAULT '4',   -- Per-compound chromatographic deconvolution level ('off', '1'-'7')
     deconvolution_fit_type TEXT DEFAULT 'auto',  -- Per-compound peak-shape fit type ('auto','gaussian','bi_gaussian','emg')
+    deconvolution_noise_gate TEXT DEFAULT 'balanced',  -- Per-compound noise gate ('off','lenient','balanced','aggressive')
     deleted       INTEGER DEFAULT 0
 );
 

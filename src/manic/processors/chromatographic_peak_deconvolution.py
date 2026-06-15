@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import warnings
 from dataclasses import dataclass
 from typing import Literal
 
@@ -155,6 +156,37 @@ STRINGENCY_PRESETS: dict[str, ChromatographicPeakDeconvolutionParameters] = {
 }
 STRINGENCY_ALIASES = {"low": "2", "medium": "4", "high": "6"}
 
+# Noise-gate presets: each maps a user-facing preset name to the minimum
+# "smoothness" (lag-1 autocorrelation of the trace's first differences) a window
+# must reach to be worth deconvolving. A smooth peak - even if sparsely sampled
+# or weak - produces consecutive same-sign slopes (a positive value), while
+# white noise alternates sign (about -0.5). Windows below the chosen threshold
+# are treated as "too messy": the (expensive and usually discarded) curve fit is
+# skipped and the raw trace is used, both for export integration and the
+# on-screen overlay. ``None`` ("off") disables the smoothness gate entirely.
+#   - balanced (default): sits in the empty gap between noise (~-0.5) and real
+#     peaks (>=+0.3), biased slightly toward keeping borderline peaks.
+#   - lenient: only skips near-pure noise.
+#   - aggressive: only fits clearly smooth peaks.
+NOISE_GATE_PRESETS: dict[str, float | None] = {
+    "off": None,
+    "lenient": -0.3,
+    "balanced": -0.1,
+    "aggressive": 0.1,
+}
+NOISE_GATE_TYPES: tuple[str, ...] = tuple(NOISE_GATE_PRESETS)
+DEFAULT_NOISE_GATE = "balanced"
+
+# Maximum relative residual (sum of squares of recon-minus-raw over sum of
+# squares of raw) for a joint fit to be trusted over the raw trace. Above this
+# the model reproduces the data poorly and we fall back to raw integration.
+FIT_QUALITY_MAX_REL_RESIDUAL = 0.15
+
+
+def normalize_noise_gate(value: str | None) -> str:
+    value = (value or DEFAULT_NOISE_GATE).lower().strip()
+    return value if value in NOISE_GATE_PRESETS else DEFAULT_NOISE_GATE
+
 
 def normalize_stringency(value: str | None) -> str:
     value = (value or "off").lower().strip()
@@ -180,17 +212,24 @@ def deconvolve_eic(
     roffset: float | None = None,
     stringency: str | None = "off",
     fit_type: str | None = "auto",
+    noise_gate: str | None = DEFAULT_NOISE_GATE,
 ) -> EICChromatographicPeakDeconvolutionResult:
     """
     Split an EIC into chromatographic components and select the one nearest RT.
 
-    Deconvolution-on mode always fits and reconstructs the selected window,
-    including single-component windows. Multi-isotopologue inputs are fit as a
-    matrix: each component has one shared elution shape and non-negative channel
-    weights.
+    A fitted model only *replaces* the raw trace when deconvolution is genuinely
+    warranted. Before fitting, the window must look like a real overlap (>= 2
+    peaks in the raw data) and not be too messy; after fitting, the model must
+    use >= 2 components and reproduce the window well (see
+    ``_fit_reproduces_window``). Well-resolved single peaks, messy/noise-only
+    windows, and poor fits all fall back to the raw trace (``model is None``) -
+    and resolved single peaks skip the expensive fit entirely - so display and
+    integration always agree. Multi-isotopologue inputs are fit as a matrix: each
+    component has one shared elution shape and non-negative channel weights.
     """
     mode = normalize_stringency(stringency)
     shape_fit_type = normalize_fit_type(fit_type)
+    min_smoothness = NOISE_GATE_PRESETS[normalize_noise_gate(noise_gate)]
     time = np.asarray(time_data, dtype=np.float64)
     intensity = np.asarray(intensity_data, dtype=np.float64)
 
@@ -222,6 +261,7 @@ def deconvolve_eic(
             integration_mask,
             retention_time,
             params,
+            min_smoothness,
         )
     )
     if model is not None and was_1d:
@@ -257,6 +297,7 @@ def _deconvolve_matrix(
     integration_mask: np.ndarray,
     retention_time: float | None,
     params: ChromatographicPeakDeconvolutionParameters,
+    min_smoothness: float | None,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -270,15 +311,36 @@ def _deconvolve_matrix(
     window_time = time[fit_mask]
     window_matrix = np.maximum(np.asarray(matrix[:, fit_mask], dtype=np.float64), 0.0)
 
-    try:
-        fitted = _fit_joint_component_model_cached(
-            window_time.tobytes(),
-            window_matrix.tobytes(),
-            window_matrix.shape,
-            params,
-        )
-    except Exception:
+    summed_window = np.sum(window_matrix, axis=0)
+
+    # Decide whether to even attempt the (expensive) fit. We skip it - and use
+    # the raw trace - when:
+    #   * the window is too messy/noisy to be worth fitting (the noise gate), or
+    #   * the raw data shows no genuine overlap (fewer than two peaks). A
+    #     well-resolved single peak is integrated from the raw trace anyway, so
+    #     fitting it would only be discarded.
+    # Doing this *before* the fit (rather than rejecting the model afterwards) is
+    # the main export speedup, since most targeted peaks are single and resolved.
+    if _too_messy_to_fit(summed_window, min_smoothness) or (
+        len(_detect_components(summed_window, params)) < 2
+    ):
         fitted = None
+    else:
+        try:
+            fitted = _fit_joint_component_model_cached(
+                window_time.tobytes(),
+                window_matrix.tobytes(),
+                window_matrix.shape,
+                params,
+            )
+        except Exception:
+            fitted = None
+
+        # Post-fit quality net: even on a real overlap, discard a fit that
+        # collapses to a single component or fails to reproduce the raw window
+        # (e.g. a clean peak that got over-split and the wrong fragment selected).
+        if fitted is not None and not _fit_reproduces_window(window_matrix, fitted):
+            fitted = None
     if fitted is None:
         selected_mask = np.zeros_like(matrix, dtype=bool)
         selected_mask[:, integration_indices] = True
@@ -355,6 +417,13 @@ def _fit_joint_component_model_cached(
 
     The same window/stringency is fit many times per render (baseline, overlays,
     detailed plot) and on every offset drag, so identical inputs are common.
+
+    The cache is sized to hold a full session's worth of distinct fits so that
+    expensive fits computed while browsing compounds survive until export and are
+    reused there instead of being recomputed. Entries are keyed by the exact
+    window data plus settings, so a changed setting or re-extracted trace yields a
+    different key and never returns a stale result; the cost is only memory (each
+    entry is one window's small fit result).
     """
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
@@ -627,6 +696,68 @@ def _is_usable_fit(
     return bool(np.all(np.isfinite(fitted.components)))
 
 
+def _too_messy_to_fit(
+    summed: np.ndarray, min_smoothness: float | None
+) -> bool:
+    """Return True when a window is too noisy/flat to be worth deconvolving.
+
+    Fitting a multi-component model to a very messy or near-flat window is the
+    most expensive case (it defeats every early-stop heuristic and the result is
+    usually discarded anyway), and drawing such a fit is misleading.
+
+    We score smoothness by the lag-1 autocorrelation of the first differences:
+    a real elution peak rises then falls, so consecutive slopes share sign
+    (positive score) regardless of how sparsely or weakly it is sampled, whereas
+    noise alternates sign (score near -0.5). Because the score is weighted by
+    slope magnitude, a clear peak on a noisy baseline still scores positive,
+    while a window dominated by noise scores low and is skipped.
+
+    ``min_smoothness`` is the threshold from the active noise-gate preset, or
+    ``None`` to disable the gate (only flat/degenerate windows are skipped).
+    """
+    if min_smoothness is None:
+        return False
+    y = np.maximum(np.asarray(summed, dtype=np.float64), 0.0)
+    if y.size < 5 or float(np.max(y)) <= 0.0:
+        return True
+    diffs = np.diff(y)
+    denominator = float(np.sum(diffs[:-1] ** 2 + diffs[1:] ** 2)) / 2.0
+    if denominator <= np.finfo(float).eps:
+        return True  # flat window: nothing to fit
+    smoothness = float(np.sum(diffs[:-1] * diffs[1:])) / denominator
+    return smoothness < min_smoothness
+
+
+def _fit_reproduces_window(
+    window_matrix: np.ndarray,
+    fitted: FittedComponentModel,
+) -> bool:
+    """Post-fit quality net: trust the model over the raw trace only if it is a
+    genuine, well-reproduced overlap.
+
+    The "is there an overlap at all?" decision (>= 2 peaks in the raw data) is
+    made *before* fitting, so by the time we get here a fit was attempted on a
+    window that looked like an overlap. This guards against the remaining failure
+    modes:
+
+    1. the fit collapses to a single component (nothing was actually separated);
+       or
+    2. the reconstruction does not reproduce the raw window (a mis-converged or
+       over-split fit, e.g. a clean peak split with the wrong fragment selected).
+
+    In either case the caller falls back to integrating the raw trace.
+    """
+    if fitted.components.shape[0] < 2:
+        return False
+    recon = fitted.baseline + np.sum(fitted.components, axis=0)
+    raw = np.asarray(window_matrix, dtype=np.float64)
+    denominator = float(np.sum(raw ** 2))
+    if denominator <= np.finfo(float).eps:
+        return False
+    rel_residual = float(np.sum((recon - raw) ** 2)) / denominator
+    return rel_residual <= FIT_QUALITY_MAX_REL_RESIDUAL
+
+
 def _estimate_peak_sigma(
     summed: np.ndarray, dt: float, params: ChromatographicPeakDeconvolutionParameters
 ) -> float:
@@ -636,7 +767,14 @@ def _estimate_peak_sigma(
         return 0.0
     apex = int(np.argmax(smoothed))
     try:
-        fwhm_points = float(peak_widths(smoothed, [apex], rel_height=0.5)[0][0])
+        # Flat/degenerate windows make SciPy emit a PeakPropertyWarning about
+        # zero width/prominence. We already treat a zero result as "no usable
+        # peak", so silence it here; otherwise it floods the console once per
+        # fit during a full export (the dedup registry gets reset by other
+        # catch_warnings blocks elsewhere), which is noisy and slows the run.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fwhm_points = float(peak_widths(smoothed, [apex], rel_height=0.5)[0][0])
     except Exception:
         return 0.0
     return fwhm_points * dt / 2.3548 if fwhm_points > 0 else 0.0

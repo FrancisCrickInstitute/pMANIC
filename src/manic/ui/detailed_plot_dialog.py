@@ -467,6 +467,7 @@ class DetailedPlotDialog(QDialog):
                 roffset=self.compound_info.roffset,
                 stringency=getattr(self.compound_info, "deconvolution_level", "off"),
                 fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
+                noise_gate=getattr(self.compound_info, "deconvolution_noise_gate", "balanced"),
             )
             selected_matrix = (
                 result.selected
@@ -597,6 +598,7 @@ class DetailedPlotDialog(QDialog):
                 roffset=self.compound_info.roffset,
                 stringency=getattr(self.compound_info, "deconvolution_level", "off"),
                 fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
+                noise_gate=getattr(self.compound_info, "deconvolution_noise_gate", "balanced"),
             )
 
         model = result.model if result is not None else None

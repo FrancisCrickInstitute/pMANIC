@@ -334,9 +334,14 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
     * `Gaussian` - symmetric peaks only.
     * `Bi-Gaussian` - asymmetric peaks with separate left/right widths.
     * `EMG` - exponentially modified Gaussian for tailing peaks.
-* **What you see is what's integrated:** When on, MANIC fits a model even for a single clean peak (with nothing to separate, it simply fits one component) and integrates that fitted curve rather than the raw points. The grid and detailed plots draw that same fitted curve over the faint raw trace, so the displayed peak matches the exported area. Set the level to `Off` to integrate the raw trace directly.
-* **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto (compound_name)`, or `Deconvolution: Off`.
-* **Logging:** The per-compound resolution and fit type are recorded in the export changelog so processed results are reproducible.
+* **Only deconvolves genuine overlaps:** When on, MANIC fits a model but only *uses* it when there is something real to separate - i.e. the window genuinely contains two or more overlapping peaks and the fit is good. The component nearest the expected retention time is then integrated and the others excluded, and the plots draw that fitted curve over the faint raw trace. For a well-resolved single peak (nothing to deconvolve), MANIC integrates and displays the **raw trace** directly. This matches standard practice and avoids a curve fit distorting a clean peak. Set the level to `Off` to always integrate the raw trace.
+* **Noise gate:** Controls how aggressively MANIC skips fitting on messy/noise-only peaks. When a window is skipped it simply shows and integrates the plain raw trace instead of drawing a meaningless fitted curve - which also keeps exports fast, since noise-only traces are otherwise the slowest to (pointlessly) fit. This is a per-compound setting with four presets:
+    * `Balanced` - skip noise and weak peaks buried in heavy noise (recommended default).
+    * `Lenient` - skip only near-pure noise.
+    * `Aggressive` - only fit clearly smooth peaks.
+    * `Off` - always attempt a fit (the old behaviour).
+* **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto · Gate Balanced (compound_name)`, or `Deconvolution: Off`.
+* **Logging:** The per-compound resolution, fit type, and noise gate are recorded in the export changelog so processed results are reproducible.
 * **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction

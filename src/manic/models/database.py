@@ -193,6 +193,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                 )
                 conn.commit()
 
+            if "deconvolution_noise_gate" not in columns:
+                logger.info("Adding deconvolution_noise_gate column to compounds table")
+                conn.execute(
+                    "ALTER TABLE compounds ADD COLUMN deconvolution_noise_gate TEXT DEFAULT 'balanced'"
+                )
+                conn.commit()
+
             # Update existing compounds to have baseline_correction enabled by default (v4.2.0)
             conn.execute(
                 "UPDATE compounds SET baseline_correction = 1 WHERE baseline_correction = 0 OR baseline_correction IS NULL"

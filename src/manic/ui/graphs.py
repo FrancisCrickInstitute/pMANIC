@@ -1188,6 +1188,7 @@ class GraphView(QWidget):
                 roffset=compound.roffset,
                 stringency=getattr(compound, "deconvolution_level", "off"),
                 fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
+                noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
             )
             selected_matrix = (
                 result.selected if eic_intensity.ndim > 1 else result.selected.reshape(1, -1)
@@ -1360,6 +1361,7 @@ class GraphView(QWidget):
                 roffset=compound.roffset,
                 stringency=getattr(compound, "deconvolution_level", "off"),
                 fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
+                noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
             )
 
         model = result.model if result is not None else None

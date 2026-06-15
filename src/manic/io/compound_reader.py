@@ -22,6 +22,7 @@ class Compound:
     baseline_correction: int = 1
     deconvolution_level: str = "4"
     deconvolution_fit_type: str = "auto"
+    deconvolution_noise_gate: str = "balanced"
 
 
 def read_compound(compound_name: str) -> Compound:
@@ -40,7 +41,7 @@ def read_compound(compound_name: str) -> Compound:
     sql = """
         SELECT compound_name, retention_time, loffset, roffset, label_atoms, mass0,
                formula, label_type, tbdms, meox, me, baseline_correction,
-               deconvolution_level, deconvolution_fit_type
+               deconvolution_level, deconvolution_fit_type, deconvolution_noise_gate
         FROM   compounds
         WHERE  compound_name=? AND deleted=0
         LIMIT  1
@@ -65,6 +66,7 @@ def read_compound(compound_name: str) -> Compound:
         baseline_correction=int(row["baseline_correction"]) if row["baseline_correction"] is not None else 1,
         deconvolution_level=row["deconvolution_level"] or "4",
         deconvolution_fit_type=row["deconvolution_fit_type"] or "auto",
+        deconvolution_noise_gate=row["deconvolution_noise_gate"] or "balanced",
     )
 
 
@@ -128,4 +130,5 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
             baseline_correction=base_compound.baseline_correction,  # Always from base compound
             deconvolution_level=base_compound.deconvolution_level,  # Always from base compound
             deconvolution_fit_type=base_compound.deconvolution_fit_type,  # Always from base compound
+            deconvolution_noise_gate=base_compound.deconvolution_noise_gate,  # Always from base compound
         )

@@ -176,6 +176,7 @@ class IsotopologueRatioWidget(QWidget):
                     baseline_correction=baseline_correction,
                     chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
                     chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
+                    chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
                 )
                 total_area = sum(isotope_areas)
                 ratios.append(np.array([1.0]))  # 100% for single isotope
@@ -206,6 +207,7 @@ class IsotopologueRatioWidget(QWidget):
                     baseline_correction=baseline_correction,
                     chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
                     chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
+                    chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
                 )
 
                 # Calculate total abundance (sum of all isotopologue areas)

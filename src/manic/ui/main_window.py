@@ -40,6 +40,7 @@ from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.chromatographic_peak_deconvolution import (
     normalize_fit_type,
+    normalize_noise_gate,
     normalize_stringency,
 )
 from manic.processors.integration import calculate_peak_areas
@@ -770,6 +771,7 @@ class MainWindow(QMainWindow):
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
                 chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
+                chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
             )
             abundances.append(float(sum(isotope_areas)))
 
@@ -1862,7 +1864,12 @@ class MainWindow(QMainWindow):
             normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto")),
             "Auto",
         )
-        return f"Deconvolution: On · Level {level} · {fit}  ({compound_name})"
+        gate = normalize_noise_gate(
+            getattr(compound, "deconvolution_noise_gate", "balanced")
+        ).capitalize()
+        return (
+            f"Deconvolution: On · Level {level} · {fit} · Gate {gate}  ({compound_name})"
+        )
 
     def update_deconvolution_indicator(self, compound_name: str | None) -> None:
         """Refresh the status-bar deconvolution indicator for the given compound."""
@@ -1888,6 +1895,7 @@ class MainWindow(QMainWindow):
             compound = read_compound_with_session(compound_name)
             current_level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
             current_fit = normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto"))
+            current_gate = normalize_noise_gate(getattr(compound, "deconvolution_noise_gate", "balanced"))
         except Exception as exc:
             logger.error(f"Failed to read deconvolution settings for {compound_name}: {exc}")
             return
@@ -1941,17 +1949,36 @@ class MainWindow(QMainWindow):
             next((i for i, (_, v) in enumerate(fit_options) if v == current_fit), 0)
         )
         form_layout.addRow("Fit type:", fit_combo)
+
+        gate_combo = QComboBox()
+        gate_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
+        gate_options = [
+            ("Balanced - skip noise-only peaks (recommended)", "balanced"),
+            ("Lenient - only skip near-pure noise", "lenient"),
+            ("Aggressive - only fit clearly smooth peaks", "aggressive"),
+            ("Off - always attempt a fit", "off"),
+        ]
+        for label, value in gate_options:
+            gate_combo.addItem(label, value)
+        gate_combo.setCurrentIndex(
+            next((i for i, (_, v) in enumerate(gate_options) if v == current_gate), 0)
+        )
+        form_layout.addRow("Noise gate:", gate_combo)
         layout.addLayout(form_layout)
 
         def _sync_fit_enabled():
-            fit_combo.setEnabled(level_combo.currentData() != "off")
+            on = level_combo.currentData() != "off"
+            fit_combo.setEnabled(on)
+            gate_combo.setEnabled(on)
 
         level_combo.currentIndexChanged.connect(lambda _: _sync_fit_enabled())
         _sync_fit_enabled()
 
         hint_label = QLabel(
             "Lower levels are faster and less likely to split noise. Forcing a single "
-            "fit type (instead of Auto) is faster because fewer peak shapes are tried."
+            "fit type (instead of Auto) is faster because fewer peak shapes are tried. "
+            "The noise gate skips fitting on messy/noise-only peaks (shown as the raw "
+            "trace); a stricter gate is faster but may skip weak real peaks."
         )
         hint_label.setWordWrap(True)
         hint_label.setStyleSheet("color: gray; font-style: italic;")
@@ -1967,16 +1994,22 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             new_level = level_combo.currentData()
             new_fit = fit_combo.currentData()
-            if new_level != current_level or new_fit != current_fit:
+            new_gate = gate_combo.currentData()
+            if (
+                new_level != current_level
+                or new_fit != current_fit
+                or new_gate != current_gate
+            ):
                 with get_connection() as conn:
                     conn.execute(
                         "UPDATE compounds SET deconvolution_level = ?, "
-                        "deconvolution_fit_type = ? WHERE compound_name = ? AND deleted = 0",
-                        (new_level, new_fit, compound_name),
+                        "deconvolution_fit_type = ?, deconvolution_noise_gate = ? "
+                        "WHERE compound_name = ? AND deleted = 0",
+                        (new_level, new_fit, new_gate, compound_name),
                     )
                 logger.info(
                     f"Deconvolution settings updated for '{compound_name}': "
-                    f"level={new_level}, fit_type={new_fit}"
+                    f"level={new_level}, fit_type={new_fit}, noise_gate={new_gate}"
                 )
                 if self._validation_provider is not None:
                     self._validation_provider.invalidate_cache()

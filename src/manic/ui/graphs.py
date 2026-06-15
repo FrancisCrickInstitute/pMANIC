@@ -35,6 +35,10 @@ from .colors import dark_red_colour, label_colors, selection_color, steel_blue_c
 
 logger = logging.getLogger(__name__)
 
+# Headroom above the tallest raw sample so a smooth fitted apex (which can sit
+# slightly above the highest measured point) is not clipped by the fixed y-axis.
+PLOT_Y_AXIS_HEADROOM = 1.05
+
 
 class ElidingLabel(QLabel):
     def __init__(self, text: str = "", parent: Optional[QWidget] = None):
@@ -865,7 +869,7 @@ class GraphView(QWidget):
                 x_min = float(np.min(eic.time))
                 x_max = float(np.max(eic.time))
                 x_axis.setRange(x_min, x_max)
-                y_axis.setRange(0, scaled_y_max)
+                y_axis.setRange(0, scaled_y_max * PLOT_Y_AXIS_HEADROOM)
 
                 # Re-add guide lines
                 self._add_guide_line(
@@ -1033,7 +1037,7 @@ class GraphView(QWidget):
         x_max = float(np.max(eic.time))
         x_axis.setRange(x_min, x_max)
 
-        y_axis.setRange(0, scaled_y_max)
+        y_axis.setRange(0, scaled_y_max * PLOT_Y_AXIS_HEADROOM)
         y_axis.setLabelFormat("%.2g")
 
         # Set tick count (number of major ticks/labels)

@@ -10,20 +10,23 @@ def format_compounds_table_for_data_export(compounds: Iterable[dict]) -> str:
     """
     out = []
     out.append("## Compounds Processed")
-    out.append("| Compound Name | RT (min) | L Offset | R Offset | Mass (m/z) | Label Atoms | Formula | Internal Std Amount | Deconvolution | Fit Type |")
-    out.append("|---------------|----------|----------|----------|------------|-------------|---------|---------------------|---------------|----------|")
+    out.append("| Compound Name | RT (min) | L Offset | R Offset | Mass (m/z) | Label Atoms | Formula | Internal Std Amount | Deconvolution | Fit Type | Noise Gate |")
+    out.append("|---------------|----------|----------|----------|------------|-------------|---------|---------------------|---------------|----------|------------|")
 
     fit_labels = {"auto": "Auto", "gaussian": "Gaussian", "bi_gaussian": "Bi-Gaussian", "emg": "EMG"}
+    gate_labels = {"off": "Off", "lenient": "Lenient", "balanced": "Balanced", "aggressive": "Aggressive"}
     for compound in compounds:
         int_std = compound['int_std_amount'] if compound['int_std_amount'] else 'N/A'
         level = _changelog_value(compound, 'deconvolution_level', '4') or 'off'
         deconv = 'Off' if str(level).lower() == 'off' else f"Level {level}"
         fit_type = str(_changelog_value(compound, 'deconvolution_fit_type', 'auto') or 'auto').lower()
         fit_display = fit_labels.get(fit_type, 'Auto') if deconv != 'Off' else 'N/A'
+        gate = str(_changelog_value(compound, 'deconvolution_noise_gate', 'balanced') or 'balanced').lower()
+        gate_display = gate_labels.get(gate, 'Balanced') if deconv != 'Off' else 'N/A'
         out.append(
             f"| {compound['compound_name']} | {compound['retention_time']:.3f} | {compound['loffset']:.3f} | "
             f"{compound['roffset']:.3f} | {compound['mass0']:.4f} | {compound['label_atoms']} | "
-            f"{compound['formula'] or 'N/A'} | {int_std} | {deconv} | {fit_display} |"
+            f"{compound['formula'] or 'N/A'} | {int_std} | {deconv} | {fit_display} | {gate_display} |"
         )
     return "\n".join(out) + "\n"
 
@@ -48,9 +51,11 @@ def format_compounds_table_for_session_export(compounds: Iterable[dict]) -> str:
         compounds = list(compounds)
     out.append(f"## Compound Definitions ({len(compounds)} compounds)\n")
 
+    fit_labels = {"auto": "Auto", "gaussian": "Gaussian", "bi_gaussian": "Bi-Gaussian", "emg": "EMG"}
+    gate_labels = {"off": "Off", "lenient": "Lenient", "balanced": "Balanced", "aggressive": "Aggressive"}
     if compounds:
-        out.append("| Compound Name | Retention Time (min) | Left Offset | Right Offset | Mass (m/z) | Label Atoms |")
-        out.append("|---------------|---------------------|-------------|--------------|------------|-------------|")
+        out.append("| Compound Name | Retention Time (min) | Left Offset | Right Offset | Mass (m/z) | Label Atoms | Deconvolution | Fit Type | Noise Gate |")
+        out.append("|---------------|---------------------|-------------|--------------|------------|-------------|---------------|----------|------------|")
         for compound in compounds:
             name = compound.get("compound_name", "Unknown")
             rt = compound.get("retention_time", 0) or 0
@@ -58,8 +63,15 @@ def format_compounds_table_for_session_export(compounds: Iterable[dict]) -> str:
             roffset = compound.get("roffset", 0) or 0
             mass = compound.get("mass0", 0) or 0
             label_atoms = compound.get("label_atoms", 0) or 0
+            level = str(compound.get("deconvolution_level", "4") or "off").lower()
+            deconv = "Off" if level == "off" else f"Level {level}"
+            fit_type = str(compound.get("deconvolution_fit_type", "auto") or "auto").lower()
+            fit_display = fit_labels.get(fit_type, "Auto") if deconv != "Off" else "N/A"
+            gate = str(compound.get("deconvolution_noise_gate", "balanced") or "balanced").lower()
+            gate_display = gate_labels.get(gate, "Balanced") if deconv != "Off" else "N/A"
             out.append(
-                f"| {name} | {rt:.3f} | {loffset:.3f} | {roffset:.3f} | {mass:.4f} | {label_atoms} |"
+                f"| {name} | {rt:.3f} | {loffset:.3f} | {roffset:.3f} | {mass:.4f} | {label_atoms} | "
+                f"{deconv} | {fit_display} | {gate_display} |"
             )
     else:
         out.append("*No compounds defined.*")

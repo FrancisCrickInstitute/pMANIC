@@ -24,6 +24,11 @@ from manic.io.changelog_sections import (
     format_compounds_table_for_session_export,
     format_overrides_section_for_session_export,
 )
+from manic.processors.chromatographic_peak_deconvolution import (
+    normalize_fit_type,
+    normalize_noise_gate,
+    normalize_stringency,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +82,9 @@ def export_session_method(export_path: str) -> bool:
             compounds = []
             cursor = conn.execute("""
                 SELECT compound_name, retention_time, loffset, roffset,
-                       mass0, label_atoms, deleted
+                       mass0, label_atoms, deleted,
+                       baseline_correction, deconvolution_level,
+                       deconvolution_fit_type, deconvolution_noise_gate
                 FROM compounds
                 ORDER BY compound_name
             """)
@@ -92,6 +99,11 @@ def export_session_method(export_path: str) -> bool:
                         "mass0": row["mass0"],
                         "label_atoms": row["label_atoms"],
                         "deleted": row["deleted"],
+                        # Analytical method settings (part of reproducibility).
+                        "baseline_correction": row["baseline_correction"],
+                        "deconvolution_level": row["deconvolution_level"],
+                        "deconvolution_fit_type": row["deconvolution_fit_type"],
+                        "deconvolution_noise_gate": row["deconvolution_noise_gate"],
                     }
                 )
 
@@ -212,6 +224,12 @@ def import_session_overrides(import_path: str) -> tuple[bool, bool]:
             for name in deleted_samples_in_import:
                 soft_delete_sample(name)
 
+        # Apply per-compound analytical method settings (deconvolution + baseline)
+        # when the file provides them. Older method files omit these keys, so we
+        # only update the columns actually present - this keeps import backward
+        # compatible with files exported before these settings existed.
+        _apply_compound_method_settings(compounds)
+
         if not session_overrides:
             logger.info("No session overrides to import")
             return True, has_deletion_data
@@ -263,6 +281,56 @@ def import_session_overrides(import_path: str) -> tuple[bool, bool]:
     except Exception as e:
         logger.error(f"Failed to import session overrides: {e}")
         return False, False
+
+
+def _apply_compound_method_settings(compounds: list) -> None:
+    """Apply per-compound deconvolution/baseline settings from an imported method.
+
+    Backward compatible: each setting is only written when the corresponding key
+    is present in the file (older exports omit them), and only for compounds that
+    already exist in the current database. Values are normalized so an unexpected
+    or stale value falls back to a safe default.
+    """
+    if not compounds:
+        return
+
+    updated = 0
+    with get_connection() as conn:
+        for compound in compounds:
+            name = compound.get("compound_name")
+            if not name:
+                continue
+
+            assignments: list[str] = []
+            values: list[Any] = []
+
+            if "baseline_correction" in compound:
+                assignments.append("baseline_correction = ?")
+                values.append(1 if compound.get("baseline_correction") else 0)
+            if "deconvolution_level" in compound:
+                assignments.append("deconvolution_level = ?")
+                values.append(normalize_stringency(compound.get("deconvolution_level")))
+            if "deconvolution_fit_type" in compound:
+                assignments.append("deconvolution_fit_type = ?")
+                values.append(normalize_fit_type(compound.get("deconvolution_fit_type")))
+            if "deconvolution_noise_gate" in compound:
+                assignments.append("deconvolution_noise_gate = ?")
+                values.append(normalize_noise_gate(compound.get("deconvolution_noise_gate")))
+
+            if not assignments:
+                continue
+
+            values.append(name)
+            cursor = conn.execute(
+                f"UPDATE compounds SET {', '.join(assignments)} "
+                "WHERE compound_name = ? AND deleted = 0",
+                values,
+            )
+            if cursor.rowcount:
+                updated += 1
+
+    if updated:
+        logger.info(f"Applied analytical method settings to {updated} compound(s)")
 
 
 def validate_method_file(file_path: str) -> tuple[bool, Optional[str]]:

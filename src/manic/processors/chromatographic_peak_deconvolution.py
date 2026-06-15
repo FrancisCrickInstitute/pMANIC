@@ -376,13 +376,13 @@ def _fit_shape_candidate(
 
     def solve_linear(shape_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         design = np.column_stack([np.ones(points), shape_matrix.T])
-        intercept = np.empty(channels, dtype=np.float64)
-        weights = np.empty((channels, component_count), dtype=np.float64)
-        for channel in range(channels):
-            coefficients, _ = nnls(design, y[channel])
-            intercept[channel] = coefficients[0]
-            weights[channel] = coefficients[1:]
-        return intercept, weights
+        # Solve all channels at once unconstrained, then redo only the channels
+        # whose solution violates non-negativity with NNLS. Clean channels (the
+        # common case) avoid the iterative solver entirely.
+        coef = np.linalg.lstsq(design, y.T, rcond=None)[0]
+        for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
+            coef[:, channel], _ = nnls(design, y[channel])
+        return coef[0], coef[1:].T
 
     def residual(values: np.ndarray) -> np.ndarray:
         _, shape_matrix = shapes_from(values)

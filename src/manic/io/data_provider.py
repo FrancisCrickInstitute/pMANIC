@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -27,6 +29,7 @@ class DataProvider:
         self._background_ratios_cache: Dict[str, Dict[str, float]] = {}
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._bulk_raw_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
+        self._targeted_area_cache: Dict[tuple, List[float]] = {}
         self._cache_valid: bool = False
 
     def set_use_legacy_integration(self, use_legacy: bool) -> None:
@@ -39,6 +42,7 @@ class DataProvider:
         self._background_ratios_cache.clear()
         self._bulk_sample_data_cache.clear()
         self._bulk_raw_sample_data_cache.clear()
+        self._targeted_area_cache.clear()
         self._cache_valid = False
 
     def get_total_sample_count(self) -> int:
@@ -114,20 +118,30 @@ class DataProvider:
                     matched.add(row["sample_name"])
         return sorted(matched)
 
-    def load_bulk_sample_data(self) -> Dict[str, Dict[str, List[float]]]:
+    def load_bulk_sample_data(
+        self, progress_callback=None
+    ) -> Dict[str, Dict[str, List[float]]]:
         """
         Load all sample data at once for improved performance during exports.
         
         This method pre-loads mixed data (corrected for labeled compounds, raw for unlabeled)
         for all samples and compounds in a single database query, avoiding the overhead of 
         repeated database calls during export operations.
-        
+
+        Args:
+            progress_callback: Optional callable invoked with an integer 0-100 as
+                integration/deconvolution of the dataset proceeds. This phase runs
+                before the export's sheet-writing progress, so callers can surface
+                it instead of appearing to hang.
+
         Returns:
             Dictionary mapping sample names to compound data dictionaries.
             Each compound dictionary maps compound names to lists of isotopologue peak areas.
         """
         if self._cache_valid:
             logger.debug("Using cached bulk sample data (corrected)")
+            if progress_callback:
+                progress_callback(100)
             return self._bulk_sample_data_cache
 
         logger.info("Loading all sample data in bulk (corrected)...")
@@ -152,7 +166,8 @@ class DataProvider:
                        COALESCE(sa.roffset, c.roffset) as roffset,
                        c.baseline_correction as baseline_correction,
                        c.deconvolution_level as deconvolution_level,
-                       c.deconvolution_fit_type as deconvolution_fit_type
+                       c.deconvolution_fit_type as deconvolution_fit_type,
+                       c.deconvolution_noise_gate as deconvolution_noise_gate
                 FROM eic e 
                 JOIN compounds c ON e.compound_name = c.compound_name
                 LEFT JOIN session_activity sa 
@@ -163,31 +178,6 @@ class DataProvider:
                 ORDER BY e.sample_name, e.compound_name
             """
 
-            # Load raw data
-            for row in conn.execute(raw_eic_query):
-                sample_name = row['sample_name']
-                compound_name = row['compound_name']
-                if sample_name not in raw_data:
-                    continue
-
-                time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
-                intensity_data = np.frombuffer(zlib.decompress(row['y_axis']), dtype=np.float64)
-                baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
-                areas = calculate_peak_areas(
-                    time_data,
-                    intensity_data,
-                    row['label_atoms'],
-                    row['retention_time'],
-                    row['loffset'],
-                    row['roffset'],
-                    use_legacy=self.use_legacy_integration,
-                    baseline_correction=baseline_flag,
-                    chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
-                    chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
-                )
-                raw_data[sample_name][compound_name] = areas
-
-            # Always load corrected data for labeled compounds
             corrected_eic_query = """
                 SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected,
                        c.label_atoms,
@@ -196,7 +186,8 @@ class DataProvider:
                        COALESCE(sa.roffset, c.roffset) as roffset,
                        c.baseline_correction as baseline_correction,
                        c.deconvolution_level as deconvolution_level,
-                       c.deconvolution_fit_type as deconvolution_fit_type
+                       c.deconvolution_fit_type as deconvolution_fit_type,
+                       c.deconvolution_noise_gate as deconvolution_noise_gate
                 FROM eic_corrected ec 
                 JOIN compounds c ON ec.compound_name = c.compound_name
                 LEFT JOIN session_activity sa 
@@ -207,38 +198,60 @@ class DataProvider:
                 ORDER BY ec.sample_name, ec.compound_name
             """
 
+            # Load all rows up front (cheap), then integrate/deconvolve them in
+            # parallel. Each row is integrated with that compound's own settings,
+            # so results are identical to the sequential path - this only spreads
+            # the work (mainly the curve fits, which release the GIL) across cores.
+            raw_rows = list(conn.execute(raw_eic_query))
             corrected_rows = list(conn.execute(corrected_eic_query))
-            logger.debug(f"Found {len(corrected_rows)} corrected EIC rows in database")
-            
+
+            # Cache each compound's label_atoms so the corrected-data fallback can
+            # look it up without opening a fresh DB connection per compound.
+            compound_labels: Dict[str, int] = {}
+
+            tasks: list[tuple] = []
+            for row in raw_rows:
+                compound_labels[row['compound_name']] = row['label_atoms'] or 0
+                if row['sample_name'] in raw_data:
+                    tasks.append(("raw", row, row['y_axis']))
             for row in corrected_rows:
-                sample_name = row['sample_name']
-                compound_name = row['compound_name']
-                if sample_name not in corrected_data:
-                    continue
+                if row['sample_name'] in corrected_data and (row['label_atoms'] or 0) > 0:
+                    tasks.append(("corrected", row, row['y_axis_corrected']))
 
-                label_atoms = row['label_atoms'] or 0
-                if label_atoms <= 0:
-                    # Unlabeled compounds do not need corrected values; keep raw signal
-                    logger.debug(f"Skipping unlabeled compound '{compound_name}' in corrected data")
-                    continue
+            total = max(1, len(tasks))
+            use_legacy = self.use_legacy_integration
 
-                logger.debug(f"Loading corrected data for labeled compound '{compound_name}' (label_atoms={label_atoms})")
+            def _integrate(task):
+                kind, row, y_blob = task
                 time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
-                intensity_data = np.frombuffer(zlib.decompress(row['y_axis_corrected']), dtype=np.float64)
+                intensity_data = np.frombuffer(zlib.decompress(y_blob), dtype=np.float64)
                 baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
                 areas = calculate_peak_areas(
                     time_data,
                     intensity_data,
-                    label_atoms,
+                    row['label_atoms'] or 0,
                     row['retention_time'],
                     row['loffset'],
                     row['roffset'],
-                    use_legacy=self.use_legacy_integration,
+                    use_legacy=use_legacy,
                     baseline_correction=baseline_flag,
                     chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
                     chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
+                    chromatographic_peak_deconvolution_noise_gate=row['deconvolution_noise_gate'],
                 )
-                corrected_data[sample_name][compound_name] = areas
+                return kind, row['sample_name'], row['compound_name'], areas
+
+            max_workers = min(os.cpu_count() or 1, 8)
+            processed = 0
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for kind, sample_name, compound_name, areas in executor.map(_integrate, tasks):
+                    if kind == "raw":
+                        raw_data[sample_name][compound_name] = areas
+                    else:
+                        corrected_data[sample_name][compound_name] = areas
+                    processed += 1
+                    if progress_callback and processed % 25 == 0:
+                        progress_callback(int(processed / total * 100))
 
             # For compounds without corrected data, fall back to their raw integrated areas
             # 
@@ -253,14 +266,10 @@ class DataProvider:
                 corrected_map = corrected_data.setdefault(sample_name, {})
                 for compound_name, areas in compounds_map.items():
                     if compound_name not in corrected_map:
-                        # Check if this is a labeled compound by looking up label_atoms
-                        with get_connection() as conn:
-                            label_atoms = conn.execute(
-                                "SELECT label_atoms FROM compounds WHERE compound_name = ? AND deleted = 0",
-                                (compound_name,)
-                            ).fetchone()
-                            is_labeled = label_atoms and label_atoms[0] > 0 if label_atoms else False
-                        
+                        # Use the label map captured during the raw load instead of
+                        # opening a fresh DB connection per compound.
+                        is_labeled = compound_labels.get(compound_name, 0) > 0
+
                         if is_labeled:
                             # Labeled compound without corrected data - this should not happen
                             # if export was triggered through the UI (which applies corrections first)
@@ -275,6 +284,8 @@ class DataProvider:
         self._bulk_raw_sample_data_cache = raw_data
         self._bulk_sample_data_cache = corrected_data
         self._cache_valid = True
+        if progress_callback:
+            progress_callback(100)
         logger.info(f"Loaded data for {len(raw_data)} samples (corrected)")
         logger.debug(f"Raw cache compounds per sample: {[(s, len(compounds)) for s, compounds in raw_data.items()]}")
         logger.debug(f"Corrected cache compounds per sample: {[(s, len(compounds)) for s, compounds in corrected_data.items()]}")
@@ -292,7 +303,8 @@ class DataProvider:
             eic_query = (
                 "SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, "
                 "c.loffset, c.roffset, c.baseline_correction, "
-                "c.deconvolution_level, c.deconvolution_fit_type "
+                "c.deconvolution_level, c.deconvolution_fit_type, "
+                "c.deconvolution_noise_gate "
                 "FROM eic e JOIN compounds c ON e.compound_name = c.compound_name "
                 "WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0 "
                 "ORDER BY e.compound_name"
@@ -317,6 +329,7 @@ class DataProvider:
                     baseline_correction=baseline_flag,
                     chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
                     chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
+                    chromatographic_peak_deconvolution_noise_gate=row['deconvolution_noise_gate'],
                 )
                 sample_data[compound_name] = areas
         return sample_data
@@ -364,6 +377,95 @@ class DataProvider:
         """Get the M0 isotopologue area for a compound in a sample."""
         return self.get_compound_isotope_area(sample_name, compound_name, 0)
 
+    def get_compound_areas(
+        self, sample_name: str, compound_name: str
+    ) -> List[float]:
+        """Compute one compound's isotopologue areas for one sample.
+
+        This mirrors the bulk loader's per-compound logic (corrected EIC for
+        labeled compounds, raw otherwise; session-override RT/offsets and the
+        compound's deconvolution settings) but only for the requested compound.
+        It exists so interactive peak-area validation does not have to integrate
+        and deconvolve the *entire* dataset just to compare one displayed
+        compound against the internal standard. If the full bulk cache happens to
+        be populated already, it is reused.
+        """
+        if self._cache_valid:
+            return self._bulk_sample_data_cache.get(sample_name, {}).get(
+                compound_name, []
+            )
+
+        cache_key = (sample_name, compound_name)
+        if cache_key in self._targeted_area_cache:
+            return self._targeted_area_cache[cache_key]
+
+        areas = self._compute_compound_areas(sample_name, compound_name)
+        self._targeted_area_cache[cache_key] = areas
+        return areas
+
+    def _compute_compound_areas(
+        self, sample_name: str, compound_name: str
+    ) -> List[float]:
+        with get_connection() as conn:
+            meta = conn.execute(
+                "SELECT c.label_atoms, "
+                "COALESCE(sa.retention_time, c.retention_time) as retention_time, "
+                "COALESCE(sa.loffset, c.loffset) as loffset, "
+                "COALESCE(sa.roffset, c.roffset) as roffset, "
+                "c.baseline_correction, c.deconvolution_level, "
+                "c.deconvolution_fit_type, c.deconvolution_noise_gate "
+                "FROM compounds c "
+                "LEFT JOIN session_activity sa "
+                "  ON sa.compound_name = c.compound_name "
+                "  AND sa.sample_name = ? AND sa.sample_deleted = 0 "
+                "WHERE c.compound_name = ? AND c.deleted = 0",
+                (sample_name, compound_name),
+            ).fetchone()
+            if meta is None:
+                return []
+
+            label_atoms = meta["label_atoms"] or 0
+            row = None
+            # Prefer the corrected EIC for labeled compounds (matching the bulk
+            # loader); fall back to the raw EIC otherwise.
+            if label_atoms > 0:
+                row = conn.execute(
+                    "SELECT x_axis, y_axis_corrected as y FROM eic_corrected "
+                    "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
+                    (sample_name, compound_name),
+                ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    "SELECT x_axis, y_axis as y FROM eic "
+                    "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
+                    (sample_name, compound_name),
+                ).fetchone()
+            if row is None:
+                return []
+
+            time_data = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
+            intensity_data = np.frombuffer(
+                zlib.decompress(row["y"]), dtype=np.float64
+            )
+            baseline_flag = (
+                bool(meta["baseline_correction"])
+                if meta["baseline_correction"]
+                else False
+            )
+            return calculate_peak_areas(
+                time_data,
+                intensity_data,
+                label_atoms,
+                meta["retention_time"],
+                meta["loffset"],
+                meta["roffset"],
+                use_legacy=self.use_legacy_integration,
+                baseline_correction=baseline_flag,
+                chromatographic_peak_deconvolution_stringency=meta["deconvolution_level"],
+                chromatographic_peak_deconvolution_fit_type=meta["deconvolution_fit_type"],
+                chromatographic_peak_deconvolution_noise_gate=meta["deconvolution_noise_gate"],
+            )
+
     def validate_peak_area(
         self,
         sample_name: str,
@@ -400,10 +502,16 @@ class DataProvider:
         """
         if min_ratio <= 0 or not internal_standard:
             return True
-        
-        compound_total = self.get_compound_total_area(sample_name, compound_name)
-        is_ref = self.get_compound_isotope_area(
-            sample_name, internal_standard, internal_standard_isotope_index
+
+        # Compute only the two compounds we actually need (the validated compound
+        # and the internal standard) rather than deconvolving the whole dataset.
+        compound_areas = self.get_compound_areas(sample_name, compound_name)
+        compound_total = float(sum(compound_areas)) if compound_areas else 0.0
+
+        idx = internal_standard_isotope_index
+        is_areas = self.get_compound_areas(sample_name, internal_standard)
+        is_ref = (
+            float(is_areas[idx]) if is_areas and 0 <= idx < len(is_areas) else 0.0
         )
 
         if is_ref <= 0:

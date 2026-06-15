@@ -237,10 +237,32 @@ class DataExporter:
                 self.use_legacy_integration = use_legacy_integration
                 self._provider.set_use_legacy_integration(use_legacy_integration)
 
+            # Progress is split into two bands: data loading (the heavy
+            # integration/deconvolution pass) gets the first 30%, and the Excel
+            # sheets share the remaining 70%. Sheet writers still emit 0-100, so
+            # we remap their values into the 30-100 band.
+            def _scaled_callback(lo: int, hi: int):
+                if not progress_callback:
+                    return None
+
+                def _cb(value):
+                    try:
+                        v = max(0, min(100, int(value)))
+                    except (TypeError, ValueError):
+                        v = 0
+                    return progress_callback(int(lo + (v / 100.0) * (hi - lo)))
+
+                return _cb
+
+            load_callback = _scaled_callback(0, 30)
+            sheet_callback = _scaled_callback(30, 100)
+
             # Phase 1 optimization: Pre-load all sample data in bulk
             logger.info("Phase 1 optimization: Pre-loading all sample data...")
             data_load_start = time.time()
-            bulk_data = self._provider.load_bulk_sample_data()
+            bulk_data = self._provider.load_bulk_sample_data(
+                progress_callback=load_callback
+            )
             data_load_time = time.time() - data_load_start
             logger.info(
                 f"Loaded data for {len(bulk_data)} samples in bulk ({data_load_time:.2f}s)"
@@ -261,15 +283,14 @@ class DataExporter:
             )
 
             # Create all worksheets
-            progress = 0
-            if progress_callback:
-                progress_callback(progress)
+            if sheet_callback:
+                sheet_callback(0)
 
             # Sheet 1: Raw Values (16% of work)
             sheet_raw_values.write(
                 workbook,
                 self,
-                progress_callback,
+                sheet_callback,
                 0,
                 16,
                 validation_data=validation_data,
@@ -279,7 +300,7 @@ class DataExporter:
             sheet_corrected_values.write(
                 workbook,
                 self,
-                progress_callback,
+                sheet_callback,
                 16,
                 32,
                 validation_data=validation_data,
@@ -289,7 +310,7 @@ class DataExporter:
             sheet_isotope_ratios.write(
                 workbook,
                 self,
-                progress_callback,
+                sheet_callback,
                 32,
                 48,
                 validation_data=validation_data,
@@ -300,7 +321,7 @@ class DataExporter:
                 sheet_label_incorporation.write(
                     workbook,
                     self,
-                    progress_callback,
+                    sheet_callback,
                     48,
                     64,
                     validation_data=validation_data,
@@ -315,7 +336,7 @@ class DataExporter:
                     sheet_carbon_enrichment.write(
                         workbook,
                         self,
-                        progress_callback,
+                        sheet_callback,
                         64,
                         80,
                         validation_data=validation_data,
@@ -330,7 +351,7 @@ class DataExporter:
             sheet_abundances.write(
                 workbook,
                 self,
-                progress_callback,
+                sheet_callback,
                 abundance_start,
                 100,
                 validation_data=validation_data,

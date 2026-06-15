@@ -301,7 +301,7 @@ class MainWindow(QMainWindow):
         settings_menu.addAction(self.labelled_internal_standard_action)
 
         self.chromatographic_peak_deconvolution_action = QAction(
-            "Chromatographic Peak Deconvolution (selected compound)...", self
+            "Chromatographic Peak Deconvolution", self
         )
         self.chromatographic_peak_deconvolution_action.triggered.connect(
             self.show_chromatographic_peak_deconvolution_dialog

@@ -324,7 +324,7 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Chromatographic Peak Deconvolution
-**Settings → Chromatographic Peak Deconvolution (selected compound)...**
+**Settings → Chromatographic Peak Deconvolution**
 * **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes inside the integration window and selects the component nearest the expected retention time. This can separate overlapping peaks before area calculation.
 * **Scope:** This is a **per-compound** setting. Open the dialog with a compound selected; the chosen resolution level and fit type are saved for that compound and applied across all of its samples. (There is no longer a single global setting.)

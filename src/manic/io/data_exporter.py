@@ -105,11 +105,11 @@ class DataExporter:
         self.internal_standard_compound = None  # Set by UI before export
         # Time-based by default (matches app/UI defaults and docs)
         self.use_legacy_integration = False
-        self.chromatographic_peak_deconvolution_stringency = "off"
-        # Centralized data provider for DB access and caching
+        # Centralized data provider for DB access and caching. Per-compound
+        # deconvolution settings are read from the compounds table during
+        # integration, so no global deconvolution state is held here.
         self._provider = DataProvider(
             use_legacy_integration=self.use_legacy_integration,
-            chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
         )
         # Minimum peak area ratio for validation highlighting
         self.min_peak_area_ratio = 0.05
@@ -133,13 +133,6 @@ class DataExporter:
         if self.use_legacy_integration != use_legacy:
             self.use_legacy_integration = use_legacy
             self._provider.set_use_legacy_integration(use_legacy)
-            self._invalidate_cache()
-
-    def set_chromatographic_peak_deconvolution_stringency(self, stringency: str):
-        """Set chromatographic peak deconvolution stringency for integration."""
-        if self.chromatographic_peak_deconvolution_stringency != stringency:
-            self.chromatographic_peak_deconvolution_stringency = stringency
-            self._provider.set_chromatographic_peak_deconvolution_stringency(stringency)
             self._invalidate_cache()
 
     def set_min_peak_area_ratio(self, ratio: float):
@@ -467,7 +460,6 @@ class DataExporter:
             loffset,
             roffset,
             use_legacy=self.use_legacy_integration,
-            chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
         )
 
     def _get_total_sample_count(self) -> int:

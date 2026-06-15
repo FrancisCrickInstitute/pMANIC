@@ -133,7 +133,6 @@ class GraphView(QWidget):
 
         # Track whether to use corrected data
         self.use_corrected = False  # Default to using uncorrected data
-        self.chromatographic_peak_deconvolution_stringency = "off"
 
         # Track max grid dimensions we've used, so we can reliably reset
         # stretch/min-size for any historical rows/cols when the grid shrinks.
@@ -274,10 +273,6 @@ class GraphView(QWidget):
         logger.info(
             f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data"
         )
-
-    def set_chromatographic_peak_deconvolution_stringency(self, stringency: str):
-        """Set chromatographic peak deconvolution stringency for plot overlays."""
-        self.chromatographic_peak_deconvolution_stringency = stringency
 
     # public function
     def plot_compound(
@@ -481,7 +476,6 @@ class GraphView(QWidget):
                 sample_name=sample_name,
                 parent=self,
                 use_corrected=self.use_corrected,
-                chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
             )
             dialog.exec()
 
@@ -1166,14 +1160,15 @@ class GraphView(QWidget):
 
         logger.debug(f"Drawing baseline lines for {compound.compound_name}")
 
-        if chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
+        if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
             result = deconvolve_eic(
                 eic_time,
                 eic_intensity,
                 retention_time=compound.retention_time,
                 loffset=compound.loffset,
                 roffset=compound.roffset,
-                stringency=self.chromatographic_peak_deconvolution_stringency,
+                stringency=getattr(compound, "deconvolution_level", "off"),
+                fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
             )
             selected_matrix = (
                 result.selected if eic_intensity.ndim > 1 else result.selected.reshape(1, -1)
@@ -1281,7 +1276,7 @@ class GraphView(QWidget):
         scale_factor: float,
     ):
         """Draw excluded deconvolved components as lighter dotted traces."""
-        if not chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
+        if not chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
             return
 
         result = deconvolve_eic(
@@ -1290,7 +1285,8 @@ class GraphView(QWidget):
             retention_time=compound.retention_time,
             loffset=compound.loffset,
             roffset=compound.roffset,
-            stringency=self.chromatographic_peak_deconvolution_stringency,
+            stringency=getattr(compound, "deconvolution_level", "off"),
+            fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
         )
         if not result.excluded:
             return
@@ -1337,14 +1333,15 @@ class GraphView(QWidget):
     ):
         """Draw raw context plus deconvolved selected/excluded components."""
         result = None
-        if chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
+        if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
             result = deconvolve_eic(
                 eic_time,
                 eic_intensity,
                 retention_time=compound.retention_time,
                 loffset=compound.loffset,
                 roffset=compound.roffset,
-                stringency=self.chromatographic_peak_deconvolution_stringency,
+                stringency=getattr(compound, "deconvolution_level", "off"),
+                fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
             )
             if not result.excluded:
                 result = None

@@ -3,6 +3,7 @@ import pytest
 
 from manic.processors.chromatographic_peak_deconvolution import (
     deconvolve_eic,
+    normalize_fit_type,
     normalize_stringency,
 )
 from manic.processors.integration import calculate_peak_areas
@@ -112,6 +113,74 @@ def test_chromatographic_peak_deconvolution_fits_single_peak_when_enabled():
     assert np.trapezoid(on.selected, time) == pytest.approx(
         np.trapezoid(peak, time), rel=0.05
     )
+
+
+def test_normalize_fit_type_accepts_known_values_and_falls_back():
+    assert normalize_fit_type(None) == "auto"
+    assert normalize_fit_type("AUTO") == "auto"
+    assert normalize_fit_type("gaussian") == "gaussian"
+    assert normalize_fit_type("bi_gaussian") == "bi_gaussian"
+    assert normalize_fit_type("emg") == "emg"
+    assert normalize_fit_type("nonsense") == "auto"
+
+
+def test_fit_type_forces_single_shape_and_still_resolves_components():
+    time = np.linspace(0.0, 10.0, 201)
+    early_peak = _gaussian(time, 4.0, 0.25, 10.0)
+    target_peak = _gaussian(time, 7.0, 0.25, 6.0)
+    intensity = early_peak + target_peak
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        stringency="6",
+        fit_type="gaussian",
+    )
+
+    assert result.selected_center == pytest.approx(7.0, abs=0.05)
+    assert result.excluded
+    assert np.trapezoid(result.selected, time) == pytest.approx(
+        np.trapezoid(target_peak, time), rel=0.05
+    )
+
+
+def test_calculate_peak_areas_accepts_per_compound_fit_type():
+    time = np.linspace(0.0, 10.0, 201)
+    early_peak = _gaussian(time, 4.0, 0.25, 10.0)
+    target_peak = _gaussian(time, 7.0, 0.25, 6.0)
+    intensity = early_peak + target_peak
+
+    areas = calculate_peak_areas(
+        time,
+        intensity,
+        label_atoms=0,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        chromatographic_peak_deconvolution_stringency="4",
+        chromatographic_peak_deconvolution_fit_type="gaussian",
+    )
+
+    assert areas[0] == pytest.approx(np.trapezoid(target_peak, time), rel=1e-2)
+
+
+def test_invalid_fit_type_falls_back_to_auto_behaviour():
+    time = np.linspace(0.0, 10.0, 201)
+    intensity = _gaussian(time, 5.0, 0.3, 10.0)
+
+    forced = deconvolve_eic(
+        time, intensity, retention_time=5.0, loffset=2.0, roffset=2.0,
+        stringency="4", fit_type="nonsense",
+    )
+    auto = deconvolve_eic(
+        time, intensity, retention_time=5.0, loffset=2.0, roffset=2.0,
+        stringency="4", fit_type="auto",
+    )
+
+    assert np.allclose(forced.selected, auto.selected)
 
 
 def test_chromatographic_peak_deconvolution_accepts_numeric_resolution_levels():

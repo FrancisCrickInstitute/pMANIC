@@ -10,17 +10,31 @@ def format_compounds_table_for_data_export(compounds: Iterable[dict]) -> str:
     """
     out = []
     out.append("## Compounds Processed")
-    out.append("| Compound Name | RT (min) | L Offset | R Offset | Mass (m/z) | Label Atoms | Formula | Internal Std Amount |")
-    out.append("|---------------|----------|----------|----------|------------|-------------|---------|-------------------|")
+    out.append("| Compound Name | RT (min) | L Offset | R Offset | Mass (m/z) | Label Atoms | Formula | Internal Std Amount | Deconvolution | Fit Type |")
+    out.append("|---------------|----------|----------|----------|------------|-------------|---------|---------------------|---------------|----------|")
 
+    fit_labels = {"auto": "Auto", "gaussian": "Gaussian", "bi_gaussian": "Bi-Gaussian", "emg": "EMG"}
     for compound in compounds:
         int_std = compound['int_std_amount'] if compound['int_std_amount'] else 'N/A'
+        level = _changelog_value(compound, 'deconvolution_level', '4') or 'off'
+        deconv = 'Off' if str(level).lower() == 'off' else f"Level {level}"
+        fit_type = str(_changelog_value(compound, 'deconvolution_fit_type', 'auto') or 'auto').lower()
+        fit_display = fit_labels.get(fit_type, 'Auto') if deconv != 'Off' else 'N/A'
         out.append(
             f"| {compound['compound_name']} | {compound['retention_time']:.3f} | {compound['loffset']:.3f} | "
             f"{compound['roffset']:.3f} | {compound['mass0']:.4f} | {compound['label_atoms']} | "
-            f"{compound['formula'] or 'N/A'} | {int_std} |"
+            f"{compound['formula'] or 'N/A'} | {int_std} | {deconv} | {fit_display} |"
         )
     return "\n".join(out) + "\n"
+
+
+def _changelog_value(row, key: str, default):
+    """Safely read a column from a sqlite Row or dict, with a default if absent."""
+    try:
+        value = row[key]
+    except (KeyError, IndexError):
+        return default
+    return value if value is not None else default
 
 
 def format_compounds_table_for_session_export(compounds: Iterable[dict]) -> str:

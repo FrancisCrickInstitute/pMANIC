@@ -21,10 +21,8 @@ class DataProvider:
         self,
         *,
         use_legacy_integration: bool = False,
-        chromatographic_peak_deconvolution_stringency: str = "off",
     ):
         self.use_legacy_integration = use_legacy_integration
-        self.chromatographic_peak_deconvolution_stringency = chromatographic_peak_deconvolution_stringency
         self._mrrf_cache: Dict[str, Dict[str, float]] = {}
         self._background_ratios_cache: Dict[str, Dict[str, float]] = {}
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
@@ -34,11 +32,6 @@ class DataProvider:
     def set_use_legacy_integration(self, use_legacy: bool) -> None:
         if self.use_legacy_integration != use_legacy:
             self.use_legacy_integration = use_legacy
-            self.invalidate_cache()
-
-    def set_chromatographic_peak_deconvolution_stringency(self, stringency: str) -> None:
-        if self.chromatographic_peak_deconvolution_stringency != stringency:
-            self.chromatographic_peak_deconvolution_stringency = stringency
             self.invalidate_cache()
 
     def invalidate_cache(self) -> None:
@@ -157,7 +150,9 @@ class DataProvider:
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
                        COALESCE(sa.roffset, c.roffset) as roffset,
-                       c.baseline_correction as baseline_correction
+                       c.baseline_correction as baseline_correction,
+                       c.deconvolution_level as deconvolution_level,
+                       c.deconvolution_fit_type as deconvolution_fit_type
                 FROM eic e 
                 JOIN compounds c ON e.compound_name = c.compound_name
                 LEFT JOIN session_activity sa 
@@ -187,7 +182,8 @@ class DataProvider:
                     row['roffset'],
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
-                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
+                    chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
+                    chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
                 )
                 raw_data[sample_name][compound_name] = areas
 
@@ -198,7 +194,9 @@ class DataProvider:
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
                        COALESCE(sa.roffset, c.roffset) as roffset,
-                       c.baseline_correction as baseline_correction
+                       c.baseline_correction as baseline_correction,
+                       c.deconvolution_level as deconvolution_level,
+                       c.deconvolution_fit_type as deconvolution_fit_type
                 FROM eic_corrected ec 
                 JOIN compounds c ON ec.compound_name = c.compound_name
                 LEFT JOIN session_activity sa 
@@ -237,7 +235,8 @@ class DataProvider:
                     row['roffset'],
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
-                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
+                    chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
+                    chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
                 )
                 corrected_data[sample_name][compound_name] = areas
 
@@ -292,7 +291,8 @@ class DataProvider:
         with get_connection() as conn:
             eic_query = (
                 "SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, "
-                "c.loffset, c.roffset, c.baseline_correction "
+                "c.loffset, c.roffset, c.baseline_correction, "
+                "c.deconvolution_level, c.deconvolution_fit_type "
                 "FROM eic e JOIN compounds c ON e.compound_name = c.compound_name "
                 "WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0 "
                 "ORDER BY e.compound_name"
@@ -315,7 +315,8 @@ class DataProvider:
                     roffset,
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
-                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
+                    chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
+                    chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
                 )
                 sample_data[compound_name] = areas
         return sample_data

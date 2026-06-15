@@ -208,6 +208,7 @@ def calculate_peak_areas(
     use_legacy: bool = False,
     baseline_correction: bool = False,
     chromatographic_peak_deconvolution_stringency: str = "off",
+    chromatographic_peak_deconvolution_fit_type: str = "auto",
 ) -> List[float]:
     """
     Calculate integrated peak areas for each isotopologue from EIC data.
@@ -285,6 +286,7 @@ def calculate_peak_areas(
                 loffset=loffset,
                 roffset=roffset,
                 stringency=chromatographic_peak_deconvolution_stringency,
+                fit_type=chromatographic_peak_deconvolution_fit_type,
             )
             idata = deconvolved.selected
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
@@ -333,6 +335,7 @@ def calculate_peak_areas(
                 loffset=loffset,
                 roffset=roffset,
                 stringency=chromatographic_peak_deconvolution_stringency,
+                fit_type=chromatographic_peak_deconvolution_fit_type,
             )
             selected = np.asarray(deconvolved.selected, dtype=np.float64)
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)

@@ -38,6 +38,10 @@ from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound_with_session
+from manic.processors.chromatographic_peak_deconvolution import (
+    normalize_fit_type,
+    normalize_stringency,
+)
 from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.ui.documentation_viewer import show_documentation_file
@@ -97,7 +101,6 @@ class MainWindow(QMainWindow):
 
         # Integration method setting
         self.use_legacy_integration = False  # Time-based by default
-        self.chromatographic_peak_deconvolution_stringency = "4"
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -297,13 +300,13 @@ class MainWindow(QMainWindow):
         )
         settings_menu.addAction(self.labelled_internal_standard_action)
 
-        self.chromatographic_peak_deconvolution_stringency_action = QAction(
-            "Chromatographic Peak Deconvolution Stringency: 4", self
+        self.chromatographic_peak_deconvolution_action = QAction(
+            "Chromatographic Peak Deconvolution (selected compound)...", self
         )
-        self.chromatographic_peak_deconvolution_stringency_action.triggered.connect(
-            self.show_chromatographic_peak_deconvolution_stringency_dialog
+        self.chromatographic_peak_deconvolution_action.triggered.connect(
+            self.show_chromatographic_peak_deconvolution_dialog
         )
-        settings_menu.addAction(self.chromatographic_peak_deconvolution_stringency_action)
+        settings_menu.addAction(self.chromatographic_peak_deconvolution_action)
 
         # Natural abundance correction toggle action
         self.nat_abundance_toggle = QAction(
@@ -346,10 +349,7 @@ class MainWindow(QMainWindow):
 
         # Initialize natural abundance correction state
         self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
-        self.toolbar.isotopologue_ratios.set_chromatographic_peak_deconvolution_stringency(
-            self.chromatographic_peak_deconvolution_stringency
-        )
-        self.graph_view.set_chromatographic_peak_deconvolution_stringency(self.chromatographic_peak_deconvolution_stringency)
+        self.update_deconvolution_indicator(None)
 
         # Connect the toolbar's custom signals to handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
@@ -645,7 +645,6 @@ class MainWindow(QMainWindow):
             if self._validation_provider is None:
                 self._validation_provider = DataProvider(
                     use_legacy_integration=self.use_legacy_integration,
-                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
                 )
 
             return self._validation_provider.validate_peak_area(
@@ -769,7 +768,8 @@ class MainWindow(QMainWindow):
                 loffset=compound.loffset,
                 roffset=compound.roffset,
                 baseline_correction=baseline_correction,
-                chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
+                chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
+                chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
             )
             abundances.append(float(sum(isotope_areas)))
 
@@ -781,6 +781,7 @@ class MainWindow(QMainWindow):
         'selected_text' is the text of the selected item (passed from the signal).
         """
         samples = self.toolbar.get_selected_samples()
+        self.update_deconvolution_indicator(compound_selected)
         self.on_plot_button(compound_selected, samples)
 
     def on_compounds_deleted(self, compound_names: list):
@@ -1840,61 +1841,117 @@ class MainWindow(QMainWindow):
                     if current_compound and current_samples:
                         self.on_plot_button(current_compound, current_samples)
 
-    def show_chromatographic_peak_deconvolution_stringency_dialog(self):
-        """Show dialog to edit chromatographic peak deconvolution stringency."""
+    def _deconvolution_indicator_text(self, compound_name: str | None) -> str:
+        """Build the status-bar text describing the selected compound's settings."""
+        if not compound_name:
+            return "Deconvolution: -"
+        try:
+            compound = read_compound_with_session(compound_name)
+        except Exception:
+            return "Deconvolution: -"
+        level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
+        if level == "off":
+            return f"Deconvolution: Off  ({compound_name})"
+        fit_labels = {
+            "auto": "Auto",
+            "gaussian": "Gaussian",
+            "bi_gaussian": "Bi-Gaussian",
+            "emg": "EMG",
+        }
+        fit = fit_labels.get(
+            normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto")),
+            "Auto",
+        )
+        return f"Deconvolution: On · Level {level} · {fit}  ({compound_name})"
+
+    def update_deconvolution_indicator(self, compound_name: str | None) -> None:
+        """Refresh the status-bar deconvolution indicator for the given compound."""
+        if not hasattr(self, "deconvolution_indicator_label"):
+            self.deconvolution_indicator_label = QLabel()
+            self.statusBar().addWidget(self.deconvolution_indicator_label)
+        self.deconvolution_indicator_label.setText(
+            self._deconvolution_indicator_text(compound_name)
+        )
+
+    def show_chromatographic_peak_deconvolution_dialog(self):
+        """Edit chromatographic peak deconvolution settings for the selected compound."""
+        compound_name = self.toolbar.get_selected_compound()
+        if not compound_name:
+            QMessageBox.information(
+                self,
+                "No Compound Selected",
+                "Select a compound before editing its deconvolution settings.",
+            )
+            return
+
+        try:
+            compound = read_compound_with_session(compound_name)
+            current_level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
+            current_fit = normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto"))
+        except Exception as exc:
+            logger.error(f"Failed to read deconvolution settings for {compound_name}: {exc}")
+            return
+
         dialog = QDialog(self)
-        dialog.setWindowTitle("Chromatographic Peak Deconvolution Stringency")
+        dialog.setWindowTitle(f"Deconvolution - {compound_name}")
         dialog.setModal(True)
-        dialog.resize(640, 260)
+        dialog.resize(640, 300)
         dialog.setMinimumWidth(600)
 
         layout = QVBoxLayout(dialog)
         info_label = QLabel(
-            "Choose how aggressively MANIC fits and separates overlapping "
-            "chromatographic peaks before integration."
+            f"Choose how MANIC fits and separates overlapping chromatographic peaks "
+            f"for <b>{compound_name}</b> before integration. These settings are saved "
+            f"per compound."
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
         form_layout = QFormLayout()
-        combo = QComboBox()
-        combo.setMinimumWidth(460)
-        combo.setMinimumContentsLength(42)
-        combo.setMaxVisibleItems(8)
-        combo.view().setMinimumWidth(520)
-        combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
-        options = [
+        level_combo = QComboBox()
+        level_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
+        level_options = [
             ("Off - no chromatographic deconvolution", "off"),
             ("Level 1 - coarsest, fastest, obvious overlaps only", "1"),
             ("Level 2 - conservative splitting", "2"),
             ("Level 3 - moderate-low resolution", "3"),
-            ("Level 4 - default balanced resolution", "4"),
+            ("Level 4 - balanced resolution", "4"),
             ("Level 5 - moderate-high resolution", "5"),
             ("Level 6 - high resolution, includes EMG tailing model", "6"),
             ("Level 7 - finest, slowest, weakest shoulders considered", "7"),
         ]
-        legacy_values = {"low": "2", "medium": "4", "high": "6"}
-        current_value = legacy_values.get(
-            self.chromatographic_peak_deconvolution_stringency,
-            self.chromatographic_peak_deconvolution_stringency,
+        for label, value in level_options:
+            level_combo.addItem(label, value)
+        level_combo.setCurrentIndex(
+            next((i for i, (_, v) in enumerate(level_options) if v == current_level), 0)
         )
-        for label, value in options:
-            combo.addItem(label, value)
-        current_index = next(
-            (
-                i
-                for i, (_, value) in enumerate(options)
-                if value == current_value
-            ),
-            4,
+        form_layout.addRow("Resolution:", level_combo)
+
+        fit_combo = QComboBox()
+        fit_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
+        fit_options = [
+            ("Auto - compare peak shapes and pick the best by BIC", "auto"),
+            ("Gaussian - symmetric peaks only", "gaussian"),
+            ("Bi-Gaussian - asymmetric (separate left/right widths)", "bi_gaussian"),
+            ("EMG - exponentially modified Gaussian (tailing)", "emg"),
+        ]
+        for label, value in fit_options:
+            fit_combo.addItem(label, value)
+        fit_combo.setCurrentIndex(
+            next((i for i, (_, v) in enumerate(fit_options) if v == current_fit), 0)
         )
-        combo.setCurrentIndex(current_index)
-        form_layout.addRow("Resolution:", combo)
+        form_layout.addRow("Fit type:", fit_combo)
         layout.addLayout(form_layout)
 
+        def _sync_fit_enabled():
+            fit_combo.setEnabled(level_combo.currentData() != "off")
+
+        level_combo.currentIndexChanged.connect(lambda _: _sync_fit_enabled())
+        _sync_fit_enabled()
+
         hint_label = QLabel(
-            "Lower levels are faster and less likely to split noise. Higher levels "
-            "try narrower components and may take longer on dense or noisy peaks."
+            "Lower levels are faster and less likely to split noise. Forcing a single "
+            "fit type (instead of Auto) is faster because fewer peak shapes are tried."
         )
         hint_label.setWordWrap(True)
         hint_label.setStyleSheet("color: gray; font-style: italic;")
@@ -1908,19 +1965,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(buttons)
 
         if dialog.exec() == QDialog.Accepted:
-            new_value = combo.currentData()
-            if new_value != self.chromatographic_peak_deconvolution_stringency:
-                self.chromatographic_peak_deconvolution_stringency = new_value
-                action_label = "Off" if new_value == "off" else f"Level {new_value}"
-                self.chromatographic_peak_deconvolution_stringency_action.setText(
-                    f"Chromatographic Peak Deconvolution Stringency: {action_label}"
-                )
-                self.graph_view.set_chromatographic_peak_deconvolution_stringency(new_value)
-                self.toolbar.isotopologue_ratios.set_chromatographic_peak_deconvolution_stringency(
-                    new_value
+            new_level = level_combo.currentData()
+            new_fit = fit_combo.currentData()
+            if new_level != current_level or new_fit != current_fit:
+                with get_connection() as conn:
+                    conn.execute(
+                        "UPDATE compounds SET deconvolution_level = ?, "
+                        "deconvolution_fit_type = ? WHERE compound_name = ? AND deleted = 0",
+                        (new_level, new_fit, compound_name),
+                    )
+                logger.info(
+                    f"Deconvolution settings updated for '{compound_name}': "
+                    f"level={new_level}, fit_type={new_fit}"
                 )
                 if self._validation_provider is not None:
-                    self._validation_provider.set_chromatographic_peak_deconvolution_stringency(new_value)
+                    self._validation_provider.invalidate_cache()
+                self.update_deconvolution_indicator(compound_name)
                 if self.cdf_data_loaded and self.compound_data_loaded:
                     current_compound = self.toolbar.get_selected_compound()
                     current_samples = self.toolbar.get_selected_samples()
@@ -2567,7 +2627,6 @@ class MainWindow(QMainWindow):
             exporter = DataExporter()
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
-            exporter.set_chromatographic_peak_deconvolution_stringency(self.chromatographic_peak_deconvolution_stringency)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
             exporter.set_internal_standard_reference_isotope(
                 self.internal_standard_reference_isotope

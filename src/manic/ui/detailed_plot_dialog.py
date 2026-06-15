@@ -75,13 +75,11 @@ class DetailedPlotDialog(QDialog):
         sample_name: str,
         parent=None,
         use_corrected: bool = False,
-        chromatographic_peak_deconvolution_stringency: str = "off",
     ):
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
         self.use_corrected = use_corrected  # Store the isotope correction flag
-        self.chromatographic_peak_deconvolution_stringency = chromatographic_peak_deconvolution_stringency
 
         # Initialize data containers
         self.eic_data = None
@@ -461,14 +459,15 @@ class DetailedPlotDialog(QDialog):
         if not baseline_flag:
             return
 
-        if chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
+        if chromatographic_peak_deconvolution_enabled(getattr(self.compound_info, "deconvolution_level", "off")):
             result = deconvolve_eic(
                 self.eic_data.time,
                 self.eic_data.intensity,
                 retention_time=self.compound_info.retention_time,
                 loffset=self.compound_info.loffset,
                 roffset=self.compound_info.roffset,
-                stringency=self.chromatographic_peak_deconvolution_stringency,
+                stringency=getattr(self.compound_info, "deconvolution_level", "off"),
+                fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
             )
             selected_matrix = (
                 result.selected
@@ -557,7 +556,7 @@ class DetailedPlotDialog(QDialog):
         if (
             not self.compound_info
             or not self.eic_data
-            or not chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency)
+            or not chromatographic_peak_deconvolution_enabled(getattr(self.compound_info, "deconvolution_level", "off"))
         ):
             return
 
@@ -567,7 +566,8 @@ class DetailedPlotDialog(QDialog):
             retention_time=self.compound_info.retention_time,
             loffset=self.compound_info.loffset,
             roffset=self.compound_info.roffset,
-            stringency=self.chromatographic_peak_deconvolution_stringency,
+            stringency=getattr(self.compound_info, "deconvolution_level", "off"),
+            fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
         )
         if not result.excluded:
             return
@@ -596,14 +596,15 @@ class DetailedPlotDialog(QDialog):
     def _plot_eic_traces(self):
         """Draw raw context plus selected/excluded chromatographic peak deconvolution components."""
         result = None
-        if chromatographic_peak_deconvolution_enabled(self.chromatographic_peak_deconvolution_stringency):
+        if chromatographic_peak_deconvolution_enabled(getattr(self.compound_info, "deconvolution_level", "off")):
             result = deconvolve_eic(
                 self.eic_data.time,
                 self.eic_data.intensity,
                 retention_time=self.compound_info.retention_time,
                 loffset=self.compound_info.loffset,
                 roffset=self.compound_info.roffset,
-                stringency=self.chromatographic_peak_deconvolution_stringency,
+                stringency=getattr(self.compound_info, "deconvolution_level", "off"),
+                fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
             )
             if not result.excluded:
                 result = None

@@ -28,7 +28,8 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
         compounds_query = """
             SELECT compound_name, retention_time, loffset, roffset, mass0, 
                    label_atoms, formula, label_type, tbdms, meox, me,
-                   amount_in_std_mix, int_std_amount, mm_files
+                   amount_in_std_mix, int_std_amount, mm_files,
+                   deconvolution_level, deconvolution_fit_type
             FROM compounds 
             WHERE deleted = 0 
             ORDER BY compound_name

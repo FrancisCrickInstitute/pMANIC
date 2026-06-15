@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import functools
 from dataclasses import dataclass
 from typing import Literal
@@ -23,6 +24,15 @@ ChromatographicPeakDeconvolutionStringency = Literal[
     "high",
 ]
 PeakShapeModel = Literal["gaussian", "bi_gaussian", "emg"]
+PeakShapeFitType = Literal["auto", "gaussian", "bi_gaussian", "emg"]
+PEAK_SHAPE_FIT_TYPES: tuple[PeakShapeFitType, ...] = (
+    "auto",
+    "gaussian",
+    "bi_gaussian",
+    "emg",
+)
+DEFAULT_DECONVOLUTION_LEVEL = "4"
+DEFAULT_DECONVOLUTION_FIT_TYPE = "auto"
 MIN_DECONVOLUTION_CONTEXT_MINUTES = 0.25
 
 
@@ -102,6 +112,11 @@ def chromatographic_peak_deconvolution_enabled(value: str | None) -> bool:
     return normalize_stringency(value) != "off"
 
 
+def normalize_fit_type(value: str | None) -> PeakShapeFitType:
+    value = (value or "auto").lower().strip()
+    return value if value in PEAK_SHAPE_FIT_TYPES else "auto"
+
+
 def deconvolve_eic(
     time_data: np.ndarray,
     intensity_data: np.ndarray,
@@ -110,6 +125,7 @@ def deconvolve_eic(
     loffset: float | None = None,
     roffset: float | None = None,
     stringency: str | None = "off",
+    fit_type: str | None = "auto",
 ) -> EICChromatographicPeakDeconvolutionResult:
     """
     Split an EIC into chromatographic components and select the one nearest RT.
@@ -120,11 +136,16 @@ def deconvolve_eic(
     weights.
     """
     mode = normalize_stringency(stringency)
+    shape_fit_type = normalize_fit_type(fit_type)
     time = np.asarray(time_data, dtype=np.float64)
     intensity = np.asarray(intensity_data, dtype=np.float64)
 
     if mode == "off" or time.size < 3 or intensity.size == 0:
         return _unchanged_result(time, intensity)
+
+    params = STRINGENCY_PRESETS[mode]
+    if shape_fit_type != "auto":
+        params = dataclasses.replace(params, shape_models=(shape_fit_type,))
 
     matrix, was_1d = _as_trace_matrix(intensity)
     if matrix.shape[1] != time.size:
@@ -145,7 +166,7 @@ def deconvolve_eic(
         fit_mask,
         integration_mask,
         retention_time,
-        STRINGENCY_PRESETS[mode],
+        params,
     )
 
     target_rt = (

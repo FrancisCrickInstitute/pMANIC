@@ -42,7 +42,6 @@ class IsotopologueRatioWidget(QWidget):
 
         # Flag to use corrected data when available
         self.use_corrected = True
-        self.chromatographic_peak_deconvolution_stringency = "off"
 
         # Create chart and chart view
         self.chart = QChart()
@@ -175,7 +174,8 @@ class IsotopologueRatioWidget(QWidget):
                     loffset=loffset,
                     roffset=roffset,
                     baseline_correction=baseline_correction,
-                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
+                    chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
+                    chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
                 )
                 total_area = sum(isotope_areas)
                 ratios.append(np.array([1.0]))  # 100% for single isotope
@@ -204,7 +204,8 @@ class IsotopologueRatioWidget(QWidget):
                     loffset=loffset,
                     roffset=roffset,
                     baseline_correction=baseline_correction,
-                    chromatographic_peak_deconvolution_stringency=self.chromatographic_peak_deconvolution_stringency,
+                    chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
+                    chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
                 )
 
                 # Calculate total abundance (sum of all isotopologue areas)
@@ -385,13 +386,6 @@ class IsotopologueRatioWidget(QWidget):
         """
         logger.info(f"Setting use_corrected to {use_corrected}")
         self.use_corrected = use_corrected
-        if self._current_eics and self._current_compound:
-            logger.info(f"Refreshing display for {self._current_compound}")
-            self.update_ratios(self._current_compound, self._current_eics)
-
-    def set_chromatographic_peak_deconvolution_stringency(self, stringency: str) -> None:
-        """Set chromatographic peak deconvolution stringency for area calculations."""
-        self.chromatographic_peak_deconvolution_stringency = stringency
         if self._current_eics and self._current_compound:
             logger.info(f"Refreshing display for {self._current_compound}")
             self.update_ratios(self._current_compound, self._current_eics)

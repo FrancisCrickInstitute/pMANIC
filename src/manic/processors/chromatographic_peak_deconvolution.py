@@ -366,9 +366,7 @@ def _fit_shape_candidate(
     def residual(values: np.ndarray) -> np.ndarray:
         _, shape_matrix = shapes_from(values)
         intercept, weights = solve_linear(shape_matrix)
-        baseline = np.repeat(intercept[:, None], points, axis=1)
-        components = weights.T[:, :, None] * shape_matrix[:, None, :]
-        total = baseline + np.sum(components, axis=0)
+        total = intercept[:, None] + weights @ shape_matrix
         return ((total - y) / channel_scale[:, None]).ravel()
 
     try:

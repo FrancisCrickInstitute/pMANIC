@@ -24,6 +24,12 @@ Each component has one shared chromatographic elution shape and a non-negative w
 
 This is especially useful when one isotopologue trace contains a shoulder or interference that is weak or invisible in another trace. The shared model can use the multi-channel evidence rather than deciding independently for each isotopologue.
 
+## Per-Compound Settings
+
+Both the resolution level and the peak-shape fit type are stored **per compound** (persisted in the session database), not as a single global option. Each compound can use a different setting, and the choice applies to all of that compound's samples.
+
+Settings are edited from **Settings → Chromatographic Peak Deconvolution (selected compound)...** with a compound selected. The current value for the selected compound is shown in the status bar, and both fields are written to the export changelog so a processed result can be reproduced exactly.
+
 ## Resolution Levels
 
 Chromatographic peak deconvolution can be turned off, or run at levels `1` through `7`.
@@ -63,7 +69,18 @@ MANIC compares a small set of common chromatographic peak shapes:
 - **Bi-Gaussian:** separate left and right widths around the apex. This handles fronting or tailing with one extra shape parameter.
 - **Exponentially modified Gaussian (EMG):** a Gaussian peak convolved with an exponential tailing process. This is a standard model for asymmetric chromatographic peaks.
 
-The model is chosen with Bayesian Information Criterion (BIC), which rewards lower residual error but penalizes extra parameters. This prevents the most flexible model from always winning when the improvement is not meaningful.
+By default (**Auto** fit type) the model is chosen with the Bayesian Information Criterion (BIC), which rewards lower residual error but penalizes extra parameters. This prevents the most flexible model from always winning when the improvement is not meaningful.
+
+### Manual fit-type override
+
+The per-compound **fit type** can override automatic selection:
+
+- **Auto:** compare the available shapes and pick the best by BIC (default behaviour, and the recommended choice).
+- **Gaussian:** force a symmetric Gaussian shape.
+- **Bi-Gaussian:** force the asymmetric bi-Gaussian shape.
+- **EMG:** force the exponentially modified Gaussian shape.
+
+When a specific shape is forced, MANIC restricts the model family to that single shape instead of searching across all of them. This is useful when you already know the expected peak behaviour for a compound, or to keep results consistent. Component-count selection (how many overlapping peaks to resolve) still follows the resolution level.
 
 ## Performance
 
@@ -77,6 +94,18 @@ Joint deconvolution is more expensive than raw integration because it may fit se
 - falling back to simpler results if fitting fails
 
 For normal isotopologue counts and integration windows, the cost should remain practical. The highest levels should be used when resolving difficult coelution is more important than processing speed.
+
+Repeated work is also avoided by caching: identical fits (same window data, level, and fit type) are computed once and reused, so opening plots, recalculating ratios, and exporting do not refit the same trace multiple times.
+
+## Behaviour on Messy or Unfittable Traces
+
+Deconvolution is designed to degrade gracefully and never block integration:
+
+- **Deconvolution off, too few points, or an empty integration window:** the raw trace is used unchanged.
+- **A fit is attempted but no usable model is found** (the optimizer fails to converge, or every candidate is rejected for being non-finite or contributing too little signal): MANIC falls back to **integrating the raw trace over the loffset/roffset window** - exactly the result you would get with deconvolution turned off. No component overlays are drawn, and the plot simply shows the raw EIC.
+- **Unexpected numerical failure during fitting:** any error in the fit is caught and treated as "no usable model", so it routes to the same raw-trace fallback rather than raising an error. This protects both interactive plotting and bulk export.
+
+In short, a messy trace that cannot be deconvolved produces the same area as the non-deconvolution path; it does not zero out, blank the plot, or abort an export.
 
 ## Scientific Background
 

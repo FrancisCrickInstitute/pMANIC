@@ -324,10 +324,18 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Chromatographic Peak Deconvolution
-**Settings → Chromatographic Peak Deconvolution Stringency...**
-* **Default:** `Level 4`
+**Settings → Chromatographic Peak Deconvolution (selected compound)...**
+* **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes inside the integration window and selects the component nearest the expected retention time. This can separate overlapping peaks before area calculation.
-* **Levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered.
+* **Scope:** This is a **per-compound** setting. Open the dialog with a compound selected; the chosen resolution level and fit type are saved for that compound and applied across all of its samples. (There is no longer a single global setting.)
+* **Resolution levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered (and cost more time).
+* **Fit type:** Choose how the elution shape is modelled:
+    * `Auto` - compares the candidate shapes and picks the best by BIC (recommended default).
+    * `Gaussian` - symmetric peaks only.
+    * `Bi-Gaussian` - asymmetric peaks with separate left/right widths.
+    * `EMG` - exponentially modified Gaussian for tailing peaks.
+* **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto (compound_name)`, or `Deconvolution: Off`.
+* **Logging:** The per-compound resolution and fit type are recorded in the export changelog so processed results are reproducible.
 * **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction

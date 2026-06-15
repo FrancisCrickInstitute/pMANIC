@@ -7,7 +7,7 @@ from typing import Literal
 import numpy as np
 from scipy.optimize import least_squares, nnls
 from scipy.signal import find_peaks, peak_widths
-from scipy.stats import exponnorm
+from scipy.special import erfcx
 
 ChromatographicPeakDeconvolutionStringency = Literal[
     "off",
@@ -497,7 +497,14 @@ def _component_shape(
         shape = np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
     else:
         center, sigma, tau = values
-        shape = exponnorm.pdf(x_rel, K=max(tau / sigma, 1e-6), loc=center, scale=sigma)
+        sigma = max(float(sigma), np.finfo(float).eps)
+        tau = max(float(tau), np.finfo(float).eps)
+        offset = x_rel - center
+        # Stable EMG via the scaled complementary error function; the leading
+        # 1/(2*tau) constant is dropped because the shape is max-normalized below.
+        # z is clipped to keep erfcx finite far out in the (negligible) tail.
+        z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
+        shape = np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
 
     max_shape = float(np.max(shape)) if shape.size else 0.0
     if max_shape <= 0 or not np.isfinite(max_shape):

@@ -1315,10 +1315,11 @@ class GraphView(QWidget):
 
                 series = QLineSeries()
                 scaled_trace = trace / scale_factor if scale_factor != 0 else trace
-                for x, y, keep in zip(eic_time, scaled_trace, trace_mask):
-                    if not keep or not np.isfinite(y):
-                        continue
-                    series.append(float(x), float(y))
+                keep = np.asarray(trace_mask, dtype=bool) & np.isfinite(scaled_trace)
+                if np.any(keep):
+                    xs = np.ascontiguousarray(eic_time[keep], dtype=np.float64)
+                    ys = np.ascontiguousarray(scaled_trace[keep], dtype=np.float64)
+                    series.appendNp(xs, ys)
                 series.setPen(pen)
                 chart.addSeries(series)
                 series.attachAxis(x_axis)
@@ -1427,12 +1428,13 @@ class GraphView(QWidget):
             pen = QPen(pen_color, width)
             series = QLineSeries()
             scaled_trace = trace / scale_factor if scale_factor != 0 else trace
-            trace_mask = mask_matrix[i, :] if mask_matrix is not None else None
-            for x, y, idx in zip(eic_time, scaled_trace, range(len(scaled_trace))):
-                if trace_mask is not None and not trace_mask[idx]:
-                    continue
-                if np.isfinite(y):
-                    series.append(float(x), float(y))
+            keep = np.isfinite(scaled_trace)
+            if mask_matrix is not None:
+                keep &= np.asarray(mask_matrix[i, :], dtype=bool)
+            if np.any(keep):
+                xs = np.ascontiguousarray(eic_time[keep], dtype=np.float64)
+                ys = np.ascontiguousarray(scaled_trace[keep], dtype=np.float64)
+                series.appendNp(xs, ys)
             series.setPen(pen)
             if not raw_context:
                 series.setName(f"Label {i}" if multi_trace else "")

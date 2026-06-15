@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from typing import Literal
 
@@ -188,7 +189,12 @@ def _deconvolve_matrix(
     window_time = time[fit_mask]
     window_matrix = np.maximum(np.asarray(matrix[:, fit_mask], dtype=np.float64), 0.0)
 
-    fitted = _fit_joint_component_model(window_time, window_matrix, params)
+    fitted = _fit_joint_component_model_cached(
+        window_time.tobytes(),
+        window_matrix.tobytes(),
+        window_matrix.shape,
+        params,
+    )
     if fitted is None:
         selected_mask = np.zeros_like(matrix, dtype=bool)
         selected_mask[:, integration_indices] = True
@@ -229,6 +235,23 @@ def _deconvolve_matrix(
         excluded_masks,
         [float(center) for center in fitted.centers],
     )
+
+
+@functools.lru_cache(maxsize=256)
+def _fit_joint_component_model_cached(
+    time_bytes: bytes,
+    matrix_bytes: bytes,
+    matrix_shape: tuple[int, int],
+    params: ChromatographicPeakDeconvolutionParameters,
+) -> FittedComponentModel | None:
+    """Cache fits keyed by the windowed data so repeated calls reuse the result.
+
+    The same window/stringency is fit many times per render (baseline, overlays,
+    detailed plot) and on every offset drag, so identical inputs are common.
+    """
+    time = np.frombuffer(time_bytes, dtype=np.float64)
+    matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
+    return _fit_joint_component_model(time, matrix, params)
 
 
 def _fit_joint_component_model(

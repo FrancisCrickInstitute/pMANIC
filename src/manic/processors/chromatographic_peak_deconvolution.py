@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, nnls
 from scipy.signal import find_peaks, peak_widths
 from scipy.stats import exponnorm
 
@@ -321,78 +321,53 @@ def _fit_shape_candidate(
     max_y: float,
     params: ChromatographicPeakDeconvolutionParameters,
 ) -> FittedComponentModel | None:
-    channels, _ = y.shape
+    channels, points = y.shape
     component_count = len(initial_centers)
-    edge_points = max(3, min(8, y.shape[1]))
-    edge_baseline = np.minimum(
-        np.percentile(y[:, :edge_points], 20, axis=1),
-        np.percentile(y[:, -edge_points:], 20, axis=1),
-    )
-    window_baseline = np.percentile(y, 10, axis=1)
-    baseline_guess = np.minimum(edge_baseline, window_baseline)
-    baseline_upper = np.maximum(
-        np.percentile(y, 35, axis=1),
-        np.maximum(baseline_guess * 3.0, max_y * 0.02),
-    )
+    param_count = _shape_param_count(shape_model)
     channel_scale = np.maximum(
-        np.percentile(y, 95, axis=1) - baseline_guess,
+        np.percentile(y, 95, axis=1) - np.percentile(y, 10, axis=1),
         max(max_y * 1e-6, np.finfo(float).eps),
     )
 
+    # Only the shape parameters are optimized nonlinearly; the per-channel
+    # baseline and component weights are linear, so they are recovered with a
+    # non-negative least-squares solve for any trial shape (variable projection).
     initial: list[float] = []
     lower: list[float] = []
     upper: list[float] = []
-
-    initial.extend(float(value) for value in baseline_guess)
-    lower.extend([0.0] * channels)
-    upper.extend(float(value) for value in baseline_upper)
-
-    for channel in range(channels):
-        for center in initial_centers:
-            apex_index = int(np.argmin(np.abs(x_rel - center)))
-            height = max(
-                float(y[channel, apex_index] - baseline_guess[channel]),
-                0.0,
-            )
-            initial.append(height)
-            lower.append(0.0)
-            upper.append(max_y * 2.0)
-
     for center in initial_centers:
         initial.extend(_initial_shape_params(shape_model, center, min_sigma))
         low, high = _shape_param_bounds(shape_model, x_rel, min_sigma, max_sigma)
         lower.extend(low)
         upper.extend(high)
 
-    def unpack(values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        cursor = 0
-        intercept = values[cursor : cursor + channels]
-        cursor += channels
-        weights = values[cursor : cursor + channels * component_count].reshape(
-            channels, component_count
-        )
-        cursor += channels * component_count
-
+    def shapes_from(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         shapes: list[np.ndarray] = []
         centers: list[float] = []
-        for _ in range(component_count):
-            param_count = _shape_param_count(shape_model)
-            shape_params = values[cursor : cursor + param_count]
-            cursor += param_count
+        for index in range(component_count):
+            shape_params = values[index * param_count : (index + 1) * param_count]
             centers.append(float(shape_params[0]))
             shapes.append(_component_shape(x_rel, shape_model, shape_params))
-
         order = np.argsort(centers)
         sorted_centers = np.asarray(centers, dtype=np.float64)[order]
         shape_matrix = np.asarray(shapes, dtype=np.float64)[order]
-        sorted_weights = weights[:, order]
+        return sorted_centers, shape_matrix
 
-        baseline = np.repeat(intercept[:, None], x_rel.size, axis=1)
-        components = sorted_weights.T[:, :, None] * shape_matrix[:, None, :]
-        return np.maximum(baseline, 0.0), components, sorted_centers
+    def solve_linear(shape_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        design = np.column_stack([np.ones(points), shape_matrix.T])
+        intercept = np.empty(channels, dtype=np.float64)
+        weights = np.empty((channels, component_count), dtype=np.float64)
+        for channel in range(channels):
+            coefficients, _ = nnls(design, y[channel])
+            intercept[channel] = coefficients[0]
+            weights[channel] = coefficients[1:]
+        return intercept, weights
 
     def residual(values: np.ndarray) -> np.ndarray:
-        baseline, components, _ = unpack(values)
+        _, shape_matrix = shapes_from(values)
+        intercept, weights = solve_linear(shape_matrix)
+        baseline = np.repeat(intercept[:, None], points, axis=1)
+        components = weights.T[:, :, None] * shape_matrix[:, None, :]
         total = baseline + np.sum(components, axis=0)
         return ((total - y) / channel_scale[:, None]).ravel()
 
@@ -409,15 +384,18 @@ def _fit_shape_candidate(
     if not result.success:
         return None
 
-    baseline, components, centers = unpack(result.x)
+    centers, shape_matrix = shapes_from(result.x)
+    intercept, weights = solve_linear(shape_matrix)
+    baseline = np.repeat(intercept[:, None], points, axis=1)
+    components = weights.T[:, :, None] * shape_matrix[:, None, :]
     scaled_residual = (baseline + np.sum(components, axis=0) - y) / channel_scale[:, None]
     rss = float(np.sum(scaled_residual**2))
     observation_count = int(y.size)
-    parameter_count = int(result.x.size)
+    parameter_count = channels * (1 + component_count) + int(result.x.size)
     bic = observation_count * np.log(max(rss / observation_count, np.finfo(float).eps))
     bic += parameter_count * np.log(max(observation_count, 2))
     return FittedComponentModel(
-        baseline=baseline,
+        baseline=np.maximum(baseline, 0.0),
         components=np.maximum(components, 0.0),
         centers=centers,
         bic=float(bic),

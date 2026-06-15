@@ -284,6 +284,7 @@ def _fit_joint_component_model(
         initial_centers = sorted(
             float(x_rel[index]) for index in seed_indices[:component_count]
         )
+        best_at_count: FittedComponentModel | None = None
         for shape_model in params.shape_models:
             fitted = _fit_shape_candidate(
                 x_rel,
@@ -305,8 +306,20 @@ def _fit_joint_component_model(
                 rss=fitted.rss,
                 shape_model=fitted.shape_model,
             )
-            if best is None or fitted.bic < best.bic - params.bic_improvement:
-                best = fitted
+            if best_at_count is None or fitted.bic < best_at_count.bic - params.bic_improvement:
+                best_at_count = fitted
+            # Only escalate to a more flexible shape if the current fit still
+            # leaves structured residuals; clean peaks stop at the simplest model.
+            if not _has_structured_residuals(fitted, y):
+                break
+
+        if best_at_count is None:
+            continue
+        if best is None or best_at_count.bic < best.bic - params.bic_improvement:
+            best = best_at_count
+        else:
+            # Adding a component no longer improves the fit; stop growing.
+            break
 
     return best
 
@@ -425,6 +438,23 @@ def _candidate_peak_indices(
 
     merged.sort(key=lambda item: item[1], reverse=True)
     return [index for index, _ in merged]
+
+
+def _has_structured_residuals(fitted: FittedComponentModel, y: np.ndarray) -> bool:
+    """True if fit residuals are autocorrelated, signalling a wrong peak shape.
+
+    White residuals mean the simpler model already fits, so a clean peak does
+    not need to escalate to bi-Gaussian or EMG.
+    """
+    residual = fitted.baseline + np.sum(fitted.components, axis=0) - y
+    if residual.shape[1] < 3:
+        return False
+    residual = residual - residual.mean(axis=1, keepdims=True)
+    denominator = float(np.sum(residual**2))
+    if denominator <= np.finfo(float).eps:
+        return False
+    lag1 = float(np.sum(residual[:, :-1] * residual[:, 1:]))
+    return lag1 / denominator > 0.4
 
 
 def _is_usable_fit(

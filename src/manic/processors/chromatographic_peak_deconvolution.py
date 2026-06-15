@@ -273,8 +273,14 @@ def _fit_joint_component_model(
 
     dt = float(np.median(np.diff(x))) if x.size > 1 else x_span
     min_sigma = max(dt, x_span / 500.0)
-    max_sigma = max(min_sigma * 2.0, x_span / 2.0)
     max_y = max(float(np.max(y)), np.finfo(float).eps)
+
+    # Data-driven width estimate from the dominant peak, so the initial sigma and
+    # the sigma upper bound track the actual peaks instead of half the window.
+    typical_sigma = _estimate_peak_sigma(np.sum(y, axis=0), dt, params)
+    init_sigma = float(np.clip(typical_sigma if typical_sigma > 0 else min_sigma * 2.0,
+                               min_sigma, x_span))
+    max_sigma = min(max(min_sigma * 4.0, init_sigma * 4.0), x_span)
 
     seed_indices = _candidate_peak_indices(y, params)
     max_components = max(1, min(params.max_components, len(seed_indices), points // 3))
@@ -293,6 +299,7 @@ def _fit_joint_component_model(
                 shape_model,
                 min_sigma,
                 max_sigma,
+                init_sigma,
                 max_y,
                 params,
             )
@@ -331,6 +338,7 @@ def _fit_shape_candidate(
     shape_model: PeakShapeModel,
     min_sigma: float,
     max_sigma: float,
+    init_sigma: float,
     max_y: float,
     params: ChromatographicPeakDeconvolutionParameters,
 ) -> FittedComponentModel | None:
@@ -349,7 +357,7 @@ def _fit_shape_candidate(
     lower: list[float] = []
     upper: list[float] = []
     for center in initial_centers:
-        initial.extend(_initial_shape_params(shape_model, center, min_sigma))
+        initial.extend(_initial_shape_params(shape_model, center, init_sigma))
         low, high = _shape_param_bounds(shape_model, x_rel, min_sigma, max_sigma)
         lower.extend(low)
         upper.extend(high)
@@ -387,6 +395,7 @@ def _fit_shape_candidate(
             residual,
             x0=np.asarray(initial, dtype=np.float64),
             bounds=(np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)),
+            x_scale="jac",
             max_nfev=params.max_nfev,
         )
     except Exception:
@@ -481,14 +490,29 @@ def _is_usable_fit(
     return bool(np.all(np.isfinite(fitted.components)))
 
 
+def _estimate_peak_sigma(
+    summed: np.ndarray, dt: float, params: ChromatographicPeakDeconvolutionParameters
+) -> float:
+    """Estimate a characteristic peak sigma from the dominant peak's FWHM."""
+    smoothed = _smooth(np.maximum(summed, 0.0), params.smooth_points)
+    if smoothed.size < 3 or float(np.max(smoothed)) <= 0:
+        return 0.0
+    apex = int(np.argmax(smoothed))
+    try:
+        fwhm_points = float(peak_widths(smoothed, [apex], rel_height=0.5)[0][0])
+    except Exception:
+        return 0.0
+    return fwhm_points * dt / 2.3548 if fwhm_points > 0 else 0.0
+
+
 def _initial_shape_params(
-    shape_model: PeakShapeModel, center: float, min_sigma: float
+    shape_model: PeakShapeModel, center: float, init_sigma: float
 ) -> list[float]:
     if shape_model == "gaussian":
-        return [center, min_sigma * 2.0]
+        return [center, init_sigma]
     if shape_model == "bi_gaussian":
-        return [center, min_sigma * 2.0, min_sigma * 2.0]
-    return [center, min_sigma * 2.0, min_sigma * 2.0]
+        return [center, init_sigma, init_sigma]
+    return [center, init_sigma, init_sigma]
 
 
 def _shape_param_bounds(

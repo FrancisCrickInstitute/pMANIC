@@ -374,14 +374,20 @@ def _fit_shape_candidate(
         shape_matrix = np.asarray(shapes, dtype=np.float64)[order]
         return sorted_centers, shape_matrix
 
-    def solve_linear(shape_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def solve_linear(
+        shape_matrix: np.ndarray, enforce_nonneg: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
         design = np.column_stack([np.ones(points), shape_matrix.T])
-        # Solve all channels at once unconstrained, then redo only the channels
-        # whose solution violates non-negativity with NNLS. Clean channels (the
-        # common case) avoid the iterative solver entirely.
-        coef = np.linalg.lstsq(design, y.T, rcond=None)[0]
-        for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
-            coef[:, channel], _ = nnls(design, y[channel])
+        # Cheap unconstrained solve via the tiny (1+K)x(1+K) normal equations.
+        # During optimization this runs on every residual evaluation, so it must
+        # be fast; non-negativity is only enforced once on the final fit, where a
+        # per-channel NNLS cleans up any channel with a negative coefficient.
+        gram = design.T @ design
+        gram[np.diag_indices_from(gram)] += 1e-12
+        coef = np.linalg.solve(gram, design.T @ y.T)
+        if enforce_nonneg:
+            for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
+                coef[:, channel], _ = nnls(design, y[channel])
         return coef[0], coef[1:].T
 
     def residual(values: np.ndarray) -> np.ndarray:
@@ -405,7 +411,7 @@ def _fit_shape_candidate(
         return None
 
     centers, shape_matrix = shapes_from(result.x)
-    intercept, weights = solve_linear(shape_matrix)
+    intercept, weights = solve_linear(shape_matrix, enforce_nonneg=True)
     baseline = np.repeat(intercept[:, None], points, axis=1)
     components = weights.T[:, :, None] * shape_matrix[:, None, :]
     scaled_residual = (baseline + np.sum(components, axis=0) - y) / channel_scale[:, None]

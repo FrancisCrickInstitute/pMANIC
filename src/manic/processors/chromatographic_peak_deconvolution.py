@@ -430,6 +430,11 @@ def _fit_joint_component_model_cached(
     return _fit_joint_component_model(time, matrix, params)
 
 
+def get_deconvolution_fit_cache_info():
+    """Return cache statistics for the expensive joint-fit cache."""
+    return _fit_joint_component_model_cached.cache_info()
+
+
 def _fit_joint_component_model(
     time: np.ndarray,
     matrix: np.ndarray,

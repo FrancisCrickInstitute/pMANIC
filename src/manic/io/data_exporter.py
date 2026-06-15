@@ -257,6 +257,17 @@ class DataExporter:
             load_callback = _scaled_callback(0, 30)
             sheet_callback = _scaled_callback(30, 100)
 
+            phase_timings: dict[str, float] = {}
+
+            def _time_phase(name: str, func):
+                phase_start = time.time()
+                try:
+                    return func()
+                finally:
+                    elapsed = time.time() - phase_start
+                    phase_timings[name] = elapsed
+                    logger.info("Export phase '%s' completed in %.2fs", name, elapsed)
+
             # Phase 1 optimization: Pre-load all sample data in bulk
             logger.info("Phase 1 optimization: Pre-loading all sample data...")
             data_load_start = time.time()
@@ -271,15 +282,21 @@ class DataExporter:
             # Compute validation data for all samples/compounds
             samples = self._provider.get_all_samples()
             compounds = self._provider.get_all_compounds()
-            validation_data = self._compute_validation_data(samples, compounds)
+            validation_data = _time_phase(
+                "validation",
+                lambda: self._compute_validation_data(samples, compounds),
+            )
 
             # Create Excel workbook with optimization settings
-            workbook = xlsxwriter.Workbook(
-                filepath,
-                {
-                    "constant_memory": True,  # Optimize for low RAM usage
-                    "use_zip64": True,  # Handle large files
-                },
+            workbook = _time_phase(
+                "workbook_create",
+                lambda: xlsxwriter.Workbook(
+                    filepath,
+                    {
+                        "constant_memory": True,  # Optimize for low RAM usage
+                        "use_zip64": True,  # Handle large files
+                    },
+                ),
             )
 
             # Create all worksheets
@@ -287,44 +304,56 @@ class DataExporter:
                 sheet_callback(0)
 
             # Sheet 1: Raw Values (16% of work)
-            sheet_raw_values.write(
-                workbook,
-                self,
-                sheet_callback,
-                0,
-                16,
-                validation_data=validation_data,
+            _time_phase(
+                "sheet_raw_values",
+                lambda: sheet_raw_values.write(
+                    workbook,
+                    self,
+                    sheet_callback,
+                    0,
+                    16,
+                    validation_data=validation_data,
+                ),
             )
 
             # Sheet 2: Corrected Values (16% of work)
-            sheet_corrected_values.write(
-                workbook,
-                self,
-                sheet_callback,
-                16,
-                32,
-                validation_data=validation_data,
+            _time_phase(
+                "sheet_corrected_values",
+                lambda: sheet_corrected_values.write(
+                    workbook,
+                    self,
+                    sheet_callback,
+                    16,
+                    32,
+                    validation_data=validation_data,
+                ),
             )
 
             # Sheet 3: Isotope Ratios (16% of work)
-            sheet_isotope_ratios.write(
-                workbook,
-                self,
-                sheet_callback,
-                32,
-                48,
-                validation_data=validation_data,
+            _time_phase(
+                "sheet_isotope_ratios",
+                lambda: sheet_isotope_ratios.write(
+                    workbook,
+                    self,
+                    sheet_callback,
+                    32,
+                    48,
+                    validation_data=validation_data,
+                ),
             )
 
             # Sheet 4: % Label Incorporation (16% of work)
             try:
-                sheet_label_incorporation.write(
-                    workbook,
-                    self,
-                    sheet_callback,
-                    48,
-                    64,
-                    validation_data=validation_data,
+                _time_phase(
+                    "sheet_label_incorporation",
+                    lambda: sheet_label_incorporation.write(
+                        workbook,
+                        self,
+                        sheet_callback,
+                        48,
+                        64,
+                        validation_data=validation_data,
+                    ),
                 )
             except Exception as e:
                 logger.error(f"Error in % Label Incorporation sheet: {e}")
@@ -333,14 +362,17 @@ class DataExporter:
             # Sheet 5: % Carbons Labelled (Average Enrichment) - optional
             if include_carbon_enrichment:
                 try:
-                    sheet_carbon_enrichment.write(
-                        workbook,
-                        self,
-                        sheet_callback,
-                        64,
-                        80,
-                        validation_data=validation_data,
-                        provider=self._provider,
+                    _time_phase(
+                        "sheet_carbon_enrichment",
+                        lambda: sheet_carbon_enrichment.write(
+                            workbook,
+                            self,
+                            sheet_callback,
+                            64,
+                            80,
+                            validation_data=validation_data,
+                            provider=self._provider,
+                        ),
                     )
                 except Exception as e:
                     logger.error(f"Error in % Carbons Labelled sheet: {e}")
@@ -348,16 +380,19 @@ class DataExporter:
             # Sheet 6: Abundances (20% of work) - Final sheet for easy access
             # Adjust progress range based on whether carbon enrichment was included
             abundance_start = 80 if include_carbon_enrichment else 64
-            sheet_abundances.write(
-                workbook,
-                self,
-                sheet_callback,
-                abundance_start,
-                100,
-                validation_data=validation_data,
+            _time_phase(
+                "sheet_abundances",
+                lambda: sheet_abundances.write(
+                    workbook,
+                    self,
+                    sheet_callback,
+                    abundance_start,
+                    100,
+                    validation_data=validation_data,
+                ),
             )
 
-            workbook.close()
+            _time_phase("workbook_close", workbook.close)
 
             if progress_callback:
                 progress_callback(100)
@@ -371,7 +406,8 @@ class DataExporter:
             )
 
             # Generate changelog
-            self._generate_changelog(filepath)
+            _time_phase("changelog", lambda: self._generate_changelog(filepath))
+            logger.info("Export phase timings summary: %s", phase_timings)
 
             return True
 

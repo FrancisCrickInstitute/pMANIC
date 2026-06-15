@@ -189,12 +189,15 @@ def _deconvolve_matrix(
     window_time = time[fit_mask]
     window_matrix = np.maximum(np.asarray(matrix[:, fit_mask], dtype=np.float64), 0.0)
 
-    fitted = _fit_joint_component_model_cached(
-        window_time.tobytes(),
-        window_matrix.tobytes(),
-        window_matrix.shape,
-        params,
-    )
+    try:
+        fitted = _fit_joint_component_model_cached(
+            window_time.tobytes(),
+            window_matrix.tobytes(),
+            window_matrix.shape,
+            params,
+        )
+    except Exception:
+        fitted = None
     if fitted is None:
         selected_mask = np.zeros_like(matrix, dtype=bool)
         selected_mask[:, integration_indices] = True

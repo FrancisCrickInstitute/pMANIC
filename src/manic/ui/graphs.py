@@ -582,8 +582,23 @@ class GraphView(QWidget):
         if not self._current_plots:
             return
 
-        # Use consolidated context menu (no specific plot clicked)
-        self._show_context_menu(event.globalPos(), clicked_plot=None)
+        # Qt fires contextMenuEvent in addition to the chart view's right-click
+        # signal. Previously this path always passed clicked_plot=None, so if it
+        # won the race it greyed out "View Detailed" even over a real plot. Hit-
+        # test the cursor position so the correct plot is used either way.
+        clicked_plot = self._plot_at_global_pos(event.globalPos())
+        self._show_context_menu(event.globalPos(), clicked_plot=clicked_plot)
+
+    def _plot_at_global_pos(self, global_pos):
+        """Return the plot whose area contains the given global position."""
+        for plot in self._current_plots:
+            try:
+                top_left = plot.mapToGlobal(plot.rect().topLeft())
+                if QRect(top_left, plot.size()).contains(global_pos):
+                    return plot
+            except RuntimeError:
+                continue
+        return None
 
     def refresh_plots_with_session_data(
         self, validation_data: Optional[Dict[str, bool]] = None

@@ -4,7 +4,7 @@ set -euo pipefail
 # Build MANIC on macOS - unsigned DMG distribution
 
 APP_NAME="MANIC"
-VERSION="4.1.0"
+VERSION="5.0.0"
 DIST_DIR="dist"
 DMG_NAME="${APP_NAME}-${VERSION}.dmg"
 

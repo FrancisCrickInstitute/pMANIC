@@ -98,3 +98,66 @@ def test_corrected_export_uses_deconvolved_raw_component(temp_db, monkeypatch):
     assert corrected == pytest.approx([15.0, 6.0])
     assert raw_export == pytest.approx([15.0, 6.0])
     assert len(deconvolution_calls) == 1
+
+
+def test_model_path_raw_and_corrected_differ_only_by_correction():
+    """Raw and corrected model-path areas use one shared integration route."""
+    grid_left, grid_right = 1.0, 3.0
+
+    class FakeModel:
+        integration_left = grid_left
+        integration_right = grid_right
+
+        def evaluate_selected(self, grid):
+            grid = np.asarray(grid, dtype=np.float64)
+            base = np.exp(-((grid - 2.0) ** 2) / 0.2)
+            return np.vstack([10.0 * base, 4.0 * base])
+
+    selected_mask = np.tile(np.array([False, True, True, True, False]), (2, 1))
+    deconvolved = SimpleNamespace(
+        selected=np.zeros((2, 5)),
+        selected_mask=selected_mask,
+        model=FakeModel(),
+    )
+    row = {
+        "label_atoms": 1,
+        "retention_time": 2.0,
+        "loffset": 1.0,
+        "roffset": 1.0,
+        "formula": "C1",
+        "label_type": "C",
+        "tbdms": 0,
+        "meox": 0,
+        "me": 0,
+    }
+
+    provider = DataProvider()
+    # Identity correction: raw and corrected must be bit-for-bit identical
+    # because they now flow through the same integration routine.
+    provider._correct_time_series = lambda matrix, r: np.asarray(
+        matrix, dtype=np.float64
+    )
+    raw_areas, corrected_areas = provider._areas_from_deconvolved(
+        np.array([0, 1, 2, 3, 4], dtype=np.float64),
+        deconvolved,
+        row,
+        use_legacy=False,
+        baseline_correction=False,
+    )
+    assert raw_areas == pytest.approx(corrected_areas)
+
+    # A pure channel-wise scaling correction scales the integrated areas by the
+    # same factor, proving correction is the only thing that differs.
+    provider._correct_time_series = lambda matrix, r: np.asarray(
+        matrix, dtype=np.float64
+    ) * np.array([[0.5], [2.0]])
+    raw_areas2, corrected_areas2 = provider._areas_from_deconvolved(
+        np.array([0, 1, 2, 3, 4], dtype=np.float64),
+        deconvolved,
+        row,
+        use_legacy=False,
+        baseline_correction=False,
+    )
+    assert raw_areas2 == pytest.approx(raw_areas)
+    assert corrected_areas2[0] == pytest.approx(raw_areas2[0] * 0.5)
+    assert corrected_areas2[1] == pytest.approx(raw_areas2[1] * 2.0)

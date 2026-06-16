@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMainWindow,
     QMenuBar,
     QMessageBox,
@@ -1903,19 +1905,28 @@ class MainWindow(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Deconvolution - {compound_name}")
         dialog.setModal(True)
-        dialog.resize(640, 300)
-        dialog.setMinimumWidth(600)
+        dialog.setMinimumWidth(640)
 
         layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        # Grow the dialog to fit its word-wrapped labels rather than clipping them.
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+
         info_label = QLabel(
             f"Choose how MANIC fits and separates overlapping chromatographic peaks "
             f"for <b>{compound_name}</b> before integration. These settings are saved "
             f"per compound."
         )
         info_label.setWordWrap(True)
+        info_label.setMinimumWidth(600)
         layout.addWidget(info_label)
 
         form_layout = QFormLayout()
+        form_layout.setHorizontalSpacing(16)
+        form_layout.setVerticalSpacing(10)
+        form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         level_combo = QComboBox()
         level_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
         level_options = [
@@ -1981,8 +1992,22 @@ class MainWindow(QMainWindow):
             "trace); a stricter gate is faster but may skip weak real peaks."
         )
         hint_label.setWordWrap(True)
+        hint_label.setMinimumWidth(600)
         hint_label.setStyleSheet("color: gray; font-style: italic;")
         layout.addWidget(hint_label)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator)
+
+        apply_all_checkbox = QCheckBox("Apply these settings to all compounds")
+        apply_all_checkbox.setToolTip(
+            "Overwrite the deconvolution settings of every compound with the "
+            "values chosen above (e.g. tick this with 'Off' to disable "
+            "deconvolution globally)."
+        )
+        layout.addWidget(apply_all_checkbox)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
@@ -1991,11 +2016,19 @@ class MainWindow(QMainWindow):
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
 
+        dialog.adjustSize()
+
         if dialog.exec() == QDialog.Accepted:
             new_level = level_combo.currentData()
             new_fit = fit_combo.currentData()
             new_gate = gate_combo.currentData()
-            if (
+            apply_to_all = apply_all_checkbox.isChecked()
+
+            if apply_to_all:
+                self._apply_deconvolution_settings_to_all(
+                    compound_name, new_level, new_fit, new_gate
+                )
+            elif (
                 new_level != current_level
                 or new_fit != current_fit
                 or new_gate != current_gate
@@ -2019,6 +2052,54 @@ class MainWindow(QMainWindow):
                     current_samples = self.toolbar.get_selected_samples()
                     if current_compound and current_samples:
                         self.on_plot_button(current_compound, current_samples)
+
+    def _apply_deconvolution_settings_to_all(
+        self, current_compound_name: str, new_level: str, new_fit: str, new_gate: str
+    ) -> None:
+        """Overwrite deconvolution settings for every compound after confirmation."""
+        with get_connection() as conn:
+            compound_count = conn.execute(
+                "SELECT COUNT(*) FROM compounds WHERE deleted = 0"
+            ).fetchone()[0]
+
+        if compound_count == 0:
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Apply to All Compounds",
+            f"This will overwrite the deconvolution settings of all "
+            f"{compound_count} compound(s) with:\n\n"
+            f"    Resolution: {new_level}\n"
+            f"    Fit type: {new_fit}\n"
+            f"    Noise gate: {new_gate}\n\n"
+            f"Existing per-compound settings will be replaced. Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE compounds SET deconvolution_level = ?, "
+                "deconvolution_fit_type = ?, deconvolution_noise_gate = ? "
+                "WHERE deleted = 0",
+                (new_level, new_fit, new_gate),
+            )
+        logger.info(
+            f"Deconvolution settings applied to all {compound_count} compounds: "
+            f"level={new_level}, fit_type={new_fit}, noise_gate={new_gate}"
+        )
+
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+        self.update_deconvolution_indicator(current_compound_name)
+        if self.cdf_data_loaded and self.compound_data_loaded:
+            current_compound = self.toolbar.get_selected_compound()
+            current_samples = self.toolbar.get_selected_samples()
+            if current_compound and current_samples:
+                self.on_plot_button(current_compound, current_samples)
 
     def show_labelled_internal_standard_dialog(self) -> None:
         """Choose which internal standard isotopologue (M+N) is the reference peak."""

@@ -19,7 +19,6 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.processors.integration import (
     _integrate_deconvolved_trace,
-    _integrate_model_component,
     calculate_peak_areas,
 )
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
@@ -549,7 +548,9 @@ class DataProvider:
                 chromatographic_peak_deconvolution_fit_type=row["deconvolution_fit_type"],
                 chromatographic_peak_deconvolution_noise_gate=row["deconvolution_noise_gate"],
             )
-            return raw_fallback, raw_fallback
+            # Return a distinct corrected list so downstream consumers can never
+            # mutate raw and corrected areas through the same object.
+            return raw_fallback, list(raw_fallback)
 
         n_time_points = len(time_data)
         num_isotopologues = label_atoms + 1
@@ -567,60 +568,15 @@ class DataProvider:
             fit_type=row["deconvolution_fit_type"],
             noise_gate=row["deconvolution_noise_gate"],
         )
-        raw_areas = self._integrate_deconvolved_raw_areas(
-            time_data,
-            deconvolved,
-            label_atoms,
-            use_legacy=use_legacy,
-            baseline_correction=baseline_correction,
-        )
-        corrected_areas = self._calculate_corrected_areas_from_deconvolved_result(
+        return self._areas_from_deconvolved(
             time_data,
             deconvolved,
             row,
             use_legacy=use_legacy,
             baseline_correction=baseline_correction,
         )
-        return raw_areas, corrected_areas
 
-    def _integrate_deconvolved_raw_areas(
-        self,
-        time_data: np.ndarray,
-        deconvolved,
-        label_atoms: int,
-        *,
-        use_legacy: bool,
-        baseline_correction: bool,
-    ) -> List[float]:
-        selected = np.asarray(deconvolved.selected, dtype=np.float64)
-        selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
-        num_isotopologues = label_atoms + 1
-
-        if deconvolved.model is not None and not use_legacy:
-            td = np.asarray(time_data, dtype=np.float64)
-            return [
-                _integrate_model_component(
-                    deconvolved.model,
-                    td[selected_mask[i, :]],
-                    selected[i, selected_mask[i, :]],
-                    channel=i,
-                    baseline_correction=baseline_correction,
-                )
-                for i in range(num_isotopologues)
-            ]
-
-        return [
-            _integrate_deconvolved_trace(
-                np.asarray(time_data, dtype=np.float64),
-                selected[i, :],
-                selected_mask[i, :],
-                use_legacy=use_legacy,
-                baseline_correction=baseline_correction,
-            )
-            for i in range(num_isotopologues)
-        ]
-
-    def _calculate_corrected_areas_from_deconvolved_result(
+    def _areas_from_deconvolved(
         self,
         time_data: np.ndarray,
         deconvolved,
@@ -628,39 +584,56 @@ class DataProvider:
         *,
         use_legacy: bool,
         baseline_correction: bool,
-    ) -> List[float]:
-        label_atoms = row["label_atoms"] or 0
+    ) -> tuple[List[float], List[float]]:
+        """Integrate raw and corrected areas from a single deconvolution result.
 
-        # In the time-based model path, evaluate the selected component densely
-        # before isotope correction so corrected export areas retain the same
-        # smooth component that raw export integrates.
+        Both outputs come from the same selected chromatographic component so they
+        differ only by the natural-abundance correction. In the time-based model
+        path the component is evaluated once on a shared dense grid and raw and
+        corrected areas go through the *identical* integration routine; this keeps
+        Raw Values and Corrected Values on the same footing (e.g. an unlabeled
+        channel integrates to the same number on both export sheets).
+        """
+        label_atoms = row["label_atoms"] or 0
+        num_isotopologues = label_atoms + 1
+
         if deconvolved.model is not None and not use_legacy:
+            model = deconvolved.model
             selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
             scans_in_window = max(1, int(np.max(np.sum(selected_mask, axis=1))))
             grid = np.linspace(
-                deconvolved.model.integration_left,
-                deconvolved.model.integration_right,
+                model.integration_left,
+                model.integration_right,
                 max(65, scans_in_window * 16),
             )
-            selected_matrix = np.asarray(
-                deconvolved.model.evaluate_selected(grid), dtype=np.float64
+            raw_dense = np.asarray(model.evaluate_selected(grid), dtype=np.float64)
+            corrected_dense = self._correct_time_series(raw_dense, row)
+            raw_areas = self._integrate_dense_matrix(
+                grid, raw_dense, label_atoms, baseline_correction
             )
-            corrected_matrix = self._correct_time_series(selected_matrix, row)
-            return calculate_peak_areas(
-                grid,
-                corrected_matrix.ravel(),
-                label_atoms,
-                None,
-                None,
-                None,
-                use_legacy=False,
-                baseline_correction=baseline_correction,
-                chromatographic_peak_deconvolution_stringency="off",
+            corrected_areas = self._integrate_dense_matrix(
+                grid, corrected_dense, label_atoms, baseline_correction
             )
+            return raw_areas, corrected_areas
 
+        # Raw-trace fallback (model is None): the selected component is the raw
+        # matrix restricted to the integration window, so raw and corrected both
+        # integrate that same masked support.
         selected_matrix = np.asarray(deconvolved.selected, dtype=np.float64)
+        selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
+        td = np.asarray(time_data, dtype=np.float64)
+        raw_areas = [
+            _integrate_deconvolved_trace(
+                td,
+                selected_matrix[i, :],
+                selected_mask[i, :],
+                use_legacy=use_legacy,
+                baseline_correction=baseline_correction,
+            )
+            for i in range(num_isotopologues)
+        ]
         corrected_matrix = self._correct_time_series(selected_matrix, row)
-        return calculate_peak_areas(
+        corrected_areas = calculate_peak_areas(
             time_data,
             corrected_matrix.ravel(),
             label_atoms,
@@ -668,6 +641,27 @@ class DataProvider:
             row["loffset"],
             row["roffset"],
             use_legacy=use_legacy,
+            baseline_correction=baseline_correction,
+            chromatographic_peak_deconvolution_stringency="off",
+        )
+        return raw_areas, corrected_areas
+
+    def _integrate_dense_matrix(
+        self,
+        grid: np.ndarray,
+        matrix: np.ndarray,
+        label_atoms: int,
+        baseline_correction: bool,
+    ) -> List[float]:
+        """Integrate every channel of a dense component matrix over ``grid``."""
+        return calculate_peak_areas(
+            np.asarray(grid, dtype=np.float64),
+            np.asarray(matrix, dtype=np.float64).ravel(),
+            label_atoms,
+            None,
+            None,
+            None,
+            use_legacy=False,
             baseline_correction=baseline_correction,
             chromatographic_peak_deconvolution_stringency="off",
         )
@@ -721,13 +715,14 @@ class DataProvider:
             fit_type=row["deconvolution_fit_type"],
             noise_gate=row["deconvolution_noise_gate"],
         )
-        return self._calculate_corrected_areas_from_deconvolved_result(
+        _, corrected_areas = self._areas_from_deconvolved(
             time_data,
             deconvolved,
             row,
             use_legacy=use_legacy,
             baseline_correction=baseline_correction,
         )
+        return corrected_areas
 
     def _compute_compound_areas(
         self, sample_name: str, compound_name: str

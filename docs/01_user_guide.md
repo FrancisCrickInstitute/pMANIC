@@ -244,7 +244,7 @@ The Excel file contains five worksheets representing successive stages of analys
 | Worksheet | Description |
 | :--- | :--- |
 | **1. Raw Values** | Direct instrument signals (uncorrected peak areas). Useful for quality control and verifying raw signal strength. |
-| **2. Corrected Values** | Peak areas after mathematical deconvolution to remove natural isotope abundance. This is the "clean" signal representing true experimental labeling. |
+| **2. Corrected Values** | Peak areas after mathematical removal of natural isotope abundance. This is the "clean" signal representing true experimental labeling. (If chromatographic deconvolution is enabled for the compound, this correction is applied to the selected deconvolved component.) |
 | **3. Isotope Ratios** | Normalized distributions where all isotopologues for a compound sum to 1.0. Used for comparing labeling patterns independent of concentration. |
 | **4. % Label Incorporation** | The percentage of the metabolite pool that has incorporated the experimental label. Includes background correction derived from standard (MM) files. |
 | **5. % Carbons Labelled** | The weighted average enrichment of the total carbon pool. Useful for distinguishing between light (M+1) and heavy (M+N) labeling patterns. |
@@ -341,6 +341,8 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
     * `Lenient` - skip only near-pure noise.
     * `Aggressive` - only fit clearly smooth peaks.
     * `Off` - always attempt a fit (the old behaviour).
+* **Apply to all compounds:** The dialog has an **"Apply these settings to all compounds"** checkbox. Tick it to copy the chosen resolution, fit type, and noise gate to *every* compound at once (after a confirmation prompt). This is the quickest way to, for example, turn deconvolution **off everywhere** (select `Off`, tick the box, confirm) or roll one configuration out across your whole method. Note that this overwrites each compound's existing per-compound settings.
+* **Affects raw, corrected, and abundance results:** When deconvolution is warranted, the *same* selected component is used for the Raw Values, the natural-abundance Corrected Values, and the Abundances. So turning deconvolution on or off for a compound changes all of its result sheets consistently (not just the raw areas).
 * **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto · Gate Balanced (compound_name)`, or `Deconvolution: Off`.
 * **Logging:** The per-compound resolution, fit type, and noise gate are recorded in the export changelog so processed results are reproducible.
 * **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)

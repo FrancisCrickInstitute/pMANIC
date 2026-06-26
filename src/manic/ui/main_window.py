@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.__version__ import APP_NAME, __version__
+from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.io.compounds_import import import_compound_excel
 from manic.io.data_exporter import DataExporter, validate_internal_standard_metadata
 from manic.io.data_provider import DataProvider
@@ -95,7 +96,7 @@ class MainWindow(QMainWindow):
         self.mass_tolerance = 0.2
 
         # Minimum peak area ratio setting (fraction of internal std reference peak)
-        self.min_peak_height_ratio = 0.05
+        self.min_peak_height_ratio = DEFAULT_MIN_PEAK_HEIGHT_RATIO
 
         # Labelled internal standard setting: which isotopologue peak (M+N) is used
         # as the internal standard "reference peak" across validation + abundance + MRRF.
@@ -1812,7 +1813,7 @@ class MainWindow(QMainWindow):
         peak_area_layout.addWidget(peak_area_spinbox)
 
         # Add explanation
-        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard reference peak area)")
+        explanation_label = QLabel("(e.g., 0.005 = 0.5% of internal standard reference peak area)")
         explanation_label.setStyleSheet("color: gray; font-style: italic;")
         peak_area_layout.addWidget(explanation_label)
 

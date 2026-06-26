@@ -19,6 +19,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import xlsxwriter
 
+from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.io.changelog_writer import generate_changelog
 from manic.io.data_provider import DataProvider
 from manic.sheet_generators import (
@@ -112,7 +113,7 @@ class DataExporter:
             use_legacy_integration=self.use_legacy_integration,
         )
         # Minimum peak area ratio for validation highlighting
-        self.min_peak_area_ratio = 0.05
+        self.min_peak_area_ratio = DEFAULT_MIN_PEAK_HEIGHT_RATIO
 
         # Which isotopologue peak (M+N) to use as the internal standard reference peak
         # across validation + abundance + MRRF. Default is 0 (M0).

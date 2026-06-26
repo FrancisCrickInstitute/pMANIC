@@ -313,8 +313,8 @@ These settings control the global behavior of the application. Changing them usu
 
 ### Minimum Peak Area
 **Settings → Minimum Peak Area...**
-* **Default:** `0.05` (5%)
-* **Function:** Sets the validation threshold. Peaks with a total area less than 5% of the Internal Standard's area are flagged with a **red background**.
+* **Default:** `0.005` (0.5%)
+* **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area are flagged with a **red background**.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
 
 ### Baseline Correction

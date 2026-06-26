@@ -19,17 +19,17 @@ $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 
 * **$\text{Area}_{metabolite}$**: The total raw area of the target peak.
 * **$\text{Area}_{IS}$**: The internal standard reference peak area (M+N, default M+0) in the current sample.
-* **$\text{Threshold}$**: The configurable percentage limit (Default: **0.05** or 5%).
+* **$\text{Threshold}$**: The configurable percentage limit (Default: **0.005** or 0.5%).
 
 ### Example
 * **Internal Standard Area:** 1,000,000
-* **Threshold:** 5% (0.05)
-* **Minimum Required Area:** 50,000
+* **Threshold:** 0.5% (0.005)
+* **Minimum Required Area:** 5,000
 
 | Metabolite Area | Result | Status |
 | :--- | :--- | :--- |
-| **80,000** | $80,000 > 50,000$ | ✅ **Valid** (White) |
-| **20,000** | $20,000 < 50,000$ | ❌ **Invalid** (Red) |
+| **8,000** | $8,000 > 5,000$ | ✅ **Valid** (White) |
+| **2,000** | $2,000 < 5,000$ | ❌ **Invalid** (Red) |
 
 ---
 
@@ -59,9 +59,9 @@ Optionally, if your internal standard is labelled, you can choose which isotopol
 
 **Settings → Labelled Internal Standard...**
 
-* **Default:** `0.05` (5%)
+* **Default:** `0.005` (0.5%)
 * **Range:** `0.0` to `1.0`
 * **Usage:**
-    * Increase this value (e.g., to `0.10`) to be stricter and flag more peaks.
-    * Decrease this value (e.g., to `0.01`) to accept weaker signals.
+    * Increase this value (e.g., to `0.05`) to be stricter and flag more peaks.
+    * Decrease this value (e.g., to `0.001`) to accept weaker signals.
     * Set to `0.0` to disable validation warnings entirely.

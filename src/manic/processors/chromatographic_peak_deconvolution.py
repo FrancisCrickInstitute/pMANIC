@@ -557,17 +557,25 @@ def _fit_shape_candidate(
         lower.extend(low)
         upper.extend(high)
 
-    def shapes_from(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def shapes_from(
+        values: np.ndarray, sort: bool = True
+    ) -> tuple[np.ndarray, np.ndarray]:
         shapes: list[np.ndarray] = []
         centers: list[float] = []
         for index in range(component_count):
             shape_params = values[index * param_count : (index + 1) * param_count]
             centers.append(float(shape_params[0]))
             shapes.append(_component_shape(x_rel, shape_model, shape_params))
-        order = np.argsort(centers)
-        sorted_centers = np.asarray(centers, dtype=np.float64)[order]
-        shape_matrix = np.asarray(shapes, dtype=np.float64)[order]
-        return sorted_centers, shape_matrix
+        center_array = np.asarray(centers, dtype=np.float64)
+        shape_matrix = np.asarray(shapes, dtype=np.float64)
+        # Component order does not affect the objective (the model is a sum over
+        # components), so the sort is skipped on the optimizer's hot path and
+        # applied only when the ordered result is needed.
+        if sort:
+            order = np.argsort(center_array)
+            center_array = center_array[order]
+            shape_matrix = shape_matrix[order]
+        return center_array, shape_matrix
 
     def solve_linear(
         shape_matrix: np.ndarray, enforce_nonneg: bool = False
@@ -586,7 +594,7 @@ def _fit_shape_candidate(
         return coef[0], coef[1:].T
 
     def residual(values: np.ndarray) -> np.ndarray:
-        _, shape_matrix = shapes_from(values)
+        _, shape_matrix = shapes_from(values, sort=False)
         intercept, weights = solve_linear(shape_matrix)
         total = intercept[:, None] + weights @ shape_matrix
         return ((total - y) / channel_scale[:, None]).ravel()

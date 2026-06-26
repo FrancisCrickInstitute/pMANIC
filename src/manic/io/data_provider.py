@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import threading
 import time
 import zlib
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -24,6 +25,69 @@ from manic.processors.integration import (
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
 
 logger = logging.getLogger(__name__)
+
+# Minimum number of integration tasks before a process pool is worth its
+# spawn/pickle startup cost; below this the bulk export stays on threads.
+_PROCESS_POOL_MIN_TASKS = 64
+
+# Per-worker-process DataProvider, created once by the pool initializer and
+# reused for every task in that process. It carries no shared mutable state
+# beyond a (per-process) natural-abundance corrector, so a fresh instance is
+# equivalent to the main one for integration purposes.
+_WORKER_PROVIDER: Optional["DataProvider"] = None
+
+
+def _init_export_worker(use_legacy: bool) -> None:
+    """ProcessPoolExecutor initializer: build this process's DataProvider once."""
+    global _WORKER_PROVIDER
+    _WORKER_PROVIDER = DataProvider(use_legacy_integration=use_legacy)
+
+
+def _run_integration(provider: "DataProvider", use_legacy: bool, task) -> tuple:
+    """Integrate one (sample, compound) task using ``provider``.
+
+    Shared by the thread path (``provider`` is the main instance) and the
+    process path (``provider`` is the per-process worker instance), so the
+    integration/deconvolution logic lives in exactly one place. ``task`` carries
+    only picklable data: the kind, the row as a plain dict, and the compressed
+    intensity blob.
+    """
+    kind, row, y_blob = task
+    time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
+    intensity_data = np.frombuffer(zlib.decompress(y_blob), dtype=np.float64)
+    baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
+    corrected_areas = None
+    if kind == "raw_and_corrected_deconvolved":
+        areas, corrected_areas = (
+            provider._calculate_raw_and_corrected_areas_from_raw_component(
+                time_data,
+                intensity_data,
+                row,
+                use_legacy=use_legacy,
+                baseline_correction=baseline_flag,
+            )
+        )
+    else:
+        areas = calculate_peak_areas(
+            time_data,
+            intensity_data,
+            row['label_atoms'] or 0,
+            row['retention_time'],
+            row['loffset'],
+            row['roffset'],
+            use_legacy=use_legacy,
+            baseline_correction=baseline_flag,
+            chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
+            chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
+            chromatographic_peak_deconvolution_noise_gate=row['deconvolution_noise_gate'],
+        )
+    return kind, row['sample_name'], row['compound_name'], areas, corrected_areas
+
+
+def _integrate_task(task) -> tuple:
+    """Module-level worker entry for ProcessPoolExecutor (must be picklable)."""
+    provider = _WORKER_PROVIDER
+    return _run_integration(provider, provider.use_legacy_integration, task)
 
 
 class DataProvider:
@@ -245,10 +309,10 @@ class DataProvider:
                         row['deconvolution_level']
                     )
                 ):
-                    tasks.append(("raw_and_corrected_deconvolved", row, row['y_axis']))
+                    tasks.append(("raw_and_corrected_deconvolved", dict(row), row['y_axis']))
                     corrected_from_raw_keys.add((sample_name, compound_name))
                 elif sample_name in raw_data:
-                    tasks.append(("raw", row, row['y_axis']))
+                    tasks.append(("raw", dict(row), row['y_axis']))
             for row in corrected_rows:
                 key = (row['sample_name'], row['compound_name'])
                 if (
@@ -256,57 +320,22 @@ class DataProvider:
                     and (row['label_atoms'] or 0) > 0
                     and key not in corrected_from_raw_keys
                 ):
-                    tasks.append(("corrected", row, row['y_axis_corrected']))
+                    tasks.append(("corrected", dict(row), row['y_axis_corrected']))
 
             task_counts = Counter(task[0] for task in tasks)
             task_time = time.perf_counter() - task_start
             total = max(1, len(tasks))
             use_legacy = self.use_legacy_integration
 
-            def _integrate(task):
-                kind, row, y_blob = task
-                time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
-                intensity_data = np.frombuffer(zlib.decompress(y_blob), dtype=np.float64)
-                baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
-                corrected_areas = None
-                if kind == "raw_and_corrected_deconvolved":
-                    areas, corrected_areas = (
-                        self._calculate_raw_and_corrected_areas_from_raw_component(
-                            time_data,
-                            intensity_data,
-                            row,
-                            use_legacy=use_legacy,
-                            baseline_correction=baseline_flag,
-                        )
-                    )
-                else:
-                    areas = calculate_peak_areas(
-                        time_data,
-                        intensity_data,
-                        row['label_atoms'] or 0,
-                        row['retention_time'],
-                        row['loffset'],
-                        row['roffset'],
-                        use_legacy=use_legacy,
-                        baseline_correction=baseline_flag,
-                        chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
-                        chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
-                        chromatographic_peak_deconvolution_noise_gate=row['deconvolution_noise_gate'],
-                    )
-                return kind, row['sample_name'], row['compound_name'], areas, corrected_areas
-
-            max_workers = min(os.cpu_count() or 1, 8)
-            processed = 0
-            integration_start = time.perf_counter()
-            fit_cache_before = get_deconvolution_fit_cache_info()
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            def consume(executor, worker) -> None:
+                processed = 0
                 for (
                     kind,
                     sample_name,
                     compound_name,
                     areas,
                     corrected_areas,
-                ) in executor.map(_integrate, tasks):
+                ) in executor.map(worker, tasks):
                     if kind == "raw":
                         raw_data[sample_name][compound_name] = areas
                     elif kind == "raw_and_corrected_deconvolved":
@@ -317,6 +346,39 @@ class DataProvider:
                     processed += 1
                     if progress_callback and processed % 25 == 0:
                         progress_callback(int(processed / total * 100))
+
+            max_workers = min(os.cpu_count() or 1, 8)
+            integration_start = time.perf_counter()
+            fit_cache_before = get_deconvolution_fit_cache_info()
+
+            # The per-window curve fit is GIL-bound (a Python residual driving
+            # scipy.least_squares), so threads barely parallelise it. For a large
+            # export we fan the fits out to worker processes for true multicore
+            # scaling; for small jobs the spawn/pickle overhead is not worth it
+            # so we stay on threads. (Worker processes do not share the in-memory
+            # fit LRU cache, but export windows are mostly distinct anyway.)
+            ran_with_processes = False
+            if len(tasks) >= _PROCESS_POOL_MIN_TASKS:
+                try:
+                    with ProcessPoolExecutor(
+                        max_workers=max_workers,
+                        initializer=_init_export_worker,
+                        initargs=(use_legacy,),
+                    ) as executor:
+                        consume(executor, _integrate_task)
+                    ran_with_processes = True
+                except Exception:
+                    # Never let a process-pool problem (spawn/pickle/broken pool)
+                    # block an export: fall back to the in-process thread path,
+                    # which recomputes everything and overwrites idempotently.
+                    logger.warning(
+                        "Process-pool export integration failed; "
+                        "falling back to threads",
+                        exc_info=True,
+                    )
+            if not ran_with_processes:
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    consume(executor, functools.partial(_run_integration, self, use_legacy))
             integration_time = time.perf_counter() - integration_start
             fit_cache_after = get_deconvolution_fit_cache_info()
 

@@ -123,6 +123,8 @@ For typical isotopologue counts and integration windows, the cost remains modest
 
 Repeated work is also avoided by caching: identical fits (same window data, level, and fit type) are computed once and reused, so opening plots, recalculating ratios, and exporting do not refit the same trace multiple times.
 
+At export, the per-window curve fit is CPU-bound Python code driving the optimizer, which the interpreter lock prevents threads from running in parallel. For a sufficiently large export MANIC therefore fans the per-sample/per-compound fits out to worker **processes** for true multicore scaling, falling back to a single thread pool for small jobs (where process startup is not worth it) and if a worker pool cannot be created. Each worker process keeps its own fit cache rather than sharing the interactive one; because distinct samples produce distinct windows, cross-sample cache reuse during export is minor, so this trade is favourable. Results are identical regardless of which path runs.
+
 ## Behaviour on Messy or Unfittable Traces
 
 Deconvolution is designed to degrade gracefully and never block integration. Two checks run **before** the expensive fit (so the fit is skipped entirely in the common cases), and a quality net runs **after** it:

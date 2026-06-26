@@ -8,6 +8,7 @@ import time
 import zlib
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from multiprocessing import get_context
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -297,6 +298,11 @@ class DataProvider:
             task_start = time.perf_counter()
             tasks: list[tuple] = []
             corrected_from_raw_keys: set[tuple[str, str]] = set()
+            # Count only the tasks that actually run a (CPU-heavy) curve fit, so
+            # the process-pool decision is based on real fitting work rather than
+            # the total task count. A large but deconvolution-off export is cheap
+            # trapezoid integration and should stay on threads.
+            deconv_task_count = 0
             for row in raw_rows:
                 sample_name = row['sample_name']
                 compound_name = row['compound_name']
@@ -311,8 +317,11 @@ class DataProvider:
                 ):
                     tasks.append(("raw_and_corrected_deconvolved", dict(row), row['y_axis']))
                     corrected_from_raw_keys.add((sample_name, compound_name))
+                    deconv_task_count += 1
                 elif sample_name in raw_data:
                     tasks.append(("raw", dict(row), row['y_axis']))
+                    if chromatographic_peak_deconvolution_enabled(row['deconvolution_level']):
+                        deconv_task_count += 1
             for row in corrected_rows:
                 key = (row['sample_name'], row['compound_name'])
                 if (
@@ -321,6 +330,8 @@ class DataProvider:
                     and key not in corrected_from_raw_keys
                 ):
                     tasks.append(("corrected", dict(row), row['y_axis_corrected']))
+                    if chromatographic_peak_deconvolution_enabled(row['deconvolution_level']):
+                        deconv_task_count += 1
 
             task_counts = Counter(task[0] for task in tasks)
             task_time = time.perf_counter() - task_start
@@ -352,16 +363,21 @@ class DataProvider:
             fit_cache_before = get_deconvolution_fit_cache_info()
 
             # The per-window curve fit is GIL-bound (a Python residual driving
-            # scipy.least_squares), so threads barely parallelise it. For a large
-            # export we fan the fits out to worker processes for true multicore
-            # scaling; for small jobs the spawn/pickle overhead is not worth it
+            # scipy.least_squares), so threads barely parallelise it. When there
+            # is enough *deconvolution* work we fan the fits out to worker
+            # processes for true multicore scaling; otherwise (few/no fits, or a
+            # deconvolution-off export) the spawn/pickle overhead is not worth it
             # so we stay on threads. (Worker processes do not share the in-memory
             # fit LRU cache, but export windows are mostly distinct anyway.)
+            #
+            # Force the "spawn" start method explicitly: it matches the frozen
+            # build and avoids the fork+threads/Qt deadlock hazard on Linux.
             ran_with_processes = False
-            if len(tasks) >= _PROCESS_POOL_MIN_TASKS:
+            if deconv_task_count >= _PROCESS_POOL_MIN_TASKS:
                 try:
                     with ProcessPoolExecutor(
                         max_workers=max_workers,
+                        mp_context=get_context("spawn"),
                         initializer=_init_export_worker,
                         initargs=(use_legacy,),
                     ) as executor:
@@ -452,11 +468,20 @@ class DataProvider:
             labeled_fallback_count,
             max_workers,
         )
-        logger.info(
-            "Deconvolution fit cache during bulk load: before=%s after=%s",
-            fit_cache_before,
-            fit_cache_after,
-        )
+        if ran_with_processes:
+            # Fits ran in worker processes, each with its own cache, so the
+            # parent's before/after counts do not reflect the work done here.
+            logger.info(
+                "Deconvolution fit cache: fits ran in worker processes "
+                "(per-worker caches); parent cache unchanged (%s)",
+                fit_cache_after,
+            )
+        else:
+            logger.info(
+                "Deconvolution fit cache during bulk load: before=%s after=%s",
+                fit_cache_before,
+                fit_cache_after,
+            )
         logger.info(f"Loaded data for {len(raw_data)} samples (corrected)")
         logger.debug(f"Raw cache compounds per sample: {[(s, len(compounds)) for s, compounds in raw_data.items()]}")
         logger.debug(f"Corrected cache compounds per sample: {[(s, len(compounds)) for s, compounds in corrected_data.items()]}")

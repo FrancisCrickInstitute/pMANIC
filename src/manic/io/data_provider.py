@@ -381,6 +381,13 @@ class DataProvider:
                     consume(executor, functools.partial(_run_integration, self, use_legacy))
             integration_time = time.perf_counter() - integration_start
             fit_cache_after = get_deconvolution_fit_cache_info()
+            logger.info(
+                "Bulk export integration used %s (workers=%d, tasks=%d) in %.2fs",
+                "processes" if ran_with_processes else "threads",
+                max_workers,
+                len(tasks),
+                integration_time,
+            )
 
             # For compounds without corrected data, fall back to their raw integrated areas
             # 

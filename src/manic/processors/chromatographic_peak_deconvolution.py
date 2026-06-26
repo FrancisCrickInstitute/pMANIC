@@ -131,27 +131,36 @@ class EICChromatographicPeakDeconvolutionResult:
     model: DeconvolutionModel | None = None
 
 
+# The ladder is recentred so the default level "4" is as *selective* (aggressive
+# at splitting overlaps) as the old level "6", while keeping a modest compute
+# budget at the low/mid levels. Selectivity is driven by the detection fields
+# (smooth_points, min_prominence_fraction, min_height_fraction, min_width_points,
+# bic_improvement, min_component_fraction); cost is driven by max_components,
+# shape_models (EMG is the expensive one) and max_nfev. Raising selectivity
+# without inflating the cost fields keeps export and interactive browsing fast
+# even though the default now resolves weaker shoulders. Levels 5-7 push beyond
+# the old top end (more components, EMG, larger optimizer budget).
 STRINGENCY_PRESETS: dict[str, ChromatographicPeakDeconvolutionParameters] = {
     "1": ChromatographicPeakDeconvolutionParameters(
-        13, 0.25, 0.12, 7.0, 2, 14.0, 0.04, ("gaussian",), 160
+        13, 0.20, 0.10, 6.0, 2, 12.0, 0.030, ("gaussian",), 160
     ),
     "2": ChromatographicPeakDeconvolutionParameters(
-        11, 0.18, 0.10, 6.0, 2, 12.0, 0.03, ("gaussian",), 180
+        9, 0.12, 0.07, 4.5, 2, 8.0, 0.020, ("gaussian", "bi_gaussian"), 200
     ),
     "3": ChromatographicPeakDeconvolutionParameters(
-        9, 0.12, 0.08, 5.0, 3, 9.0, 0.02, ("gaussian", "bi_gaussian"), 220
+        5, 0.06, 0.05, 3.0, 3, 4.0, 0.012, ("gaussian", "bi_gaussian"), 240
     ),
     "4": ChromatographicPeakDeconvolutionParameters(
-        7, 0.08, 0.05, 4.0, 3, 6.0, 0.015, ("gaussian", "bi_gaussian"), 260
+        3, 0.03, 0.03, 2.0, 3, 2.0, 0.0075, ("gaussian", "bi_gaussian"), 280
     ),
     "5": ChromatographicPeakDeconvolutionParameters(
-        5, 0.05, 0.04, 3.0, 4, 4.0, 0.01, ("gaussian", "bi_gaussian"), 320
+        3, 0.02, 0.025, 1.8, 4, 1.0, 0.006, ("gaussian", "bi_gaussian", "emg"), 340
     ),
     "6": ChromatographicPeakDeconvolutionParameters(
-        3, 0.03, 0.03, 2.0, 4, 2.0, 0.0075, ("gaussian", "bi_gaussian", "emg"), 380
+        1, 0.015, 0.02, 1.5, 4, 0.5, 0.005, ("gaussian", "bi_gaussian", "emg"), 400
     ),
     "7": ChromatographicPeakDeconvolutionParameters(
-        1, 0.02, 0.02, 1.5, 5, 0.0, 0.005, ("gaussian", "bi_gaussian", "emg"), 450
+        1, 0.01, 0.015, 1.2, 5, 0.0, 0.004, ("gaussian", "bi_gaussian", "emg"), 460
     ),
 }
 STRINGENCY_ALIASES = {"low": "2", "medium": "4", "high": "6"}

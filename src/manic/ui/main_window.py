@@ -1934,10 +1934,10 @@ class MainWindow(QMainWindow):
             ("Off - no chromatographic deconvolution", "off"),
             ("Level 1 - coarsest, fastest, obvious overlaps only", "1"),
             ("Level 2 - conservative splitting", "2"),
-            ("Level 3 - moderate-low resolution", "3"),
-            ("Level 4 - balanced resolution", "4"),
-            ("Level 5 - moderate-high resolution", "5"),
-            ("Level 6 - high resolution, includes EMG tailing model", "6"),
+            ("Level 3 - moderate resolution", "3"),
+            ("Level 4 - default, high resolution (resolves weak shoulders)", "4"),
+            ("Level 5 - higher resolution, includes EMG tailing model", "5"),
+            ("Level 6 - very high resolution", "6"),
             ("Level 7 - finest, slowest, weakest shoulders considered", "7"),
         ]
         for label, value in level_options:

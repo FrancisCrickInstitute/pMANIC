@@ -61,8 +61,8 @@ Chromatographic peak deconvolution can be turned off, or run at levels `1` throu
 ```text
 off -> raw traces are unchanged
 1   -> coarse, conservative splitting
-4   -> default medium-resolution behavior
-7   -> fine, most aggressive splitting
+4   -> default high-resolution behavior (resolves weak shoulders)
+7   -> finest, most aggressive splitting
 ```
 
 The resolution level controls a preset bundle:
@@ -76,6 +76,8 @@ The resolution level controls a preset bundle:
 - strength of BIC evidence needed to accept more complex fits
 
 Higher levels use less smoothing and allow narrower or weaker candidate components. Lower levels require stronger evidence before splitting a peak.
+
+The ladder is deliberately recentred so the default level `4` is as **selective** (aggressive at splitting overlaps) as earlier builds' level `6`, while keeping a modest compute budget. Selectivity is governed by the detection fields (smoothing, prominence, height, width, BIC evidence, minimum component fraction); processing cost is governed separately by the maximum component count, the model families considered (EMG being the most expensive), and the optimizer budget. Raising selectivity without inflating those cost fields keeps the more aggressive default fast for both export and interactive browsing. Levels `5`-`7` extend past the earlier top end, adding more candidate components, the EMG model, and a larger optimizer budget for the hardest coelutions.
 
 Legacy labels are mapped internally for compatibility:
 

@@ -329,7 +329,7 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 * **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes inside the integration window and selects the component nearest the expected retention time. This can separate overlapping peaks before area calculation.
 * **Scope:** This is a **per-compound** setting. Open the dialog with a compound selected; the chosen resolution level and fit type are saved for that compound and applied across all of its samples. (There is no longer a single global setting.)
-* **Resolution levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered (and cost more time).
+* **Resolution levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered (and cost more time). The default `Level 4` is tuned to resolve weak shoulders aggressively while staying fast; levels `5`-`7` go further for the hardest coelutions.
 * **Fit type:** Choose how the elution shape is modelled:
     * `Auto` - compares the candidate shapes and picks the best by BIC (recommended default).
     * `Gaussian` - symmetric peaks only.

@@ -79,6 +79,8 @@ Higher levels use less smoothing and allow narrower or weaker candidate componen
 
 The ladder is deliberately recentred so the default level `4` is as **selective** (aggressive at splitting overlaps) as earlier builds' level `6`, while keeping a modest compute budget. Selectivity is governed by the detection fields (smoothing, prominence, height, width, BIC evidence, minimum component fraction); processing cost is governed separately by the maximum component count, the model families considered (EMG being the most expensive), and the optimizer budget. Raising selectivity without inflating those cost fields keeps the more aggressive default fast for both export and interactive browsing. Levels `5`-`7` extend past the earlier top end, adding more candidate components, the EMG model, and a larger optimizer budget for the hardest coelutions.
 
+Levels `1`-`4` detect candidate components only at local maxima (resolved overlaps). Levels `5`-`7` additionally run **shoulder detection**: a shoulder rides on a peak's flank without forming its own local maximum, so it is invisible to maximum-based detection, but it shows up as a region of strong downward curvature (a peak in the negative second derivative). These shoulder positions become extra seed candidates, gated by the per-level `shoulder_curvature_fraction`. They are only *seeds*: the BIC component-count test and the post-fit quality net still decide whether a split is kept, and the EMG model (available at these levels) lets genuine tailing be explained as a single component rather than over-split. A genuinely unresolved shoulder is an ill-posed split, so it may still be (correctly) declined in favour of a single skewed-peak model.
+
 Legacy labels are mapped internally for compatibility:
 
 ```text

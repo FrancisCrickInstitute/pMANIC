@@ -48,6 +48,12 @@ class ChromatographicPeakDeconvolutionParameters:
     min_component_fraction: float
     shape_models: tuple[PeakShapeModel, ...]
     max_nfev: int
+    # Curvature-prominence threshold (fraction of the trace's curvature range)
+    # for detecting *shoulders* - overlapping components that ride on a flank
+    # without forming their own local maximum. 0.0 disables shoulder detection;
+    # smaller positive values are more sensitive. Only the higher levels enable
+    # it, so the conservative levels keep their summit-only behaviour.
+    shoulder_curvature_fraction: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -142,25 +148,25 @@ class EICChromatographicPeakDeconvolutionResult:
 # the old top end (more components, EMG, larger optimizer budget).
 STRINGENCY_PRESETS: dict[str, ChromatographicPeakDeconvolutionParameters] = {
     "1": ChromatographicPeakDeconvolutionParameters(
-        13, 0.20, 0.10, 6.0, 2, 12.0, 0.030, ("gaussian",), 160
+        13, 0.20, 0.10, 6.0, 2, 12.0, 0.030, ("gaussian",), 160, 0.0
     ),
     "2": ChromatographicPeakDeconvolutionParameters(
-        9, 0.12, 0.07, 4.5, 2, 8.0, 0.020, ("gaussian", "bi_gaussian"), 200
+        9, 0.12, 0.07, 4.5, 2, 8.0, 0.020, ("gaussian", "bi_gaussian"), 200, 0.0
     ),
     "3": ChromatographicPeakDeconvolutionParameters(
-        5, 0.06, 0.05, 3.0, 3, 4.0, 0.012, ("gaussian", "bi_gaussian"), 240
+        5, 0.06, 0.05, 3.0, 3, 4.0, 0.012, ("gaussian", "bi_gaussian"), 240, 0.0
     ),
     "4": ChromatographicPeakDeconvolutionParameters(
-        3, 0.03, 0.03, 2.0, 3, 2.0, 0.0075, ("gaussian", "bi_gaussian"), 280
+        3, 0.03, 0.03, 2.0, 3, 2.0, 0.0075, ("gaussian", "bi_gaussian"), 280, 0.0
     ),
     "5": ChromatographicPeakDeconvolutionParameters(
-        3, 0.02, 0.025, 1.8, 4, 1.0, 0.006, ("gaussian", "bi_gaussian", "emg"), 340
+        3, 0.02, 0.025, 1.8, 4, 1.0, 0.006, ("gaussian", "bi_gaussian", "emg"), 340, 0.30
     ),
     "6": ChromatographicPeakDeconvolutionParameters(
-        1, 0.015, 0.02, 1.5, 4, 0.5, 0.005, ("gaussian", "bi_gaussian", "emg"), 400
+        1, 0.015, 0.02, 1.5, 4, 0.5, 0.005, ("gaussian", "bi_gaussian", "emg"), 400, 0.20
     ),
     "7": ChromatographicPeakDeconvolutionParameters(
-        1, 0.01, 0.015, 1.2, 5, 0.0, 0.004, ("gaussian", "bi_gaussian", "emg"), 460
+        1, 0.01, 0.015, 1.2, 5, 0.0, 0.004, ("gaussian", "bi_gaussian", "emg"), 460, 0.12
     ),
 }
 STRINGENCY_ALIASES = {"low": "2", "medium": "4", "high": "6"}
@@ -325,13 +331,20 @@ def _deconvolve_matrix(
     # Decide whether to even attempt the (expensive) fit. We skip it - and use
     # the raw trace - when:
     #   * the window is too messy/noisy to be worth fitting (the noise gate), or
-    #   * the raw data shows no genuine overlap (fewer than two peaks). A
-    #     well-resolved single peak is integrated from the raw trace anyway, so
-    #     fitting it would only be discarded.
+    #   * the raw data shows no genuine overlap (fewer than two candidate
+    #     components). A well-resolved single peak is integrated from the raw
+    #     trace anyway, so fitting it would only be discarded.
     # Doing this *before* the fit (rather than rejecting the model afterwards) is
     # the main export speedup, since most targeted peaks are single and resolved.
+    #
+    # The candidate count uses the *same* multi-trace detection the fitter seeds
+    # from (the summed trace plus each individual isotopologue channel, including
+    # shoulder candidates), rather than the summed trace alone. This keeps the
+    # gate and the fitter consistent: a second component that is clear in one
+    # channel but washed out in the sum no longer gets blocked here only to be
+    # something the fitter could have resolved.
     if _too_messy_to_fit(summed_window, min_smoothness) or (
-        len(_detect_components(summed_window, params)) < 2
+        len(_candidate_peak_indices(window_matrix, params)) < 2
     ):
         fitted = None
     else:
@@ -661,6 +674,8 @@ def _candidate_peak_indices(
     for trace in traces:
         for component in _detect_components(trace, params):
             candidates.append((component.apex, float(trace[component.apex])))
+        for apex in _detect_shoulder_indices(trace, params):
+            candidates.append((apex, float(trace[apex])))
 
     if not candidates:
         summed = np.sum(matrix, axis=0)
@@ -1004,3 +1019,47 @@ def _detect_components(
             components.append(ComponentWindow(left=left, apex=int(peak), right=right))
 
     return components
+
+
+def _detect_shoulder_indices(
+    trace: np.ndarray, params: ChromatographicPeakDeconvolutionParameters
+) -> list[int]:
+    """Detect shoulder apices: components on a flank with no own local maximum.
+
+    A shoulder never forms a local maximum, so ``find_peaks`` misses it, but it
+    does show up as a distinct region of strong downward curvature. We therefore
+    look for prominent peaks in the *negative second derivative* of the smoothed
+    trace: a clean single peak has one curvature maximum (its apex) and yields
+    nothing extra, while a shoulder adds a second one on the flank. The second
+    derivative amplifies noise, so we smooth a little more than the detection
+    smoothing and keep only candidates sitting on a meaningful part of the peak.
+
+    Returns an empty list unless the level enables shoulder detection
+    (``shoulder_curvature_fraction > 0``). These are only *seed candidates*: the
+    BIC component-count test and the post-fit quality net still decide whether a
+    split is actually kept, and at the levels where this is enabled the EMG model
+    is available to explain genuine tailing as a single component rather than
+    being split.
+    """
+    if params.shoulder_curvature_fraction <= 0.0:
+        return []
+    y = np.maximum(np.asarray(trace, dtype=np.float64), 0.0)
+    if y.size < 5 or float(np.max(y)) <= 0:
+        return []
+    smoothed = _smooth(y, max(params.smooth_points, 5))
+    y_min = float(np.min(smoothed))
+    y_range = float(np.max(smoothed) - y_min)
+    if y_range <= 0:
+        return []
+    # Local maxima of the concavity (= -second derivative) mark the strongest
+    # downward-curving points: the apex and any shoulders.
+    concavity = -np.gradient(np.gradient(smoothed))
+    concavity_range = float(np.max(concavity) - np.min(concavity))
+    if concavity_range <= 0:
+        return []
+    peaks, _ = find_peaks(
+        concavity,
+        prominence=params.shoulder_curvature_fraction * concavity_range,
+    )
+    height_floor = y_min + params.min_height_fraction * y_range
+    return [int(index) for index in peaks if smoothed[index] >= height_floor]

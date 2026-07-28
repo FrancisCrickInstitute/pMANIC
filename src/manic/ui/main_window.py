@@ -733,6 +733,8 @@ class MainWindow(QMainWindow):
                         )
                     else:
                         self.toolbar.total_abundance._clear_chart()
+                else:
+                    self._update_targeted_qc(compound_name, samples)
         except LookupError as err:
             msg_box = self._create_message_box("warning", "Missing data", str(err))
             msg_box.exec()
@@ -788,6 +790,20 @@ class MainWindow(QMainWindow):
             abundances.append(float(sum(isotope_areas)))
 
         return np.asarray(abundances, dtype=float)
+
+    def _update_targeted_qc(
+        self, compound_name: str, sample_names: list[str]
+    ) -> None:
+        if self.analysis_mode is not AnalysisMode.UNLABELLED:
+            return
+        provider = DataProvider(
+            use_legacy_integration=self.use_legacy_integration
+        )
+        self.toolbar.targeted_qc.update_results(
+            compound_name,
+            sample_names,
+            provider,
+        )
 
     def on_compound_selected(self, compound_selected):
         """
@@ -949,6 +965,8 @@ class MainWindow(QMainWindow):
             )
 
             if self.analysis_mode is not AnalysisMode.LABELLED:
+                qc_samples = selected_samples or all_samples
+                self._update_targeted_qc(current_compound, qc_samples)
                 return
 
             # Update isotopologue ratios and total abundance (integration parameters may have changed)
@@ -1013,6 +1031,10 @@ class MainWindow(QMainWindow):
             # Update isotopologue ratios and total abundance with new integration parameters
             def update_charts():
                 if self.analysis_mode is not AnalysisMode.LABELLED:
+                    self._update_targeted_qc(
+                        compound_name,
+                        self.graph_view.get_current_samples(),
+                    )
                     return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(
@@ -1066,6 +1088,10 @@ class MainWindow(QMainWindow):
             # Update isotopologue ratios and total abundance with restored default parameters
             def update_charts():
                 if self.analysis_mode is not AnalysisMode.LABELLED:
+                    self._update_targeted_qc(
+                        compound_name,
+                        self.graph_view.get_current_samples(),
+                    )
                     return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(
@@ -1121,6 +1147,10 @@ class MainWindow(QMainWindow):
 
             def update_charts():
                 if self.analysis_mode is not AnalysisMode.LABELLED:
+                    self._update_targeted_qc(
+                        compound_name,
+                        self.graph_view.get_current_samples(),
+                    )
                     return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(

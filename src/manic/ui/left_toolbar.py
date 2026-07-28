@@ -20,6 +20,7 @@ from .isotopologue_ratio_widget import IsotopologueRatioWidget
 from .loaded_data_widget import LoadedDataWidget
 from .sample_list_widget import SampleListWidget
 from .standard_indicator_widget import StandardIndicator
+from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
 
 
@@ -234,9 +235,14 @@ class Toolbar(QWidget):
             self.total_abundance, stretch=2
         )  # Increased stretch for plots
 
+        self.targeted_qc = TargetedQcWidget()
+        content_layout.addWidget(self.targeted_qc, stretch=1)
+
         if self.analysis_mode is AnalysisMode.UNLABELLED:
             self.isotopologue_ratios.hide()
             self.total_abundance.hide()
+        else:
+            self.targeted_qc.hide()
 
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)

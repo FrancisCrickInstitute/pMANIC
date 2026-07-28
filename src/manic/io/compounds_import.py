@@ -150,6 +150,10 @@ def import_compound_excel(
             "qion": "quantion",
             "valion1": "qualifierion1",
             "valion2": "qualifierion2",
+            "valion1ratio": "qualifier1ratio",
+            "valion2ratio": "qualifier2ratio",
+            "valion1tolerance": "qualifier1tolerance",
+            "valion2tolerance": "qualifier2tolerance",
         }
     )
     

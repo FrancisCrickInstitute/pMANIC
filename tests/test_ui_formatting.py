@@ -37,6 +37,7 @@ def test_unlabelled_toolbar_hides_label_derived_summaries(qapp):
         assert toolbar.mode_indicator.text() == "Unlabelled analysis"
         assert toolbar.isotopologue_ratios.isHidden()
         assert toolbar.total_abundance.isHidden()
+        assert not toolbar.targeted_qc.isHidden()
     finally:
         toolbar.deleteLater()
 

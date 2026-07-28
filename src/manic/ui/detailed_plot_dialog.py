@@ -56,6 +56,16 @@ from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
 logger = logging.getLogger(__name__)
 
 
+def _channel_legend_label(compound, channel_index: int) -> str:
+    if (
+        compound is not None
+        and compound.is_unlabelled_target
+        and channel_index < compound.channel_count
+    ):
+        return compound.analysis_channels[channel_index].label
+    return f"M+{channel_index}"
+
+
 class DetailedPlotDialog(QDialog):
     """
     Modal dialog for detailed compound-sample visualization.
@@ -435,7 +445,7 @@ class DetailedPlotDialog(QDialog):
             # Add baseline lines if baseline correction is enabled
             self._add_baseline_lines(left_bound, right_bound)
 
-            # Show legend with isotopologue labels on the right side of the graph
+            # Show mode-appropriate channel labels on the right side.
             self.eic_plot.show_legend(loc="upper right")
 
             # Execute batch rendering for performance
@@ -578,7 +588,7 @@ class DetailedPlotDialog(QDialog):
                     row,
                     color=color,
                     width=PLOT_LINE_WIDTH,
-                    name=f"M+{i}" if multi_trace else "",
+                    name=self._channel_label(i) if multi_trace else "",
                 )
             else:
                 color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},0.38)"
@@ -631,8 +641,13 @@ class DetailedPlotDialog(QDialog):
                 trace,
                 color=color,
                 width=PLOT_LINE_WIDTH if selected else 1.0,
-                name=f"M+{i}" if selected and multi_trace else "",
+                name=self._channel_label(i) if selected and multi_trace else "",
             )
+
+    def _channel_label(self, channel_index: int) -> str:
+        """Return isotope or diagnostic-ion semantics for the legend."""
+
+        return _channel_legend_label(self.compound_info, channel_index)
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""

@@ -15,6 +15,7 @@ from manic.io.cdf_data_extractor import (
     ensure_ms_data_for_time,
 )
 from manic.io.cdf_reader import CdfFileData
+from manic.io.eic_importer import _extract_eic_optimized
 from manic.processors.eic_calculator import extract_eic
 from manic.processors.eic_correction_manager import _process_compound_batch_corrections
 from manic.processors.integration import calculate_peak_areas
@@ -142,6 +143,69 @@ def test_extract_eic_labeled_three_isotopologues():
     assert np.allclose(inten_2d[0], [10.0, 20.0, 30.0])  # M+0 @ 100.0
     assert np.allclose(inten_2d[1], [4.0, 8.0, 12.0])   # M+1 @ 101.0
     assert np.allclose(inten_2d[2], [2.0, 4.0, 6.0])    # M+2 @ 102.0
+
+
+@pytest.mark.parametrize(
+    "label_atoms,target_mzs",
+    [
+        (0, None),
+        (2, None),
+        (0, (102.0, 100.0)),
+    ],
+)
+def test_optimized_extraction_matches_canonical_path(label_atoms, target_mzs):
+    cdf = make_cdf()
+    kwargs = {
+        "compound_name": "TestCmp",
+        "t_r": 1.2,
+        "target_mz": 100.0,
+        "cdf": cdf,
+        "mass_tol": 0.2,
+        "rt_window": 0.5,
+        "label_atoms": label_atoms,
+        "target_mzs": target_mzs,
+    }
+
+    canonical = extract_eic(**kwargs)
+    optimized = _extract_eic_optimized(
+        "TestCmp",
+        1.2,
+        100.0,
+        cdf,
+        cdf.scan_time / 60.0,
+        0.2,
+        0.5,
+        label_atoms,
+        target_mzs,
+    )
+
+    assert np.array_equal(optimized.time, canonical.time)
+    assert np.array_equal(optimized.intensity, canonical.intensity)
+    assert optimized.target_mzs == canonical.target_mzs
+
+
+def test_extract_eic_sums_duplicate_points_in_the_same_mass_bin():
+    cdf = CdfFileData(
+        sample_name="S1",
+        file_path="/fake/S1.cdf",
+        scan_time=np.array([60.0]),
+        mass=np.array([99.9, 100.1]),
+        intensity=np.array([7.0, 11.0]),
+        scan_index=np.array([0]),
+        point_count=np.array([2]),
+        total_intensity=np.array([18.0]),
+    )
+
+    eic = extract_eic(
+        "Target",
+        1.0,
+        100.0,
+        cdf,
+        mass_tol=0.2,
+        rt_window=0.1,
+    )
+
+    assert eic.intensity.tolist() == [18.0]
 
 
 def test_labelled_extraction_and_integration_regression():

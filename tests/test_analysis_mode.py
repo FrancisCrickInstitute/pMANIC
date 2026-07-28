@@ -8,6 +8,7 @@ from manic.models.analysis import (
     labelled_channels,
     validate_unlabelled_channels,
 )
+from manic.ui.detailed_plot_dialog import _channel_legend_label
 
 
 def test_analysis_context_defaults_to_labelled_and_is_immutable():
@@ -71,3 +72,24 @@ def test_unlabelled_channels_order_quantifier_before_arbitrary_qualifiers():
 def test_invalid_unlabelled_channel_definitions_are_rejected(channels, message):
     with pytest.raises(ValueError, match=message):
         validate_unlabelled_channels(channels)
+
+
+def test_detailed_plot_uses_diagnostic_ion_labels_in_unlabelled_mode():
+    class Target:
+        is_unlabelled_target = True
+        analysis_channels = (
+            IonChannel(217.0, IonRole.QUANTIFIER),
+            IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
+        )
+        channel_count = len(analysis_channels)
+
+    assert _channel_legend_label(Target(), 0) == "Quantifier m/z 217"
+    assert _channel_legend_label(Target(), 1) == "Qualifier 1 m/z 147"
+
+
+def test_detailed_plot_preserves_isotopologue_labels_in_labelled_mode():
+    class Labelled:
+        is_unlabelled_target = False
+        channel_count = 3
+
+    assert _channel_legend_label(Labelled(), 2) == "M+2"

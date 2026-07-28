@@ -14,6 +14,7 @@ from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import import_compound_excel
 from manic.io.data_provider import DataProvider
 from manic.io.data_exporter import DataExporter
+from manic.io.eic_reader import read_eic
 from manic.models import database
 from manic.models import session_export
 from manic.models.analysis import AnalysisMode, IonRole
@@ -30,6 +31,46 @@ def unlabelled_db(tmp_path, monkeypatch):
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA.read_text(encoding="utf-8"))
     return db_path
+
+
+def test_existing_database_migrates_targeted_schema(tmp_path, monkeypatch):
+    db_path = tmp_path / "legacy.db"
+    monkeypatch.setattr(database, "DB_FILE", db_path)
+
+    schema_text = SCHEMA.read_text(encoding="utf-8")
+    schema_text = schema_text.replace(
+        "    rt_tolerance  REAL,  -- Optional identity-QC tolerance for targeted analysis (minutes)\n",
+        "",
+    )
+    ions_start = schema_text.index("-- Explicit diagnostic ions")
+    samples_start = schema_text.index("-- Samples", ions_start)
+    legacy_schema = schema_text[:ions_start] + schema_text[samples_start:]
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(legacy_schema)
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0) "
+            "VALUES ('Existing', 1.2, 100)"
+        )
+
+    database.init_db()
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(compounds)")
+        }
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        existing = conn.execute(
+            "SELECT compound_name FROM compounds WHERE compound_name = 'Existing'"
+        ).fetchone()
+
+    assert "rt_tolerance" in columns
+    assert "compound_ions" in tables
+    assert existing == ("Existing",)
 
 
 def test_unlabelled_compound_import_stores_arbitrary_ion_channels(
@@ -146,6 +187,14 @@ def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
         )
 
     provider = DataProvider()
+    round_trip = read_eic(
+        "S1",
+        read_compound("Target"),
+        use_corrected=False,
+    )
+    assert round_trip.intensity.shape == (3, 3)
+    assert np.array_equal(round_trip.intensity, matrix)
+
     assert provider.get_compound_areas("S1", "Target") == pytest.approx(
         [10.0, 4.0, 2.0]
     )

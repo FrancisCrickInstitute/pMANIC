@@ -231,88 +231,18 @@ def _extract_eic_optimized(
     Raises:
         ValueError: If no scans found within specified RT window
     """
-    from manic.processors.eic_calculator import EIC
+    from manic.processors.eic_calculator import _extract_eic_with_times
 
-    # Ensure label_atoms is properly typed (handles None/string inputs)
-    label_atoms = int(label_atoms) if label_atoms else 0
-
-    # OPTIMIZATION: Use pre-computed time array instead of recalculating
-    # Original: times = cdf.scan_time / 60.0 (computed for each compound)
-    # Current:  times passed as parameter (computed once per file)
-    time_mask = (times >= t_r - rt_window) & (times <= t_r + rt_window)
-    idx = np.where(time_mask)[0]
-
-    # Validate that compound is detectable within specified parameters
-    if idx.size == 0:
-        raise ValueError("no scans inside RT window")
-
-    # Calculate scan boundaries using vectorized array operations
-    # This maps scan indices to mass spectra start/end positions in CDF arrays
-    starts = cdf.scan_index[idx]
-    if idx[-1] + 1 < len(cdf.scan_index):
-        ends = cdf.scan_index[idx + 1]
-    else:
-        # Handle edge case: last scan in file
-        ends = np.append(cdf.scan_index[idx[1:]], len(cdf.mass))
-
-    start_end_array = np.array([starts, ends]).T
-
-    # VECTORIZED MASS SPECTRA EXTRACTION
-    # Concatenate all relevant mass and intensity data from selected scans
-    # This creates flattened arrays while maintaining scan association via indices
-    all_relevant_mass = np.concatenate([cdf.mass[s:e] for s, e in start_end_array])
-    all_relevant_intensity = np.concatenate(
-        [cdf.intensity[s:e] for s, e in start_end_array]
-    )
-
-    # Create scan index mapping for efficient groupby operations
-    # Associates each mass/intensity point with its originating scan
-    scan_indices = np.concatenate(
-        [np.full(e - s, i, dtype=int) for i, (s, e) in enumerate(start_end_array)]
-    )
-
-    # Initialize channel intensity matrix
-    num_scans = len(idx)
-    if target_mzs is None:
-        target_mzs_array = target_mz + np.arange(label_atoms + 1, dtype=np.float64)
-    else:
-        target_mzs_array = np.asarray(tuple(target_mzs), dtype=np.float64)
-        if target_mzs_array.ndim != 1 or target_mzs_array.size == 0:
-            raise ValueError("target_mzs must contain at least one m/z value")
-    num_channels = int(target_mzs_array.size)
-    intensities_arr = np.zeros((num_channels, num_scans), dtype=np.float64)
-
-    channel_indices = np.arange(num_channels)
-
-    # Precompute MATLAB-aligned half-up rounding of (mass - offset)
-    offset_masses = all_relevant_mass - mass_tol
-    rounded_masses = np.floor(offset_masses + 0.5).astype(int)
-    target_mzs_int = np.floor(target_mzs_array + 0.5).astype(
-        int
-    )  # Use half-up rounding (MATLAB compatible)
-
-    for channel_index in channel_indices:
-        target_int = target_mzs_int[channel_index]
-        # MANIC's asymmetric mass tolerance method: offset + half-up rounding
-        mask = rounded_masses == target_int
-
-        # Sum intensities per scan using vectorized bincount operation
-        # This efficiently groups intensities by scan index and sums them
-        intensities_arr[channel_index] = np.bincount(
-            scan_indices[mask], all_relevant_intensity[mask], minlength=num_scans
-        )
-
-    # Flatten intensity array for database storage (maintains isotopologue ordering)
-    concat_intensities_array = intensities_arr.ravel()
-
-    # Return structured EIC object with identical format to original implementation
-    return EIC(
+    return _extract_eic_with_times(
         compound_name,
-        cdf.sample_name,
-        times[time_mask],  # Time points for selected scans
-        concat_intensities_array,  # Flattened intensity matrix
+        t_r,
+        target_mz,
+        cdf,
+        times,
+        mass_tol,
+        rt_window,
         label_atoms,
-        tuple(float(mz) for mz in target_mzs_array),
+        target_mzs,
     )
 
 

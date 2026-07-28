@@ -76,6 +76,7 @@ def _run_integration(provider: "DataProvider", use_legacy: bool, task) -> tuple:
             row['retention_time'],
             row['loffset'],
             row['roffset'],
+            channel_count=row.get('channel_count'),
             use_legacy=use_legacy,
             baseline_correction=baseline_flag,
             chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
@@ -131,9 +132,11 @@ class DataProvider:
     def get_all_compounds(self) -> List[dict]:
         with get_connection() as conn:
             sql = (
-                "SELECT compound_name, label_atoms, mass0, retention_time, loffset, roffset, "
+                "SELECT c.compound_name, c.label_atoms, c.mass0, c.retention_time, c.loffset, c.roffset, "
                 "amount_in_std_mix, int_std_amount, mm_files, formula, baseline_correction "
-                "FROM compounds WHERE deleted=0 ORDER BY id"
+                ", COALESCE((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), c.label_atoms + 1) AS channel_count "
+                "FROM compounds c WHERE c.deleted=0 ORDER BY c.id"
             )
             return list(conn.execute(sql))
 
@@ -241,6 +244,9 @@ class DataProvider:
             raw_eic_query = """
                 SELECT e.sample_name, e.compound_name, e.x_axis, e.y_axis,
                        c.label_atoms,
+                       COALESCE((SELECT COUNT(*) FROM compound_ions ci
+                                 WHERE ci.compound_name = c.compound_name),
+                                c.label_atoms + 1) AS channel_count,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
                        COALESCE(sa.roffset, c.roffset) as roffset,
@@ -266,6 +272,7 @@ class DataProvider:
             corrected_eic_query = """
                 SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected,
                        c.label_atoms,
+                       c.label_atoms + 1 AS channel_count,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
                        COALESCE(sa.roffset, c.roffset) as roffset,
@@ -500,7 +507,9 @@ class DataProvider:
                 "SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, "
                 "c.loffset, c.roffset, c.baseline_correction, "
                 "c.deconvolution_level, c.deconvolution_fit_type, "
-                "c.deconvolution_noise_gate "
+                "c.deconvolution_noise_gate, "
+                "COALESCE((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), c.label_atoms + 1) AS channel_count "
                 "FROM eic e JOIN compounds c ON e.compound_name = c.compound_name "
                 "WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0 "
                 "ORDER BY e.compound_name"
@@ -521,6 +530,7 @@ class DataProvider:
                     retention_time,
                     loffset,
                     roffset,
+                    channel_count=row["channel_count"],
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
                     chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
@@ -554,7 +564,14 @@ class DataProvider:
         """
         sample_data = self.get_sample_corrected_data(sample_name)
         areas = sample_data.get(compound_name, [])
-        return float(sum(areas)) if areas else 0.0
+        if not areas:
+            return 0.0
+        with get_connection() as conn:
+            has_diagnostic_ions = conn.execute(
+                "SELECT 1 FROM compound_ions WHERE compound_name = ? LIMIT 1",
+                (compound_name,),
+            ).fetchone()
+        return float(areas[0] if has_diagnostic_ions else sum(areas))
 
     def get_compound_isotope_area(
         self, sample_name: str, compound_name: str, isotope_index: int
@@ -598,6 +615,38 @@ class DataProvider:
         areas = self._compute_compound_areas(sample_name, compound_name)
         self._targeted_area_cache[cache_key] = areas
         return areas
+
+    def assess_unlabelled_identity(self, sample_name: str, compound_name: str):
+        """Return RT and qualifier-ratio QC for one targeted compound."""
+
+        from manic.io.compound_reader import read_compound_with_session
+        from manic.io.eic_reader import read_eic
+        from manic.validation.unlabelled_identity import (
+            assess_identity,
+            quantifier_apex_time,
+        )
+
+        compound = read_compound_with_session(compound_name, sample_name)
+        if not compound.is_unlabelled_target:
+            raise ValueError(
+                f"{compound_name!r} does not have quantifier/qualifier channels"
+            )
+        eic = read_eic(sample_name, compound, use_corrected=False)
+        observed_rt = quantifier_apex_time(
+            eic.time,
+            eic.intensity,
+            compound.channel_count,
+            expected_rt=compound.retention_time,
+            loffset=compound.loffset,
+            roffset=compound.roffset,
+        )
+        return assess_identity(
+            self.get_compound_areas(sample_name, compound_name),
+            compound.analysis_channels,
+            expected_rt=compound.retention_time,
+            observed_rt=observed_rt,
+            rt_tolerance=compound.rt_tolerance,
+        )
 
     def _get_corrector(self) -> NaturalAbundanceCorrector:
         corrector = getattr(self._corrector_local, "corrector", None)
@@ -824,6 +873,8 @@ class DataProvider:
         with get_connection() as conn:
             meta = conn.execute(
                 "SELECT c.label_atoms, "
+                "COALESCE((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), c.label_atoms + 1) AS channel_count, "
                 "COALESCE(sa.retention_time, c.retention_time) as retention_time, "
                 "COALESCE(sa.loffset, c.loffset) as loffset, "
                 "COALESCE(sa.roffset, c.roffset) as roffset, "
@@ -893,6 +944,7 @@ class DataProvider:
                 meta["retention_time"],
                 meta["loffset"],
                 meta["roffset"],
+                channel_count=meta["channel_count"],
                 use_legacy=self.use_legacy_integration,
                 baseline_correction=baseline_flag,
                 chromatographic_peak_deconvolution_stringency=meta["deconvolution_level"],

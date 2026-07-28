@@ -205,6 +205,7 @@ def calculate_peak_areas(
     loffset: Optional[float] = None,
     roffset: Optional[float] = None,
     *,
+    channel_count: Optional[int] = None,
     use_legacy: bool = False,
     baseline_correction: bool = False,
     chromatographic_peak_deconvolution_stringency: str = "off",
@@ -219,7 +220,9 @@ def calculate_peak_areas(
     Args:
         time_data: Array of time points
         intensity_data: Array of intensity values (1D for unlabeled, flattened for labeled)
-        label_atoms: Number of labeled atoms (0 for unlabeled compounds)
+        label_atoms: Number of labeled atoms (retained for labelled compatibility)
+        channel_count: Explicit analytical channel count. Use this for arbitrary
+            quantifier/qualifier channels in unlabelled targeted analysis.
         retention_time: Center of integration window
         loffset: Left offset from retention time
         roffset: Right offset from retention time
@@ -275,10 +278,14 @@ def calculate_peak_areas(
                 return np.array([]), np.array([])
         return td, idata
 
-    num_isotopologues = (label_atoms or 0) + 1
+    num_channels = (
+        max(1, int(channel_count))
+        if channel_count is not None
+        else (label_atoms or 0) + 1
+    )
 
-    # Unlabeled compound - single trace
-    if (label_atoms or 0) == 0:
+    # Single analytical trace
+    if num_channels == 1:
         if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
             deconvolved = deconvolve_eic(
                 time_data,
@@ -332,11 +339,10 @@ def calculate_peak_areas(
 
         return [float(total_area)]
 
-    # Labeled compound - multiple isotopologue traces
+    # Multiple analytical channels (isotopologues or quantifier/qualifiers)
     num_time_points = len(time_data)
     try:
-        # Reshape intensity data for isotopologues FIRST
-        intensity_reshaped = intensity_data.reshape(num_isotopologues, num_time_points)
+        intensity_reshaped = intensity_data.reshape(num_channels, num_time_points)
 
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
@@ -363,7 +369,7 @@ def calculate_peak_areas(
                         channel=i,
                         baseline_correction=baseline_correction,
                     )
-                    for i in range(num_isotopologues)
+                    for i in range(num_channels)
                 ]
             return [
                 _integrate_deconvolved_trace(
@@ -373,7 +379,7 @@ def calculate_peak_areas(
                     use_legacy=use_legacy,
                     baseline_correction=baseline_correction,
                 )
-                for i in range(num_isotopologues)
+                for i in range(num_channels)
             ]
 
         # Apply integration boundaries only after deciding deconvolution is off.
@@ -381,7 +387,7 @@ def calculate_peak_areas(
             time_data, intensity_reshaped
         )
         if len(td) == 0:
-            return [0.0] * num_isotopologues
+            return [0.0] * num_channels
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
         if use_legacy:
@@ -405,10 +411,10 @@ def calculate_peak_areas(
         # If reshaping fails, log the issue and return zeros
         logger.warning(
             "Failed to reshape intensity data for isotopologue integration. "
-            f"Expected shape: ({num_isotopologues}, {num_time_points}), "
+            f"Expected shape: ({num_channels}, {num_time_points}), "
             f"Got total elements: {len(intensity_data)}. Error: {e}"
         )
-        return [0.0] * num_isotopologues
+        return [0.0] * num_channels
 
 
 def _integrate_model_component(

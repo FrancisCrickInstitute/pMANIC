@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS compounds (
     roffset       REAL DEFAULT 0,
     mass0         REAL,
     label_atoms   INTEGER DEFAULT 0,
+    rt_tolerance  REAL,  -- Optional identity-QC tolerance for targeted analysis (minutes)
     formula       TEXT,  -- Molecular formula for natural abundance correction
     label_type    TEXT DEFAULT 'C',  -- Element being labeled (C, N, etc.)
     tbdms         INTEGER DEFAULT 0,  -- Number of TBDMS derivatizations

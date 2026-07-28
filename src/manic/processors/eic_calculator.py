@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Sequence
 
 import numpy as np
 
@@ -12,6 +13,7 @@ class EIC:
     time: np.ndarray  # minutes
     intensity: np.ndarray
     label_atoms: int
+    target_mzs: tuple[float, ...] = ()
 
 
 def extract_eic(
@@ -22,6 +24,7 @@ def extract_eic(
     mass_tol: float = 0.20,
     rt_window: float = 0.2,
     label_atoms: int = 0,
+    target_mzs: Sequence[float] | None = None,
 ) -> EIC:
     """Return an EIC for `compound_name` or raise ValueError if empty."""
 
@@ -77,34 +80,34 @@ def extract_eic(
     # Total number of scans being used in EIC
     num_scans = len(idx)
 
-    # num labels
-    num_labels = label_atoms + 1
+    if target_mzs is None:
+        target_mzs_array = target_mz + np.arange(label_atoms + 1, dtype=np.float64)
+    else:
+        target_mzs_array = np.asarray(tuple(target_mzs), dtype=np.float64)
+        if target_mzs_array.ndim != 1 or target_mzs_array.size == 0:
+            raise ValueError("target_mzs must contain at least one m/z value")
 
-    # empty 2D array for intensities for each label ion
-    intensities_arr = np.zeros((num_labels, num_scans), dtype=np.float64)
+    num_channels = int(target_mzs_array.size)
+    intensities_arr = np.zeros((num_channels, num_scans), dtype=np.float64)
 
-    # array containg numer of label ions
-    label_ions = np.arange(num_labels)
-
-    # array of target mzs
-    target_mzs = target_mz + label_ions  # (e.g. 174, 175, 176, 177 for Pyruvate)
+    channel_indices = np.arange(num_channels)
 
     # MATLAB-style asymmetric matching via offset-and-round
     # Compute integer targets for each label state using half-up rounding (MATLAB compatible)
-    target_mzs_int = np.floor(target_mzs + 0.5).astype(int)
+    target_mzs_int = np.floor(target_mzs_array + 0.5).astype(int)
 
     # Precompute rounded masses: round(mass - offset) with half-up behavior
     # Use floor(x + 0.5) since masses are positive
     rounded_masses = np.floor((all_relevent_mass - mass_tol) + 0.5).astype(int)
 
-    for label in label_ions:
-        target_int = target_mzs_int[label]
+    for channel_index in channel_indices:
+        target_int = target_mzs_int[channel_index]
         # Vectorized mask across ALL data points (no loop over scans)
         mask = (rounded_masses == target_int)
 
         # Sum intensities per scan (for all falling in mass range) using bincount (vectorized grouping/summation)
         # minlength ensures all scans are covered (even if sum is 0)
-        intensities_arr[label] = np.bincount(
+        intensities_arr[channel_index] = np.bincount(
             scan_indices[mask], all_relevant_intensity[mask], minlength=num_scans
         )
 
@@ -118,4 +121,5 @@ def extract_eic(
         times[time_mask],
         concat_intensities_array,
         label_atoms,
+        tuple(float(mz) for mz in target_mzs_array),
     )

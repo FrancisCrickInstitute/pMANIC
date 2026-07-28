@@ -20,6 +20,7 @@ class Compound:
     roffset: float
     label_atoms: int
     mass0: float
+    rt_tolerance: Optional[float] = None
     formula: Optional[str] = None
     label_type: str = 'C'
     tbdms: int = 0
@@ -60,7 +61,7 @@ def read_compound(compound_name: str) -> Compound:
         LookupError: If compound not found
     """
     sql = """
-        SELECT compound_name, retention_time, loffset, roffset, label_atoms, mass0,
+        SELECT compound_name, retention_time, loffset, roffset, label_atoms, mass0, rt_tolerance,
                formula, label_type, tbdms, meox, me, baseline_correction,
                deconvolution_level, deconvolution_fit_type, deconvolution_noise_gate
         FROM   compounds
@@ -101,6 +102,7 @@ def read_compound(compound_name: str) -> Compound:
         roffset=row["roffset"],
         label_atoms=int(row["label_atoms"]) if row["label_atoms"] else 0,
         mass0=row["mass0"],
+        rt_tolerance=row["rt_tolerance"],
         formula=row["formula"],
         label_type=row["label_type"] or 'C',
         tbdms=int(row["tbdms"]) if row["tbdms"] else 0,
@@ -166,6 +168,7 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
             roffset=session_row["roffset"],  # Override with session data  
             label_atoms=base_compound.label_atoms,  # Always from base compound
             mass0=base_compound.mass0,  # Always from base compound
+            rt_tolerance=base_compound.rt_tolerance,
             formula=base_compound.formula,  # Always from base compound
             label_type=base_compound.label_type,  # Always from base compound
             tbdms=base_compound.tbdms,  # Always from base compound

@@ -176,6 +176,58 @@ def test_labelled_extraction_and_integration_regression():
     )
 
 
+def test_unlabelled_extraction_supports_arbitrary_diagnostic_masses():
+    scan_time = np.array([60.0, 70.0, 80.0])
+    mass = np.array(
+        [
+            73.0, 147.0, 217.0,
+            73.0, 147.0, 217.0,
+            73.0, 147.0, 217.0,
+        ]
+    )
+    intensity = np.array(
+        [
+            2.0, 4.0, 10.0,
+            4.0, 8.0, 20.0,
+            6.0, 12.0, 30.0,
+        ]
+    )
+    cdf = CdfFileData(
+        sample_name="S1",
+        file_path="/fake/S1.cdf",
+        scan_time=scan_time,
+        mass=mass,
+        intensity=intensity,
+        scan_index=np.array([0, 3, 6]),
+        point_count=np.array([3, 3, 3]),
+        total_intensity=np.array([16.0, 32.0, 48.0]),
+    )
+
+    eic = extract_eic(
+        compound_name="Target",
+        t_r=1.2,
+        target_mz=217.0,
+        cdf=cdf,
+        mass_tol=0.2,
+        rt_window=0.5,
+        label_atoms=0,
+        target_mzs=[217.0, 147.0, 73.0],
+    )
+
+    matrix = eic.intensity.reshape(3, -1)
+    assert np.allclose(matrix[0], [10.0, 20.0, 30.0])
+    assert np.allclose(matrix[1], [4.0, 8.0, 12.0])
+    assert np.allclose(matrix[2], [2.0, 4.0, 6.0])
+
+    areas = calculate_peak_areas(
+        eic.time,
+        eic.intensity,
+        label_atoms=0,
+        channel_count=3,
+    )
+    assert areas == pytest.approx([6.6666667, 2.6666667, 1.3333333])
+
+
 # ============================================================================
 # EIC PROCESSING TESTS
 # ============================================================================

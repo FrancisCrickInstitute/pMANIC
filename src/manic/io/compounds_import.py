@@ -333,6 +333,7 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
 
     compounds: list[tuple] = []
     ions_by_compound: list[tuple[str, tuple[IonChannel, ...]]] = []
+    rt_tolerances: list[tuple[float, str]] = []
     validation_errors: list[str] = []
 
     for idx, row in df.iterrows():
@@ -372,6 +373,13 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
             channels = validate_unlabelled_channels(channel_values)
             amount_in_std_mix = _optional_float(row, "amountinstdmix")
             int_std_amount = _optional_float(row, "intstdamount")
+            loffset = float(row["loffset"])
+            roffset = float(row["roffset"])
+            rt_tolerance = _optional_float(row, "trwindow")
+            if rt_tolerance is None:
+                rt_tolerance = max(loffset, roffset)
+            if rt_tolerance < 0:
+                raise ValueError("tR window cannot be negative")
             mm_files = (
                 str(row["mmfiles"]).strip()
                 if "mmfiles" in row and pd.notna(row["mmfiles"])
@@ -383,8 +391,8 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
                     name,
                     retention_time,
                     float(quantifier.mz),
-                    float(row["loffset"]),
-                    float(row["roffset"]),
+                    loffset,
+                    roffset,
                     0,
                     None,
                     "C",
@@ -398,6 +406,7 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
                 )
             )
             ions_by_compound.append((name, channels))
+            rt_tolerances.append((rt_tolerance, name))
         except (TypeError, ValueError) as exc:
             validation_errors.append(f"row {spreadsheet_row}: {exc}")
 
@@ -424,6 +433,10 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
 
     with get_connection() as conn:
         conn.executemany(compound_sql, compounds)
+        conn.executemany(
+            "UPDATE compounds SET rt_tolerance = ? WHERE compound_name = ?",
+            rt_tolerances,
+        )
         for compound_name, channels in ions_by_compound:
             conn.execute(
                 "DELETE FROM compound_ions WHERE compound_name = ?",

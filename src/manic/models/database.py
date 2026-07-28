@@ -130,6 +130,11 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                 conn.execute("ALTER TABLE compounds ADD COLUMN formula TEXT")
                 conn.commit()
 
+            if "rt_tolerance" not in columns:
+                logger.info("Adding rt_tolerance column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN rt_tolerance REAL")
+                conn.commit()
+
             # Add label_type column if missing
             if "label_type" not in columns:
                 logger.info("Adding label_type column to compounds table")

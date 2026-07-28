@@ -8,7 +8,7 @@ from manic.models.analysis import (
     labelled_channels,
     validate_unlabelled_channels,
 )
-from manic.ui.detailed_plot_dialog import _channel_legend_label
+from manic.ui.channel_labels import channel_legend_label
 
 
 def test_analysis_context_defaults_to_labelled_and_is_immutable():
@@ -67,6 +67,13 @@ def test_unlabelled_channels_order_quantifier_before_arbitrary_qualifiers():
             ],
             "must be distinct",
         ),
+        (
+            [
+                IonChannel(217.1, IonRole.QUANTIFIER),
+                IonChannel(217.4, IonRole.QUALIFIER, ordinal=1),
+            ],
+            "distinct nominal masses",
+        ),
     ],
 )
 def test_invalid_unlabelled_channel_definitions_are_rejected(channels, message):
@@ -83,8 +90,8 @@ def test_detailed_plot_uses_diagnostic_ion_labels_in_unlabelled_mode():
         )
         channel_count = len(analysis_channels)
 
-    assert _channel_legend_label(Target(), 0) == "Quantifier m/z 217"
-    assert _channel_legend_label(Target(), 1) == "Qualifier 1 m/z 147"
+    assert channel_legend_label(Target(), 0) == "Quantifier m/z 217"
+    assert channel_legend_label(Target(), 1) == "Qualifier 1 m/z 147"
 
 
 def test_detailed_plot_preserves_isotopologue_labels_in_labelled_mode():
@@ -92,4 +99,4 @@ def test_detailed_plot_preserves_isotopologue_labels_in_labelled_mode():
         is_unlabelled_target = False
         channel_count = 3
 
-    assert _channel_legend_label(Labelled(), 2) == "M+2"
+    assert channel_legend_label(Labelled(), 2) == "M+2"

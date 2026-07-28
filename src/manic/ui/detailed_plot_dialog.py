@@ -51,19 +51,10 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
+from manic.ui.channel_labels import channel_legend_label
 from manic.ui.colors import label_colors  # Import the same colors as main window
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
 logger = logging.getLogger(__name__)
-
-
-def _channel_legend_label(compound, channel_index: int) -> str:
-    if (
-        compound is not None
-        and compound.is_unlabelled_target
-        and channel_index < compound.channel_count
-    ):
-        return compound.analysis_channels[channel_index].label
-    return f"M+{channel_index}"
 
 
 class DetailedPlotDialog(QDialog):
@@ -646,8 +637,7 @@ class DetailedPlotDialog(QDialog):
 
     def _channel_label(self, channel_index: int) -> str:
         """Return isotope or diagnostic-ion semantics for the legend."""
-
-        return _channel_legend_label(self.compound_info, channel_index)
+        return channel_legend_label(self.compound_info, channel_index)
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""
@@ -770,7 +760,17 @@ class DetailedPlotDialog(QDialog):
         if self.compound_info:
             rt = self.compound_info.retention_time
             info_parts.append(f"Retention Time: {rt:.3f} min")
-            info_parts.append(f"m/z: {self.compound_info.mass0:.4f}")
+            if self.compound_info.is_unlabelled_target:
+                ions = ", ".join(
+                    channel.label for channel in self.compound_info.analysis_channels
+                )
+                info_parts.append(ions)
+            else:
+                info_parts.append(f"m/z: {self.compound_info.mass0:.4f}")
+                if self.compound_info.label_atoms:
+                    info_parts.append(
+                        f"Isotopologues: M+0…M+{self.compound_info.label_atoms}"
+                    )
 
         if self.eic_data:
             info_parts.append(f"EIC Points: {len(self.eic_data.time)}")

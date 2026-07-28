@@ -31,6 +31,7 @@ from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
 # Import shared colors
+from .channel_labels import channel_legend_label
 from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
 
 logger = logging.getLogger(__name__)
@@ -1376,6 +1377,7 @@ class GraphView(QWidget):
                 scale_factor,
                 selected=False,
                 raw_context=False,
+                compound=compound,
             )
             return
 
@@ -1389,6 +1391,7 @@ class GraphView(QWidget):
             scale_factor,
             selected=False,
             raw_context=True,
+            compound=compound,
         )
         self._add_model_component_series(
             chart,
@@ -1426,6 +1429,7 @@ class GraphView(QWidget):
         selected: bool,
         raw_context: bool,
         selected_mask: np.ndarray | None = None,
+        compound=None,
     ):
         matrix = eic_intensity if eic_intensity.ndim > 1 else eic_intensity.reshape(1, -1)
         mask_matrix = None
@@ -1460,8 +1464,8 @@ class GraphView(QWidget):
                     np.ascontiguousarray(ys, dtype=np.float64),
                 )
             series.setPen(pen)
-            if not raw_context:
-                series.setName(f"Label {i}" if multi_trace else "")
+            if not raw_context and multi_trace:
+                series.setName(channel_legend_label(compound, i))
             chart.addSeries(series)
             series.attachAxis(x_axis)
             series.attachAxis(y_axis)

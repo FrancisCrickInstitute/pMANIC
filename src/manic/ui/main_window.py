@@ -41,6 +41,7 @@ from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound_with_session
+from manic.models.analysis import AnalysisContext
 from manic.processors.chromatographic_peak_deconvolution import (
     normalize_fit_type,
     normalize_noise_gate,
@@ -66,9 +67,13 @@ logger = logging.getLogger("manic_logger")
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, analysis_context: AnalysisContext | None = None):
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} v{__version__}")
+        self.analysis_context = analysis_context or AnalysisContext()
+        self.analysis_mode = self.analysis_context.mode
+        self.setWindowTitle(
+            f"{APP_NAME} v{__version__} — {self.analysis_mode.display_name} analysis"
+        )
         self.setObjectName("mainWindow")
 
         # Flag to prevent cascading compound deletion events
@@ -533,7 +538,10 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            self.compounds_data_storage = import_compound_excel(file_path)
+            self.compounds_data_storage = import_compound_excel(
+                file_path,
+                analysis_mode=self.analysis_mode,
+            )
             self.toolbar.update_label_colours(False, True)
             self.toolbar.update_compound_list(list_compound_names())
 

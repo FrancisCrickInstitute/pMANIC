@@ -25,6 +25,25 @@ CREATE TABLE IF NOT EXISTS compounds (
 CREATE INDEX IF NOT EXISTS idx_compounds_name
           ON compounds(compound_name);
 
+-- Explicit diagnostic ions for unlabelled targeted analysis. Labelled
+-- compounds continue to derive M+0...M+n from mass0 and label_atoms.
+CREATE TABLE IF NOT EXISTS compound_ions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    compound_name  TEXT NOT NULL,
+    role           TEXT NOT NULL CHECK (role IN ('quantifier', 'qualifier')),
+    ordinal        INTEGER NOT NULL DEFAULT 0,
+    mz             REAL NOT NULL CHECK (mz > 0),
+    expected_ratio REAL,
+    ratio_tolerance REAL,
+    FOREIGN KEY (compound_name) REFERENCES compounds(compound_name)
+        ON DELETE CASCADE,
+    UNIQUE(compound_name, role, ordinal),
+    UNIQUE(compound_name, mz)
+);
+
+CREATE INDEX IF NOT EXISTS idx_compound_ions_compound
+          ON compound_ions(compound_name, role, ordinal);
+
 -- Samples ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS samples (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

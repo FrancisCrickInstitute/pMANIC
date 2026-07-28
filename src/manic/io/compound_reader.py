@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from manic.models.analysis import (
+    IonChannel,
+    IonRole,
+    labelled_channels,
+    validate_unlabelled_channels,
+)
 from manic.models.database import get_connection
 
 
@@ -23,6 +29,21 @@ class Compound:
     deconvolution_level: str = "4"
     deconvolution_fit_type: str = "auto"
     deconvolution_noise_gate: str = "balanced"
+    channels: tuple[IonChannel, ...] = ()
+
+    @property
+    def analysis_channels(self) -> tuple[IonChannel, ...]:
+        if self.channels:
+            return self.channels
+        return labelled_channels(self.mass0, self.label_atoms)
+
+    @property
+    def channel_count(self) -> int:
+        return len(self.analysis_channels)
+
+    @property
+    def is_unlabelled_target(self) -> bool:
+        return bool(self.channels)
 
 
 def read_compound(compound_name: str) -> Compound:
@@ -50,6 +71,28 @@ def read_compound(compound_name: str) -> Compound:
         row = conn.execute(sql, (compound_name,)).fetchone()
         if row is None:
             raise LookupError(f"Compound not found for {compound_name}")
+        ion_rows = conn.execute(
+            """
+            SELECT role, ordinal, mz, expected_ratio, ratio_tolerance
+            FROM compound_ions
+            WHERE compound_name = ?
+            ORDER BY CASE role WHEN 'quantifier' THEN 0 ELSE 1 END, ordinal
+            """,
+            (compound_name,),
+        ).fetchall()
+
+    channels: tuple[IonChannel, ...] = ()
+    if ion_rows:
+        channels = validate_unlabelled_channels(
+            IonChannel(
+                mz=float(ion_row["mz"]),
+                role=IonRole(ion_row["role"]),
+                ordinal=int(ion_row["ordinal"]),
+                expected_ratio=ion_row["expected_ratio"],
+                ratio_tolerance=ion_row["ratio_tolerance"],
+            )
+            for ion_row in ion_rows
+        )
     
     return Compound(
         compound_name=row["compound_name"],
@@ -67,6 +110,7 @@ def read_compound(compound_name: str) -> Compound:
         deconvolution_level=row["deconvolution_level"] or "4",
         deconvolution_fit_type=row["deconvolution_fit_type"] or "auto",
         deconvolution_noise_gate=row["deconvolution_noise_gate"] or "balanced",
+        channels=channels,
     )
 
 
@@ -131,4 +175,5 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
             deconvolution_level=base_compound.deconvolution_level,  # Always from base compound
             deconvolution_fit_type=base_compound.deconvolution_fit_type,  # Always from base compound
             deconvolution_noise_gate=base_compound.deconvolution_noise_gate,  # Always from base compound
+            channels=base_compound.channels,
         )

@@ -413,6 +413,7 @@ def _clear_database_fast(progress_callback=None):
         DELETE FROM tic_data;  
         DELETE FROM ms_data;
         DELETE FROM samples;
+        DELETE FROM compound_ions;
         DELETE FROM compounds;
         """
         
@@ -451,6 +452,7 @@ def _clear_database_detailed(progress_callback=None):
         ("tic_data", "Clearing TIC chromatograms..."),
         ("ms_data", "Clearing mass spectra..."),
         ("samples", "Clearing sample records..."),
+        ("compound_ions", "Clearing diagnostic ion definitions..."),
         ("compounds", "Clearing compound definitions...")
     ]
     

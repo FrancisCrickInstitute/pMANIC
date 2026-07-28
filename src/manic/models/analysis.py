@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Iterable, Sequence
@@ -96,6 +97,12 @@ def validate_unlabelled_channels(
         raise ValueError("Unlabelled compounds require at least one qualifier ion")
     if len({float(c.mz) for c in ordered}) != len(ordered):
         raise ValueError("Quantifier and qualifier m/z values must be distinct")
+    nominal_bins = {math.floor(float(c.mz) + 0.5) for c in ordered}
+    if len(nominal_bins) != len(ordered):
+        raise ValueError(
+            "Quantifier and qualifier m/z values must resolve to distinct "
+            "nominal masses (extraction matches on integer m/z)"
+        )
     for channel in ordered:
         if channel.mz <= 0:
             raise ValueError("Ion m/z values must be positive")

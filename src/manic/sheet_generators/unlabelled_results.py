@@ -5,6 +5,17 @@ from typing import Callable
 from manic.io.compound_reader import read_compound
 
 
+class _MissingQualifier:
+    """Placeholder qualifier row when identity QC could not be assessed."""
+
+    __slots__ = ("channel", "observed_ratio", "passed")
+
+    def __init__(self, channel):
+        self.channel = channel
+        self.observed_ratio = None
+        self.passed = None
+
+
 def _write_header(worksheet, workbook, headers: list[str]) -> None:
     header_format = workbook.add_format(
         {"bold": True, "bg_color": "#D9EAF7", "border": 1}
@@ -29,12 +40,22 @@ def write(
 
     bulk_data = provider.load_bulk_sample_data()
     mrrf_values = {}
+    assumed_rf: set = set()
     if exporter.internal_standard_compound:
-        mrrf_values = provider.get_mrrf_values(
-            compound_rows,
-            exporter.internal_standard_compound,
-            internal_standard_isotope_index=0,
-        )
+        try:
+            mrrf_values = provider.get_mrrf_values(
+                compound_rows,
+                exporter.internal_standard_compound,
+                internal_standard_isotope_index=0,
+                assumed=assumed_rf,
+            )
+        except TypeError:
+            # Providers without provenance support (e.g. in-memory) treat every
+            # response factor as measured; uncalibrated labelling is skipped.
+            mrrf_values = provider.get_mrrf_values(
+                compound_rows,
+                exporter.internal_standard_compound,
+            )
 
     results = workbook.add_worksheet("Targeted Results")
     result_headers = [
@@ -110,13 +131,23 @@ def write(
                     / internal_standard_area
                     / float(mrrf)
                 )
-                result_type = "Semi-quantitative estimate (single-point RF)"
+                if compound.compound_name in assumed_rf:
+                    result_type = (
+                        "Uncalibrated estimate (response factor assumed = 1.0)"
+                    )
+                else:
+                    result_type = "Semi-quantitative estimate (single-point RF)"
             elif response_ratio is not None:
                 result_type = "Relative response ratio"
 
-            qc = provider.assess_unlabelled_identity(
-                sample, compound.compound_name
-            )
+            try:
+                qc = provider.assess_unlabelled_identity(
+                    sample, compound.compound_name
+                )
+            except (LookupError, ValueError):
+                # Extraction legitimately skips compounds with no detectable
+                # signal in a sample; report that instead of aborting export.
+                qc = None
             results.write_row(
                 result_row,
                 0,
@@ -128,14 +159,21 @@ def write(
                     response_ratio,
                     estimated_amount,
                     result_type,
-                    qc.status.value,
-                    qc.observed_rt,
-                    qc.rt_error,
+                    qc.status.value if qc is not None else "not_detected",
+                    qc.observed_rt if qc is not None else None,
+                    qc.rt_error if qc is not None else None,
                 ],
             )
             result_row += 1
 
-            for ratio in qc.qualifier_ratios:
+            if qc is not None:
+                qualifier_results = qc.qualifier_ratios
+            else:
+                qualifier_results = tuple(
+                    _MissingQualifier(channel)
+                    for channel in compound.analysis_channels[1:]
+                )
+            for ratio in qualifier_results:
                 qc_sheet.write_row(
                     qc_row,
                     0,
@@ -148,9 +186,13 @@ def write(
                         ratio.channel.expected_ratio,
                         ratio.channel.ratio_tolerance,
                         (
-                            None
-                            if ratio.passed is None
-                            else ("PASS" if ratio.passed else "REVIEW")
+                            "N/A"
+                            if ratio.passed is None and qc is None
+                            else (
+                                None
+                                if ratio.passed is None
+                                else ("PASS" if ratio.passed else "REVIEW")
+                            )
                         ),
                     ],
                 )
@@ -184,6 +226,14 @@ def write(
         [
             "Estimated amounts",
             "Semi-quantitative single-point response-factor estimates; not a validated calibration curve",
+        ],
+    )
+    method.write_row(
+        4,
+        0,
+        [
+            "Uncalibrated estimates",
+            "Compounds without a measured standard response use an assumed response factor of 1.0 and are flagged as uncalibrated",
         ],
     )
     method.set_column(0, 0, 24)

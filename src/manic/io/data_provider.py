@@ -104,6 +104,7 @@ class DataProvider:
     ):
         self.use_legacy_integration = use_legacy_integration
         self._mrrf_cache: Dict[str, Dict[str, float]] = {}
+        self._mrrf_assumed_cache: Dict[str, set] = {}
         self._background_ratios_cache: Dict[str, Dict[str, float]] = {}
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._bulk_raw_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
@@ -118,6 +119,7 @@ class DataProvider:
 
     def invalidate_cache(self) -> None:
         self._mrrf_cache.clear()
+        self._mrrf_assumed_cache.clear()
         self._background_ratios_cache.clear()
         self._bulk_sample_data_cache.clear()
         self._bulk_raw_sample_data_cache.clear()
@@ -1061,6 +1063,7 @@ class DataProvider:
         compounds: List[dict],
         internal_standard_compound: str,
         internal_standard_isotope_index: int = 0,
+        assumed: Optional[set] = None,
     ) -> Dict[str, float]:
         from manic.processors.calibration import calculate_mrrf_values
 
@@ -1070,13 +1073,20 @@ class DataProvider:
         )
         if cache_key in self._mrrf_cache:
             logger.debug("Using cached MRRF values")
+            if assumed is not None:
+                assumed.update(self._mrrf_assumed_cache.get(cache_key, set()))
             return self._mrrf_cache[cache_key]
+        assumed_set: set = set()
         values = calculate_mrrf_values(
             self,
             compounds,
             internal_standard_compound,
             internal_standard_isotope_index=internal_standard_isotope_index,
+            assumed=assumed_set,
         )
         self._mrrf_cache[cache_key] = values
+        self._mrrf_assumed_cache[cache_key] = assumed_set
+        if assumed is not None:
+            assumed.update(assumed_set)
         return values
 

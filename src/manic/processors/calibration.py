@@ -74,12 +74,21 @@ def calculate_mrrf_values(
     internal_standard_compound: str,
     *,
     internal_standard_isotope_index: int = 0,
+    assumed: Optional[set] = None,
 ) -> Dict[str, float]:
     """
     Calculate MRRF values using MM files.
 
     Internal standard signal uses the configured reference peak (M+N).
+
+    When ``assumed`` is provided, compounds whose response factor could not be
+    measured (and therefore silently fall back to 1.0) are added to the set so
+    callers can label downstream amounts as uncalibrated.
     """
+
+    def _assumed(name: str) -> None:
+        if assumed is not None:
+            assumed.add(name)
     mrrf_values: Dict[str, float] = {}
 
     # Get internal standard concentration from compound metadata
@@ -130,6 +139,7 @@ def calculate_mrrf_values(
                 f"No MM files pattern specified for compound {compound_name}"
             )
             mrrf_values[compound_name] = 1.0
+            _assumed(compound_name)
             continue
 
         compound_mm_samples = provider.resolve_mm_samples(compound_mm_field)
@@ -138,6 +148,7 @@ def calculate_mrrf_values(
                 f"No MM files found for compound {compound_name} with patterns '{compound_mm_field}'"
             )
             mrrf_values[compound_name] = 1.0
+            _assumed(compound_name)
             continue
 
         metabolite_signals: List[float] = []
@@ -198,6 +209,7 @@ def calculate_mrrf_values(
             logger.debug(f"MRRF for {compound_name}: {mrrf:.6f} (using MEANS)")
         else:
             mrrf_values[compound_name] = 1.0
+            _assumed(compound_name)
             logger.warning(
                 f"Could not calculate MRRF for {compound_name}, using 1.0. "
                 f"mean_metabolite_signal={mean_metabolite_signal:.3f}, "

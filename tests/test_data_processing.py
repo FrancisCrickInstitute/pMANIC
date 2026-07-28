@@ -17,6 +17,7 @@ from manic.io.cdf_data_extractor import (
 from manic.io.cdf_reader import CdfFileData
 from manic.processors.eic_calculator import extract_eic
 from manic.processors.eic_correction_manager import _process_compound_batch_corrections
+from manic.processors.integration import calculate_peak_areas
 import manic.processors.eic_processing as eic_processing
 
 
@@ -141,6 +142,38 @@ def test_extract_eic_labeled_three_isotopologues():
     assert np.allclose(inten_2d[0], [10.0, 20.0, 30.0])  # M+0 @ 100.0
     assert np.allclose(inten_2d[1], [4.0, 8.0, 12.0])   # M+1 @ 101.0
     assert np.allclose(inten_2d[2], [2.0, 4.0, 6.0])    # M+2 @ 102.0
+
+
+def test_labelled_extraction_and_integration_regression():
+    """Lock the labelled channel order and time-based area before refactoring."""
+    cdf = make_cdf()
+    eic = extract_eic(
+        compound_name="TestCmp",
+        t_r=1.2,
+        target_mz=100.0,
+        cdf=cdf,
+        mass_tol=0.2,
+        rt_window=0.5,
+        label_atoms=2,
+    )
+
+    areas = calculate_peak_areas(
+        eic.time,
+        eic.intensity,
+        label_atoms=2,
+        retention_time=None,
+        loffset=None,
+        roffset=None,
+    )
+
+    expected_width = (80.0 - 60.0) / 60.0
+    assert areas == pytest.approx(
+        [
+            20.0 * expected_width,
+            8.0 * expected_width,
+            4.0 * expected_width,
+        ]
+    )
 
 
 # ============================================================================

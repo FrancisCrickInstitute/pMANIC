@@ -20,6 +20,7 @@ from manic.models.database import (
     soft_delete_sample,
 )
 from manic.__version__ import __version__, APP_NAME
+from manic.models.analysis import AnalysisMode
 from manic.io.changelog_sections import (
     format_compounds_table_for_session_export,
     format_overrides_section_for_session_export,
@@ -33,7 +34,10 @@ from manic.processors.chromatographic_peak_deconvolution import (
 logger = logging.getLogger(__name__)
 
 
-def export_session_method(export_path: str) -> bool:
+def export_session_method(
+    export_path: str,
+    analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+) -> bool:
     """
     Export session methodology and parameters only (no processed data).
 
@@ -75,19 +79,42 @@ def export_session_method(export_path: str) -> bool:
         json_path = export_dir / f"{base_name}.json"
         changelog_path = export_dir / f"changelog_{timestamp}.md"
 
-        method_data = {}
+        mode = AnalysisMode.coerce(analysis_mode)
+        method_data = {"analysis_mode": mode.value}
 
         with get_connection() as conn:
             # Export compound definitions and parameters
             compounds = []
             cursor = conn.execute("""
                 SELECT compound_name, retention_time, loffset, roffset,
-                       mass0, label_atoms, deleted,
+                       mass0, label_atoms, rt_tolerance, deleted,
                        baseline_correction, deconvolution_level,
                        deconvolution_fit_type, deconvolution_noise_gate
                 FROM compounds
                 ORDER BY compound_name
             """)
+
+            ion_rows = conn.execute(
+                """
+                SELECT compound_name, role, ordinal, mz,
+                       expected_ratio, ratio_tolerance
+                FROM compound_ions
+                ORDER BY compound_name,
+                         CASE role WHEN 'quantifier' THEN 0 ELSE 1 END,
+                         ordinal
+                """
+            ).fetchall()
+            ions_by_compound: dict[str, list[dict]] = {}
+            for ion in ion_rows:
+                ions_by_compound.setdefault(ion["compound_name"], []).append(
+                    {
+                        "role": ion["role"],
+                        "ordinal": ion["ordinal"],
+                        "mz": ion["mz"],
+                        "expected_ratio": ion["expected_ratio"],
+                        "ratio_tolerance": ion["ratio_tolerance"],
+                    }
+                )
 
             for row in cursor.fetchall():
                 compounds.append(
@@ -98,6 +125,8 @@ def export_session_method(export_path: str) -> bool:
                         "roffset": row["roffset"],
                         "mass0": row["mass0"],
                         "label_atoms": row["label_atoms"],
+                        "rt_tolerance": row["rt_tolerance"],
+                        "ions": ions_by_compound.get(row["compound_name"], []),
                         "deleted": row["deleted"],
                         # Analytical method settings (part of reproducibility).
                         "baseline_correction": row["baseline_correction"],
@@ -141,6 +170,7 @@ def export_session_method(export_path: str) -> bool:
             "export_date": datetime.datetime.now().isoformat(),
             "export_version": __version__,
             "application": APP_NAME,
+            "analysis_mode": mode.value,
             "description": "Analytical method and parameters (raw data not included)",
         }
 
@@ -161,7 +191,10 @@ def export_session_method(export_path: str) -> bool:
         return False
 
 
-def import_session_overrides(import_path: str) -> tuple[bool, bool]:
+def import_session_overrides(
+    import_path: str,
+    expected_mode: AnalysisMode | str | None = None,
+) -> tuple[bool, bool]:
     """
     Import session overrides from a method file.
 
@@ -187,6 +220,22 @@ def import_session_overrides(import_path: str) -> tuple[bool, bool]:
         # Load method data
         with open(import_path, "r", encoding="utf-8") as f:
             method_data = json.load(f)
+
+        if expected_mode is not None:
+            expected = AnalysisMode.coerce(expected_mode)
+            exported_value = method_data.get("analysis_mode")
+            exported = (
+                AnalysisMode.coerce(exported_value)
+                if exported_value is not None
+                else AnalysisMode.LABELLED
+            )
+            if exported is not expected:
+                logger.error(
+                    "Session mode mismatch: file=%s current=%s",
+                    exported.value,
+                    expected.value,
+                )
+                return False, False
 
         # Import session overrides directly to database
         session_overrides = method_data.get("session_overrides", [])
@@ -229,6 +278,7 @@ def import_session_overrides(import_path: str) -> tuple[bool, bool]:
         # only update the columns actually present - this keeps import backward
         # compatible with files exported before these settings existed.
         _apply_compound_method_settings(compounds)
+        _apply_compound_ions(compounds)
 
         if not session_overrides:
             logger.info("No session overrides to import")
@@ -307,6 +357,9 @@ def _apply_compound_method_settings(compounds: list) -> None:
             if "baseline_correction" in compound:
                 assignments.append("baseline_correction = ?")
                 values.append(1 if compound.get("baseline_correction") else 0)
+            if "rt_tolerance" in compound:
+                assignments.append("rt_tolerance = ?")
+                values.append(compound.get("rt_tolerance"))
             if "deconvolution_level" in compound:
                 assignments.append("deconvolution_level = ?")
                 values.append(normalize_stringency(compound.get("deconvolution_level")))
@@ -333,7 +386,50 @@ def _apply_compound_method_settings(compounds: list) -> None:
         logger.info(f"Applied analytical method settings to {updated} compound(s)")
 
 
-def validate_method_file(file_path: str) -> tuple[bool, Optional[str]]:
+def _apply_compound_ions(compounds: list) -> None:
+    """Restore explicit targeted-ion definitions from a method export."""
+
+    with get_connection() as conn:
+        for compound in compounds:
+            name = compound.get("compound_name")
+            ions = compound.get("ions")
+            if not name or ions is None:
+                continue
+            exists = conn.execute(
+                "SELECT 1 FROM compounds WHERE compound_name = ?",
+                (name,),
+            ).fetchone()
+            if not exists:
+                continue
+            conn.execute(
+                "DELETE FROM compound_ions WHERE compound_name = ?",
+                (name,),
+            )
+            conn.executemany(
+                """
+                INSERT INTO compound_ions
+                    (compound_name, role, ordinal, mz,
+                     expected_ratio, ratio_tolerance)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        name,
+                        ion["role"],
+                        ion.get("ordinal", 0),
+                        ion["mz"],
+                        ion.get("expected_ratio"),
+                        ion.get("ratio_tolerance"),
+                    )
+                    for ion in ions
+                ],
+            )
+
+
+def validate_method_file(
+    file_path: str,
+    expected_mode: AnalysisMode | str | None = None,
+) -> tuple[bool, Optional[str]]:
     """
     Validate that a file is a valid method export.
 
@@ -362,6 +458,19 @@ def validate_method_file(file_path: str) -> tuple[bool, Optional[str]]:
 
         if "compounds" not in method_data:
             return False, "Missing compounds data"
+
+        if expected_mode is not None:
+            expected = AnalysisMode.coerce(expected_mode)
+            file_mode = AnalysisMode.coerce(
+                method_data.get("analysis_mode", AnalysisMode.LABELLED)
+            )
+            if file_mode is not expected:
+                return (
+                    False,
+                    f"This is a {file_mode.display_name.lower()} method, but the "
+                    f"current analysis is {expected.display_name.lower()}. "
+                    "Start a new analysis in the matching mode.",
+                )
 
         if not isinstance(method_data["compounds"], list):
             return False, "Compounds data is not a list"
@@ -502,6 +611,9 @@ def _generate_changelog(method_data: dict, changelog_path: Path) -> None:
             f.write(f"**Export Date:** {export_date}\n")
             f.write(f"**Export Version:** {export_version}\n")
             f.write(f"**Application:** {metadata.get('application', APP_NAME)}\n\n")
+            f.write(
+                f"**Analysis Mode:** {method_data.get('analysis_mode', 'labelled')}\n\n"
+            )
 
             f.write("---\n\n")
 

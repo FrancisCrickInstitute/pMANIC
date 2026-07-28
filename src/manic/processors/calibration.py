@@ -142,10 +142,14 @@ def calculate_mrrf_values(
 
         metabolite_signals: List[float] = []
         for mm_sample in compound_mm_samples:
-            sample_data = provider.get_sample_corrected_data(mm_sample)
-            isotopologue_data = sample_data.get(compound_name, [0.0])
-            total_signal = float(sum(isotopologue_data))
-            metabolite_signals.append(total_signal)
+            if hasattr(provider, "get_compound_total_area"):
+                signal = provider.get_compound_total_area(
+                    mm_sample, compound_name
+                )
+            else:
+                sample_data = provider.get_sample_corrected_data(mm_sample)
+                signal = float(sum(sample_data.get(compound_name, [0.0])))
+            metabolite_signals.append(signal)
 
         internal_std_signals: List[float] = []
         for mm_sample in internal_std_mm_samples:

@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import zlib
 from pathlib import Path
 
 import numpy as np
+import openpyxl
 import pandas as pd
 import pytest
 
 from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import import_compound_excel
 from manic.io.data_provider import DataProvider
+from manic.io.data_exporter import DataExporter
 from manic.models import database
+from manic.models import session_export
 from manic.models.analysis import AnalysisMode, IonRole
 from manic.validation.unlabelled_identity import IdentityStatus
 
@@ -152,3 +156,106 @@ def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
     assert [ratio.observed_ratio for ratio in qc.qualifier_ratios] == pytest.approx(
         [0.4, 0.2]
     )
+
+
+def test_unlabelled_session_round_trip_preserves_mode_and_ions(
+    unlabelled_db, tmp_path
+):
+    compound_list = tmp_path / "targets.csv"
+    pd.DataFrame(
+        [
+            {
+                "name": "Target",
+                "tR": 1.0,
+                "tR Window": 0.08,
+                "lOffset": 0.1,
+                "rOffset": 0.1,
+                "QIon": 217,
+                "ValIon1": 147,
+                "Qualifier 1 Ratio": 0.4,
+                "Qualifier 1 Tolerance": 0.25,
+            }
+        ]
+    ).to_csv(compound_list, index=False)
+    import_compound_excel(compound_list, AnalysisMode.UNLABELLED)
+
+    assert session_export.export_session_method(
+        str(tmp_path / "method"),
+        AnalysisMode.UNLABELLED,
+    )
+    method_path = tmp_path / "manic_session_export" / "method.json"
+    exported = json.loads(method_path.read_text(encoding="utf-8"))
+    assert exported["analysis_mode"] == "unlabelled"
+    assert exported["compounds"][0]["ions"][1]["expected_ratio"] == pytest.approx(0.4)
+
+    with database.get_connection() as conn:
+        conn.execute(
+            "UPDATE compound_ions SET expected_ratio = 0.9 "
+            "WHERE compound_name = 'Target' AND role = 'qualifier'"
+        )
+
+    ok, _ = session_export.import_session_overrides(
+        str(method_path),
+        expected_mode=AnalysisMode.UNLABELLED,
+    )
+    assert ok
+    assert read_compound("Target").analysis_channels[1].expected_ratio == pytest.approx(
+        0.4
+    )
+
+    valid, error = session_export.validate_method_file(
+        str(method_path),
+        expected_mode=AnalysisMode.LABELLED,
+    )
+    assert not valid
+    assert "Start a new analysis" in error
+
+
+def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
+    compound_list = tmp_path / "targets.csv"
+    pd.DataFrame(
+        [
+            {
+                "name": "Target",
+                "tR": 1.0,
+                "lOffset": 1.1,
+                "rOffset": 1.1,
+                "QIon": 217,
+                "ValIon1": 147,
+            }
+        ]
+    ).to_csv(compound_list, index=False)
+    import_compound_excel(compound_list, AnalysisMode.UNLABELLED)
+
+    time = np.array([0.0, 1.0, 2.0], dtype=np.float64)
+    matrix = np.array([[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]])
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO samples (sample_name, file_name) VALUES (?, ?)",
+            ("S1", "/fake/S1.cdf"),
+        )
+        conn.execute(
+            "INSERT INTO eic "
+            "(sample_name, compound_name, x_axis, y_axis, rt_window) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                "S1",
+                "Target",
+                zlib.compress(time.tobytes()),
+                zlib.compress(matrix.ravel().tobytes()),
+                1.1,
+            ),
+        )
+
+    export_path = tmp_path / "targeted.xlsx"
+    assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
+
+    workbook = openpyxl.load_workbook(export_path, data_only=True)
+    assert workbook.sheetnames == [
+        "Targeted Results",
+        "Qualifier QC",
+        "Targeted Method",
+    ]
+    result = workbook["Targeted Results"]
+    assert result["D2"].value == pytest.approx(10.0)
+    assert result["H2"].value == IdentityStatus.NOT_ASSESSED.value

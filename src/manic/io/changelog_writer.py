@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from manic.__version__ import __version__
+from manic.models.analysis import AnalysisMode
 from manic.models.database import get_connection
 from manic.io.changelog_sections import (
     format_compounds_table_for_data_export,
@@ -15,18 +16,25 @@ from manic.io.changelog_sections import (
 logger = logging.getLogger(__name__)
 
 
-def generate_changelog(export_filepath: str, *, internal_standard: Optional[str], use_legacy_integration: bool) -> None:
+def generate_changelog(
+    export_filepath: str,
+    *,
+    internal_standard: Optional[str],
+    use_legacy_integration: bool,
+    analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+) -> None:
     """
     Generate a comprehensive changelog file with timestamp detailing the export session.
     """
     export_path = Path(export_filepath)
+    mode = AnalysisMode.coerce(analysis_mode)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
     changelog_path = export_path.parent / f"changelog_{timestamp}.md"
 
     # Get session information from database
     with get_connection() as conn:
         compounds_query = """
-            SELECT compound_name, retention_time, loffset, roffset, mass0, 
+            SELECT compound_name, retention_time, loffset, roffset, mass0, rt_tolerance,
                    label_atoms, formula, label_type, tbdms, meox, me,
                    amount_in_std_mix, int_std_amount, mm_files,
                    deconvolution_level, deconvolution_fit_type, deconvolution_noise_gate
@@ -62,12 +70,40 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
             SELECT sample_name FROM samples WHERE deleted = 1 ORDER BY sample_name
         """
         deleted_samples = conn.execute(deleted_samples_query).fetchall()
+        diagnostic_ions = conn.execute(
+            """
+            SELECT compound_name, role, ordinal, mz, expected_ratio, ratio_tolerance
+            FROM compound_ions
+            ORDER BY compound_name,
+                     CASE role WHEN 'quantifier' THEN 0 ELSE 1 END,
+                     ordinal
+            """
+        ).fetchall()
+
+    if mode is AnalysisMode.UNLABELLED:
+        processing_description = f"""- **Diagnostic-ion workflow:** Quantifier area with qualifier-ion identity checks
+- **Qualifier ratio:** Integrated qualifier area / integrated quantifier area
+- **Retention-time check:** Quantifier apex versus the compound reference RT
+- **Natural Isotope Correction:** Not applied; these channels are diagnostic ions, not isotopologues
+- **Quantitative claim:** Peak area, response ratio, or explicitly labelled semi-quantitative single-point estimate"""
+        sheets_description = """1. **Targeted Results** - Quantifier response, relative/semi-quantitative result, and identity status
+2. **Qualifier QC** - Observed qualifier ratios, references, tolerances, and pass/review flags
+3. **Targeted Method** - Diagnostic ions and interpretation limits"""
+    else:
+        processing_description = """- **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0
+- **Internal Standard Handling:** Raw values copied directly for label_atoms = 0"""
+        sheets_description = f"""1. **Raw Values** - Direct instrument signals (uncorrected peak areas using {"legacy unit-spacing" if use_legacy_integration else "time-based"} integration)
+2. **Corrected Values** - Natural isotope abundance corrected signals
+3. **Isotope Ratios** - Normalized corrected values (fractions sum to 1.0)
+4. **% Label Incorporation** - Percentage of experimental label incorporation
+5. **Abundances** - Absolute metabolite concentrations via internal standard calibration"""
 
     changelog_content = f"""# MANIC Export Session Changelog
 
 ## Export Information
 - **Export Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 - **MANIC Version:** {__version__}
+- **Analysis Mode:** {mode.display_name}
 - **Export File:** {export_path.name}
 - **Internal Standard:** {internal_standard or 'None selected'}
 
@@ -75,8 +111,7 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
 - **Mass Tolerance Method:** Asymmetric offset + rounding (MANIC original method)
 - **Integration Method:** {"Legacy Unit-Spacing (MATLAB Compatible)" if use_legacy_integration else "Time-based integration (scientifically accurate)"}
 - **Expected Value Scale:** {"~100× larger than time-based method" if use_legacy_integration else "Physically meaningful units"}
-- **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0
-- **Internal Standard Handling:** Raw values copied directly for label_atoms = 0
+{processing_description}
 
 ## Data Summary
 - **Total Compounds:** {len(compounds)}
@@ -107,6 +142,17 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
     # Compounds table
     changelog_content += format_compounds_table_for_data_export(compounds) + "\n"
 
+    if diagnostic_ions:
+        changelog_content += "\n## Diagnostic Ion Definitions\n\n"
+        changelog_content += "| Compound | Role | Ordinal | m/z | Expected Ratio | Fractional Tolerance |\n"
+        changelog_content += "|---|---|---:|---:|---:|---:|\n"
+        for ion in diagnostic_ions:
+            changelog_content += (
+                f"| {ion['compound_name']} | {ion['role']} | {ion['ordinal']} | "
+                f"{ion['mz']:.4g} | {ion['expected_ratio'] if ion['expected_ratio'] is not None else 'N/A'} | "
+                f"{ion['ratio_tolerance'] if ion['ratio_tolerance'] is not None else 'N/A'} |\n"
+            )
+
     changelog_content += "\n## Sample Files Processed\n"
     for sample in samples:
         file_name = sample['file_name'] if sample['file_name'] else 'N/A'
@@ -118,11 +164,7 @@ def generate_changelog(export_filepath: str, *, internal_standard: Optional[str]
 
     changelog_content += f"""
 ## Export Sheets Generated
-1. **Raw Values** - Direct instrument signals (uncorrected peak areas using {"legacy unit-spacing" if use_legacy_integration else "time-based"} integration)
-2. **Corrected Values** - Natural isotope abundance corrected signals
-3. **Isotope Ratios** - Normalized corrected values (fractions sum to 1.0)  
-4. **% Label Incorporation** - Percentage of experimental label incorporation
-5. **Abundances** - Absolute metabolite concentrations via internal standard calibration
+{sheets_description}
 
 ## Key Processing Notes
 - Integration boundaries determined by compound-specific loffset/roffset values

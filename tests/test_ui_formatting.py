@@ -10,6 +10,8 @@ from PySide6.QtWidgets import QApplication
 import sys
 
 from manic.ui.integration_window_widget import IntegrationWindow
+from manic.ui.left_toolbar import Toolbar
+from manic.models.analysis import AnalysisMode
 
 
 @pytest.fixture(scope="module")
@@ -27,6 +29,16 @@ def integration_window(qapp):
     window = IntegrationWindow()
     yield window
     window.deleteLater()
+
+
+def test_unlabelled_toolbar_hides_label_derived_summaries(qapp):
+    toolbar = Toolbar(AnalysisMode.UNLABELLED)
+    try:
+        assert toolbar.mode_indicator.text() == "Unlabelled analysis"
+        assert toolbar.isotopologue_ratios.isHidden()
+        assert toolbar.total_abundance.isHidden()
+    finally:
+        toolbar.deleteLater()
 
 
 class TestSignificantFigures:

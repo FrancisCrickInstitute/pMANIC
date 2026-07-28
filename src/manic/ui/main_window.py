@@ -41,7 +41,7 @@ from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound_with_session
-from manic.models.analysis import AnalysisContext
+from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.processors.chromatographic_peak_deconvolution import (
     normalize_fit_type,
     normalize_noise_gate,
@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
         splitter.setHandleWidth(5)  # Makes the grab area slightly larger/easier to hit
 
         # Create the toolbar
-        self.toolbar = Toolbar()
+        self.toolbar = Toolbar(self.analysis_mode)
         self.toolbar.setObjectName("toolbar")
         # Add toolbar to splitter instead of layout
         splitter.addWidget(self.toolbar)
@@ -328,6 +328,10 @@ class MainWindow(QMainWindow):
         )
         settings_menu.addAction(self.nat_abundance_toggle)
 
+        if self.analysis_mode is not AnalysisMode.LABELLED:
+            self.labelled_internal_standard_action.setVisible(False)
+            self.nat_abundance_toggle.setVisible(False)
+
         # Legacy integration mode toggle action
         self.legacy_integration_toggle = QAction("Legacy Integration Mode: Off", self)
         self.legacy_integration_toggle.setCheckable(True)
@@ -357,7 +361,8 @@ class MainWindow(QMainWindow):
         self._update_menu_states()
 
         # Initialize natural abundance correction state
-        self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
+        if self.analysis_mode is AnalysisMode.LABELLED:
+            self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
         self.update_deconvolution_indicator(None)
 
         # Connect the toolbar's custom signals to handler methods
@@ -707,31 +712,27 @@ class MainWindow(QMainWindow):
                 # Update tR window field only when compound changes
                 self.toolbar.integration.populate_tr_window_field(compound_name)
 
-                # Update isotopologue ratios first (calculates both ratios and abundances)
-                current_eics = self._get_current_eics()
-                self.toolbar.isotopologue_ratios.update_ratios(
-                    compound_name, current_eics
-                )
-
-                # Share the calculated abundances with total abundance widget (no recalculation)
-                abundances, eics = (
-                    self.toolbar.isotopologue_ratios.get_last_total_abundances()
-                )
-
-                # Fallback: total abundance should always be available, even for unlabeled
-                # (single-trace) compounds where the isotopologue widget clears itself.
-                if abundances is None:
-                    abundances = self._calculate_total_abundances_fallback(
+                if self.analysis_mode is AnalysisMode.LABELLED:
+                    # Label-derived summaries are deliberately unavailable in
+                    # targeted mode, where channels are diagnostic ions.
+                    current_eics = self._get_current_eics()
+                    self.toolbar.isotopologue_ratios.update_ratios(
                         compound_name, current_eics
                     )
-                    eics = current_eics
-
-                if abundances is not None:
-                    self.toolbar.total_abundance.update_abundance_from_data(
-                        compound_name, eics, abundances
+                    abundances, eics = (
+                        self.toolbar.isotopologue_ratios.get_last_total_abundances()
                     )
-                else:
-                    self.toolbar.total_abundance._clear_chart()
+                    if abundances is None:
+                        abundances = self._calculate_total_abundances_fallback(
+                            compound_name, current_eics
+                        )
+                        eics = current_eics
+                    if abundances is not None:
+                        self.toolbar.total_abundance.update_abundance_from_data(
+                            compound_name, eics, abundances
+                        )
+                    else:
+                        self.toolbar.total_abundance._clear_chart()
         except LookupError as err:
             msg_box = self._create_message_box("warning", "Missing data", str(err))
             msg_box.exec()
@@ -947,6 +948,9 @@ class MainWindow(QMainWindow):
                 current_compound, selected_samples, all_samples
             )
 
+            if self.analysis_mode is not AnalysisMode.LABELLED:
+                return
+
             # Update isotopologue ratios and total abundance (integration parameters may have changed)
             current_eics = self._get_current_eics()
             self.toolbar.isotopologue_ratios.update_ratios(
@@ -1008,6 +1012,8 @@ class MainWindow(QMainWindow):
 
             # Update isotopologue ratios and total abundance with new integration parameters
             def update_charts():
+                if self.analysis_mode is not AnalysisMode.LABELLED:
+                    return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(
                     compound_name, current_eics
@@ -1059,6 +1065,8 @@ class MainWindow(QMainWindow):
 
             # Update isotopologue ratios and total abundance with restored default parameters
             def update_charts():
+                if self.analysis_mode is not AnalysisMode.LABELLED:
+                    return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(
                     compound_name, current_eics
@@ -1112,6 +1120,8 @@ class MainWindow(QMainWindow):
             from PySide6.QtCore import QTimer
 
             def update_charts():
+                if self.analysis_mode is not AnalysisMode.LABELLED:
+                    return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(
                     compound_name, current_eics
@@ -1471,7 +1481,7 @@ class MainWindow(QMainWindow):
             return  # User cancelled
 
         try:
-            success = export_session_method(file_path)
+            success = export_session_method(file_path, self.analysis_mode)
 
             if success:
                 # Show info about what was exported
@@ -1539,7 +1549,10 @@ class MainWindow(QMainWindow):
 
         try:
             # Validate method file
-            is_valid, error_msg = validate_method_file(file_path)
+            is_valid, error_msg = validate_method_file(
+                file_path,
+                expected_mode=self.analysis_mode,
+            )
 
             if not is_valid:
                 msg_box = self._create_message_box(
@@ -1604,7 +1617,10 @@ class MainWindow(QMainWindow):
                 return
 
             # Import the session overrides
-            success, has_deletion_data = import_session_overrides(file_path)
+            success, has_deletion_data = import_session_overrides(
+                file_path,
+                expected_mode=self.analysis_mode,
+            )
 
             if success:
                 # Show warning for legacy format without deletion data
@@ -2563,6 +2579,9 @@ class MainWindow(QMainWindow):
         - Only missing corrections are computed
         - Original raw data is never modified
         """
+        if self.analysis_mode is AnalysisMode.UNLABELLED:
+            return
+
         try:
             from manic.models.database import get_connection
             from manic.processors.eic_correction_manager import process_all_corrections
@@ -2685,6 +2704,9 @@ class MainWindow(QMainWindow):
             vbox.addWidget(optional_label)
             checkbox_carbon_enrichment = QCheckBox("Include % Carbons Labelled sheet")
             checkbox_carbon_enrichment.setChecked(False)  # Off by default
+            checkbox_carbon_enrichment.setVisible(
+                self.analysis_mode is AnalysisMode.LABELLED
+            )
             vbox.addWidget(checkbox_carbon_enrichment)
 
             buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -2709,11 +2731,16 @@ class MainWindow(QMainWindow):
                 reply = self._show_question_dialog(
                     "No Internal Standard Selected",
                     "You have not selected an internal standard. Proceed with export?",
-                    "Abundance values will represent 'Peak Area' (Sum of corrected isotopologues). ",
+                    (
+                        "Results will contain quantifier-ion peak areas."
+                        if self.analysis_mode is AnalysisMode.UNLABELLED
+                        else "Abundance values will represent 'Peak Area' "
+                        "(sum of corrected isotopologues)."
+                    ),
                 )
                 if reply != QMessageBox.Yes:
                     return
-            else:
+            elif self.analysis_mode is AnalysisMode.LABELLED:
                 ok, problems = validate_internal_standard_metadata(
                     DataProvider(use_legacy_integration=self.use_legacy_integration),
                     internal_standard,
@@ -2747,7 +2774,7 @@ class MainWindow(QMainWindow):
             progress_dialog.setValue(0)
 
             # Create exporter and set internal standard and integration mode
-            exporter = DataExporter()
+            exporter = DataExporter(self.analysis_mode)
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)

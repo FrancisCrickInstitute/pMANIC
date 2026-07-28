@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.io.compound_reader import read_compound
+from manic.models.analysis import AnalysisMode
 from manic.utils.paths import resource_path
 
 from .compound_list_widget import CompoundListWidget
@@ -47,8 +48,12 @@ class Toolbar(QWidget):
     # Signal emitted when baseline correction checkbox is toggled
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
-    def __init__(self):
+    def __init__(
+        self,
+        analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+    ):
         super().__init__()
+        self.analysis_mode = AnalysisMode.coerce(analysis_mode)
         self.setObjectName("toolbar")  # Required for CSS targeting
         self._build_ui()
         self._connect_signals()
@@ -126,6 +131,18 @@ class Toolbar(QWidget):
             self.loaded_data, alignment=Qt.AlignmentFlag.AlignCenter
         )
 
+        self.mode_indicator = QLabel(
+            f"{self.analysis_mode.display_name} analysis"
+        )
+        self.mode_indicator.setAlignment(Qt.AlignCenter)
+        self.mode_indicator.setStyleSheet(
+            "background-color: #d9eaf7; color: #15324b; "
+            "border-radius: 8px; padding: 4px 10px; font-weight: 600;"
+        )
+        indicators_layout.addWidget(
+            self.mode_indicator, alignment=Qt.AlignmentFlag.AlignCenter
+        )
+
         # Add extra vertical spacing between data indicators and standard indicator
         indicators_layout.addSpacing(8)  # Additional spacing
 
@@ -148,6 +165,7 @@ class Toolbar(QWidget):
         # Compact the container to fit content size
         indicators_container.setMaximumHeight(
             self.loaded_data.sizeHint().height()
+            + self.mode_indicator.sizeHint().height()
             + self.standard.sizeHint().height()
             + self.mz_indicator.sizeHint().height()
             + 24  # Account for margins, spacing, and extra vertical gap
@@ -215,6 +233,10 @@ class Toolbar(QWidget):
         content_layout.addWidget(
             self.total_abundance, stretch=2
         )  # Increased stretch for plots
+
+        if self.analysis_mode is AnalysisMode.UNLABELLED:
+            self.isotopologue_ratios.hide()
+            self.total_abundance.hide()
 
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)

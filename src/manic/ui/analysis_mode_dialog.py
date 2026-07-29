@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -10,6 +9,23 @@ from PySide6.QtWidgets import (
 )
 
 from manic.models.analysis import AnalysisMode
+
+_MODE_CHOICES = (
+    (
+        AnalysisMode.LABELLED,
+        "Labelled isotope-tracing analysis",
+        "Analyse consecutive M+0…M+n isotopologues with natural-abundance correction.",
+        "For stable-isotope tracing: M+0, M+1 and later isotopologues are "
+        "measured and corrected for natural isotope abundance.",
+    ),
+    (
+        AnalysisMode.UNLABELLED,
+        "Unlabelled targeted analysis",
+        "Quantify one diagnostic ion and use qualifier ions to support identity.",
+        "For targeted GC-MS profiling: one quantifier ion provides the response "
+        "and qualifier ions check retention and ion-ratio consistency.",
+    ),
+)
 
 
 class AnalysisModeDialog(QDialog):
@@ -35,46 +51,25 @@ class AnalysisModeDialog(QDialog):
         description.setWordWrap(True)
         layout.addWidget(description)
 
-        labelled = QPushButton("Labelled isotope-tracing analysis")
-        labelled.setToolTip(
-            "Analyse consecutive M+0…M+n isotopologues with natural-abundance correction."
-        )
-        labelled.clicked.connect(
-            lambda: self._choose(AnalysisMode.LABELLED)
-        )
-        layout.addWidget(labelled)
+        first_button = None
+        for mode, button_text, tooltip, help_text in _MODE_CHOICES:
+            button = QPushButton(button_text)
+            button.setToolTip(tooltip)
+            button.clicked.connect(lambda _c, m=mode: self._choose(m))
+            layout.addWidget(button)
+            if first_button is None:
+                first_button = button
 
-        labelled_help = QLabel(
-            "For stable-isotope tracing: M+0, M+1 and later isotopologues are "
-            "measured and corrected for natural isotope abundance."
-        )
-        labelled_help.setWordWrap(True)
-        labelled_help.setIndent(12)
-        layout.addWidget(labelled_help)
-
-        unlabelled = QPushButton("Unlabelled targeted analysis")
-        unlabelled.setToolTip(
-            "Quantify one diagnostic ion and use qualifier ions to support identity."
-        )
-        unlabelled.clicked.connect(
-            lambda: self._choose(AnalysisMode.UNLABELLED)
-        )
-        layout.addWidget(unlabelled)
-
-        unlabelled_help = QLabel(
-            "For targeted GC-MS profiling: one quantifier ion provides the response "
-            "and qualifier ions check retention and ion-ratio consistency."
-        )
-        unlabelled_help.setWordWrap(True)
-        unlabelled_help.setIndent(12)
-        layout.addWidget(unlabelled_help)
+            help_label = QLabel(help_text)
+            help_label.setWordWrap(True)
+            help_label.setIndent(12)
+            layout.addWidget(help_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        labelled.setDefault(True)
-        labelled.setFocus(Qt.OtherFocusReason)
+        first_button.setDefault(True)
 
     @property
     def selected_mode(self) -> AnalysisMode | None:

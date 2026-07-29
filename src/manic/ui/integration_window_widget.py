@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.io.compound_reader import read_compound, read_compound_with_session
+from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.paths import resource_path
@@ -172,9 +173,14 @@ class IntegrationWindow(QGroupBox):
 
 
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+        parent=None,
+    ):
         super().__init__("Selected Plots: All", parent)
         self.setObjectName("integrationWindow")
+        self.analysis_mode = AnalysisMode.coerce(analysis_mode)
 
         # Track current state for apply button management
         self._current_compound: str = ""
@@ -243,9 +249,14 @@ class IntegrationWindow(QGroupBox):
         layout.setSpacing(10)
 
         # Integration parameter fields
+        rt_label = (
+            "Integration centre"
+            if self.analysis_mode is AnalysisMode.UNLABELLED
+            else "tR"
+        )
         for label_text, obj_name in [
             ("Left Offset", "lo_input"),
-            ("tR", "tr_input"),
+            (rt_label, "tr_input"),
             ("Right Offset", "ro_input"),
         ]:
             row = QHBoxLayout()
@@ -258,6 +269,24 @@ class IntegrationWindow(QGroupBox):
             row.addWidget(lbl)
             row.addWidget(edt, 1)
             layout.addLayout(row)
+
+        if self.analysis_mode is AnalysisMode.UNLABELLED:
+            self.reference_rt_label = QLabel("Method reference RT: —")
+            self.reference_rt_label.setObjectName("reference_rt_label")
+            self.reference_rt_label.setStyleSheet(
+                "font-weight: 600; color: #15324b; background: transparent;"
+            )
+            layout.addWidget(self.reference_rt_label)
+            reference_note = QLabel(
+                "Moving the integration centre does not change the method reference RT "
+                "used for identity QC."
+            )
+            reference_note.setObjectName("reference_rt_note")
+            reference_note.setWordWrap(True)
+            reference_note.setStyleSheet(
+                "color: #5b6770; font-size: 10px; background: transparent;"
+            )
+            layout.addWidget(reference_note)
 
         # Action buttons
         button_row = QHBoxLayout()
@@ -373,6 +402,8 @@ class IntegrationWindow(QGroupBox):
             line_edit = self.findChild(QLineEdit, obj_name)
             if line_edit:
                 line_edit.clear()
+        if hasattr(self, "reference_rt_label"):
+            self.reference_rt_label.setText("Method reference RT: —")
 
     def populate_fields_from_plots(
         self, compound_name: str, selected_samples: list, all_samples: Optional[list] = None
@@ -400,6 +431,12 @@ class IntegrationWindow(QGroupBox):
         self._all_samples = all_samples.copy() if all_samples else []
 
         try:
+            if hasattr(self, "reference_rt_label"):
+                reference_compound = read_compound(compound_name)
+                self.reference_rt_label.setText(
+                    "Method reference RT: "
+                    f"{self._format_number(reference_compound.retention_time)} min"
+                )
             # Case 1: No plots selected - show range for all visible plots
             if not selected_samples and all_samples:
                 self._populate_range_fields(compound_name, all_samples)

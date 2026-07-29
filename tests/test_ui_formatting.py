@@ -6,12 +6,22 @@ and other UI components.
 """
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 import sys
+import numpy as np
+from types import SimpleNamespace
 
 from manic.ui.integration_window_widget import IntegrationWindow
 from manic.ui.left_toolbar import Toolbar
-from manic.models.analysis import AnalysisMode
+from manic.ui.graphs import GraphView
+from manic.ui.main_window import MainWindow
+from manic.ui.targeted_qc_widget import TargetedQcWidget
+from manic.models.analysis import AnalysisMode, IonChannel, IonRole
+from manic.validation.unlabelled_identity import (
+    IdentityQcResult,
+    IdentityStatus,
+    QualifierRatioResult,
+)
 
 
 @pytest.fixture(scope="module")
@@ -34,12 +44,87 @@ def integration_window(qapp):
 def test_unlabelled_toolbar_hides_label_derived_summaries(qapp):
     toolbar = Toolbar(AnalysisMode.UNLABELLED)
     try:
-        assert toolbar.mode_indicator.text() == "Unlabelled analysis"
         assert toolbar.isotopologue_ratios.isHidden()
         assert toolbar.total_abundance.isHidden()
         assert not toolbar.targeted_qc.isHidden()
+        assert not toolbar.targeted_trace_normalization_checkbox.isHidden()
+        assert toolbar.integration.findChild(QLabel, "reference_rt_note") is not None
     finally:
         toolbar.deleteLater()
+
+
+def test_targeted_trace_normalization_preserves_q_and_scales_v():
+    matrix = np.array(
+        [
+            [0.0, 10.0, 5.0],
+            [0.0, 2.0, 1.0],
+            [0.0, 20.0, 10.0],
+        ]
+    )
+
+    normalized = GraphView._normalize_channels_to_quantifier(matrix)
+
+    assert normalized[0].tolist() == [0.0, 10.0, 5.0]
+    assert normalized[1].tolist() == [0.0, 10.0, 5.0]
+    assert normalized[2].tolist() == [0.0, 10.0, 5.0]
+    assert np.array_equal(matrix[1], [0.0, 2.0, 1.0])
+
+
+def test_targeted_qc_shows_observed_rt_and_filterable_status(qapp, monkeypatch):
+    q = IonChannel(217.0, IonRole.QUANTIFIER)
+    v = IonChannel(
+        147.0,
+        IonRole.QUALIFIER,
+        ordinal=1,
+        expected_ratio=0.4,
+        ratio_tolerance=0.2,
+    )
+    compound = SimpleNamespace(
+        analysis_channels=(q, v),
+        is_unlabelled_target=True,
+        rt_tolerance=0.1,
+        retention_time=1.2,
+    )
+    monkeypatch.setattr(
+        "manic.ui.targeted_qc_widget.read_compound",
+        lambda _name: compound,
+    )
+    result = IdentityQcResult(
+        status=IdentityStatus.SUPPORTED,
+        quantifier_area=100.0,
+        observed_rt=1.23,
+        rt_error=0.03,
+        rt_passed=True,
+        qualifier_ratios=(QualifierRatioResult(v, 0.41, True),),
+        reasons=(),
+    )
+    provider = SimpleNamespace(
+        assess_unlabelled_identity=lambda _sample, _compound: result
+    )
+    widget = TargetedQcWidget()
+    try:
+        widget.update_results("Target", ["S1"], provider)
+        assert widget.table.horizontalHeaderItem(2).text() == "Obs RT"
+        assert widget.table.item(0, 2).text() == "1.23"
+        assert widget.observed_retention_times == {"S1": 1.23}
+        widget.show_issues_only.setChecked(True)
+        assert widget.table.isRowHidden(0)
+    finally:
+        widget.deleteLater()
+
+
+def test_new_session_ignores_qaction_checked_boolean(monkeypatch):
+    """QAction.triggered(False) must open the chooser, not become mode=False."""
+    monkeypatch.setattr(
+        "manic.ui.analysis_mode_dialog.choose_analysis_mode",
+        lambda _parent: None,
+    )
+    window_stub = SimpleNamespace(
+        compound_data_loaded=False,
+        cdf_data_loaded=False,
+    )
+
+    MainWindow.new_analysis_session(window_stub, False)
 
 
 class TestSignificantFigures:

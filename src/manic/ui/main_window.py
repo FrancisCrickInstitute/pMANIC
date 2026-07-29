@@ -11,6 +11,7 @@ from PySide6.QtGui import (
     QIcon,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -61,7 +62,7 @@ from manic.utils.workers import (
     MassToleranceReloadWorker,
     UpdateCheckWorker,
 )
-from src.manic.utils.timer import measure_time
+from manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
 
@@ -81,6 +82,10 @@ class MainWindow(QMainWindow):
 
         # Flag to prevent cascading sample deletion events
         self._deleting_samples = False
+
+        # Guard: plot selection that originated from the QC table must not
+        # collapse the QC table to a single row
+        self._qc_link_guard = False
 
         # Set window icon
         self._set_window_icon()
@@ -269,6 +274,11 @@ class MainWindow(QMainWindow):
         self.import_session_action.triggered.connect(self.import_session)
         file_menu.addAction(self.import_session_action)
 
+        # Create the New Analysis Session action (restart, optionally switching mode)
+        self.new_session_action = QAction("New Analysis Session...", self)
+        self.new_session_action.triggered.connect(self.new_analysis_session)
+        file_menu.addAction(self.new_session_action)
+
         # Create the Clear Session action
         self.clear_session_action = QAction("Clear Session", self)
         self.clear_session_action.triggered.connect(self.clear_session)
@@ -385,6 +395,17 @@ class MainWindow(QMainWindow):
         self.toolbar.baseline_correction_changed.connect(
             self.on_baseline_correction_changed
         )
+        self.toolbar.shared_y_scale_toggled.connect(
+            self.graph_view.set_shared_y_scale
+        )
+        self.toolbar.targeted_trace_normalization_toggled.connect(
+            self.graph_view.set_targeted_trace_normalization
+        )
+
+        # Clicking a row in the targeted QC table highlights that sample's plot
+        self.toolbar.targeted_qc.sample_activated.connect(
+            self._on_qc_sample_activated
+        )
 
     def _get_logo_path(self) -> str:
         """Get the path to the MANIC logo."""
@@ -445,6 +466,12 @@ class MainWindow(QMainWindow):
             "question", title, text, informative_text, parent
         )
         return msg_box.exec()
+
+    def _show_message(
+        self, msg_type: str, title: str, text: str, informative_text: str = ""
+    ) -> None:
+        """Create and show an information/warning/critical message box."""
+        self._create_message_box(msg_type, title, text, informative_text).exec()
 
     def _update_menu_states(self):
         """Update menu item enabled/disabled states based on current data state."""
@@ -524,6 +551,77 @@ class MainWindow(QMainWindow):
 
         return dlg
 
+    def new_analysis_session(
+        self,
+        _checked: bool = False,
+        *,
+        preset_mode: AnalysisMode | None = None,
+    ) -> None:
+        """Start a fresh session, optionally switching analysis mode.
+
+        The session is the unit of scientific consistency: compounds and
+        results from one mode must never be interpreted with the other mode's
+        workflow, so switching mode means starting a new session — the
+        database is cleared and the window is rebuilt exactly as at startup.
+
+        ``QAction.triggered`` supplies a checked-state boolean even for a
+        non-checkable action. Keep that signal argument separate from the
+        optional mode selected by compound-list format detection.
+        """
+        # Never wipe the database out from under a running background job.
+        # The import/reload progress dialogs are window-modal so this should
+        # be unreachable via the menu, but guard anyway.
+        for thread_attr in ("_thread", "_regen_thread", "_mass_tol_thread"):
+            thread = getattr(self, thread_attr, None)
+            if thread is not None and thread.isRunning():
+                self._show_message(
+                    "information",
+                    "Operation in progress",
+                    "Wait for the current import or reload to finish "
+                    "before starting a new session.",
+                )
+                return
+
+        if self.compound_data_loaded or self.cdf_data_loaded:
+            reply = self._show_question_dialog(
+                "New Analysis Session",
+                "Starting a new session will clear all loaded data.",
+                "Compound data, raw data, and results in this session will be "
+                "removed. Export anything you want to keep first.",
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        if preset_mode is not None:
+            mode = AnalysisMode.coerce(preset_mode)
+        else:
+            from manic.ui.analysis_mode_dialog import choose_analysis_mode
+
+            mode = choose_analysis_mode(self)
+            if mode is None:
+                return
+            if mode is self.analysis_mode:
+                self._show_message(
+                    "information",
+                    "Already in this mode",
+                    f"This session is already in {mode.display_name} mode. "
+                    "Use 'Clear Session' to reset its data.",
+                )
+                return
+
+        try:
+            clear_database()
+        except Exception as exc:
+            self._show_message("critical", "Could not clear session", str(exc))
+            return
+
+        window = MainWindow(AnalysisContext(mode))
+        # Parent-less widgets need a live Python reference or GC destroys them
+        QApplication.instance()._manic_main_window = window
+        window.showMaximized()
+        self.close()
+        logger.info(f"New analysis session started in {mode.display_name} mode")
+
     def load_compound_list_data(self: QMainWindow) -> None:
         """
         1. Prompt the user to select a compound list file.
@@ -542,6 +640,28 @@ class MainWindow(QMainWindow):
         if not file_path:
             return
 
+        # Guard against loading a list written for the other workflow: a Gv3
+        # (QIon/ValIon) list in a labelled session (or vice versa) can only be
+        # misinterpreted, so offer to restart in the right mode instead.
+        from manic.io.compounds_import import detect_compound_list_format
+
+        detected_mode = detect_compound_list_format(file_path)
+        if detected_mode is not None and detected_mode is not self.analysis_mode:
+            list_kind = "Gv3" if detected_mode is AnalysisMode.UNLABELLED else "Gv5"
+            msg_box = self._create_message_box(
+                "warning",
+                "Compound list does not match this session",
+                f"This looks like a {detected_mode.display_name} ({list_kind}) "
+                f"compound list, but this session is in "
+                f"{self.analysis_mode.display_name} mode.\n\n"
+                f"Start a new {detected_mode.display_name} session and load it there?",
+            )
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.Yes)
+            if msg_box.exec() == QMessageBox.Yes:
+                self.new_analysis_session(preset_mode=detected_mode)
+            return
+
         try:
             self.compounds_data_storage = import_compound_excel(
                 file_path,
@@ -555,8 +675,7 @@ class MainWindow(QMainWindow):
             self._update_menu_states()
 
         except Exception as e:
-            msg_box = self._create_message_box("warning", "Error", str(e))
-            msg_box.exec()
+            self._show_message("warning", "Error", str(e))
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(
@@ -799,11 +918,23 @@ class MainWindow(QMainWindow):
         provider = DataProvider(
             use_legacy_integration=self.use_legacy_integration
         )
-        self.toolbar.targeted_qc.update_results(
+        statuses = self.toolbar.targeted_qc.update_results(
             compound_name,
             sample_names,
             provider,
         )
+        self.graph_view.set_identity_status(statuses)
+        self.graph_view.set_observed_retention_times(
+            self.toolbar.targeted_qc.observed_retention_times
+        )
+
+    def _on_qc_sample_activated(self, sample_name: str) -> None:
+        """Highlight the plot for a sample clicked in the QC table."""
+        self._qc_link_guard = True
+        try:
+            self.graph_view.select_sample(sample_name)
+        finally:
+            self._qc_link_guard = False
 
     def on_compound_selected(self, compound_selected):
         """
@@ -965,8 +1096,9 @@ class MainWindow(QMainWindow):
             )
 
             if self.analysis_mode is not AnalysisMode.LABELLED:
-                qc_samples = selected_samples or all_samples
-                self._update_targeted_qc(current_compound, qc_samples)
+                if not self._qc_link_guard:
+                    qc_samples = selected_samples or all_samples
+                    self._update_targeted_qc(current_compound, qc_samples)
                 return
 
             # Update isotopologue ratios and total abundance (integration parameters may have changed)

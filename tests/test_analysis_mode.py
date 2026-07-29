@@ -90,8 +90,8 @@ def test_detailed_plot_uses_diagnostic_ion_labels_in_unlabelled_mode():
         )
         channel_count = len(analysis_channels)
 
-    assert channel_legend_label(Target(), 0) == "Quantifier m/z 217"
-    assert channel_legend_label(Target(), 1) == "Qualifier 1 m/z 147"
+    assert channel_legend_label(Target(), 0) == "Q ion m/z 217"
+    assert channel_legend_label(Target(), 1) == "V ion 1 m/z 147"
 
 
 def test_detailed_plot_preserves_isotopologue_labels_in_labelled_mode():

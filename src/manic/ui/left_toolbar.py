@@ -49,6 +49,12 @@ class Toolbar(QWidget):
     # Signal emitted when baseline correction checkbox is toggled
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
+    # Signal emitted when the shared y-scale checkbox is toggled
+    shared_y_scale_toggled = Signal(bool)
+
+    # Display-only normalization for comparing Q/V chromatographic shapes
+    targeted_trace_normalization_toggled = Signal(bool)
+
     def __init__(
         self,
         analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
@@ -132,18 +138,6 @@ class Toolbar(QWidget):
             self.loaded_data, alignment=Qt.AlignmentFlag.AlignCenter
         )
 
-        self.mode_indicator = QLabel(
-            f"{self.analysis_mode.display_name} analysis"
-        )
-        self.mode_indicator.setAlignment(Qt.AlignCenter)
-        self.mode_indicator.setStyleSheet(
-            "background-color: #d9eaf7; color: #15324b; "
-            "border-radius: 8px; padding: 4px 10px; font-weight: 600;"
-        )
-        indicators_layout.addWidget(
-            self.mode_indicator, alignment=Qt.AlignmentFlag.AlignCenter
-        )
-
         # Add extra vertical spacing between data indicators and standard indicator
         indicators_layout.addSpacing(8)  # Additional spacing
 
@@ -166,7 +160,6 @@ class Toolbar(QWidget):
         # Compact the container to fit content size
         indicators_container.setMaximumHeight(
             self.loaded_data.sizeHint().height()
-            + self.mode_indicator.sizeHint().height()
             + self.standard.sizeHint().height()
             + self.mz_indicator.sizeHint().height()
             + 24  # Account for margins, spacing, and extra vertical gap
@@ -185,7 +178,7 @@ class Toolbar(QWidget):
             self.compound_list, stretch=1
         )  # Give compound list more space
 
-        self.integration = IntegrationWindow()
+        self.integration = IntegrationWindow(self.analysis_mode)
         content_layout.addWidget(
             self.integration, stretch=0
         )  # No stretch for integration window
@@ -225,6 +218,39 @@ class Toolbar(QWidget):
         """)
         content_layout.addWidget(self.baseline_checkbox, stretch=0)
 
+        # Shared y-scale toggle: one common scale across all sample tiles so
+        # abundances are visually comparable (off = per-tile autoscaling).
+        self.shared_yscale_checkbox = QCheckBox("Shared y-scale")
+        self.shared_yscale_checkbox.setObjectName("shared_yscale_checkbox")
+        self.shared_yscale_checkbox.setToolTip(
+            "Use one common intensity scale for all sample plots.\n"
+            "Off: each plot autoscales to its own tallest peak."
+        )
+        self.shared_yscale_checkbox.setStyleSheet(self.baseline_checkbox.styleSheet())
+        self.shared_yscale_checkbox.stateChanged.connect(
+            lambda state: self.shared_y_scale_toggled.emit(state != 0)
+        )
+        content_layout.addWidget(self.shared_yscale_checkbox, stretch=0)
+
+        self.targeted_trace_normalization_checkbox = QCheckBox("Normalize Q/V shapes")
+        self.targeted_trace_normalization_checkbox.setObjectName(
+            "targeted_trace_normalization_checkbox"
+        )
+        self.targeted_trace_normalization_checkbox.setToolTip(
+            "Scale each V-ion trace to the Q-ion peak height so their chromatographic "
+            "shapes and apex alignment can be compared visually.\n"
+            "Display only: integration and exported areas always use the original signals."
+        )
+        self.targeted_trace_normalization_checkbox.setStyleSheet(
+            self.baseline_checkbox.styleSheet()
+        )
+        self.targeted_trace_normalization_checkbox.stateChanged.connect(
+            lambda state: self.targeted_trace_normalization_toggled.emit(state != 0)
+        )
+        content_layout.addWidget(
+            self.targeted_trace_normalization_checkbox, stretch=0
+        )
+
         self.isotopologue_ratios = IsotopologueRatioWidget()
         content_layout.addWidget(
             self.isotopologue_ratios, stretch=2
@@ -243,6 +269,7 @@ class Toolbar(QWidget):
             self.total_abundance.hide()
         else:
             self.targeted_qc.hide()
+            self.targeted_trace_normalization_checkbox.hide()
 
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)
@@ -251,8 +278,9 @@ class Toolbar(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
 
-        # self.setFixedWidth(222)
-        self.setMinimumWidth(222)
+        # Wide enough that the unlabelled targeted-QC table fits without
+        # horizontal scrolling; the splitter still allows widening.
+        self.setMinimumWidth(256)
 
         self.setLayout(main_layout)
 

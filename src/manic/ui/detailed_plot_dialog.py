@@ -43,7 +43,7 @@ from manic.constants import (
     PLOT_STEM_WIDTH,
 )
 from manic.io.cdf_data_extractor import ensure_ms_data_for_time
-from manic.io.compound_reader import read_compound_with_session
+from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.io.tic_reader import read_tic
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
@@ -51,6 +51,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
+from manic.validation.unlabelled_identity import quantifier_apex_time
 from manic.ui.channel_labels import channel_legend_label
 from manic.ui.colors import label_colors  # Import the same colors as main window
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
@@ -75,17 +76,21 @@ class DetailedPlotDialog(QDialog):
         sample_name: str,
         parent=None,
         use_corrected: bool = False,
+        normalize_targeted_traces: bool = False,
     ):
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
         self.use_corrected = use_corrected  # Store the isotope correction flag
+        self.normalize_targeted_traces = bool(normalize_targeted_traces)
 
         # Initialize data containers
         self.eic_data = None
         self.tic_data = None
         self.ms_data = None
         self.compound_info = None
+        self.method_compound = None
+        self.observed_rt = None
 
         self._setup_ui()
         self._load_data()
@@ -305,12 +310,25 @@ class DetailedPlotDialog(QDialog):
             self.compound_info = read_compound_with_session(
                 self.compound_name, self.sample_name
             )
+            self.method_compound = read_compound(self.compound_name)
             if not self.compound_info:
                 self._show_error("Failed to load compound information")
                 return
 
             # Extract Extracted Ion Chromatogram data (mandatory)
             self._load_eic_data()
+            if (
+                self.eic_data is not None
+                and self.compound_info.is_unlabelled_target
+            ):
+                self.observed_rt = quantifier_apex_time(
+                    self.eic_data.time,
+                    self.eic_data.intensity,
+                    self.compound_info.channel_count,
+                    expected_rt=self.compound_info.retention_time,
+                    loffset=self.compound_info.loffset,
+                    roffset=self.compound_info.roffset,
+                )
 
             # Retrieve Total Ion Chromatogram data (if available)
             self._load_tic_data()
@@ -376,7 +394,11 @@ class DetailedPlotDialog(QDialog):
         """Load MS data at the compound's retention time."""
         try:
             if self.compound_info:
-                retention_time = self.compound_info.retention_time
+                retention_time = (
+                    self.observed_rt
+                    if self.observed_rt is not None
+                    else self.compound_info.retention_time
+                )
                 self.ms_data = ensure_ms_data_for_time(
                     self.sample_name,
                     retention_time,
@@ -432,6 +454,7 @@ class DetailedPlotDialog(QDialog):
                 width=PLOT_GUIDELINE_WIDTH,
                 style="dotted",
             )
+            self._add_targeted_reference_lines(self.eic_plot)
 
             # Add baseline lines if baseline correction is enabled
             self._add_baseline_lines(left_bound, right_bound)
@@ -622,6 +645,23 @@ class DetailedPlotDialog(QDialog):
         alpha: float = 1.0,
     ):
         matrix = intensity if intensity.ndim > 1 else intensity.reshape(1, -1)
+        if (
+            self.normalize_targeted_traces
+            and self.compound_info is not None
+            and self.compound_info.is_unlabelled_target
+            and matrix.shape[0] > 1
+        ):
+            # Match OLD_MANIC's optional Scale ValIons view: all channels are
+            # scaled to the Q-ion peak height for shape comparison only.
+            matrix = np.asarray(matrix, dtype=np.float64).copy()
+            finite_q = matrix[0, np.isfinite(matrix[0])]
+            q_peak = float(np.max(finite_q)) if finite_q.size else 0.0
+            if q_peak > 0:
+                for index in range(1, matrix.shape[0]):
+                    finite = matrix[index, np.isfinite(matrix[index])]
+                    channel_peak = float(np.max(finite)) if finite.size else 0.0
+                    if channel_peak > 0:
+                        matrix[index] *= q_peak / channel_peak
         multi_trace = intensity.ndim > 1
         time = np.asarray(self.eic_data.time, dtype=np.float64)
         for i, trace in enumerate(matrix):
@@ -668,6 +708,7 @@ class DetailedPlotDialog(QDialog):
                     width=PLOT_GUIDELINE_WIDTH,
                     style="solid",
                 )
+                self._add_targeted_reference_lines(self.tic_plot)
 
             # Execute batch rendering for performance
             self.tic_plot.finalize_plot()
@@ -675,6 +716,23 @@ class DetailedPlotDialog(QDialog):
         except Exception as e:
             logger.error(f"Failed to plot TIC: {e}")
             self.tic_plot.set_title("Total Ion Chromatogram (error loading data)")
+
+    def _add_targeted_reference_lines(self, plot) -> None:
+        """Method reference RT (dash-dot grey) and observed Q apex (magenta)."""
+        if self.method_compound and self.compound_info.is_unlabelled_target:
+            plot.add_vertical_line(
+                self.method_compound.retention_time,
+                color=f"rgba(100,100,100,{GUIDELINE_ALPHA})",
+                width=PLOT_GUIDELINE_WIDTH,
+                style="dashdot",
+            )
+        if self.observed_rt is not None:
+            plot.add_vertical_line(
+                self.observed_rt,
+                color="#D946EF",
+                width=1.8,
+                style="solid",
+            )
 
     def _plot_ms(self):
         """Plot the mass spectrum data."""
@@ -759,13 +817,22 @@ class DetailedPlotDialog(QDialog):
 
         if self.compound_info:
             rt = self.compound_info.retention_time
-            info_parts.append(f"Retention Time: {rt:.3f} min")
             if self.compound_info.is_unlabelled_target:
+                reference_rt = (
+                    self.method_compound.retention_time
+                    if self.method_compound is not None
+                    else rt
+                )
+                info_parts.append(f"Reference RT: {reference_rt:.3f} min")
+                info_parts.append(f"Integration centre: {rt:.3f} min")
+                if self.observed_rt is not None:
+                    info_parts.append(f"Observed Q apex: {self.observed_rt:.3f} min")
                 ions = ", ".join(
                     channel.label for channel in self.compound_info.analysis_channels
                 )
                 info_parts.append(ions)
             else:
+                info_parts.append(f"Retention Time: {rt:.3f} min")
                 info_parts.append(f"m/z: {self.compound_info.mass0:.4f}")
                 if self.compound_info.label_atoms:
                     info_parts.append(

@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from manic.constants import DEFAULT_RT_WINDOW_BUFFER
 from manic.io.cdf_reader import read_cdf_file
 from manic.io.compound_reader import read_compound
 from manic.models.database import get_connection
@@ -24,6 +25,7 @@ class CompoundExtractionTarget:
     mass0: float
     label_atoms: int
     target_mzs: tuple[float, ...]
+    required_rt_window: float
 
 
 # ─────────────────────────── Utility Functions ────────────────────────────
@@ -51,6 +53,7 @@ def _iter_compounds(conn):
     rows = conn.execute(
         """
         SELECT c.compound_name, c.retention_time, c.mass0, c.label_atoms,
+               c.loffset, c.roffset,
                ci.mz AS channel_mz
         FROM compounds c
         LEFT JOIN compound_ions ci ON ci.compound_name = c.compound_name
@@ -68,6 +71,8 @@ def _iter_compounds(conn):
                 "retention_time": row["retention_time"],
                 "mass0": row["mass0"],
                 "label_atoms": int(row["label_atoms"] or 0),
+                "loffset": float(row["loffset"] or 0.0),
+                "roffset": float(row["roffset"] or 0.0),
                 "target_mzs": [],
             },
         )
@@ -87,6 +92,9 @@ def _iter_compounds(conn):
             mass0=float(data["mass0"]),
             label_atoms=data["label_atoms"],
             target_mzs=target_mzs,
+            required_rt_window=(
+                max(data["loffset"], data["roffset"]) + DEFAULT_RT_WINDOW_BUFFER
+            ),
         )
 
 
@@ -150,6 +158,10 @@ def _extract_all_eics_for_file(
     # Process each compound using cached CDF data and pre-computed time array
     for i, target in enumerate(compounds):
         try:
+            # The stored EIC must contain the complete integration interval.
+            # Treat the caller's rt_window as a minimum rather than silently
+            # clipping compounds whose configured offsets are wider.
+            target_rt_window = max(float(rt_window), target.required_rt_window)
             # Use optimized extraction algorithm that leverages cached computations
             eic = _extract_eic_optimized(
                 target.compound_name,
@@ -158,7 +170,7 @@ def _extract_all_eics_for_file(
                 cdf_data,
                 times,
                 mass_tol,
-                rt_window,
+                target_rt_window,
                 target.label_atoms,
                 target.target_mzs,
             )
@@ -170,7 +182,7 @@ def _extract_all_eics_for_file(
                 eic.compound_name,  # Compound identifier
                 _compress(eic.time),  # Compressed time array (zlib)
                 _compress(eic.intensity),  # Compressed intensity array (zlib)
-                rt_window,  # Retention time window used for extraction
+                target_rt_window,  # Retention time window used for extraction
             )
             eic_batch.append(eic_data)
 
@@ -780,7 +792,9 @@ def regenerate_all_eics_with_mass_tolerance(
                     c.compound_name,
                     COALESCE(sa.retention_time, c.retention_time) as retention_time,
                     c.mass0,
-                    c.label_atoms
+                    c.label_atoms,
+                    COALESCE(sa.loffset, c.loffset) as loffset,
+                    COALESCE(sa.roffset, c.roffset) as roffset
                 FROM compounds c
                 LEFT JOIN session_activity sa
                     ON sa.compound_name = c.compound_name
@@ -802,6 +816,10 @@ def regenerate_all_eics_with_mass_tolerance(
                     mass0=base_target.mass0,
                     label_atoms=base_target.label_atoms,
                     target_mzs=base_target.target_mzs,
+                    required_rt_window=(
+                        max(float(row["loffset"]), float(row["roffset"]))
+                        + DEFAULT_RT_WINDOW_BUFFER
+                    ),
                 )
             )
 

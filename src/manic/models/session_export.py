@@ -89,7 +89,8 @@ def export_session_method(
                 SELECT compound_name, retention_time, loffset, roffset,
                        mass0, label_atoms, rt_tolerance, deleted,
                        baseline_correction, deconvolution_level,
-                       deconvolution_fit_type, deconvolution_noise_gate
+                       deconvolution_fit_type, deconvolution_noise_gate,
+                       amount_in_std_mix, int_std_amount, mm_files
                 FROM compounds
                 ORDER BY compound_name
             """)
@@ -133,6 +134,9 @@ def export_session_method(
                         "deconvolution_level": row["deconvolution_level"],
                         "deconvolution_fit_type": row["deconvolution_fit_type"],
                         "deconvolution_noise_gate": row["deconvolution_noise_gate"],
+                        "amount_in_std_mix": row["amount_in_std_mix"],
+                        "int_std_amount": row["int_std_amount"],
+                        "mm_files": row["mm_files"],
                     }
                 )
 
@@ -369,6 +373,15 @@ def _apply_compound_method_settings(compounds: list) -> None:
             if "deconvolution_noise_gate" in compound:
                 assignments.append("deconvolution_noise_gate = ?")
                 values.append(normalize_noise_gate(compound.get("deconvolution_noise_gate")))
+            if "amount_in_std_mix" in compound:
+                assignments.append("amount_in_std_mix = ?")
+                values.append(compound.get("amount_in_std_mix"))
+            if "int_std_amount" in compound:
+                assignments.append("int_std_amount = ?")
+                values.append(compound.get("int_std_amount"))
+            if "mm_files" in compound:
+                assignments.append("mm_files = ?")
+                values.append(compound.get("mm_files"))
 
             if not assignments:
                 continue

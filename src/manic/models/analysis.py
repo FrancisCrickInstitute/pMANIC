@@ -55,9 +55,9 @@ class IonChannel:
     @property
     def label(self) -> str:
         if self.role is IonRole.QUANTIFIER:
-            return f"Quantifier m/z {self.mz:g}"
+            return f"Q ion m/z {self.mz:g}"
         if self.role is IonRole.QUALIFIER:
-            return f"Qualifier {self.ordinal} m/z {self.mz:g}"
+            return f"V ion {self.ordinal} m/z {self.mz:g}"
         return f"M+{self.ordinal} m/z {self.mz:g}"
 
 

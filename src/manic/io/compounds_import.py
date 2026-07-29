@@ -99,6 +99,40 @@ class CompoundRow(BaseModel):
 
 
 # 2.  Import function (
+def detect_compound_list_format(filepath: str | Path) -> AnalysisMode | None:
+    """Sniff a compound list's headers to infer which workflow it targets.
+
+    Gv3-style lists (QIon / ValIon1 / ValIon2 columns) are unlabelled targeted
+    lists; Gv5-style lists (Mass0 / LabelAtoms) are labelled isotope-tracing
+    lists. Returns None when the format can't be determined — callers should
+    then fall back to the session's own mode.
+    """
+
+    path = Path(filepath).expanduser()
+    if not path.exists():
+        return None
+
+    try:
+        if path.suffix.lower() == ".xlsx":
+            columns = pd.read_excel(path, engine="openpyxl", nrows=0).columns
+        elif path.suffix.lower() == ".xls":
+            columns = pd.read_excel(path, engine="xlrd", nrows=0).columns
+        else:
+            columns = pd.read_csv(path, nrows=0).columns
+    except Exception as exc:
+        logger.warning(f"Could not sniff compound list format of {path.name}: {exc}")
+        return None
+
+    normalized = {
+        str(c).strip().lower().replace(" ", "").replace("_", "") for c in columns
+    }
+    if {"qion", "valion1"} & normalized:
+        return AnalysisMode.UNLABELLED
+    if {"mass0", "labelatoms"} & normalized:
+        return AnalysisMode.LABELLED
+    return None
+
+
 def import_compound_excel(
     filepath: str | Path,
     analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
@@ -426,8 +460,8 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
         INSERT OR IGNORE INTO compounds
             (compound_name, retention_time, mass0, loffset, roffset, label_atoms,
              formula, label_type, tbdms, meox, me, amount_in_std_mix,
-             int_std_amount, mm_files, deleted)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             int_std_amount, mm_files, deleted, deconvolution_level)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'off')
     """
     ion_sql = """
         INSERT OR REPLACE INTO compound_ions

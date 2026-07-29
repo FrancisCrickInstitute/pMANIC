@@ -548,32 +548,34 @@ class DataProvider:
 
     def get_compound_total_area(self, sample_name: str, compound_name: str) -> float:
         """
-        Get the sum of all isotopologue peak areas for a compound in a sample.
+        Get the analytical response used to quantify a compound in a sample.
 
-        This returns the total integrated area across all isotopologues (M0, M1, M2, etc.)
-        for the specified compound. The areas are already integrated using the compound's
-        own retention time and offset boundaries (respecting session overrides).
+        Labelled compounds use the sum across M+0...M+n. Unlabelled targeted
+        compounds use the Q-ion area only; V ions provide identity evidence and
+        must never contribute to the reported response.
 
         Args:
             sample_name: Name of the sample to query
             compound_name: Name of the compound to query
 
         Returns:
-            Total area (sum of all isotopologue areas), or 0.0 if compound not found
+            Quantification response, or 0.0 if the compound is not found
 
         Example:
             If compound has isotopologue areas [100.0, 50.0, 25.0], returns 175.0
         """
-        sample_data = self.get_sample_corrected_data(sample_name)
-        areas = sample_data.get(compound_name, [])
+        # Use the per-compound path (targeted cache) rather than forcing a
+        # full-dataset bulk integration for interactive callers.
+        areas = self.get_compound_areas(sample_name, compound_name)
         if not areas:
             return 0.0
         with get_connection() as conn:
-            has_diagnostic_ions = conn.execute(
-                "SELECT 1 FROM compound_ions WHERE compound_name = ? LIMIT 1",
+            has_quantifier = conn.execute(
+                "SELECT 1 FROM compound_ions "
+                "WHERE compound_name = ? AND role = 'quantifier' LIMIT 1",
                 (compound_name,),
             ).fetchone()
-        return float(areas[0] if has_diagnostic_ions else sum(areas))
+        return float(areas[0] if has_quantifier else sum(areas))
 
     def get_compound_isotope_area(
         self, sample_name: str, compound_name: str, isotope_index: int
@@ -621,33 +623,38 @@ class DataProvider:
     def assess_unlabelled_identity(self, sample_name: str, compound_name: str):
         """Return RT and qualifier-ratio QC for one targeted compound."""
 
-        from manic.io.compound_reader import read_compound_with_session
+        from manic.io.compound_reader import read_compound, read_compound_with_session
         from manic.io.eic_reader import read_eic
         from manic.validation.unlabelled_identity import (
             assess_identity,
             quantifier_apex_time,
         )
 
-        compound = read_compound_with_session(compound_name, sample_name)
-        if not compound.is_unlabelled_target:
+        # Session data may move the integration centre and boundaries for this
+        # sample, but it must not redefine the method's expected RT. Otherwise
+        # manually centring the window on the observed peak makes the RT check
+        # circular and guarantees an artificially small error.
+        method_compound = read_compound(compound_name)
+        integration_compound = read_compound_with_session(compound_name, sample_name)
+        if not integration_compound.is_unlabelled_target:
             raise ValueError(
                 f"{compound_name!r} does not have quantifier/qualifier channels"
             )
-        eic = read_eic(sample_name, compound, use_corrected=False)
+        eic = read_eic(sample_name, integration_compound, use_corrected=False)
         observed_rt = quantifier_apex_time(
             eic.time,
             eic.intensity,
-            compound.channel_count,
-            expected_rt=compound.retention_time,
-            loffset=compound.loffset,
-            roffset=compound.roffset,
+            integration_compound.channel_count,
+            expected_rt=integration_compound.retention_time,
+            loffset=integration_compound.loffset,
+            roffset=integration_compound.roffset,
         )
         return assess_identity(
             self.get_compound_areas(sample_name, compound_name),
-            compound.analysis_channels,
-            expected_rt=compound.retention_time,
+            method_compound.analysis_channels,
+            expected_rt=method_compound.retention_time,
             observed_rt=observed_rt,
-            rt_tolerance=compound.rt_tolerance,
+            rt_tolerance=method_compound.rt_tolerance,
         )
 
     def _get_corrector(self) -> NaturalAbundanceCorrector:
@@ -993,8 +1000,10 @@ class DataProvider:
 
         # Compute only the two compounds we actually need (the validated compound
         # and the internal standard) rather than deconvolving the whole dataset.
-        compound_areas = self.get_compound_areas(sample_name, compound_name)
-        compound_total = float(sum(compound_areas)) if compound_areas else 0.0
+        # Unlabelled quantification is defined by the Q ion alone. Summing V-ion
+        # areas here could let a weak/absent Q ion pass validation merely because
+        # an interfering qualifier channel is intense.
+        compound_total = self.get_compound_total_area(sample_name, compound_name)
 
         idx = internal_standard_isotope_index
         is_areas = self.get_compound_areas(sample_name, internal_standard)
@@ -1015,7 +1024,7 @@ class DataProvider:
         internal_standard_isotope_index: int = 0,
     ) -> Dict[str, Dict[str, float]]:
         """
-        Get total area metrics for all compounds in a sample for validation.
+        Get quantification-response metrics for all compounds in a sample.
         
         Returns a dictionary mapping each compound to its total area and the
         internal standard's reference peak area. Useful for batch validation or export.
@@ -1040,7 +1049,7 @@ class DataProvider:
 
         metrics = {}
         for compound_name, areas in sample_data.items():
-            compound_total = float(sum(areas)) if areas else 0.0
+            compound_total = self.get_compound_total_area(sample_name, compound_name)
             metrics[compound_name] = {
                 "compound_total": compound_total,
                 "internal_standard_reference": is_ref,

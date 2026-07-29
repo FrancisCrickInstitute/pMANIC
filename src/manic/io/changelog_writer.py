@@ -81,14 +81,18 @@ def generate_changelog(
         ).fetchall()
 
     if mode is AnalysisMode.UNLABELLED:
-        processing_description = f"""- **Diagnostic-ion workflow:** Quantifier area with qualifier-ion identity checks
-- **Qualifier ratio:** Integrated qualifier area / integrated quantifier area
-- **Retention-time check:** Quantifier apex versus the compound reference RT
+        processing_description = f"""- **Diagnostic-ion workflow:** Q-ion area with V-ion identity checks
+- **V-ion ratio:** Integrated V-ion area / integrated Q-ion area
+- **Retention-time check:** Q-ion apex versus the compound reference RT
 - **Natural Isotope Correction:** Not applied; these channels are diagnostic ions, not isotopologues
 - **Quantitative claim:** Peak area, response ratio, or explicitly labelled semi-quantitative single-point estimate"""
-        sheets_description = """1. **Targeted Results** - Quantifier response, relative/semi-quantitative result, and identity status
-2. **Qualifier QC** - Observed qualifier ratios, references, tolerances, and pass/review flags
+        sheets_description = """1. **Targeted Results** - Q-ion response, relative/semi-quantitative result, and identity status
+2. **Qualifier QC** - Observed V-ion ratios, references, tolerances, and pass/review flags
 3. **Targeted Method** - Diagnostic ions and interpretation limits"""
+        key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values
+- Q-ion area alone supplies the analytical response; V-ion areas are identity evidence
+- Reference RT remains fixed when per-sample integration centres are adjusted
+- Natural-isotope correction and isotopologue deconvolution are not applied"""
     else:
         processing_description = """- **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0
 - **Internal Standard Handling:** Raw values copied directly for label_atoms = 0"""
@@ -97,6 +101,9 @@ def generate_changelog(
 3. **Isotope Ratios** - Normalized corrected values (fractions sum to 1.0)
 4. **% Label Incorporation** - Percentage of experimental label incorporation
 5. **Abundances** - Absolute metabolite concentrations via internal standard calibration"""
+        key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values
+- Natural-isotope correction applied to labelled isotopologue channels
+- Peak-area validation uses the configured internal-standard reference isotopologue"""
 
     changelog_content = f"""# MANIC Export Session Changelog
 
@@ -167,12 +174,10 @@ def generate_changelog(
 {sheets_description}
 
 ## Key Processing Notes
-- Integration boundaries determined by compound-specific loffset/roffset values
 - Strict boundaries (time > l_boundary & time < r_boundary) for precise peak integration
 - Compound-specific MM file patterns used for standard mixture identification
 - {"Legacy unit-spacing integration matches MATLAB MANIC (larger numerical values)" if use_legacy_integration else "Time-based integration produces physically meaningful results with proper units"}
-- Natural isotope correction applied using high-performance algorithms for accuracy
-- Peak area validation uses minimum ratio of 5% of internal standard reference peak area (M+N)
+{key_processing_notes}
 
 ## Session Changes Made
 This export represents the final state of all data processing and parameter adjustments made during the session. All parameter overrides and corrections have been applied to generate the most accurate quantitative results possible.

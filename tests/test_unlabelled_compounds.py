@@ -11,9 +11,10 @@ import pandas as pd
 import pytest
 
 from manic.io.compound_reader import read_compound
-from manic.io.compounds_import import import_compound_excel
+from manic.io.compounds_import import detect_compound_list_format, import_compound_excel
 from manic.io.data_provider import DataProvider
 from manic.io.data_exporter import DataExporter
+from manic.io.eic_importer import _iter_compounds
 from manic.io.eic_reader import read_eic
 from manic.models import database
 from manic.models import session_export
@@ -31,6 +32,71 @@ def unlabelled_db(tmp_path, monkeypatch):
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA.read_text(encoding="utf-8"))
     return db_path
+
+
+def _import_targets(tmp_path, **row) -> int:
+    """Write a one-row unlabelled compound list and import it."""
+    path = tmp_path / "targets.csv"
+    pd.DataFrame([row]).to_csv(path, index=False)
+    return import_compound_excel(path, AnalysisMode.UNLABELLED)
+
+
+def _insert_eic(sample: str, compound: str, time, matrix, rt_window: float) -> None:
+    """Insert a sample and its (compressed) multi-channel EIC trace."""
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO samples (sample_name, file_name) VALUES (?, ?)",
+            (sample, f"/fake/{sample}.cdf"),
+        )
+        conn.execute(
+            "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                sample,
+                compound,
+                zlib.compress(np.asarray(time, dtype=np.float64).tobytes()),
+                zlib.compress(np.asarray(matrix, dtype=np.float64).ravel().tobytes()),
+                rt_window,
+            ),
+        )
+
+
+def test_detect_format_recognises_gv3_csv(tmp_path):
+    path = tmp_path / "gv3.csv"
+    path.write_text(
+        "name,tR,lOffset,rOffset,QIon,ValIon1,ValIon2,tR_Window\n"
+        "A,1.0,0.1,0.1,100,150,200,0.1\n"
+    )
+    assert detect_compound_list_format(path) is AnalysisMode.UNLABELLED
+
+
+def test_detect_format_recognises_gv5_xlsx(tmp_path):
+    path = tmp_path / "gv5.xlsx"
+    pd.DataFrame(
+        {
+            "name": ["Pyruvate"],
+            "tR": [6.37],
+            "Mass0": [174],
+            "LabelAtoms": [3],
+        }
+    ).to_excel(path, index=False)
+    assert detect_compound_list_format(path) is AnalysisMode.LABELLED
+
+
+def test_detect_format_normalises_header_variants(tmp_path):
+    path = tmp_path / "variants.csv"
+    path.write_text("Name,tR,Quant Ion,Val Ion 1\nA,1.0,100,150\n")
+    assert detect_compound_list_format(path) is AnalysisMode.UNLABELLED
+
+
+def test_detect_format_returns_none_for_unrecognised_headers(tmp_path):
+    path = tmp_path / "other.csv"
+    path.write_text("a,b,c\n1,2,3\n")
+    assert detect_compound_list_format(path) is None
+
+
+def test_detect_format_returns_none_for_missing_file(tmp_path):
+    assert detect_compound_list_format(tmp_path / "missing.csv") is None
 
 
 def test_existing_database_migrates_targeted_schema(tmp_path, monkeypatch):
@@ -76,26 +142,16 @@ def test_existing_database_migrates_targeted_schema(tmp_path, monkeypatch):
 def test_unlabelled_compound_import_stores_arbitrary_ion_channels(
     unlabelled_db, tmp_path
 ):
-    compound_list = tmp_path / "targets.csv"
-    pd.DataFrame(
-        [
-            {
-                "name": "Citrate 4TMS",
-                "tR": 12.4,
-                "lOffset": 0.15,
-                "rOffset": 0.2,
-                "QIon": 273,
-                "ValIon1": 147,
-                "ValIon2": 73,
-                "Qualifier 1 Ratio": 0.42,
-                "Qualifier 1 Tolerance": 0.25,
-            }
-        ]
-    ).to_csv(compound_list, index=False)
-
-    count = import_compound_excel(
-        compound_list,
-        analysis_mode=AnalysisMode.UNLABELLED,
+    count = _import_targets(
+        tmp_path,
+        name="Citrate 4TMS",
+        tR=12.4,
+        lOffset=0.15,
+        rOffset=0.2,
+        QIon=273,
+        ValIon1=147,
+        ValIon2=73,
+        **{"Qualifier 1 Ratio": 0.42, "Qualifier 1 Tolerance": 0.25},
     )
 
     assert count == 1
@@ -141,50 +197,35 @@ def test_unlabelled_import_requires_quantifier_and_qualifier_columns(
 def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
     unlabelled_db, tmp_path
 ):
-    compound_list = tmp_path / "targets.csv"
-    pd.DataFrame(
-        [
-            {
-                "name": "Target",
-                "tR": 1.0,
-                "lOffset": 1.1,
-                "rOffset": 1.1,
-                "quant_ion": 217,
-                "qualifier_ion_1": 147,
-                "qualifier_ion_2": 73,
-            }
-        ]
-    ).to_csv(compound_list, index=False)
-    import_compound_excel(compound_list, AnalysisMode.UNLABELLED)
-
-    time = np.array([0.0, 1.0, 2.0], dtype=np.float64)
-    matrix = np.array(
-        [
-            [0.0, 10.0, 0.0],
-            [0.0, 4.0, 0.0],
-            [0.0, 2.0, 0.0],
-        ],
-        dtype=np.float64,
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        quant_ion=217,
+        qualifier_ion_1=147,
+        qualifier_ion_2=73,
     )
+
     with database.get_connection() as conn:
-        conn.execute(
-            "INSERT INTO samples (sample_name, file_name) VALUES (?, ?)",
-            ("S1", "/fake/S1.cdf"),
-        )
-        conn.execute(
-            """
-            INSERT INTO eic
-                (sample_name, compound_name, x_axis, y_axis, rt_window)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                "S1",
-                "Target",
-                zlib.compress(time.tobytes()),
-                zlib.compress(matrix.ravel().tobytes()),
-                1.0,
-            ),
-        )
+        extraction_target = list(_iter_compounds(conn))[0]
+    assert extraction_target.required_rt_window > 1.1
+    # areas[0] is only the quantifier if channel 0 is the quantifier in both
+    # the extraction target and the channel model. Pin that invariant here:
+    # quantification and identity QC silently corrupt if it ever breaks.
+    assert extraction_target.target_mzs[0] == pytest.approx(217.0)
+    channels = read_compound("Target").analysis_channels
+    assert channels[0].role is IonRole.QUANTIFIER
+    assert [c.mz for c in channels] == pytest.approx([217.0, 147.0, 73.0])
+
+    time = [0.0, 1.0, 2.0]
+    matrix = [
+        [0.0, 10.0, 0.0],
+        [0.0, 4.0, 0.0],
+        [0.0, 2.0, 0.0],
+    ]
+    _insert_eic("S1", "Target", time, matrix, rt_window=1.0)
 
     provider = DataProvider()
     round_trip = read_eic(
@@ -207,26 +248,69 @@ def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
     )
 
 
+def test_manual_integration_rt_does_not_redefine_identity_reference(
+    unlabelled_db, tmp_path
+):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        **{"tR Window": 0.05},
+        lOffset=0.1,
+        rOffset=0.1,
+        quant_ion=217,
+        qualifier_ion_1=147,
+        **{"Qualifier 1 Ratio": 0.5, "Qualifier 1 Tolerance": 0.2},
+    )
+
+    _insert_eic(
+        "S1",
+        "Target",
+        [1.0, 1.1, 1.2, 1.3],
+        [
+            [0.0, 2.0, 10.0, 0.0],
+            [0.0, 1.0, 5.0, 0.0],
+        ],
+        rt_window=0.3,
+    )
+    with database.get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO session_activity
+                (compound_name, sample_name, retention_time, loffset, roffset)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("Target", "S1", 1.2, 0.11, 0.11),
+        )
+
+    qc = DataProvider().assess_unlabelled_identity("S1", "Target")
+
+    assert qc.observed_rt == pytest.approx(1.2)
+    assert qc.rt_error == pytest.approx(0.2)
+    assert qc.rt_passed is False
+    assert qc.status is IdentityStatus.REVIEW_REQUIRED
+
+
 def test_unlabelled_session_round_trip_preserves_mode_and_ions(
     unlabelled_db, tmp_path
 ):
-    compound_list = tmp_path / "targets.csv"
-    pd.DataFrame(
-        [
-            {
-                "name": "Target",
-                "tR": 1.0,
-                "tR Window": 0.08,
-                "lOffset": 0.1,
-                "rOffset": 0.1,
-                "QIon": 217,
-                "ValIon1": 147,
-                "Qualifier 1 Ratio": 0.4,
-                "Qualifier 1 Tolerance": 0.25,
-            }
-        ]
-    ).to_csv(compound_list, index=False)
-    import_compound_excel(compound_list, AnalysisMode.UNLABELLED)
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=0.1,
+        rOffset=0.1,
+        QIon=217,
+        ValIon1=147,
+        **{
+            "tR Window": 0.08,
+            "Qualifier 1 Ratio": 0.4,
+            "Qualifier 1 Tolerance": 0.25,
+            "Amount in StdMix": 2.5,
+            "Int Std amount": 1.2,
+            "MM Files": "*_MM_*",
+        },
+    )
 
     assert session_export.export_session_method(
         str(tmp_path / "method"),
@@ -236,11 +320,19 @@ def test_unlabelled_session_round_trip_preserves_mode_and_ions(
     exported = json.loads(method_path.read_text(encoding="utf-8"))
     assert exported["analysis_mode"] == "unlabelled"
     assert exported["compounds"][0]["ions"][1]["expected_ratio"] == pytest.approx(0.4)
+    assert exported["compounds"][0]["amount_in_std_mix"] == pytest.approx(2.5)
+    assert exported["compounds"][0]["int_std_amount"] == pytest.approx(1.2)
+    assert exported["compounds"][0]["mm_files"] == "*_MM_*"
 
     with database.get_connection() as conn:
         conn.execute(
             "UPDATE compound_ions SET expected_ratio = 0.9 "
             "WHERE compound_name = 'Target' AND role = 'qualifier'"
+        )
+        conn.execute(
+            "UPDATE compounds SET amount_in_std_mix = NULL, "
+            "int_std_amount = NULL, mm_files = NULL "
+            "WHERE compound_name = 'Target'"
         )
 
     ok, _ = session_export.import_session_overrides(
@@ -251,6 +343,14 @@ def test_unlabelled_session_round_trip_preserves_mode_and_ions(
     assert read_compound("Target").analysis_channels[1].expected_ratio == pytest.approx(
         0.4
     )
+    with database.get_connection() as conn:
+        metadata = conn.execute(
+            "SELECT amount_in_std_mix, int_std_amount, mm_files "
+            "FROM compounds WHERE compound_name = 'Target'"
+        ).fetchone()
+    assert metadata["amount_in_std_mix"] == pytest.approx(2.5)
+    assert metadata["int_std_amount"] == pytest.approx(1.2)
+    assert metadata["mm_files"] == "*_MM_*"
 
     valid, error = session_export.validate_method_file(
         str(method_path),
@@ -261,40 +361,23 @@ def test_unlabelled_session_round_trip_preserves_mode_and_ions(
 
 
 def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
-    compound_list = tmp_path / "targets.csv"
-    pd.DataFrame(
-        [
-            {
-                "name": "Target",
-                "tR": 1.0,
-                "lOffset": 1.1,
-                "rOffset": 1.1,
-                "QIon": 217,
-                "ValIon1": 147,
-            }
-        ]
-    ).to_csv(compound_list, index=False)
-    import_compound_excel(compound_list, AnalysisMode.UNLABELLED)
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        ValIon1=147,
+    )
 
-    time = np.array([0.0, 1.0, 2.0], dtype=np.float64)
-    matrix = np.array([[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]])
-    with database.get_connection() as conn:
-        conn.execute(
-            "INSERT INTO samples (sample_name, file_name) VALUES (?, ?)",
-            ("S1", "/fake/S1.cdf"),
-        )
-        conn.execute(
-            "INSERT INTO eic "
-            "(sample_name, compound_name, x_axis, y_axis, rt_window) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                "S1",
-                "Target",
-                zlib.compress(time.tobytes()),
-                zlib.compress(matrix.ravel().tobytes()),
-                1.1,
-            ),
-        )
+    _insert_eic(
+        "S1",
+        "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+        rt_window=1.1,
+    )
 
     export_path = tmp_path / "targeted.xlsx"
     assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))

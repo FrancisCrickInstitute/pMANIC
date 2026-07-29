@@ -3,17 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from manic.io.compound_reader import read_compound
-
-
-class _MissingQualifier:
-    """Placeholder qualifier row when identity QC could not be assessed."""
-
-    __slots__ = ("channel", "observed_ratio", "passed")
-
-    def __init__(self, channel):
-        self.channel = channel
-        self.observed_ratio = None
-        self.passed = None
+from manic.validation.unlabelled_identity import QualifierRatioResult
 
 
 def _write_header(worksheet, workbook, headers: list[str]) -> None:
@@ -23,6 +13,16 @@ def _write_header(worksheet, workbook, headers: list[str]) -> None:
     for column, header in enumerate(headers):
         worksheet.write(0, column, header, header_format)
         worksheet.set_column(column, column, max(12, min(36, len(header) + 3)))
+
+
+def _positive(value) -> bool:
+    return value is not None and float(value) > 0
+
+
+def _pass_label(passed: bool | None, qc_available: bool) -> str | None:
+    if passed is not None:
+        return "PASS" if passed else "REVIEW"
+    return None if qc_available else "N/A"
 
 
 def write(
@@ -61,14 +61,15 @@ def write(
     result_headers = [
         "Sample",
         "Compound",
-        "Quantifier m/z",
-        "Quantifier Area",
+        "Q Ion m/z",
+        "Q Ion Area",
         "Response Ratio to Internal Standard",
         "Estimated Amount",
         "Result Type",
         "Identity Status",
         "Observed RT (min)",
         "RT Error (min)",
+        "Identity Reasons",
     ]
     _write_header(results, workbook, result_headers)
 
@@ -76,9 +77,9 @@ def write(
     qc_headers = [
         "Sample",
         "Compound",
-        "Qualifier",
-        "Qualifier m/z",
-        "Observed Ratio (Qualifier/QIon)",
+        "V Ion",
+        "V Ion m/z",
+        "Observed Ratio (V Ion/Q Ion)",
         "Expected Ratio",
         "Fractional Tolerance",
         "Pass",
@@ -109,22 +110,20 @@ def write(
             )
 
             estimated_amount = None
-            result_type = "Quantifier peak area"
+            result_type = "Q ion peak area"
             meta = compound_meta[compound.compound_name]
             internal_meta = compound_meta.get(
                 exporter.internal_standard_compound
             )
             mrrf = mrrf_values.get(compound.compound_name)
-            if (
+            can_estimate = (
                 internal_standard_area
                 and internal_meta is not None
-                and internal_meta["int_std_amount"] is not None
-                and float(internal_meta["int_std_amount"]) > 0
-                and meta["amount_in_std_mix"] is not None
-                and float(meta["amount_in_std_mix"]) > 0
-                and mrrf is not None
-                and float(mrrf) > 0
-            ):
+                and _positive(internal_meta["int_std_amount"])
+                and _positive(meta["amount_in_std_mix"])
+                and _positive(mrrf)
+            )
+            if can_estimate:
                 estimated_amount = (
                     quantifier_area
                     * float(internal_meta["int_std_amount"])
@@ -159,20 +158,26 @@ def write(
                     response_ratio,
                     estimated_amount,
                     result_type,
-                    qc.status.value if qc is not None else "not_detected",
+                    qc.status.value if qc is not None else "unavailable",
                     qc.observed_rt if qc is not None else None,
                     qc.rt_error if qc is not None else None,
+                    (
+                        "; ".join(qc.reasons)
+                        if qc is not None and qc.reasons
+                        else ("EIC or compound data unavailable" if qc is None else "")
+                    ),
                 ],
             )
             result_row += 1
 
-            if qc is not None:
-                qualifier_results = qc.qualifier_ratios
-            else:
-                qualifier_results = tuple(
-                    _MissingQualifier(channel)
+            qualifier_results = (
+                qc.qualifier_ratios
+                if qc is not None
+                else tuple(
+                    QualifierRatioResult(channel, None, None)
                     for channel in compound.analysis_channels[1:]
                 )
+            )
             for ratio in qualifier_results:
                 qc_sheet.write_row(
                     qc_row,
@@ -185,15 +190,7 @@ def write(
                         ratio.observed_ratio,
                         ratio.channel.expected_ratio,
                         ratio.channel.ratio_tolerance,
-                        (
-                            "N/A"
-                            if ratio.passed is None and qc is None
-                            else (
-                                None
-                                if ratio.passed is None
-                                else ("PASS" if ratio.passed else "REVIEW")
-                            )
-                        ),
+                        _pass_label(ratio.passed, qc_available=qc is not None),
                     ],
                 )
                 qc_row += 1
@@ -203,39 +200,27 @@ def write(
                 progress_callback(int(completed / total * 90))
 
     method = workbook.add_worksheet("Targeted Method")
-    method.write_row(0, 0, ["Analysis mode", "Unlabelled targeted GC-MS"])
-    method.write_row(
-        1,
-        0,
-        [
-            "Quantification",
-            "Quantifier-ion integrated area; qualifiers are not added to the response",
-        ],
-    )
-    method.write_row(
-        2,
-        0,
-        [
+    method_notes = [
+        ("Analysis mode", "Unlabelled targeted GC-MS"),
+        ("Quantification", "Q-ion integrated area; V ions are not added to the response"),
+        (
             "Identity interpretation",
-            "RT and qualifier ratios support identity but do not replace library-spectrum confirmation",
-        ],
-    )
-    method.write_row(
-        3,
-        0,
-        [
+            "RT and qualifier ratios support identity but do not replace "
+            "library-spectrum confirmation",
+        ),
+        (
             "Estimated amounts",
-            "Semi-quantitative single-point response-factor estimates; not a validated calibration curve",
-        ],
-    )
-    method.write_row(
-        4,
-        0,
-        [
+            "Semi-quantitative single-point response-factor estimates; "
+            "not a validated calibration curve",
+        ),
+        (
             "Uncalibrated estimates",
-            "Compounds without a measured standard response use an assumed response factor of 1.0 and are flagged as uncalibrated",
-        ],
-    )
+            "Compounds without a measured standard response use an assumed "
+            "response factor of 1.0 and are flagged as uncalibrated",
+        ),
+    ]
+    for row, note in enumerate(method_notes):
+        method.write_row(row, 0, note)
     method.set_column(0, 0, 24)
     method.set_column(1, 1, 100)
     method_headers = [

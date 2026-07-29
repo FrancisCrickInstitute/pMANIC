@@ -106,7 +106,7 @@ def assess_identity(
                 QualifierRatioResult(channel, None, None)
                 for channel in channels_tuple[1:]
             ),
-            reasons=("Quantifier ion was not detected above the assessment floor",),
+            reasons=("Q ion was not detected above the assessment floor",),
         )
 
     reasons: list[str] = []
@@ -140,7 +140,7 @@ def assess_identity(
             )
             if not passed:
                 reasons.append(
-                    f"Qualifier {channel.ordinal} ratio {observed_ratio:.3f} "
+                    f"V ion {channel.ordinal} ratio {observed_ratio:.3f} "
                     f"is outside {channel.expected_ratio:.3f} "
                     f"±{channel.ratio_tolerance:.0%}"
                 )

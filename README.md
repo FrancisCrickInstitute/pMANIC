@@ -10,27 +10,21 @@ Built with Python and PySide6, it serves as a successor to the legacy MATLAB [MA
 
 ## Analysis modes
 
-MANIC asks you to choose a mode when an analysis starts. The choice is fixed
-until the application is restarted so that the same ion signals cannot
-accidentally be interpreted using two different scientific models.
+MANIC asks you to choose a mode when an analysis starts. The choice is fixed for
+that session so the same ion signals cannot accidentally be interpreted using
+two different scientific models. Switch modes with
+**File → New Analysis Session…** (this clears the current session).
 
 - **Labelled** is for stable-isotope tracing. It extracts consecutive M+0 to
   M+n channels and uses natural-abundance correction and label-derived outputs.
 - **Unlabelled** is for targeted profiling. It integrates one quantifier ion
-  for the reported response and uses one or two qualifier ions, retention time,
-  and optional reference ion ratios as identity-supporting checks. It does not
-  apply isotopologue correction or calculate label incorporation.
+  (Q ion) for the reported response and uses qualifier ions (V ions), retention
+  time, and optional reference ion ratios as identity-supporting checks. It does
+  not apply isotopologue correction or calculate label incorporation.
 
-An unlabelled CSV/Excel compound list requires `name`, `tR`, `lOffset`,
-`rOffset`, `QIon` (or `quant_ion`), and `ValIon1` (or
-`qualifier_ion_1`). `ValIon2`, `tR Window`, `Qualifier 1/2 Ratio`, and
-`Qualifier 1/2 Tolerance` are optional. Ratio tolerances are fractional: for
-example, `0.25` means ±25% of the expected qualifier/quantifier ratio.
-
-Unlabelled exports separate the quantifier result, qualifier QC, and method
-metadata. Any amount derived from MANIC's single-point response factor is
-explicitly labelled **semi-quantitative**; it is not presented as a validated
-multi-point calibration result.
+Full unlabelled documentation (compound-list format, identity QC, UI guides,
+export sheets, and scientific rationale) is in
+**[Unlabelled Targeted Analysis](docs/Unlabelled_Targeted_Analysis.md)**.
 
 ---
 
@@ -38,6 +32,7 @@ multi-point calibration result.
 
 ### For Users
 * **[Getting Started / User Guide](docs/01_user_guide.md)** - *The primary manual. Step-by-step instructions for import, integration, and export.*
+* **[Unlabelled Targeted Analysis](docs/Unlabelled_Targeted_Analysis.md)** - *Q/V ions, compound lists, identity QC, review UI, and unlabelled exports.*
 * **[Understanding the Output](/docs/Workflow_Data_Interpretation.md)** - *How to interpret the results exported in the excel workbook.*
 * **[Process External Data](docs/Workflow_Process_External_Data.md)** - *How to re-process results files without raw CDF data.*
 

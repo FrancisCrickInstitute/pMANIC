@@ -48,7 +48,7 @@ def test_unlabelled_toolbar_hides_label_derived_summaries(qapp):
         assert toolbar.total_abundance.isHidden()
         assert not toolbar.targeted_qc.isHidden()
         assert not toolbar.targeted_trace_normalization_checkbox.isHidden()
-        assert toolbar.integration.findChild(QLabel, "reference_rt_note") is not None
+        assert toolbar.integration.findChild(QLabel, "reference_rt_note") is None
     finally:
         toolbar.deleteLater()
 
@@ -88,6 +88,10 @@ def test_targeted_qc_shows_observed_rt_and_filterable_status(qapp, monkeypatch):
     monkeypatch.setattr(
         "manic.ui.targeted_qc_widget.read_compound",
         lambda _name: compound,
+    )
+    monkeypatch.setattr(
+        "manic.ui.targeted_qc_widget.read_compound_with_session",
+        lambda _name, _sample: compound,
     )
     result = IdentityQcResult(
         status=IdentityStatus.SUPPORTED,

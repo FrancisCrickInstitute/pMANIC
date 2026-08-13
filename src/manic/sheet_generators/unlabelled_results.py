@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from manic.io.compound_reader import read_compound
+from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.validation.unlabelled_identity import QualifierRatioResult
 
 
@@ -218,24 +218,32 @@ def write(
             "Compounds without a measured standard response use an assumed "
             "response factor of 1.0 and are flagged as uncalibrated",
         ),
+        (
+            "tR",
+            "Ion table is the loaded method. Current tR table is the session "
+            "value used for integration and identity QC after Apply",
+        ),
     ]
     for row, note in enumerate(method_notes):
         method.write_row(row, 0, note)
     method.set_column(0, 0, 24)
     method.set_column(1, 1, 100)
-    method_headers = [
+
+    ion_headers = [
         "Compound",
         "Role",
         "Ordinal",
         "m/z",
         "Expected Ratio",
         "Fractional Tolerance",
-        "Reference RT (min)",
         "RT Tolerance (min)",
     ]
-    for column, header in enumerate(method_headers):
-        method.write(5, column, header)
-    method_row = 6
+    ion_title_row = len(method_notes) + 1
+    method.write(ion_title_row, 0, "Ion definitions")
+    ion_header_row = ion_title_row + 1
+    for column, header in enumerate(ion_headers):
+        method.write(ion_header_row, column, header)
+    method_row = ion_header_row + 1
     for compound in compounds:
         for channel in compound.analysis_channels:
             method.write_row(
@@ -248,9 +256,25 @@ def write(
                     channel.mz,
                     channel.expected_ratio,
                     channel.ratio_tolerance,
-                    compound.retention_time,
                     compound.rt_tolerance,
                 ],
+            )
+            method_row += 1
+
+    current_headers = ["Sample", "Compound", "tR (min)"]
+    current_title_row = method_row + 1
+    method.write(current_title_row, 0, "Current tR")
+    current_header_row = current_title_row + 1
+    for column, header in enumerate(current_headers):
+        method.write(current_header_row, column, header)
+    method_row = current_header_row + 1
+    for sample in samples:
+        for compound in compounds:
+            current = read_compound_with_session(compound.compound_name, sample)
+            method.write_row(
+                method_row,
+                0,
+                [sample, current.compound_name, current.retention_time],
             )
             method_row += 1
 

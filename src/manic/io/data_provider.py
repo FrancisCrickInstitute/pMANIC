@@ -623,38 +623,33 @@ class DataProvider:
     def assess_unlabelled_identity(self, sample_name: str, compound_name: str):
         """Return RT and qualifier-ratio QC for one targeted compound."""
 
-        from manic.io.compound_reader import read_compound, read_compound_with_session
+        from manic.io.compound_reader import read_compound_with_session
         from manic.io.eic_reader import read_eic
         from manic.validation.unlabelled_identity import (
             assess_identity,
             quantifier_apex_time,
         )
 
-        # Session data may move the integration centre and boundaries for this
-        # sample, but it must not redefine the method's expected RT. Otherwise
-        # manually centring the window on the observed peak makes the RT check
-        # circular and guarantees an artificially small error.
-        method_compound = read_compound(compound_name)
-        integration_compound = read_compound_with_session(compound_name, sample_name)
-        if not integration_compound.is_unlabelled_target:
+        compound = read_compound_with_session(compound_name, sample_name)
+        if not compound.is_unlabelled_target:
             raise ValueError(
                 f"{compound_name!r} does not have quantifier/qualifier channels"
             )
-        eic = read_eic(sample_name, integration_compound, use_corrected=False)
+        eic = read_eic(sample_name, compound, use_corrected=False)
         observed_rt = quantifier_apex_time(
             eic.time,
             eic.intensity,
-            integration_compound.channel_count,
-            expected_rt=integration_compound.retention_time,
-            loffset=integration_compound.loffset,
-            roffset=integration_compound.roffset,
+            compound.channel_count,
+            expected_rt=compound.retention_time,
+            loffset=compound.loffset,
+            roffset=compound.roffset,
         )
         return assess_identity(
             self.get_compound_areas(sample_name, compound_name),
-            method_compound.analysis_channels,
-            expected_rt=method_compound.retention_time,
+            compound.analysis_channels,
+            expected_rt=compound.retention_time,
             observed_rt=observed_rt,
-            rt_tolerance=method_compound.rt_tolerance,
+            rt_tolerance=compound.rt_tolerance,
         )
 
     def _get_corrector(self) -> NaturalAbundanceCorrector:

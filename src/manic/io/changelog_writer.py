@@ -83,7 +83,7 @@ def generate_changelog(
     if mode is AnalysisMode.UNLABELLED:
         processing_description = f"""- **Diagnostic-ion workflow:** Q-ion area with V-ion identity checks
 - **V-ion ratio:** Integrated V-ion area / integrated Q-ion area
-- **Retention-time check:** Q-ion apex versus the compound reference RT
+- **Retention-time check:** Q-ion apex versus the current compound tR
 - **Natural Isotope Correction:** Not applied; these channels are diagnostic ions, not isotopologues
 - **Quantitative claim:** Peak area, response ratio, or explicitly labelled semi-quantitative single-point estimate"""
         sheets_description = """1. **Targeted Results** - Q-ion response, relative/semi-quantitative result, and identity status
@@ -91,7 +91,7 @@ def generate_changelog(
 3. **Targeted Method** - Diagnostic ions and interpretation limits"""
         key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values
 - Q-ion area alone supplies the analytical response; V-ion areas are identity evidence
-- Reference RT remains fixed when per-sample integration centres are adjusted
+- Current tR is used for both integration and identity RT QC; changing tR updates both
 - Natural-isotope correction and isotopologue deconvolution are not applied"""
     else:
         processing_description = """- **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0

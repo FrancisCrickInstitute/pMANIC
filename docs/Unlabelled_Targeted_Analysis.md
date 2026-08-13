@@ -77,9 +77,9 @@ least one.
 
 Chromatographic retention time (RT) is a second, independent identity check.
 MANIC compares the **observed Q-ion apex** inside the integration window with
-the **method reference RT** from the compound list. Moving the integration
-window to follow a drifted peak does **not** rewrite that reference — otherwise
-the RT check would become circular.
+the **current tR** — the same value used to centre the window. Changing tR
+updates integration and identity QC together, as in labelled mode. Reset
+restores the compound-list default.
 
 ### Why labelled mode does not use V ions
 
@@ -135,9 +135,9 @@ case-insensitive and ignore spaces or underscores
 | Column | Accepted aliases | Meaning |
 | :--- | :--- | :--- |
 | `name` | | Unique compound identifier |
-| `tR` | | Method reference retention time (minutes) |
-| `lOffset` | | Left integration half-window (minutes) from the integration centre |
-| `rOffset` | | Right integration half-window (minutes) from the integration centre |
+| `tR` | | Default retention time (minutes); Apply can override this per sample |
+| `lOffset` | | Left integration half-window (minutes) from tR |
+| `rOffset` | | Right integration half-window (minutes) from tR |
 | `QIon` | `quant_ion` | Quantifier *m/z* |
 | `ValIon1` | `qualifier_ion_1` | First qualifier *m/z* |
 
@@ -235,7 +235,7 @@ Natural-abundance correction is **not** applied in this mode.
 1. Select a compound and the samples of interest.
 2. Inspect the EIC tiles and the **Targeted identity QC** table in the left
    sidebar.
-3. Adjust integration centres or offsets where peaks have drifted, then
+3. Adjust tR or offsets where peaks have drifted, then
    **Apply**.
 4. Use display aids as needed:
    - **Shared y-scale** — compare abundances across samples on one intensity
@@ -252,31 +252,30 @@ three sheets (see [§8](#8-excel-export)).
 
 ## 6. Integration semantics
 
-Three related times appear in the UI. Keeping them straight is essential for
-correct review.
+Two times appear in the UI. They use the same tR that labelled mode uses.
 
 | Concept | Source | Role |
 | :--- | :--- | :--- |
-| **Method reference RT** | Compound list `tR` (immutable in the method) | Anchor for identity RT QC |
-| **Integration centre** | Method `tR`, optionally overridden per sample | Centre of the integration window |
+| **tR** | Compound list, then any per-sample override you Apply | Centre of the integration window and expected RT for identity QC |
 | **Observed Q apex** | Maximum of the Q-ion trace inside the window | Measured peak position |
 
 Integration boundaries are:
 
 \[
-[\text{integration centre} - \text{lOffset},\;
- \text{integration centre} + \text{rOffset}]
+[\mathrm{tR} - \text{lOffset},\;
+ \mathrm{tR} + \text{rOffset}]
 \]
 
-Moving the integration centre to follow a drifted peak is appropriate and
-auditable. The RT identity check still compares **observed Q apex** with the
-**method reference RT**, using `tR Window` (or the default above) as tolerance:
+Changing tR moves the window and the identity target together. The RT check
+compares **observed Q apex** with the **current tR**, using `tR Window` (or
+the default above) as tolerance:
 
 \[
-\Delta\mathrm{RT} = \mathrm{RT}_{\text{observed}} - \mathrm{RT}_{\text{reference}}
+\Delta\mathrm{RT} = \mathrm{RT}_{\text{observed}} - \mathrm{tR}
 \]
 
-passes when \(|\Delta\mathrm{RT}| \le \mathrm{RT\ tolerance}\).
+passes when \(|\Delta\mathrm{RT}| \le \mathrm{RT\ tolerance}\). Reset restores
+the compound-list tR.
 
 ---
 
@@ -343,12 +342,16 @@ and `PASS` / `REVIEW` / `N/A`.
 
 ### Targeted Method
 
-Human-readable interpretation limits plus the ion definitions (role, ordinal,
-*m/z*, expected ratios, RT references) used for the export.
+Human-readable interpretation limits, then two tables:
+
+- **Ion definitions** — one row per Q/V channel (role, ordinal, *m/z*,
+  expected ratios, RT tolerance)
+- **Current tR** — one row per sample × compound, the session `tR` used for
+  integration and identity QC after Apply
 
 A session changelog is also written; for unlabelled mode it states that
 Q-ion area alone supplies the analytical response, V ions are identity
-evidence, reference RT stays fixed when integration centres move, and
+evidence, current tR is used for both integration and identity RT QC, and
 natural-isotope correction / isotopologue deconvolution are not applied.
 
 ---
@@ -361,9 +364,8 @@ Typical guide lines:
 
 | Guide | Appearance | Meaning |
 | :--- | :--- | :--- |
-| Integration centre | Black dotted | Centre of the integration window |
+| tR | Black | Centre of the integration window and identity expected RT |
 | Left / right offsets | Blue dashed | Integration boundaries |
-| Method reference RT | Grey dash-dot (detail view) | Immutable method RT used for identity QC |
 | Observed Q apex | Magenta solid | Measured Q-ion apex inside the window |
 
 Trace colours follow the shared channel palette (Q is the first colour; V1 is
@@ -376,10 +378,10 @@ The channel legend above the grid names each Q/V *m/z*.
 
 Right-click a tile for the detail view:
 
-- EIC with the same reference / centre / apex guides
+- EIC with the same tR / offset / apex guides
 - TIC (when available)
 - Mass spectrum taken at the **observed Q apex** when available (otherwise at
-  the integration centre)
+  tR)
 
 ---
 
@@ -388,7 +390,7 @@ Right-click a tile for the detail view:
 1. **Supported samples** — spot-check a few; confirm the magenta apex sits on a
    clean Q peak and V traces share the same apex shape.
 2. **Review required** — read the reasons. RT failures often need a shifted
-   integration centre (or method RT revision if the whole batch drifted).
+   tR so the window covers the peak.
    Ratio failures often indicate co-elution, wrong V ion, or an outdated
    expected ratio.
 3. **Not detected** — confirm absence vs. window missed the peak vs. wrong Q

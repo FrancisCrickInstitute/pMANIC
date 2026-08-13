@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from manic.io.compound_reader import read_compound
+from manic.io.compound_reader import read_compound, read_compound_with_session
 
 _STATUS_STYLES = {
     "supported": ("Supported", "#E6F4EA", "#166534"),
@@ -214,7 +214,26 @@ class TargetedQcWidget(QWidget):
         self.title.setText(f"Targeted identity QC — {compound_name}")
         self.summary.setText(self._summary_text(statuses))
         self.summary.show()
-        self.reference.setText(self._reference_text(compound, qualifiers))
+        current_rts = []
+        for sample_name in sample_names:
+            try:
+                current_rts.append(
+                    float(
+                        read_compound_with_session(
+                            compound_name, sample_name
+                        ).retention_time
+                    )
+                )
+            except Exception:
+                continue
+        current_rt = current_rts[0] if current_rts else None
+        if current_rt is not None and any(
+            abs(rt - current_rt) > 1e-9 for rt in current_rts
+        ):
+            current_rt = None
+        self.reference.setText(
+            self._reference_text(compound, qualifiers, current_rt=current_rt)
+        )
 
         n_qual = min(len(qualifiers), _MAX_QUALIFIERS) or 1
         headers = ["Sample", "Status", "Obs RT", "ΔRT"] + [
@@ -265,10 +284,13 @@ class TargetedQcWidget(QWidget):
             parts.append(f"{unavailable} unavailable")
         return " · ".join(parts)
 
-    def _reference_text(self, compound, qualifiers) -> str:
+    def _reference_text(self, compound, qualifiers, current_rt=None) -> str:
         if compound is None:
             return ""
-        rt = f"RT {compound.retention_time:.3f}"
+        if current_rt is None:
+            rt = "tR (per sample)"
+        else:
+            rt = f"tR {current_rt:.3f}"
         if compound.rt_tolerance is not None:
             rt += f" ±{compound.rt_tolerance:.3f}"
         parts = [f"{rt} min"]

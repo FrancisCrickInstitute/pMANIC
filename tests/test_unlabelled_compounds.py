@@ -248,7 +248,7 @@ def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
     )
 
 
-def test_manual_integration_rt_does_not_redefine_identity_reference(
+def test_manual_integration_rt_is_used_for_identity_reference(
     unlabelled_db, tmp_path
 ):
     _import_targets(
@@ -286,9 +286,9 @@ def test_manual_integration_rt_does_not_redefine_identity_reference(
     qc = DataProvider().assess_unlabelled_identity("S1", "Target")
 
     assert qc.observed_rt == pytest.approx(1.2)
-    assert qc.rt_error == pytest.approx(0.2)
-    assert qc.rt_passed is False
-    assert qc.status is IdentityStatus.REVIEW_REQUIRED
+    assert qc.rt_error == pytest.approx(0.0)
+    assert qc.rt_passed is True
+    assert qc.status is IdentityStatus.SUPPORTED
 
 
 def test_unlabelled_session_round_trip_preserves_mode_and_ions(
@@ -391,3 +391,28 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
     result = workbook["Targeted Results"]
     assert result["D2"].value == pytest.approx(10.0)
     assert result["H2"].value == IdentityStatus.NOT_ASSESSED.value
+
+    with database.get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO session_activity
+                (compound_name, sample_name, retention_time, loffset, roffset)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("Target", "S1", 1.25, 1.1, 1.1),
+        )
+    export_path = tmp_path / "targeted_session_tr.xlsx"
+    assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
+    method = openpyxl.load_workbook(export_path, data_only=True)["Targeted Method"]
+    rows = list(method.iter_rows(min_row=1, max_row=40, values_only=True))
+    assert any(row and row[0] == "Ion definitions" for row in rows)
+    assert any(row and row[0] == "Current tR" for row in rows)
+    ion_header = next(row for row in rows if row and row[0] == "Compound")
+    assert ion_header[1] == "Role"
+    assert "tR (min)" not in ion_header
+    current_header = next(row for row in rows if row and row[0] == "Sample")
+    assert current_header[:3] == ("Sample", "Compound", "tR (min)")
+    current_row = next(
+        row for row in rows if row and row[0] == "S1" and row[1] == "Target"
+    )
+    assert current_row[2] == pytest.approx(1.25)

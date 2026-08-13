@@ -43,7 +43,7 @@ from manic.constants import (
     PLOT_STEM_WIDTH,
 )
 from manic.io.cdf_data_extractor import ensure_ms_data_for_time
-from manic.io.compound_reader import read_compound, read_compound_with_session
+from manic.io.compound_reader import read_compound_with_session
 from manic.io.tic_reader import read_tic
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
@@ -89,7 +89,6 @@ class DetailedPlotDialog(QDialog):
         self.tic_data = None
         self.ms_data = None
         self.compound_info = None
-        self.method_compound = None
         self.observed_rt = None
 
         self._setup_ui()
@@ -310,7 +309,6 @@ class DetailedPlotDialog(QDialog):
             self.compound_info = read_compound_with_session(
                 self.compound_name, self.sample_name
             )
-            self.method_compound = read_compound(self.compound_name)
             if not self.compound_info:
                 self._show_error("Failed to load compound information")
                 return
@@ -718,14 +716,7 @@ class DetailedPlotDialog(QDialog):
             self.tic_plot.set_title("Total Ion Chromatogram (error loading data)")
 
     def _add_targeted_reference_lines(self, plot) -> None:
-        """Method reference RT (dash-dot grey) and observed Q apex (magenta)."""
-        if self.method_compound and self.compound_info.is_unlabelled_target:
-            plot.add_vertical_line(
-                self.method_compound.retention_time,
-                color=f"rgba(100,100,100,{GUIDELINE_ALPHA})",
-                width=PLOT_GUIDELINE_WIDTH,
-                style="dashdot",
-            )
+        """Observed Q apex (magenta) when identity QC found a peak."""
         if self.observed_rt is not None:
             plot.add_vertical_line(
                 self.observed_rt,
@@ -818,13 +809,7 @@ class DetailedPlotDialog(QDialog):
         if self.compound_info:
             rt = self.compound_info.retention_time
             if self.compound_info.is_unlabelled_target:
-                reference_rt = (
-                    self.method_compound.retention_time
-                    if self.method_compound is not None
-                    else rt
-                )
-                info_parts.append(f"Reference RT: {reference_rt:.3f} min")
-                info_parts.append(f"Integration centre: {rt:.3f} min")
+                info_parts.append(f"Retention Time: {rt:.3f} min")
                 if self.observed_rt is not None:
                     info_parts.append(f"Observed Q apex: {self.observed_rt:.3f} min")
                 ions = ", ".join(

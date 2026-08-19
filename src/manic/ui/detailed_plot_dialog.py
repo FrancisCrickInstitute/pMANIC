@@ -52,7 +52,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
-from manic.ui.channel_labels import channel_legend_label
+from manic.ui.channel_labels import channel_legend_label, has_defined_channel
 from manic.ui.colors import label_colors  # Import the same colors as main window
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
 logger = logging.getLogger(__name__)
@@ -90,6 +90,7 @@ class DetailedPlotDialog(QDialog):
         self.ms_data = None
         self.compound_info = None
         self.observed_rt = None
+        self._eic_plot_error = None
 
         self._setup_ui()
         self._load_data()
@@ -423,6 +424,7 @@ class DetailedPlotDialog(QDialog):
             self.eic_plot.set_title("Enhanced Extracted Ion Chromatogram (no data)")
             return
 
+        self._eic_plot_error = None
         try:
             # Reset plot area before rendering
             self.eic_plot.clear_plot()
@@ -457,7 +459,6 @@ class DetailedPlotDialog(QDialog):
             # Add baseline lines if baseline correction is enabled
             self._add_baseline_lines(left_bound, right_bound)
 
-            # Show mode-appropriate channel labels on the right side.
             self.eic_plot.show_legend(loc="upper right")
 
             # Execute batch rendering for performance
@@ -470,6 +471,10 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot EIC: {e}")
+            self._eic_plot_error = str(e)
+            self.eic_plot.set_title(
+                "Enhanced Extracted Ion Chromatogram (plot failed)"
+            )
 
     def _add_baseline_lines(self, left_bound: float, right_bound: float):
         """Add dashed baseline lines when baseline correction is enabled."""
@@ -674,7 +679,8 @@ class DetailedPlotDialog(QDialog):
             )
 
     def _channel_label(self, channel_index: int) -> str:
-        """Return isotope or diagnostic-ion semantics for the legend."""
+        if not has_defined_channel(self.compound_info, channel_index):
+            return ""
         return channel_legend_label(self.compound_info, channel_index)
 
     def _plot_tic(self):
@@ -833,6 +839,8 @@ class DetailedPlotDialog(QDialog):
         if self.ms_data:
             info_parts.append(f"MS Peaks: {len(self.ms_data.mz)}")
 
+        if self._eic_plot_error:
+            info_parts.insert(0, f"EIC plot failed: {self._eic_plot_error}")
         info_text = " | ".join(info_parts) if info_parts else "No data available"
         self.info_label.setText(info_text)
 

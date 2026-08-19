@@ -298,3 +298,95 @@ class TestFormattingConsistency:
         assert single1 in range_result
         assert single2 in range_result
         assert range_result == f"{single1} - {single2}"
+
+
+def _multi_trace_eics(row_count: int):
+    return [
+        SimpleNamespace(
+            intensity=np.ones((row_count, 3), dtype=float),
+        )
+    ]
+
+
+def test_channel_legend_hides_when_compound_is_missing(qapp, monkeypatch):
+    monkeypatch.setattr(
+        "manic.ui.graphs.read_compound_with_session",
+        lambda *_args: (_ for _ in ()).throw(LookupError("alanine")),
+    )
+    view = GraphView()
+    try:
+        view.channel_legend.show()
+        view._update_channel_legend("alanine", _multi_trace_eics(2))
+        assert view.channel_legend.isHidden()
+    finally:
+        view.deleteLater()
+
+
+def test_channel_legend_hides_when_compound_read_fails(qapp, monkeypatch):
+    monkeypatch.setattr(
+        "manic.ui.graphs.read_compound_with_session",
+        lambda *_args: (_ for _ in ()).throw(ValueError("invalid ions")),
+    )
+    view = GraphView()
+    try:
+        view.channel_legend.show()
+        view._update_channel_legend("alanine", _multi_trace_eics(2))
+        assert view.channel_legend.isHidden()
+    finally:
+        view.deleteLater()
+
+
+def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
+    compound = SimpleNamespace(
+        analysis_channels=(
+            IonChannel(217.0, IonRole.QUANTIFIER),
+            IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
+        )
+    )
+    monkeypatch.setattr(
+        "manic.ui.graphs.read_compound_with_session",
+        lambda *_args: compound,
+    )
+    view = GraphView()
+    try:
+        view._update_channel_legend("Target", _multi_trace_eics(4))
+        text = view.channel_legend.text()
+        assert not view.channel_legend.isHidden()
+        assert "Q ion m/z 217" in text
+        assert "V ion 1 m/z 147" in text
+        assert text.count("●") == 2
+        assert "M+" not in text
+    finally:
+        view.deleteLater()
+
+
+def test_detailed_eic_plot_failure_updates_info_strip(qapp, monkeypatch):
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    dialog = DetailedPlotDialog("alanine", "S1")
+    try:
+        dialog.compound_info = SimpleNamespace(
+            retention_time=5.0,
+            loffset=0.1,
+            roffset=0.1,
+            is_unlabelled_target=False,
+            mass0=116.0,
+            label_atoms=0,
+        )
+        dialog.eic_data = SimpleNamespace(
+            time=np.array([4.9, 5.0, 5.1]),
+            intensity=np.array([1.0, 2.0, 1.0]),
+        )
+        dialog._plot_eic_traces = lambda: (_ for _ in ()).throw(
+            RuntimeError("guide draw failed")
+        )
+        dialog._plot_eic()
+        dialog._update_info_label()
+        text = dialog.info_label.text()
+        assert text.startswith("EIC plot failed: guide draw failed")
+        assert dialog.eic_plot.ax.get_title() == (
+            "Enhanced Extracted Ion Chromatogram (plot failed)"
+        )
+    finally:
+        dialog.deleteLater()

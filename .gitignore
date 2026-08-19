@@ -7,8 +7,8 @@ env/
 dist/*
 build/*
 outputs/*
-oldmanic/*
+oldmanic/
 agents.md
 *temp/
-OLD_MANIC/*
+OLD_MANIC/
 testdata/

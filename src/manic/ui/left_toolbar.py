@@ -49,10 +49,7 @@ class Toolbar(QWidget):
     # Signal emitted when baseline correction checkbox is toggled
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
-    # Signal emitted when the shared y-scale checkbox is toggled
     shared_y_scale_toggled = Signal(bool)
-
-    # Display-only normalization for comparing Q/V chromatographic shapes
     targeted_trace_normalization_toggled = Signal(bool)
 
     def __init__(

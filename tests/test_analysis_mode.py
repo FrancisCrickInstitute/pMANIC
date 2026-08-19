@@ -8,7 +8,7 @@ from manic.models.analysis import (
     labelled_channels,
     validate_unlabelled_channels,
 )
-from manic.ui.channel_labels import channel_legend_label
+from manic.ui.channel_labels import channel_legend_label, has_defined_channel
 
 
 def test_analysis_context_defaults_to_labelled_and_is_immutable():
@@ -97,6 +97,36 @@ def test_detailed_plot_uses_diagnostic_ion_labels_in_unlabelled_mode():
 def test_detailed_plot_preserves_isotopologue_labels_in_labelled_mode():
     class Labelled:
         is_unlabelled_target = False
-        channel_count = 3
+        analysis_channels = labelled_channels(174.0, 3)
+        channel_count = len(analysis_channels)
 
-    assert channel_legend_label(Labelled(), 2) == "M+2"
+    assert channel_legend_label(Labelled(), 2) == "M+2 m/z 176"
+
+
+def test_channel_legend_label_rejects_out_of_range_index():
+    class Target:
+        analysis_channels = (
+            IonChannel(217.0, IonRole.QUANTIFIER),
+            IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
+        )
+
+    with pytest.raises(IndexError, match="outside 2 analysis channels"):
+        channel_legend_label(Target(), 2)
+
+
+def test_channel_legend_label_requires_a_compound():
+    with pytest.raises(TypeError, match="compound is required"):
+        channel_legend_label(None, 2)
+
+
+def test_has_defined_channel_skips_missing_compound_and_extra_traces():
+    class Target:
+        analysis_channels = (
+            IonChannel(217.0, IonRole.QUANTIFIER),
+            IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
+        )
+
+    assert has_defined_channel(None, 0) is False
+    assert has_defined_channel(Target(), 0) is True
+    assert has_defined_channel(Target(), 1) is True
+    assert has_defined_channel(Target(), 2) is False

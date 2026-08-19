@@ -274,7 +274,6 @@ class MainWindow(QMainWindow):
         self.import_session_action.triggered.connect(self.import_session)
         file_menu.addAction(self.import_session_action)
 
-        # Create the New Analysis Session action (restart, optionally switching mode)
         self.new_session_action = QAction("New Analysis Session...", self)
         self.new_session_action.triggered.connect(self.new_analysis_session)
         file_menu.addAction(self.new_session_action)
@@ -561,16 +560,14 @@ class MainWindow(QMainWindow):
 
         The session is the unit of scientific consistency: compounds and
         results from one mode must never be interpreted with the other mode's
-        workflow, so switching mode means starting a new session — the
+        workflow, so switching mode means starting a new session. The
         database is cleared and the window is rebuilt exactly as at startup.
 
         ``QAction.triggered`` supplies a checked-state boolean even for a
         non-checkable action. Keep that signal argument separate from the
         optional mode selected by compound-list format detection.
         """
-        # Never wipe the database out from under a running background job.
-        # The import/reload progress dialogs are window-modal so this should
-        # be unreachable via the menu, but guard anyway.
+        # Import/reload workers still hold the database; do not clear it.
         for thread_attr in ("_thread", "_regen_thread", "_mass_tol_thread"):
             thread = getattr(self, thread_attr, None)
             if thread is not None and thread.isRunning():

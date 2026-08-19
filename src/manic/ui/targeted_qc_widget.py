@@ -193,7 +193,6 @@ class TargetedQcWidget(QWidget):
             if result is not None and result.observed_rt is not None
         }
 
-        # Surface failures first so they never scroll out of sight.
         rows.sort(
             key=lambda row: (
                 _STATUS_SORT_RANK.get(

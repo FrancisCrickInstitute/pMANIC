@@ -31,7 +31,7 @@ from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
 # Import shared colors
-from .channel_labels import channel_legend_label
+from .channel_labels import channel_legend_label, has_defined_channel
 from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,6 @@ class GraphView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # Outer layout: a channel legend strip above the grid of plots.
         outer_layout = QVBoxLayout(self)
         outer_layout.setSpacing(0)
         outer_layout.setContentsMargins(0, 0, 0, 0)
@@ -540,19 +539,29 @@ class GraphView(QWidget):
             return
         try:
             compound = read_compound_with_session(compound_name, None)
-        except Exception:
-            self.channel_legend.hide()
-            return
+            intensity = eics[0].intensity
+            n_traces = (
+                intensity.shape[0] if getattr(intensity, "ndim", 1) > 1 else 1
+            )
+            n_names = min(n_traces, len(compound.analysis_channels))
+            if n_names == 0:
+                self.channel_legend.hide()
+                return
 
-        parts = []
-        for index in range(compound.channel_count):
-            color = label_colors[index % len(label_colors)].name()
-            label = channel_legend_label(compound, index)
-            parts.append(f'<span style="color:{color}">●</span> {label}')
-        self.channel_legend.setText(
-            f"<b>{compound_name}</b>&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(parts)
-        )
-        self.channel_legend.show()
+            parts = []
+            for index in range(n_names):
+                color = label_colors[index % len(label_colors)].name()
+                label = channel_legend_label(compound, index)
+                parts.append(f'<span style="color:{color}">●</span> {label}')
+            self.channel_legend.setText(
+                f"<b>{compound_name}</b>&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(parts)
+            )
+            self.channel_legend.show()
+        except LookupError:
+            self.channel_legend.hide()
+        except Exception:
+            logger.exception("Failed to update channel colour key")
+            self.channel_legend.hide()
 
     def _on_plot_clicked(self, clicked_plot: ClickableChartView):
         """Handle plot click - toggle selection"""
@@ -1197,8 +1206,7 @@ class GraphView(QWidget):
         # Compute y_max and scaling (with edge case handling)
         scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(eic_intensity)
 
-        # Create reusable font
-        font = create_font(8)  # Cross-platform font
+        font = create_font(8)
 
         # Create axes
         x_axis = QValueAxis()
@@ -1620,7 +1628,7 @@ class GraphView(QWidget):
         if (
             self._normalize_targeted_traces
             and compound is not None
-            and getattr(compound, "is_unlabelled_target", False)
+            and compound.is_unlabelled_target
             and matrix.shape[0] > 1
         ):
             matrix = self._normalize_channels_to_quantifier(matrix)
@@ -1656,7 +1664,11 @@ class GraphView(QWidget):
                     np.ascontiguousarray(ys, dtype=np.float64),
                 )
             series.setPen(pen)
-            if not raw_context and multi_trace:
+            if (
+                not raw_context
+                and multi_trace
+                and has_defined_channel(compound, i)
+            ):
                 series.setName(channel_legend_label(compound, i))
             chart.addSeries(series)
             series.attachAxis(x_axis)

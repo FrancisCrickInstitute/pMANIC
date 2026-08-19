@@ -91,15 +91,14 @@ itself. Applying Q/V ratio logic there would confuse biology with identity QC.
 
 ### Why deconvolution is off
 
-MANIC's chromatographic deconvolution is designed for **labelled** envelopes:
-shared elution shapes across consecutive *m/z* channels of one fragment family.
+Unlabelled compounds are imported with `deconvolution_level = off`. Each Q or V
+ion is integrated over the fixed window.
 
-In unlabelled mode the channels are **different fragments**. Their areas must
-stay independent so V/Q ratios remain meaningful. Running labelled deconvolution
-on Q/V channels mis-assigns area and corrupts both quantification and identity
-QC. Unlabelled compounds are therefore imported with
-`deconvolution_level = off` and integrated with fixed-window trapezoidal
-integration of each ion.
+Labelled deconvolution fits each isotopologue on its own EIC. Channels do not
+share an elution shape. That independent path is not switched on for unlabelled
+import yet. A joint shared-shape fit on Q/V ions would still be wrong, because
+those ions are different fragments and their areas must stay independent for
+V/Q identity QC.
 
 ---
 

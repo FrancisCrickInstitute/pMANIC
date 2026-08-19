@@ -7,6 +7,7 @@ import numpy as np
 
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
+    deconvolve_channel_matrix,
     deconvolve_eic,
 )
 
@@ -347,7 +348,7 @@ def calculate_peak_areas(
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
         if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
-            deconvolved = deconvolve_eic(
+            bundle = deconvolve_channel_matrix(
                 time_data,
                 intensity_matrix,
                 retention_time=retention_time,
@@ -357,30 +358,22 @@ def calculate_peak_areas(
                 fit_type=chromatographic_peak_deconvolution_fit_type,
                 noise_gate=chromatographic_peak_deconvolution_noise_gate,
             )
-            selected = np.asarray(deconvolved.selected, dtype=np.float64)
-            selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
-            if deconvolved.model is not None and not use_legacy:
+            if bundle.uses_model_areas() and not use_legacy:
                 td = np.asarray(time_data, dtype=np.float64)
-                return [
-                    _integrate_model_component(
-                        deconvolved.model,
-                        td[selected_mask[i, :]],
-                        selected[i, selected_mask[i, :]],
-                        channel=i,
-                        baseline_correction=baseline_correction,
+                areas: List[float] = []
+                for channel in bundle.channels:
+                    selected = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                    selected_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                    areas.append(
+                        _integrate_model_component(
+                            channel.result.model,
+                            td[selected_mask],
+                            selected[selected_mask],
+                            channel=0,
+                            baseline_correction=baseline_correction,
+                        )
                     )
-                    for i in range(num_channels)
-                ]
-            return [
-                _integrate_deconvolved_trace(
-                    np.asarray(time_data, dtype=np.float64),
-                    selected[i, :],
-                    selected_mask[i, :],
-                    use_legacy=use_legacy,
-                    baseline_correction=baseline_correction,
-                )
-                for i in range(num_channels)
-            ]
+                return areas
 
         # Apply integration boundaries only after deciding deconvolution is off.
         td, intensity_reshaped = apply_integration_boundaries(
@@ -426,14 +419,7 @@ def _integrate_model_component(
     baseline_correction: bool,
     samples_per_scan: int = 16,
 ) -> float:
-    """Integrate the continuous fitted model over the integration window.
-
-    Uses the same smooth curve that is drawn on screen (evaluated on a dense
-    grid) rather than the model's values sampled at the acquisition scans, so
-    the exported area matches the displayed peak and captures the curved apex
-    that a coarse scan-point trapezoid under-counts. Only used for time-based
-    (non-legacy) integration; the integration limits are unchanged.
-    """
+    """Integrate the fitted model on a dense grid over the integration window."""
     scan_time = np.asarray(scan_time, dtype=np.float64)
     if scan_time.size == 0:
         return 0.0
@@ -443,14 +429,38 @@ def _integrate_model_component(
     values = model.evaluate(grid, model.selected_index)
     channel_values = values[channel] if values.ndim > 1 else values
 
-    total_area = float(np.trapezoid(channel_values, grid))
-    if baseline_correction:
+    return _integrate_dense_rows(
+        grid,
+        np.asarray(channel_values, dtype=np.float64).reshape(1, -1),
+        [scan_time],
+        [np.asarray(scan_values, dtype=np.float64)],
+        baseline_correction=baseline_correction,
+    )[0]
+
+
+def _integrate_dense_rows(
+    grid: np.ndarray,
+    matrix: np.ndarray,
+    scan_times: List[np.ndarray],
+    scan_values: List[np.ndarray],
+    *,
+    baseline_correction: bool,
+) -> List[float]:
+    """Trapezoid each dense row, then subtract the scan-edge baseline."""
+    grid = np.asarray(grid, dtype=np.float64)
+    matrix = np.asarray(matrix, dtype=np.float64)
+    areas = [float(np.trapezoid(row, grid)) for row in matrix]
+    if not baseline_correction:
+        return areas
+    for index, area in enumerate(areas):
         baseline_area = compute_baseline_area(
-            scan_time, np.asarray(scan_values, dtype=np.float64), use_legacy=False
+            scan_times[index],
+            scan_values[index],
+            use_legacy=False,
         )
         if baseline_area is not None:
-            total_area = max(0.0, total_area - baseline_area)
-    return float(total_area)
+            areas[index] = max(0.0, area - baseline_area)
+    return areas
 
 
 def _integrate_deconvolved_trace(

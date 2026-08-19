@@ -25,7 +25,7 @@ from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
-    deconvolve_eic,
+    deconvolve_channel_matrix,
 )
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
@@ -1374,7 +1374,7 @@ class GraphView(QWidget):
         logger.debug(f"Drawing baseline lines for {compound.compound_name}")
 
         if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
-            result = deconvolve_eic(
+            bundle = deconvolve_channel_matrix(
                 eic_time,
                 eic_intensity,
                 retention_time=compound.retention_time,
@@ -1384,45 +1384,39 @@ class GraphView(QWidget):
                 fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
                 noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
             )
-            selected_matrix = (
-                result.selected if eic_intensity.ndim > 1 else result.selected.reshape(1, -1)
-            )
-            mask_matrix = (
-                result.selected_mask
-                if eic_intensity.ndim > 1
-                else result.selected_mask.reshape(1, -1)
-            )
-            drew_baseline = False
-            for i, selected_trace in enumerate(selected_matrix):
-                trace_mask = np.asarray(mask_matrix[i, :], dtype=bool)
-                if not np.any(trace_mask):
-                    continue
-                baseline_result = compute_linear_baseline(
-                    eic_time[trace_mask], selected_trace[trace_mask]
-                )
-                if baseline_result is None:
-                    continue
-                td_base, baseline_y = baseline_result
-                baseline_y_scaled = (
-                    baseline_y / scale_factor if scale_factor != 0 else baseline_y
-                )
-                qcolor = (
-                    label_colors[i % len(label_colors)]
-                    if eic_intensity.ndim > 1
-                    else dark_red_colour
-                )
-                baseline_series = QLineSeries()
-                baseline_series.append(td_base[0], baseline_y_scaled[0])
-                baseline_series.append(td_base[-1], baseline_y_scaled[-1])
-                baseline_pen = QPen(qcolor, 1.2)
-                baseline_pen.setStyle(Qt.DashLine)
-                baseline_series.setPen(baseline_pen)
-                chart.addSeries(baseline_series)
-                baseline_series.attachAxis(x_axis)
-                baseline_series.attachAxis(y_axis)
-                drew_baseline = True
-            if drew_baseline:
-                return
+            if bundle.uses_model_areas():
+                drew_baseline = False
+                for channel in bundle.channels:
+                    selected_trace = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                    trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                    if not np.any(trace_mask):
+                        continue
+                    baseline_result = compute_linear_baseline(
+                        eic_time[trace_mask], selected_trace[trace_mask]
+                    )
+                    if baseline_result is None:
+                        continue
+                    td_base, baseline_y = baseline_result
+                    baseline_y_scaled = (
+                        baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                    )
+                    qcolor = (
+                        label_colors[channel.index % len(label_colors)]
+                        if eic_intensity.ndim > 1
+                        else dark_red_colour
+                    )
+                    baseline_series = QLineSeries()
+                    baseline_series.append(td_base[0], baseline_y_scaled[0])
+                    baseline_series.append(td_base[-1], baseline_y_scaled[-1])
+                    baseline_pen = QPen(qcolor, 1.2)
+                    baseline_pen.setStyle(Qt.DashLine)
+                    baseline_series.setPen(baseline_pen)
+                    chart.addSeries(baseline_series)
+                    baseline_series.attachAxis(x_axis)
+                    baseline_series.attachAxis(y_axis)
+                    drew_baseline = True
+                if drew_baseline:
+                    return
 
         # Calculate integration window boundaries
         l_boundary = compound.retention_time - compound.loffset
@@ -1490,13 +1484,9 @@ class GraphView(QWidget):
         multi_trace: bool,
         scale_factor: float,
         selected: bool,
+        color_index: int | None = None,
     ):
-        """Draw one fitted component as the continuous model curve.
-
-        The exact same smooth model is what integration uses, so the displayed
-        peak and the exported area come from one source. The selected component
-        is drawn over the integration window; excluded ones over the fit window.
-        """
+        """Draw one fitted component over the integration or fit window."""
         t_left, t_right = (
             (model.integration_left, model.integration_right)
             if selected
@@ -1509,8 +1499,11 @@ class GraphView(QWidget):
         values = model.evaluate(grid, component_index)
         matrix = values if values.ndim > 1 else values.reshape(1, -1)
         for i, row in enumerate(matrix):
+            series_index = color_index if color_index is not None else i
             qcolor = (
-                label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
+                label_colors[series_index % len(label_colors)]
+                if multi_trace
+                else dark_red_colour
             )
             if selected:
                 pen = QPen(QColor(qcolor), 2.2)
@@ -1544,10 +1537,10 @@ class GraphView(QWidget):
         compound,
         scale_factor: float,
     ):
-        """Draw raw context plus deconvolved selected/excluded components."""
-        result = None
+        """Draw the EIC, with model overlays only when every ion fitted."""
+        bundle = None
         if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
-            result = deconvolve_eic(
+            bundle = deconvolve_channel_matrix(
                 eic_time,
                 eic_intensity,
                 retention_time=compound.retention_time,
@@ -1558,9 +1551,7 @@ class GraphView(QWidget):
                 noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
             )
 
-        model = result.model if result is not None else None
-        if model is None:
-            # Deconvolution off, or the fit failed and fell back to the raw trace.
+        if bundle is None or not bundle.uses_model_areas():
             self._add_trace_series(
                 chart,
                 x_axis,
@@ -1586,29 +1577,33 @@ class GraphView(QWidget):
             raw_context=True,
             compound=compound,
         )
-        self._add_model_component_series(
-            chart,
-            x_axis,
-            y_axis,
-            model,
-            model.selected_index,
-            multi_trace=multi_trace,
-            scale_factor=scale_factor,
-            selected=True,
-        )
-        for component_index in range(model.n_components):
-            if component_index == model.selected_index:
-                continue
+        for channel in bundle.channels:
+            model = channel.result.model
             self._add_model_component_series(
                 chart,
                 x_axis,
                 y_axis,
                 model,
-                component_index,
+                model.selected_index,
                 multi_trace=multi_trace,
                 scale_factor=scale_factor,
-                selected=False,
+                selected=True,
+                color_index=channel.index,
             )
+            for component_index in range(model.n_components):
+                if component_index == model.selected_index:
+                    continue
+                self._add_model_component_series(
+                    chart,
+                    x_axis,
+                    y_axis,
+                    model,
+                    component_index,
+                    multi_trace=multi_trace,
+                    scale_factor=scale_factor,
+                    selected=False,
+                    color_index=channel.index,
+                )
 
     def _add_trace_series(
         self,

@@ -6,10 +6,21 @@ and other UI components.
 """
 
 import pytest
+from PySide6.QtCharts import QChart, QValueAxis
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel
 import sys
 import numpy as np
 from types import SimpleNamespace
+
+from manic.processors.chromatographic_peak_deconvolution import (
+    ChannelDeconvolution,
+    ChannelDeconvolutionBundle,
+    EICChromatographicPeakDeconvolutionResult,
+    deconvolve_eic,
+)
+from manic.ui import graphs as graphs_module
+from manic.ui.colors import label_colors
 
 from manic.ui.integration_window_widget import IntegrationWindow
 from manic.ui.left_toolbar import Toolbar
@@ -390,3 +401,123 @@ def test_detailed_eic_plot_failure_updates_info_strip(qapp, monkeypatch):
         )
     finally:
         dialog.deleteLater()
+
+
+def test_one_d_model_overlay_uses_qualifier_color(qapp):
+    time = np.linspace(0.0, 10.0, 201)
+    peak = 10.0 * np.exp(-0.5 * ((time - 5.0) / 0.3) ** 2)
+    result = deconvolve_eic(
+        time,
+        peak,
+        retention_time=5.0,
+        loffset=2.0,
+        roffset=2.0,
+        stringency="4",
+    )
+    assert result.model is not None
+    assert result.model.was_1d
+
+    view = GraphView()
+    try:
+        chart = QChart()
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        view._add_model_component_series(
+            chart,
+            x_axis,
+            y_axis,
+            result.model,
+            result.model.selected_index,
+            multi_trace=True,
+            scale_factor=1.0,
+            selected=True,
+            color_index=1,
+        )
+        drawn = {series.pen().color().getRgb()[:3] for series in chart.series()}
+        qualifier = label_colors[1]
+        quantifier = label_colors[0]
+        assert (qualifier.red(), qualifier.green(), qualifier.blue()) in drawn
+        assert (quantifier.red(), quantifier.green(), quantifier.blue()) not in drawn
+    finally:
+        view.deleteLater()
+
+
+def _deconvolution_plot_compound():
+    return SimpleNamespace(
+        deconvolution_level="4",
+        deconvolution_fit_type="auto",
+        deconvolution_noise_gate="balanced",
+        retention_time=5.0,
+        loffset=0.4,
+        roffset=0.4,
+        is_unlabelled_target=False,
+        compound_name="test",
+        baseline_correction=0,
+        analysis_channels=(),
+    )
+
+
+def _mixed_deconvolution_bundle(time):
+    fitted = deconvolve_eic(
+        time,
+        12.0 * np.exp(-0.5 * ((time - 5.0) / 0.08) ** 2),
+        retention_time=5.0,
+        loffset=0.4,
+        roffset=0.4,
+        stringency="4",
+    )
+    assert fitted.model is not None
+    failed = EICChromatographicPeakDeconvolutionResult(
+        selected=np.full(time.size, 3.0),
+        selected_mask=np.asarray(fitted.selected_mask, dtype=bool),
+        excluded=[],
+        excluded_masks=[],
+        selected_center=5.0,
+        component_centers=[5.0],
+        model=None,
+    )
+    return ChannelDeconvolutionBundle(
+        time=time,
+        channels=(
+            ChannelDeconvolution(index=0, result=fitted),
+            ChannelDeconvolution(index=1, result=failed),
+        ),
+    )
+
+
+def test_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
+    time = np.linspace(4.0, 6.0, 81)
+    intensity = np.vstack(
+        [
+            12.0 * np.exp(-0.5 * ((time - 5.0) / 0.08) ** 2),
+            np.full(time.size, 3.0),
+        ]
+    )
+    monkeypatch.setattr(
+        graphs_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
+    )
+    view = GraphView()
+    try:
+        chart = QChart()
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        view._add_eic_series(
+            chart,
+            x_axis,
+            y_axis,
+            time,
+            intensity,
+            _deconvolution_plot_compound(),
+            1.0,
+        )
+        widths = {series.pen().widthF() for series in chart.series()}
+        assert 2.2 not in widths
+        assert 2.0 in widths
+    finally:
+        view.deleteLater()

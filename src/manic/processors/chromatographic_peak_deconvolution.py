@@ -137,6 +137,44 @@ class EICChromatographicPeakDeconvolutionResult:
     model: DeconvolutionModel | None = None
 
 
+@dataclass(frozen=True)
+class ChannelDeconvolution:
+    index: int
+    result: EICChromatographicPeakDeconvolutionResult
+
+
+@dataclass(frozen=True)
+class ChannelDeconvolutionBundle:
+    time: np.ndarray
+    channels: tuple[ChannelDeconvolution, ...]
+
+    def uses_model_areas(self) -> bool:
+        """True when every channel fitted, so plots and export may use the curve."""
+        return bool(self.channels) and all(
+            channel.result.model is not None for channel in self.channels
+        )
+
+    def evaluate_selected_stack(self, grid: np.ndarray) -> np.ndarray:
+        """Evaluate every channel's selected component on a shared time grid."""
+        grid = np.asarray(grid, dtype=np.float64)
+        time = np.asarray(self.time, dtype=np.float64)
+        rows: list[np.ndarray] = []
+        for channel in self.channels:
+            model = channel.result.model
+            if model is not None:
+                values = np.asarray(model.evaluate_selected(grid), dtype=np.float64)
+                rows.append(np.ravel(values))
+                continue
+            selected = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+            mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+            sampled = np.zeros(time.size, dtype=np.float64)
+            sampled[mask] = selected[mask]
+            rows.append(np.interp(grid, time, sampled, left=0.0, right=0.0))
+        if not rows:
+            return np.zeros((0, grid.size), dtype=np.float64)
+        return np.vstack(rows)
+
+
 # The ladder is recentred so the default level "4" is as *selective* (aggressive
 # at splitting overlaps) as the old level "6", while keeping a modest compute
 # budget at the low/mid levels. Selectivity is driven by the detection fields
@@ -218,6 +256,40 @@ def normalize_fit_type(value: str | None) -> PeakShapeFitType:
     return value if value in PEAK_SHAPE_FIT_TYPES else "auto"
 
 
+def deconvolve_channel_matrix(
+    time_data: np.ndarray,
+    intensity_data: np.ndarray,
+    *,
+    retention_time: float | None,
+    loffset: float | None = None,
+    roffset: float | None = None,
+    stringency: str | None = "off",
+    fit_type: str | None = "auto",
+    noise_gate: str | None = DEFAULT_NOISE_GATE,
+) -> ChannelDeconvolutionBundle:
+    """Deconvolve each channel of a matrix independently."""
+    time = np.asarray(time_data, dtype=np.float64)
+    intensity = np.asarray(intensity_data, dtype=np.float64)
+    matrix, _ = _as_trace_matrix(intensity)
+    channels = tuple(
+        ChannelDeconvolution(
+            index=index,
+            result=deconvolve_eic(
+                time,
+                matrix[index],
+                retention_time=retention_time,
+                loffset=loffset,
+                roffset=roffset,
+                stringency=stringency,
+                fit_type=fit_type,
+                noise_gate=noise_gate,
+            ),
+        )
+        for index in range(matrix.shape[0])
+    )
+    return ChannelDeconvolutionBundle(time=time, channels=channels)
+
+
 def deconvolve_eic(
     time_data: np.ndarray,
     intensity_data: np.ndarray,
@@ -229,24 +301,23 @@ def deconvolve_eic(
     fit_type: str | None = "auto",
     noise_gate: str | None = DEFAULT_NOISE_GATE,
 ) -> EICChromatographicPeakDeconvolutionResult:
-    """
-    Split an EIC into chromatographic components and select the one nearest RT.
+    """Split one EIC into components and keep the one nearest RT.
 
-    A fitted model only *replaces* the raw trace when deconvolution is genuinely
-    warranted. Before fitting, the window must look like a real overlap (>= 2
-    peaks in the raw data) and not be too messy; after fitting, the model must
-    use >= 2 components and reproduce the window well (see
-    ``_fit_reproduces_window``). Well-resolved single peaks, messy/noise-only
-    windows, and poor fits all fall back to the raw trace (``model is None``) -
-    and resolved single peaks skip the expensive fit entirely - so display and
-    integration always agree. Multi-isotopologue inputs are fit as a matrix: each
-    component has one shared elution shape and non-negative channel weights.
+    Clean peaks become a one-component model. Overlaps are split. Messy,
+    empty, failed, or collapsed-overlap fits fall back to the raw trace.
+    Multi-channel matrices go through ``deconvolve_channel_matrix``.
     """
     mode = normalize_stringency(stringency)
     shape_fit_type = normalize_fit_type(fit_type)
     min_smoothness = NOISE_GATE_PRESETS[normalize_noise_gate(noise_gate)]
     time = np.asarray(time_data, dtype=np.float64)
     intensity = np.asarray(intensity_data, dtype=np.float64)
+    matrix, was_1d = _as_trace_matrix(intensity)
+    if matrix.shape[0] > 1:
+        raise ValueError(
+            "deconvolve_eic fits one chromatographic channel. "
+            "Use deconvolve_channel_matrix for multi-channel matrices."
+        )
 
     if mode == "off" or time.size < 3 or intensity.size == 0:
         return _unchanged_result(time, intensity)
@@ -255,7 +326,6 @@ def deconvolve_eic(
     if shape_fit_type != "auto":
         params = dataclasses.replace(params, shape_models=(shape_fit_type,))
 
-    matrix, was_1d = _as_trace_matrix(intensity)
     if matrix.shape[1] != time.size:
         return _unchanged_result(time, intensity)
 
@@ -327,41 +397,33 @@ def _deconvolve_matrix(
     window_matrix = np.maximum(np.asarray(matrix[:, fit_mask], dtype=np.float64), 0.0)
 
     summed_window = np.sum(window_matrix, axis=0)
-
-    # Decide whether to even attempt the (expensive) fit. We skip it - and use
-    # the raw trace - when:
-    #   * the window is too messy/noisy to be worth fitting (the noise gate), or
-    #   * the raw data shows no genuine overlap (fewer than two candidate
-    #     components). A well-resolved single peak is integrated from the raw
-    #     trace anyway, so fitting it would only be discarded.
-    # Doing this *before* the fit (rather than rejecting the model afterwards) is
-    # the main export speedup, since most targeted peaks are single and resolved.
-    #
-    # The candidate count uses the *same* multi-trace detection the fitter seeds
-    # from (the summed trace plus each individual isotopologue channel, including
-    # shoulder candidates), rather than the summed trace alone. This keeps the
-    # gate and the fitter consistent: a second component that is clear in one
-    # channel but washed out in the sum no longer gets blocked here only to be
-    # something the fitter could have resolved.
-    if _too_messy_to_fit(summed_window, min_smoothness) or (
-        len(_candidate_peak_indices(window_matrix, params)) < 2
-    ):
+    candidate_count = len(_candidate_peak_indices(window_matrix, params))
+    if _too_messy_to_fit(summed_window, min_smoothness):
         fitted = None
     else:
         try:
-            fitted = _fit_joint_component_model_cached(
-                window_time.tobytes(),
-                window_matrix.tobytes(),
-                window_matrix.shape,
-                params,
-            )
+            if candidate_count < 2:
+                fitted = _fit_single_component_model_cached(
+                    window_time.tobytes(),
+                    window_matrix.tobytes(),
+                    window_matrix.shape,
+                    params,
+                )
+            else:
+                fitted = _fit_joint_component_model_cached(
+                    window_time.tobytes(),
+                    window_matrix.tobytes(),
+                    window_matrix.shape,
+                    params,
+                )
         except Exception:
             fitted = None
 
-        # Post-fit quality net: even on a real overlap, discard a fit that
-        # collapses to a single component or fails to reproduce the raw window
-        # (e.g. a clean peak that got over-split and the wrong fragment selected).
-        if fitted is not None and not _fit_reproduces_window(window_matrix, fitted):
+        if fitted is not None and not _fit_reproduces_window(
+            window_matrix,
+            fitted,
+            allow_single_component=candidate_count < 2,
+        ):
             fitted = None
     if fitted is None:
         selected_mask = np.zeros_like(matrix, dtype=bool)
@@ -426,6 +488,24 @@ def _deconvolve_matrix(
         [float(center) for center in fitted.centers],
         model,
     )
+
+
+@functools.lru_cache(maxsize=8192)
+def _fit_single_component_model_cached(
+    time_bytes: bytes,
+    matrix_bytes: bytes,
+    matrix_shape: tuple[int, int],
+    params: ChromatographicPeakDeconvolutionParameters,
+) -> FittedComponentModel | None:
+    time = np.frombuffer(time_bytes, dtype=np.float64)
+    matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
+    cheap = dataclasses.replace(
+        params,
+        max_components=1,
+        shape_models=(params.shape_models[0],),
+        max_nfev=min(80, params.max_nfev),
+    )
+    return _fit_joint_component_model(time, matrix, cheap)
 
 
 @functools.lru_cache(maxsize=8192)
@@ -623,7 +703,10 @@ def _fit_shape_candidate(
     except Exception:
         return None
 
-    if not result.success:
+    # status 0 is max_nfev. Keep that only on the cheap 1-component path.
+    if not result.success and (params.max_components != 1 or result.status != 0):
+        return None
+    if not np.all(np.isfinite(result.x)):
         return None
 
     centers, shape_matrix = shapes_from(result.x)
@@ -768,23 +851,11 @@ def _too_messy_to_fit(
 def _fit_reproduces_window(
     window_matrix: np.ndarray,
     fitted: FittedComponentModel,
+    *,
+    allow_single_component: bool = False,
 ) -> bool:
-    """Post-fit quality net: trust the model over the raw trace only if it is a
-    genuine, well-reproduced overlap.
-
-    The "is there an overlap at all?" decision (>= 2 peaks in the raw data) is
-    made *before* fitting, so by the time we get here a fit was attempted on a
-    window that looked like an overlap. This guards against the remaining failure
-    modes:
-
-    1. the fit collapses to a single component (nothing was actually separated);
-       or
-    2. the reconstruction does not reproduce the raw window (a mis-converged or
-       over-split fit, e.g. a clean peak split with the wrong fragment selected).
-
-    In either case the caller falls back to integrating the raw trace.
-    """
-    if fitted.components.shape[0] < 2:
+    """Keep a fit that reproduces the window. One component only if the peak was clean."""
+    if fitted.components.shape[0] < 2 and not allow_single_component:
         return False
     recon = fitted.baseline + np.sum(fitted.components, axis=0)
     raw = np.asarray(window_matrix, dtype=np.float64)

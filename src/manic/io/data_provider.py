@@ -16,11 +16,11 @@ import numpy as np
 from manic.models.database import get_connection
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
-    deconvolve_eic,
+    deconvolve_channel_matrix,
     get_deconvolution_fit_cache_info,
 )
 from manic.processors.integration import (
-    _integrate_deconvolved_trace,
+    _integrate_dense_rows,
     calculate_peak_areas,
 )
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
@@ -705,7 +705,7 @@ class DataProvider:
             return [], []
 
         raw_matrix = raw_intensity_data.reshape(num_isotopologues, n_time_points)
-        deconvolved = deconvolve_eic(
+        bundle = deconvolve_channel_matrix(
             time_data,
             raw_matrix,
             retention_time=row["retention_time"],
@@ -717,8 +717,9 @@ class DataProvider:
         )
         return self._areas_from_deconvolved(
             time_data,
-            deconvolved,
+            bundle,
             row,
+            raw_matrix,
             use_legacy=use_legacy,
             baseline_correction=baseline_correction,
         )
@@ -726,91 +727,72 @@ class DataProvider:
     def _areas_from_deconvolved(
         self,
         time_data: np.ndarray,
-        deconvolved,
+        bundle,
         row,
+        raw_intensity: np.ndarray,
         *,
         use_legacy: bool,
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
-        """Integrate raw and corrected areas from a single deconvolution result.
-
-        Both outputs come from the same selected chromatographic component so they
-        differ only by the natural-abundance correction. In the time-based model
-        path the component is evaluated once on a shared dense grid and raw and
-        corrected areas go through the *identical* integration routine; this keeps
-        Raw Values and Corrected Values on the same footing (e.g. an unlabeled
-        channel integrates to the same number on both export sheets).
-        """
+        """Integrate raw and corrected areas from one measurement per compound/sample."""
         label_atoms = row["label_atoms"] or 0
-        num_isotopologues = label_atoms + 1
+        raw_matrix = np.asarray(raw_intensity, dtype=np.float64)
 
-        if deconvolved.model is not None and not use_legacy:
-            model = deconvolved.model
-            selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
-            scans_in_window = max(1, int(np.max(np.sum(selected_mask, axis=1))))
+        if not use_legacy and bundle.uses_model_areas():
+            model = bundle.channels[0].result.model
+            scans_in_window = max(
+                1, int(np.count_nonzero(bundle.channels[0].result.selected_mask))
+            )
             grid = np.linspace(
                 model.integration_left,
                 model.integration_right,
                 max(65, scans_in_window * 16),
             )
-            raw_dense = np.asarray(model.evaluate_selected(grid), dtype=np.float64)
-            corrected_dense = self._correct_time_series(raw_dense, row)
-            raw_areas = self._integrate_dense_matrix(
-                grid, raw_dense, label_atoms, baseline_correction
+            raw_dense = np.asarray(bundle.evaluate_selected_stack(grid), dtype=np.float64)
+            td = np.asarray(time_data, dtype=np.float64)
+            masks = [
+                np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                for channel in bundle.channels
+            ]
+            selected_matrix = np.vstack(
+                [
+                    np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                    for channel in bundle.channels
+                ]
             )
-            corrected_areas = self._integrate_dense_matrix(
-                grid, corrected_dense, label_atoms, baseline_correction
+            scan_times = [td[mask] for mask in masks]
+            raw_areas = _integrate_dense_rows(
+                grid,
+                raw_dense,
+                scan_times,
+                [selected_matrix[i, masks[i]] for i in range(len(masks))],
+                baseline_correction=baseline_correction,
+            )
+            corrected_selected = self._correct_time_series(selected_matrix, row)
+            corrected_areas = _integrate_dense_rows(
+                grid,
+                self._correct_time_series(raw_dense, row),
+                scan_times,
+                [corrected_selected[i, masks[i]] for i in range(len(masks))],
+                baseline_correction=baseline_correction,
             )
             return raw_areas, corrected_areas
 
-        # Raw-trace fallback (model is None): the selected component is the raw
-        # matrix restricted to the integration window, so raw and corrected both
-        # integrate that same masked support.
-        selected_matrix = np.asarray(deconvolved.selected, dtype=np.float64)
-        selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
-        td = np.asarray(time_data, dtype=np.float64)
-        raw_areas = [
-            _integrate_deconvolved_trace(
-                td,
-                selected_matrix[i, :],
-                selected_mask[i, :],
+        def scan_areas(matrix: np.ndarray) -> List[float]:
+            return calculate_peak_areas(
+                time_data,
+                np.asarray(matrix, dtype=np.float64).ravel(),
+                label_atoms,
+                row["retention_time"],
+                row["loffset"],
+                row["roffset"],
                 use_legacy=use_legacy,
                 baseline_correction=baseline_correction,
+                chromatographic_peak_deconvolution_stringency="off",
             )
-            for i in range(num_isotopologues)
-        ]
-        corrected_matrix = self._correct_time_series(selected_matrix, row)
-        corrected_areas = calculate_peak_areas(
-            time_data,
-            corrected_matrix.ravel(),
-            label_atoms,
-            row["retention_time"],
-            row["loffset"],
-            row["roffset"],
-            use_legacy=use_legacy,
-            baseline_correction=baseline_correction,
-            chromatographic_peak_deconvolution_stringency="off",
-        )
-        return raw_areas, corrected_areas
 
-    def _integrate_dense_matrix(
-        self,
-        grid: np.ndarray,
-        matrix: np.ndarray,
-        label_atoms: int,
-        baseline_correction: bool,
-    ) -> List[float]:
-        """Integrate every channel of a dense component matrix over ``grid``."""
-        return calculate_peak_areas(
-            np.asarray(grid, dtype=np.float64),
-            np.asarray(matrix, dtype=np.float64).ravel(),
-            label_atoms,
-            None,
-            None,
-            None,
-            use_legacy=False,
-            baseline_correction=baseline_correction,
-            chromatographic_peak_deconvolution_stringency="off",
+        return scan_areas(raw_matrix), scan_areas(
+            self._correct_time_series(raw_matrix, row)
         )
 
     def _calculate_corrected_areas_from_raw_component(
@@ -822,14 +804,7 @@ class DataProvider:
         use_legacy: bool,
         baseline_correction: bool,
     ) -> List[float]:
-        """Correct and integrate the same chromatographic component selected in raw data.
-
-        Stored ``eic_corrected`` traces are generated from the full raw EIC, before
-        chromatographic deconvolution. For labeled compounds with deconvolution
-        enabled, downstream corrected values need to follow the component selected
-        from the raw isotopologue matrix; otherwise Raw Values can change while
-        Corrected Values/Abundances remain tied to the unresolved full trace.
-        """
+        """Correct and integrate the same measurement used for Raw Values."""
         label_atoms = row["label_atoms"] or 0
         if label_atoms <= 0 or not row["formula"]:
             return calculate_peak_areas(
@@ -852,7 +827,7 @@ class DataProvider:
             return []
 
         raw_matrix = raw_intensity_data.reshape(num_isotopologues, n_time_points)
-        deconvolved = deconvolve_eic(
+        bundle = deconvolve_channel_matrix(
             time_data,
             raw_matrix,
             retention_time=row["retention_time"],
@@ -864,8 +839,9 @@ class DataProvider:
         )
         _, corrected_areas = self._areas_from_deconvolved(
             time_data,
-            deconvolved,
+            bundle,
             row,
+            raw_matrix,
             use_legacy=use_legacy,
             baseline_correction=baseline_correction,
         )

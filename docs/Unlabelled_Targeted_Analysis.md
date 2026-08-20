@@ -89,12 +89,14 @@ signal, not a fixed chemical fingerprint. Identity is carried by the
 experimental design (known targets / standards) and by the isotopologue envelope
 itself. Applying Q/V ratio logic there would confuse biology with identity QC.
 
-### Chromatographic deconvolution (off by default)
+### Chromatographic deconvolution (level 4 by default)
 
-Unlabelled compounds are imported with `deconvolution_level = off`. Each Q or V
-ion is then integrated over the exclusive loffset/roffset window.
+Unlabelled compounds are imported with `deconvolution_level = 4`, the same
+default as labelled mode. The setting is per compound and applies to every
+sample of that compound. Compounds already in a session keep the level they
+were imported with until you change it or re-import the list.
 
-You can turn deconvolution on per compound (or apply the same settings to every
+You can change the level per compound (or apply the same settings to every
 compound) from **Settings → Chromatographic Peak Deconvolution**. The same
 independent-per-ion engine used in labelled mode then fits each Q and V EIC on
 its own. Channels do not share an elution shape. A joint shared-shape fit on
@@ -105,10 +107,10 @@ When deconvolution is on for a compound:
 
 - If every Q and V ion in that sample fitted, amount and V/Q both use the
   model areas. Amount is still the Q-ion area alone.
-- If any Q or V ion failed to fit, every ion of that compound/sample uses the
-  raw in-window scans. Plots show those scans, not leftover curves. That keeps
-  V/Q as one kind of measurement (never a model area divided by a scan
-  trapezoid).
+- If any Q or V ion failed to fit, every ion of that compound/sample still
+  uses the raw in-window scans for amount and V/Q. That keeps V/Q as one kind
+  of measurement (never a model area divided by a scan trapezoid). The tile
+  still draws a curve for each ion that fitted.
 - Observed RT and the detail-dialog mass spectrum stay on the **raw Q apex**
   inside the window. Areas may be modelled; the apex is not switched to the
   fitted centre.
@@ -180,9 +182,13 @@ case-insensitive and ignore spaces or underscores
 ### Minimal example
 
 ```csv
-name,tR,lOffset,rOffset,QIon,ValIon1,ValIon2,Qualifier 1 Ratio,Qualifier 1 Tolerance,tR Window
-Citrate 4TMS,12.40,0.12,0.12,273,147,73,0.42,0.25,0.10
+name,tR,lOffset,rOffset,QIon,ValIon1,Qualifier 1 Ratio,Qualifier 1 Tolerance,tR Window
+Citrate 4TMS,12.40,0.12,0.12,273,147,0.42,0.25,0.10
 ```
+
+`ValIon2` is optional. Give it its own `Qualifier 2 Ratio` and
+`Qualifier 2 Tolerance` if both ions should count toward Validated. A V2 *m/z*
+with no ratio stays **Partial** even when V1 passes.
 
 ### Scientific constraints enforced on import
 
@@ -255,15 +261,11 @@ Natural-abundance correction is **not** applied in this mode.
 ### Step D — Review compounds
 
 1. Select a compound and the samples of interest.
-2. Inspect the EIC tiles and the **Targeted identity QC** table in the left
-   sidebar.
+2. Inspect the EIC tiles and the **Identity** chart in the left sidebar.
 3. Adjust tR or offsets where peaks have drifted, then
    **Apply**.
-4. Use display aids as needed:
-   - **Shared y-scale** — compare abundances across samples on one intensity
-     scale
-   - **Normalize Q/V shapes** — display-only scaling of V traces to Q peak
-     height for shape / apex comparison (does **not** change areas)
+4. Use **Shared y-scale** if you want one intensity scale across all sample
+   tiles. Off: each tile autoscales to its own tallest peak.
 
 ### Step E — Export
 
@@ -318,12 +320,23 @@ For each sample × compound, MANIC assesses:
 | **Not assessed** | Q detected, but identity references are incomplete (e.g. missing expected ratios), so MANIC reports signal without confirmation |
 | **Unavailable** | QC could not be computed (missing EIC / compound data) |
 
-Click a QC table row to see the full reason text and highlight that sample's
-plot. Use **Show issues only** to hide supported samples while reviewing.
+The Identity chart encodes **V/Q only**. Export **Identity Status** also includes
+tR and whether Q was found.
 
-Tile borders summarise the same statuses (amber for review, grey for not
-detected). Peak-height validation against an internal standard (red tint when
-enabled) remains a separate check and uses **Q-ion area only**.
+| Chart | Meaning | Typical export status |
+| :--- | :--- | :--- |
+| **Validated** (green) | Every V ion has a ratio check and all passed | **Supported** if tR also passed; **Review required** if tR failed |
+| **Partial** (orange) | At least one V ion passed and at least one did not | **Review required** if a V ion failed; **Not assessed** if the other V has no ratio |
+| **Fail** (red) | A V/Q check failed and none passed | **Review required** |
+| **No ratio** (grey) | Nothing was scored | **Not assessed** if Q is present; **Not detected** if Q is missing |
+
+Hover a bar for expected ratio, tolerance, and observed ratio. Click a bar to
+highlight that sample's plot. Double-click to enlarge the chart. A green bar
+does not excuse a tR failure; that still lands in **Identity Reasons**.
+
+Tile borders mark a missing Q peak (grey). V/Q review stays on the Identity
+chart, not on the tiles. Peak-height validation against an internal standard
+(red tint when enabled) remains a separate check and uses **Q-ion area only**.
 
 ---
 
@@ -375,8 +388,8 @@ A session changelog is also written; for unlabelled mode it states that
 Q-ion area alone supplies the analytical response, V ions are identity
 evidence, current tR is used for both integration and identity RT QC, and
 natural-isotope correction is not applied. Chromatographic peak
-deconvolution, if you enabled it, is recorded per compound in the compounds
-table. It is independent per-ion fitting, not isotopologue-envelope
+deconvolution defaults to level 4 and is recorded per compound in the
+compounds table. It is independent per-ion fitting, not isotopologue-envelope
 deconvolution.
 
 ---
@@ -391,15 +404,15 @@ Typical guide lines:
 | :--- | :--- | :--- |
 | tR | Black | Centre of the integration window and identity expected RT |
 | Left / right offsets | Blue dashed | Integration boundaries |
-| Observed Q apex | Magenta solid | Measured Q-ion apex inside the window |
 
 Trace colours follow the shared channel palette (Q is the first colour; V1 is
-typically the second). The observed-apex guide uses **magenta** so it is not
-confused with the orange V1 trace.
+typically the second). Observed Q apex is used for the mass spectrum and
+export; it is not drawn on the tiles.
 
-If deconvolution is on and every Q/V ion in that sample fitted, the selected
-component is drawn as a smooth curve over a faint raw EIC. If any ion failed
-to fit, the tile shows the raw scan traces only.
+If deconvolution is on, each Q or V ion that fitted is drawn as a smooth
+curve over a faint raw EIC. Ions that failed to fit stay as raw scan traces
+on that tile. Labelled mode still waits until every ion of the sample fitted
+before drawing curves.
 
 The channel legend above the grid names each Q/V *m/z*.
 
@@ -407,7 +420,7 @@ The channel legend above the grid names each Q/V *m/z*.
 
 Right-click a tile for the detail view:
 
-- EIC with the same tR / offset / apex guides
+- EIC with the same tR / offset guides
 - TIC (when available)
 - Mass spectrum taken at the **observed Q apex** when available (otherwise at
   tR)
@@ -416,16 +429,17 @@ Right-click a tile for the detail view:
 
 ## 10. Practical review checklist
 
-1. **Supported samples** — spot-check a few; confirm the magenta apex sits on a
-   clean Q peak and V traces share the same apex shape.
-2. **Review required** — read the reasons. RT failures often need a shifted
-   tR so the window covers the peak.
+1. **Validated / Supported** — spot-check a few; confirm the Q peak sits on tR
+   and V traces share the same apex shape. A green bar with a tR miss is still
+   **Review required** in the export.
+2. **Partial / Fail / Review required** — hover the bar, then read Identity
+   Reasons. RT failures often need a shifted tR so the window covers the peak.
    Ratio failures often indicate co-elution, wrong V ion, or an outdated
    expected ratio.
-3. **Not detected** — confirm absence vs. window missed the peak vs. wrong Q
-   *m/z*.
-4. **Not assessed** — add expected ratios / tolerances (and a sensible
-   `tR Window`) if you want automated confirmation.
+3. **No ratio / Not detected** — confirm absence vs. window missed the peak vs.
+   wrong Q *m/z*.
+4. **No ratio / Not assessed** — add expected ratios / tolerances for every V
+   ion (and a sensible `tR Window`) if you want automated confirmation.
 5. Before trusting amounts — confirm the internal standard, `MM Files`
    patterns, and whether Result Type says *semi-quantitative* or
    *uncalibrated*.
@@ -440,7 +454,7 @@ Right-click a tile for the detail view:
 | Quantification | Q-ion area only | Sum / distribution across isotopologues | Q (+ visual V overlay) |
 | Identity | RT + optional V/Q ratios | Envelope / experimental design | Visual V scaling; no automated ratio QC |
 | Natural-abundance correction | Off | On | N/A for Gv3 unlabelled |
-| Deconvolution | Off by default; optional per compound (independent Q/V fits) | Optional per compound | N/A |
+| Deconvolution | Level 4 by default; independent Q/V fits | Level 4 by default | N/A |
 | Export | Targeted Results / Qualifier QC / Method | Isotope-tracing sheets | Legacy MATLAB exports |
 
 Old MANIC Gv3 lists (exactly
@@ -457,7 +471,7 @@ old MANIC did not perform.
 - Fixed-window integration assumes the peak lies inside
   centre ± offsets. Large RT drift needs per-sample centre adjustment.
 - Co-elution that affects Q and V proportionally can still pass ratio checks —
-  visual review of shapes remains important (**Normalize Q/V shapes** helps).
+  visual review of shapes remains important.
 - Imported expected V/Q ratios are usually raw-window values. Turning
   deconvolution on can move observed ratios even when every ion fitted;
   remeasure expected ratios and tolerances on standards with the same setting.

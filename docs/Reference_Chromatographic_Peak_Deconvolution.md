@@ -25,7 +25,7 @@ When deconvolution is on and every ion of the compound in that sample has a usab
 
 In that all-fitted case the displayed peak is identical to the integrated peak. Dense evaluation changes the exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks), in the direction of higher accuracy. Legacy (unit-spacing) integration is unaffected and remains scan-point based. The raw trace itself is never smoothed.
 
-If any ion of that compound in that sample failed to fit, plots and export both use the raw in-window scan traces. No fitted curve is drawn. See [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans).
+If any ion of a labelled compound in that sample failed to fit, plots and export both use the raw in-window scan traces. No fitted curve is drawn. Unlabelled tiles draw a curve for each ion that fitted and leave failed ions on the raw trace; export still uses the raw window unless every ion fitted. See [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans).
 
 If baseline correction is enabled, MANIC keeps the usual edge-based baseline correction but applies it to the selected deconvolved signal. Excluded components are removed before the baseline is estimated.
 
@@ -43,7 +43,7 @@ For a labeled compound the preferred centre for every channel is the compound re
 
 ## Unlabelled quantifier and qualifier ions
 
-Unlabelled mode uses this same per-channel fitter. Import leaves deconvolution off; you can enable it per compound. Q and V are different EI fragments, so they are never given a shared elution shape.
+Unlabelled mode uses this same per-channel fitter. Import defaults to level 4, matching labelled mode; the setting applies to every sample of that compound. Q and V are different EI fragments, so they are never given a shared elution shape.
 
 Amount is the Q-ion area. V/Q identity ratios use the same area list. If any ion of that compound/sample failed to fit, every ion uses the raw in-window scans.
 
@@ -69,11 +69,10 @@ Natural-abundance correction inverts a matrix across the isotopologue envelope. 
 For each compound/sample:
 
 - If **every** ion has a model, plots draw the dense curve and Raw and Corrected both integrate it.
-- If **any** ion failed to fit (noise-gated, too few points, empty, failed, or a collapsed overlap), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for **every** ion of that pair, including ions that did fit. No fitted overlay is drawn. Natural-abundance correction then runs on that raw envelope.
+- If **any** ion of a labelled compound failed to fit (noise-gated, too few points, empty, failed, or a collapsed overlap), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for **every** ion of that pair, including ions that did fit. No fitted overlay is drawn. Natural-abundance correction then runs on that raw envelope.
+- Unlabelled tiles draw a curve for each ion that fitted. Export still uses the raw window unless every Q/V ion fitted, so V/Q is never a model area divided by a scan trapezoid.
 
 The next sample of the same compound can still use model areas if every ion there fitted.
-
-Unlabelled Q/V pairs use the same all-or-nothing rule so V/Q is never a model area divided by a scan trapezoid. Natural-isotope correction does not run in that mode; the rule is there so Q and V stay the same kind of measurement.
 
 ## Per-Compound Settings
 
@@ -177,10 +176,10 @@ Deconvolution is designed to degrade gracefully and never block integration. Two
 
   The default `balanced` (`-0.1`) sits in the gap between typical noise (~`-0.5`) and genuine peaks (`>= +0.3`), biased slightly toward retaining borderline peaks, since the subsequent fit-quality checks can still reject a poor fit. It is set per compound in the deconvolution dialog.
 - **A fit is attempted but no usable model is found** (the optimizer fails to converge, or every candidate is non-finite or contributes negligible signal): MANIC integrates the **raw trace** over the loffset/roffset window, equivalent to the deconvolution-off result. No overlays are drawn.
-- **A fit succeeds but does not reproduce the data (the fit-quality net):** after fitting, MANIC retains the model (`_fit_reproduces_window`) only if it reconstructs the raw window adequately (relative residual at or below `FIT_QUALITY_MAX_REL_RESIDUAL`). A one-component model is kept only when the raw window had fewer than two candidates. If an overlap fit collapses to one component, or the reconstruction is poor, MANIC discards the model and integrates the **raw trace**.
+- **A fit succeeds but does not reproduce the data (the fit-quality net):** after fitting, MANIC retains the model (`_fit_reproduces_window`) only if it reconstructs the raw window adequately (relative residual at or below `FIT_QUALITY_MAX_REL_RESIDUAL`). Extra candidate seeds (shoulders or leftover maxima) do not discard a one-component model that already matches. If the reconstruction is poor, MANIC discards the model and integrates the **raw trace**.
 - **Unexpected numerical failure during fitting:** any error is caught and treated as "no usable model", routing to the same raw-trace fallback rather than propagating. This protects both interactive plotting and bulk export.
 
-In summary, when deconvolution is on, every fittable channel is offered a peak model. A channel uses the raw trace when that window cannot be fit: off, too few points, too messy, no usable model, a collapsed overlap, or a poor reconstruction. If any channel of a compound/sample falls back, plots and export use the raw in-window scans for every channel of that pair (see [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)). MANIC does not zero out results, blank the plot, or abort an export.
+In summary, when deconvolution is on, every fittable channel is offered a peak model. A channel uses the raw trace when that window cannot be fit: off, too few points, too messy, no usable model, or a poor reconstruction. If any channel of a compound/sample falls back, plots and export use the raw in-window scans for every channel of that pair (see [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)). MANIC does not zero out results, blank the plot, or abort an export.
 
 ## Scientific Background
 

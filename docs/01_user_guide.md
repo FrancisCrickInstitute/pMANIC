@@ -1,5 +1,10 @@
 # User Guide
 
+This guide is the labelled (isotope-tracing) workflow: M+0…M+n channels,
+natural-abundance correction, and label-derived exports. For targeted
+profiling without stable-isotope tracing, start an **Unlabelled** session and
+use [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md).
+
 
 ## Step 1: Load Compound Definitions
 

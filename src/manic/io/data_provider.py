@@ -38,6 +38,16 @@ _PROCESS_POOL_MIN_TASKS = 64
 _WORKER_PROVIDER: Optional["DataProvider"] = None
 
 
+def _row_channel_count(row) -> Optional[int]:
+    try:
+        value = row["channel_count"]
+    except (KeyError, IndexError):
+        return None
+    if value is None or int(value) <= 0:
+        return None
+    return int(value)
+
+
 def _init_export_worker(use_legacy: bool) -> None:
     """ProcessPoolExecutor initializer: build this process's DataProvider once."""
     global _WORKER_PROVIDER
@@ -136,8 +146,8 @@ class DataProvider:
             sql = (
                 "SELECT c.compound_name, c.label_atoms, c.mass0, c.retention_time, c.loffset, c.roffset, "
                 "amount_in_std_mix, int_std_amount, mm_files, formula, baseline_correction "
-                ", COALESCE((SELECT COUNT(*) FROM compound_ions ci "
-                "WHERE ci.compound_name = c.compound_name), c.label_atoms + 1) AS channel_count "
+                ", COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), 0), c.label_atoms + 1) AS channel_count "
                 "FROM compounds c WHERE c.deleted=0 ORDER BY c.id"
             )
             return list(conn.execute(sql))
@@ -246,8 +256,8 @@ class DataProvider:
             raw_eic_query = """
                 SELECT e.sample_name, e.compound_name, e.x_axis, e.y_axis,
                        c.label_atoms,
-                       COALESCE((SELECT COUNT(*) FROM compound_ions ci
-                                 WHERE ci.compound_name = c.compound_name),
+                       COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci
+                                 WHERE ci.compound_name = c.compound_name), 0),
                                 c.label_atoms + 1) AS channel_count,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
@@ -274,7 +284,9 @@ class DataProvider:
             corrected_eic_query = """
                 SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected,
                        c.label_atoms,
-                       c.label_atoms + 1 AS channel_count,
+                       COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci
+                                 WHERE ci.compound_name = c.compound_name), 0),
+                                c.label_atoms + 1) AS channel_count,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
                        COALESCE(sa.roffset, c.roffset) as roffset,
@@ -510,8 +522,8 @@ class DataProvider:
                 "c.loffset, c.roffset, c.baseline_correction, "
                 "c.deconvolution_level, c.deconvolution_fit_type, "
                 "c.deconvolution_noise_gate, "
-                "COALESCE((SELECT COUNT(*) FROM compound_ions ci "
-                "WHERE ci.compound_name = c.compound_name), c.label_atoms + 1) AS channel_count "
+                "COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), 0), c.label_atoms + 1) AS channel_count "
                 "FROM eic e JOIN compounds c ON e.compound_name = c.compound_name "
                 "WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0 "
                 "ORDER BY e.compound_name"
@@ -689,6 +701,7 @@ class DataProvider:
                 row["retention_time"],
                 row["loffset"],
                 row["roffset"],
+                channel_count=_row_channel_count(row),
                 use_legacy=use_legacy,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=row["deconvolution_level"],
@@ -786,6 +799,7 @@ class DataProvider:
                 row["retention_time"],
                 row["loffset"],
                 row["roffset"],
+                channel_count=_row_channel_count(row),
                 use_legacy=use_legacy,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency="off",
@@ -814,6 +828,7 @@ class DataProvider:
                 row["retention_time"],
                 row["loffset"],
                 row["roffset"],
+                channel_count=_row_channel_count(row),
                 use_legacy=use_legacy,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=row["deconvolution_level"],
@@ -853,8 +868,8 @@ class DataProvider:
         with get_connection() as conn:
             meta = conn.execute(
                 "SELECT c.label_atoms, "
-                "COALESCE((SELECT COUNT(*) FROM compound_ions ci "
-                "WHERE ci.compound_name = c.compound_name), c.label_atoms + 1) AS channel_count, "
+                "COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), 0), c.label_atoms + 1) AS channel_count, "
                 "COALESCE(sa.retention_time, c.retention_time) as retention_time, "
                 "COALESCE(sa.loffset, c.loffset) as loffset, "
                 "COALESCE(sa.roffset, c.roffset) as roffset, "

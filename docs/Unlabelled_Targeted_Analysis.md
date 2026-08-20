@@ -89,16 +89,39 @@ signal, not a fixed chemical fingerprint. Identity is carried by the
 experimental design (known targets / standards) and by the isotopologue envelope
 itself. Applying Q/V ratio logic there would confuse biology with identity QC.
 
-### Why deconvolution is off
+### Chromatographic deconvolution (off by default)
 
 Unlabelled compounds are imported with `deconvolution_level = off`. Each Q or V
-ion is integrated over the fixed window.
+ion is then integrated over the exclusive loffset/roffset window.
 
-Labelled deconvolution fits each isotopologue on its own EIC. Channels do not
-share an elution shape. That independent path is not switched on for unlabelled
-import yet. A joint shared-shape fit on Q/V ions would still be wrong, because
-those ions are different fragments and their areas must stay independent for
-V/Q identity QC.
+You can turn deconvolution on per compound (or apply the same settings to every
+compound) from **Settings → Chromatographic Peak Deconvolution**. The same
+independent-per-ion engine used in labelled mode then fits each Q and V EIC on
+its own. Channels do not share an elution shape. A joint shared-shape fit on
+Q/V would still be wrong: those ions are different EI fragments, and V/Q
+identity QC needs independent areas.
+
+When deconvolution is on for a compound:
+
+- If every Q and V ion in that sample fitted, amount and V/Q both use the
+  model areas. Amount is still the Q-ion area alone.
+- If any Q or V ion failed to fit, every ion of that compound/sample uses the
+  raw in-window scans. Plots show those scans, not leftover curves. That keeps
+  V/Q as one kind of measurement (never a model area divided by a scan
+  trapezoid).
+- Observed RT and the detail-dialog mass spectrum stay on the **raw Q apex**
+  inside the window. Areas may be modelled; the apex is not switched to the
+  fitted centre.
+
+Imported expected V/Q ratios are almost always measured on raw-window areas.
+Enabling deconvolution can move observed ratios even when every ion fitted,
+because an isolated-component integral is not the same number as the
+full-window trapezoid. Remeasure expected ratios and tolerances on standards
+with the same deconvolution setting before relying on automated identity QC.
+
+Natural-isotope correction is not applied. Q and V are diagnostic ions, not
+an isotopologue envelope. See
+[Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md).
 
 ---
 
@@ -351,7 +374,10 @@ Human-readable interpretation limits, then two tables:
 A session changelog is also written; for unlabelled mode it states that
 Q-ion area alone supplies the analytical response, V ions are identity
 evidence, current tR is used for both integration and identity RT QC, and
-natural-isotope correction / isotopologue deconvolution are not applied.
+natural-isotope correction is not applied. Chromatographic peak
+deconvolution, if you enabled it, is recorded per compound in the compounds
+table. It is independent per-ion fitting, not isotopologue-envelope
+deconvolution.
 
 ---
 
@@ -370,6 +396,10 @@ Typical guide lines:
 Trace colours follow the shared channel palette (Q is the first colour; V1 is
 typically the second). The observed-apex guide uses **magenta** so it is not
 confused with the orange V1 trace.
+
+If deconvolution is on and every Q/V ion in that sample fitted, the selected
+component is drawn as a smooth curve over a faint raw EIC. If any ion failed
+to fit, the tile shows the raw scan traces only.
 
 The channel legend above the grid names each Q/V *m/z*.
 
@@ -410,7 +440,7 @@ Right-click a tile for the detail view:
 | Quantification | Q-ion area only | Sum / distribution across isotopologues | Q (+ visual V overlay) |
 | Identity | RT + optional V/Q ratios | Envelope / experimental design | Visual V scaling; no automated ratio QC |
 | Natural-abundance correction | Off | On | N/A for Gv3 unlabelled |
-| Deconvolution | Off | Optional per compound | N/A |
+| Deconvolution | Off by default; optional per compound (independent Q/V fits) | Optional per compound | N/A |
 | Export | Targeted Results / Qualifier QC / Method | Isotope-tracing sheets | Legacy MATLAB exports |
 
 Old MANIC Gv3 lists (exactly
@@ -428,6 +458,9 @@ old MANIC did not perform.
   centre ± offsets. Large RT drift needs per-sample centre adjustment.
 - Co-elution that affects Q and V proportionally can still pass ratio checks —
   visual review of shapes remains important (**Normalize Q/V shapes** helps).
+- Imported expected V/Q ratios are usually raw-window values. Turning
+  deconvolution on can move observed ratios even when every ion fitted;
+  remeasure expected ratios and tolerances on standards with the same setting.
 - Semi-quantitative amounts use a single-point response factor (or an assumed
   factor of 1.0). They are estimates unless independently validated.
 - Mode is session-scoped: do not mix labelled and unlabelled interpretation of
@@ -441,4 +474,5 @@ old MANIC did not perform.
 - [Peak Validation](Reference_Peak_Validation.md) — internal-standard height checks (unlabelled uses Q-ion area)
 - [Integration Methods](Reference_Integration_Methods.md) — time-based vs legacy unit-spacing integration
 - [Baseline Correction](Reference_Baseline_Correction.md) — optional linear baseline subtraction
+- [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md) — independent per-ion fitting and the all-or-nothing fallback
 - [Mass Tolerance](Reference_Mass_Tolerance.md) — how *m/z* values are binned on import

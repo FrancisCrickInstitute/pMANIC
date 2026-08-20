@@ -16,6 +16,20 @@ logger = logging.getLogger(__name__)
 BASELINE_NUM_POINTS = 3  # Number of points to sample at each edge for baseline fitting
 
 
+def _resolve_channel_count(
+    time_data: np.ndarray,
+    intensity_data: np.ndarray,
+    label_atoms: int,
+    channel_count: Optional[int],
+) -> int:
+    """Return the number of analytical traces in a raw or 2D EIC."""
+    if channel_count is not None and int(channel_count) > 0:
+        return int(channel_count)
+    if getattr(intensity_data, "ndim", 1) > 1:
+        return max(1, int(intensity_data.shape[0]))
+    return max(1, (label_atoms or 0) + 1)
+
+
 def _fit_baseline_coefficients(
     time_data: np.ndarray,
     intensity_data: np.ndarray,
@@ -279,14 +293,20 @@ def calculate_peak_areas(
                 return np.array([]), np.array([])
         return td, idata
 
-    num_channels = (
-        max(1, int(channel_count))
-        if channel_count is not None
-        else (label_atoms or 0) + 1
+    num_channels = _resolve_channel_count(
+        time_data, intensity_data, label_atoms, channel_count
     )
 
     # Single analytical trace
     if num_channels == 1:
+        time_1d = np.asarray(time_data, dtype=np.float64).reshape(-1)
+        intensity_1d = np.asarray(intensity_data, dtype=np.float64).reshape(-1)
+        if intensity_1d.size != time_1d.size:
+            logger.warning(
+                "Failed to integrate a single-channel EIC. "
+                f"Expected {time_1d.size} intensity points, got {intensity_1d.size}."
+            )
+            return [0.0]
         if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
             deconvolved = deconvolve_eic(
                 time_data,

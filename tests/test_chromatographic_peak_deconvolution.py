@@ -742,6 +742,162 @@ def test_overlap_path_rejects_a_fit_that_only_hit_max_nfev(monkeypatch):
     assert np.allclose(result.selected, intensity)
 
 
+def test_flattened_eic_does_not_infer_channel_count_from_length():
+    time = np.array([0.0, 1.0, 2.0])
+    intensity = np.array([[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]]).ravel()
+
+    assert calculate_peak_areas(time, intensity, 0, 1.0, 1.1, 1.1) == pytest.approx(
+        [0.0]
+    )
+    assert calculate_peak_areas(
+        time, intensity, 0, 1.0, 1.1, 1.1, channel_count=0
+    ) == pytest.approx([0.0])
+    assert calculate_peak_areas(
+        time, intensity, 0, 1.0, 1.1, 1.1, channel_count=2
+    ) == pytest.approx([10.0, 4.0])
+
+
+def test_calculate_peak_areas_infers_channel_count_from_2d_intensity():
+    time = np.array([0.0, 1.0, 2.0])
+    intensity = np.array([[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]])
+
+    areas = calculate_peak_areas(time, intensity, 0, 1.0, 1.1, 1.1)
+    assert areas == pytest.approx([10.0, 4.0])
+
+
+def test_calculate_peak_areas_unlabelled_qv_both_fitted_uses_model_areas():
+    deconv._fit_joint_component_model_cached.cache_clear()
+    deconv._fit_single_component_model_cached.cache_clear()
+    time = np.linspace(0.0, 10.0, 201)
+    quantifier = _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 7.0, 0.25, 6.0)
+    qualifier = _gaussian(time, 7.0, 0.25, 2.4)
+    intensity = np.vstack([quantifier, qualifier])
+
+    raw = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        7.0,
+        4.0,
+        4.0,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    modelled = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        7.0,
+        4.0,
+        4.0,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+
+    assert modelled[0] < raw[0]
+    assert modelled[0] == pytest.approx(
+        np.trapezoid(_gaussian(time, 7.0, 0.25, 6.0), time), rel=1e-3
+    )
+    assert modelled[1] == pytest.approx(raw[1], rel=1e-3)
+    assert modelled[1] / modelled[0] == pytest.approx(0.4, rel=5e-2)
+
+
+def _unlabelled_mixed_bundle(time, *, failed_index: int):
+    fitted = deconvolve_eic(
+        time,
+        _gaussian(time, 5.0, 0.08, 12.0),
+        retention_time=5.0,
+        loffset=0.4,
+        roffset=0.4,
+        stringency="4",
+    )
+    assert fitted.model is not None
+    failed = EICChromatographicPeakDeconvolutionResult(
+        selected=np.full(time.size, 3.0),
+        selected_mask=np.asarray(fitted.selected_mask, dtype=bool),
+        excluded=[],
+        excluded_masks=[],
+        selected_center=5.0,
+        component_centers=[5.0],
+        model=None,
+    )
+    channels = [ChannelDeconvolution(index=0, result=fitted), ChannelDeconvolution(index=1, result=fitted)]
+    channels[failed_index] = ChannelDeconvolution(index=failed_index, result=failed)
+    return ChannelDeconvolutionBundle(time=time, channels=tuple(channels))
+
+
+def test_calculate_peak_areas_unlabelled_v_fail_uses_raw_window(monkeypatch):
+    time = np.linspace(4.0, 6.0, 81)
+    intensity = np.vstack(
+        [
+            _gaussian(time, 5.0, 0.08, 12.0),
+            np.full(time.size, 3.0),
+        ]
+    )
+    monkeypatch.setattr(
+        integration_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: _unlabelled_mixed_bundle(time, failed_index=1),
+    )
+    mixed = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+    expected = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    assert mixed == pytest.approx(expected)
+
+
+def test_calculate_peak_areas_unlabelled_q_fail_uses_raw_window(monkeypatch):
+    time = np.linspace(4.0, 6.0, 81)
+    intensity = np.vstack(
+        [
+            np.full(time.size, 3.0),
+            _gaussian(time, 5.0, 0.08, 12.0),
+        ]
+    )
+    monkeypatch.setattr(
+        integration_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: _unlabelled_mixed_bundle(time, failed_index=0),
+    )
+    mixed = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+    expected = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    assert mixed == pytest.approx(expected)
+
+
 def test_calculate_peak_areas_mixed_bundle_uses_raw_window(monkeypatch):
     time = np.linspace(4.0, 6.0, 81)
     clean = _gaussian(time, 5.0, 0.08, 12.0)

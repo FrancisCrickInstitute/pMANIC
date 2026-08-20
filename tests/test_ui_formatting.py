@@ -444,7 +444,7 @@ def test_one_d_model_overlay_uses_qualifier_color(qapp):
         view.deleteLater()
 
 
-def _deconvolution_plot_compound():
+def _deconvolution_plot_compound(*, is_unlabelled_target=False):
     return SimpleNamespace(
         deconvolution_level="4",
         deconvolution_fit_type="auto",
@@ -452,7 +452,7 @@ def _deconvolution_plot_compound():
         retention_time=5.0,
         loffset=0.4,
         roffset=0.4,
-        is_unlabelled_target=False,
+        is_unlabelled_target=is_unlabelled_target,
         compound_name="test",
         baseline_correction=0,
         analysis_channels=(),
@@ -487,7 +487,10 @@ def _mixed_deconvolution_bundle(time):
     )
 
 
-def test_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
+@pytest.mark.parametrize("is_unlabelled_target", [False, True])
+def test_mixed_bundle_draws_scans_not_model_overlay(
+    qapp, monkeypatch, is_unlabelled_target
+):
     time = np.linspace(4.0, 6.0, 81)
     intensity = np.vstack(
         [
@@ -513,7 +516,7 @@ def test_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
             y_axis,
             time,
             intensity,
-            _deconvolution_plot_compound(),
+            _deconvolution_plot_compound(is_unlabelled_target=is_unlabelled_target),
             1.0,
         )
         widths = {series.pen().widthF() for series in chart.series()}
@@ -521,3 +524,32 @@ def test_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
         assert 2.0 in widths
     finally:
         view.deleteLater()
+
+
+def test_unlabelled_mixed_bundle_detailed_plot_draws_scans(qapp, monkeypatch):
+    from manic.ui import detailed_plot_dialog as dialog_module
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    time = np.linspace(4.0, 6.0, 81)
+    intensity = np.vstack(
+        [
+            12.0 * np.exp(-0.5 * ((time - 5.0) / 0.08) ** 2),
+            np.full(time.size, 3.0),
+        ]
+    )
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    monkeypatch.setattr(
+        dialog_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
+    )
+    dialog = DetailedPlotDialog("Target", "S1")
+    drew_model = []
+    try:
+        dialog.compound_info = _deconvolution_plot_compound(is_unlabelled_target=True)
+        dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
+        dialog._plot_model_component = lambda *args, **kwargs: drew_model.append(True)
+        dialog._plot_eic_traces()
+        assert drew_model == []
+    finally:
+        dialog.deleteLater()

@@ -92,7 +92,8 @@ def generate_changelog(
         key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values
 - Q-ion area alone supplies the analytical response; V-ion areas are identity evidence
 - Current tR is used for both integration and identity RT QC; changing tR updates both
-- Natural-isotope correction and isotopologue deconvolution are not applied"""
+- Natural-isotope correction is not applied; Q and V are diagnostic ions, not isotopologues
+- Chromatographic peak deconvolution is off unless enabled per compound; each Q/V ion is then fitted independently, and V/Q uses the same area list as the Q-ion amount"""
     else:
         processing_description = """- **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0
 - **Internal Standard Handling:** Raw values copied directly for label_atoms = 0"""

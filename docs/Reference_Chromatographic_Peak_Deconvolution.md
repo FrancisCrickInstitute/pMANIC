@@ -41,6 +41,16 @@ For a labeled compound the preferred centre for every channel is the compound re
 
 `deconvolve_eic` fits one channel. A multi-channel matrix goes through `deconvolve_channel_matrix`, which calls `deconvolve_eic` once per row and returns a `ChannelDeconvolutionBundle`.
 
+## Unlabelled quantifier and qualifier ions
+
+Unlabelled mode uses this same per-channel fitter. Import leaves deconvolution off; you can enable it per compound. Q and V are different EI fragments, so they are never given a shared elution shape.
+
+Amount is the Q-ion area. V/Q identity ratios use the same area list. If any ion of that compound/sample failed to fit, every ion uses the raw in-window scans.
+
+Observed RT and the detail mass spectrum stay on the raw Q apex inside the window. Areas may be modelled; the apex is not switched to the fitted centre.
+
+Imported expected V/Q ratios are almost always measured on raw-window areas. Enabling deconvolution can move observed ratios even when every ion fitted. Remeasure expected ratios and tolerances on standards with the same setting.
+
 ## Consistency Across Raw, Corrected, and Abundance Results
 
 For a labeled compound, each channel's **selected chromatographic component** feeds every export sheet. When deconvolution is warranted, MANIC deconvolves each raw isotopologue channel independently and then:
@@ -62,6 +72,8 @@ For each compound/sample:
 - If **any** ion failed to fit (noise-gated, too few points, empty, failed, or a collapsed overlap), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for **every** ion of that pair, including ions that did fit. No fitted overlay is drawn. Natural-abundance correction then runs on that raw envelope.
 
 The next sample of the same compound can still use model areas if every ion there fitted.
+
+Unlabelled Q/V pairs use the same all-or-nothing rule so V/Q is never a model area divided by a scan trapezoid. Natural-isotope correction does not run in that mode; the rule is there so Q and V stay the same kind of measurement.
 
 ## Per-Compound Settings
 

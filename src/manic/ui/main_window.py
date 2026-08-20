@@ -891,13 +891,18 @@ class MainWindow(QMainWindow):
             compound = read_compound_with_session(compound_name, eic.sample_name)
             baseline_correction = bool(getattr(compound, "baseline_correction", 0))
 
+            intensity = np.asarray(eic.intensity, dtype=np.float64)
+            channel_count = (
+                intensity.shape[0] if intensity.ndim > 1 else compound.channel_count
+            )
             isotope_areas = calculate_peak_areas(
                 eic.time,
-                eic.intensity,
+                intensity.ravel(),
                 label_atoms=0,
                 retention_time=compound.retention_time,
                 loffset=compound.loffset,
                 roffset=compound.roffset,
+                channel_count=channel_count,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
                 chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,

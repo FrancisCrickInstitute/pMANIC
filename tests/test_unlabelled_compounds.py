@@ -10,15 +10,25 @@ import openpyxl
 import pandas as pd
 import pytest
 
+from manic.io.changelog_writer import generate_changelog
 from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import detect_compound_list_format, import_compound_excel
-from manic.io.data_provider import DataProvider
 from manic.io.data_exporter import DataExporter
+from manic.io.data_provider import DataProvider
 from manic.io.eic_importer import _iter_compounds
 from manic.io.eic_reader import read_eic
 from manic.models import database
 from manic.models import session_export
 from manic.models.analysis import AnalysisMode, IonRole
+from manic.processors import chromatographic_peak_deconvolution as deconv
+from manic.processors import integration as integration_module
+from manic.processors.chromatographic_peak_deconvolution import (
+    ChannelDeconvolution,
+    ChannelDeconvolutionBundle,
+    EICChromatographicPeakDeconvolutionResult,
+    deconvolve_eic,
+)
+from manic.processors.integration import calculate_peak_areas
 from manic.validation.unlabelled_identity import IdentityStatus
 
 
@@ -39,6 +49,18 @@ def _import_targets(tmp_path, **row) -> int:
     path = tmp_path / "targets.csv"
     pd.DataFrame([row]).to_csv(path, index=False)
     return import_compound_excel(path, AnalysisMode.UNLABELLED)
+
+
+def _gaussian(time, center, width, height):
+    return height * np.exp(-0.5 * ((time - center) / width) ** 2)
+
+
+def _enable_deconvolution(compound_name: str, level: str = "4") -> None:
+    with database.get_connection() as conn:
+        conn.execute(
+            "UPDATE compounds SET deconvolution_level = ? WHERE compound_name = ?",
+            (level, compound_name),
+        )
 
 
 def _insert_eic(sample: str, compound: str, time, matrix, rt_window: float) -> None:
@@ -166,6 +188,8 @@ def test_unlabelled_compound_import_stores_arbitrary_ion_channels(
         IonRole.QUALIFIER,
         IonRole.QUALIFIER,
     ]
+    assert compound.deconvolution_level == "off"
+    assert compound.baseline_correction == 1
     assert compound.analysis_channels[1].expected_ratio == pytest.approx(0.42)
     assert compound.analysis_channels[1].ratio_tolerance == pytest.approx(0.25)
 
@@ -416,3 +440,262 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
         row for row in rows if row and row[0] == "S1" and row[1] == "Target"
     )
     assert current_row[2] == pytest.approx(1.25)
+
+
+def _unlabelled_mixed_bundle(time, *, failed_index: int):
+    fitted = deconvolve_eic(
+        time,
+        _gaussian(time, 5.0, 0.08, 12.0),
+        retention_time=5.0,
+        loffset=0.4,
+        roffset=0.4,
+        stringency="4",
+    )
+    assert fitted.model is not None
+    failed = EICChromatographicPeakDeconvolutionResult(
+        selected=np.full(time.size, 3.0),
+        selected_mask=np.asarray(fitted.selected_mask, dtype=bool),
+        excluded=[],
+        excluded_masks=[],
+        selected_center=5.0,
+        component_centers=[5.0],
+        model=None,
+    )
+    channels = [
+        ChannelDeconvolution(index=0, result=fitted),
+        ChannelDeconvolution(index=1, result=fitted),
+    ]
+    channels[failed_index] = ChannelDeconvolution(index=failed_index, result=failed)
+    return ChannelDeconvolutionBundle(time=time, channels=tuple(channels))
+
+
+def test_deconvolution_on_quantifies_q_only_and_pairs_vq(unlabelled_db, tmp_path):
+    deconv._fit_joint_component_model_cached.cache_clear()
+    deconv._fit_single_component_model_cached.cache_clear()
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=7.0,
+        lOffset=4.0,
+        rOffset=4.0,
+        QIon=217,
+        ValIon1=147,
+        **{"Qualifier 1 Ratio": 0.4, "Qualifier 1 Tolerance": 0.25},
+    )
+    _enable_deconvolution("Target")
+
+    time = np.linspace(0.0, 10.0, 201)
+    matrix = [
+        _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 7.0, 0.25, 6.0),
+        _gaussian(time, 7.0, 0.25, 2.4),
+    ]
+    _insert_eic("S1", "Target", time, matrix, rt_window=4.0)
+
+    provider = DataProvider()
+    areas = provider.get_compound_areas("S1", "Target")
+    modelled = calculate_peak_areas(
+        time,
+        np.asarray(matrix, dtype=np.float64).ravel(),
+        0,
+        7.0,
+        4.0,
+        4.0,
+        channel_count=2,
+        baseline_correction=True,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+    raw_window = calculate_peak_areas(
+        time,
+        np.asarray(matrix, dtype=np.float64).ravel(),
+        0,
+        7.0,
+        4.0,
+        4.0,
+        channel_count=2,
+        baseline_correction=True,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+
+    assert areas == pytest.approx(modelled)
+    assert areas[0] < raw_window[0]
+    assert provider.get_compound_total_area("S1", "Target") == pytest.approx(areas[0])
+    assert provider.get_compound_total_area("S1", "Target") != pytest.approx(sum(areas))
+
+    qc = provider.assess_unlabelled_identity("S1", "Target")
+    assert qc.quantifier_area == pytest.approx(areas[0])
+    assert [ratio.observed_ratio for ratio in qc.qualifier_ratios] == pytest.approx(
+        [areas[1] / areas[0]]
+    )
+    assert qc.observed_rt == pytest.approx(4.0, abs=0.05)
+
+    bulk = DataProvider().get_sample_raw_data("S1")["Target"]
+    assert bulk == pytest.approx(areas)
+
+    export_path = tmp_path / "deconv.xlsx"
+    assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
+    result = openpyxl.load_workbook(export_path, data_only=True)["Targeted Results"]
+    assert result["D2"].value == pytest.approx(areas[0])
+
+
+def test_raw_calibrated_expected_ratio_fails_after_deconvolution_on(
+    unlabelled_db, tmp_path
+):
+    deconv._fit_joint_component_model_cached.cache_clear()
+    deconv._fit_single_component_model_cached.cache_clear()
+    time = np.linspace(0.0, 10.0, 201)
+    matrix = np.vstack(
+        [
+            _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 7.0, 0.25, 6.0),
+            _gaussian(time, 7.0, 0.25, 2.4),
+        ]
+    )
+    raw = calculate_peak_areas(
+        time,
+        matrix.ravel(),
+        0,
+        7.0,
+        4.0,
+        4.0,
+        channel_count=2,
+        baseline_correction=True,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    raw_ratio = raw[1] / raw[0]
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=7.0,
+        lOffset=4.0,
+        rOffset=4.0,
+        QIon=217,
+        ValIon1=147,
+        **{"Qualifier 1 Ratio": raw_ratio, "Qualifier 1 Tolerance": 0.25},
+    )
+    _insert_eic("S1", "Target", time, matrix, rt_window=4.0)
+
+    qc_off = DataProvider().assess_unlabelled_identity("S1", "Target")
+    assert qc_off.qualifier_ratios[0].passed is True
+    assert qc_off.qualifier_ratios[0].observed_ratio == pytest.approx(raw_ratio)
+
+    _enable_deconvolution("Target")
+    qc_on = DataProvider().assess_unlabelled_identity("S1", "Target")
+    assert read_compound("Target").baseline_correction == 1
+    assert qc_on.qualifier_ratios[0].observed_ratio != pytest.approx(raw_ratio, rel=0.1)
+    assert qc_on.qualifier_ratios[0].passed is False
+    assert qc_on.status is IdentityStatus.REVIEW_REQUIRED
+
+
+@pytest.mark.parametrize("failed_index", [0, 1])
+def test_deconvolution_on_falls_back_when_any_ion_fails(
+    unlabelled_db, tmp_path, monkeypatch, failed_index
+):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=5.0,
+        lOffset=0.4,
+        rOffset=0.4,
+        QIon=217,
+        ValIon1=147,
+        **{"Qualifier 1 Ratio": 0.25, "Qualifier 1 Tolerance": 0.25},
+    )
+    _enable_deconvolution("Target")
+
+    time = np.linspace(4.0, 6.0, 81)
+    matrix = np.vstack(
+        [
+            _gaussian(time, 5.0, 0.08, 12.0),
+            np.full(time.size, 3.0),
+        ]
+    )
+    _insert_eic("S1", "Target", time, matrix, rt_window=0.4)
+    monkeypatch.setattr(
+        integration_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: _unlabelled_mixed_bundle(
+            time, failed_index=failed_index
+        ),
+    )
+
+    expected = calculate_peak_areas(
+        time,
+        matrix.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        baseline_correction=True,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    provider = DataProvider()
+    areas = provider.get_compound_areas("S1", "Target")
+    assert areas == pytest.approx(expected)
+    assert provider.get_compound_total_area("S1", "Target") == pytest.approx(expected[0])
+
+    qc = provider.assess_unlabelled_identity("S1", "Target")
+    assert qc.quantifier_area == pytest.approx(expected[0])
+    assert [ratio.observed_ratio for ratio in qc.qualifier_ratios] == pytest.approx(
+        [expected[1] / expected[0]]
+    )
+    assert DataProvider().get_sample_raw_data("S1")["Target"] == pytest.approx(expected)
+
+
+def test_unlabelled_component_fallback_keeps_qv_channels(unlabelled_db):
+    time = np.array([0.0, 1.0, 2.0])
+    intensity = np.array([[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]]).ravel()
+    row = {
+        "label_atoms": 0,
+        "formula": "",
+        "channel_count": 2,
+        "retention_time": 1.0,
+        "loffset": 1.1,
+        "roffset": 1.1,
+        "deconvolution_level": "off",
+        "deconvolution_fit_type": "auto",
+        "deconvolution_noise_gate": "balanced",
+    }
+    provider = DataProvider()
+    raw, corrected = provider._calculate_raw_and_corrected_areas_from_raw_component(
+        time,
+        intensity,
+        row,
+        use_legacy=False,
+        baseline_correction=False,
+    )
+    assert raw == pytest.approx([10.0, 4.0])
+    assert corrected == pytest.approx(raw)
+    assert corrected is not raw
+    assert provider._calculate_corrected_areas_from_raw_component(
+        time,
+        intensity,
+        row,
+        use_legacy=False,
+        baseline_correction=False,
+    ) == pytest.approx([10.0, 4.0])
+
+
+def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
+    unlabelled_db, tmp_path
+):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=0.1,
+        rOffset=0.1,
+        QIon=217,
+        ValIon1=147,
+    )
+    export_path = tmp_path / "targeted.xlsx"
+    generate_changelog(
+        str(export_path),
+        internal_standard=None,
+        use_legacy_integration=False,
+        analysis_mode=AnalysisMode.UNLABELLED,
+    )
+    changelog = next(tmp_path.glob("changelog_*.md")).read_text(encoding="utf-8")
+    assert "Natural-isotope correction is not applied" in changelog
+    assert "isotopologue deconvolution are not applied" not in changelog
+    assert "Chromatographic peak deconvolution is off unless enabled per compound" in changelog
+    assert "Deconvolution" in changelog

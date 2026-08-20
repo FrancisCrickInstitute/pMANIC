@@ -17,6 +17,7 @@ Run from the repository root:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -40,6 +41,7 @@ COMPOUNDS = [
         "rt": 5.00,
         "loffset": 0.12,
         "roffset": 0.12,
+        "tr_window": 0.08,
         "quant": 116.0,
         "q1": 147.0,
         "q1_ratio": 0.45,
@@ -66,6 +68,53 @@ COMPOUNDS = [
         "tau": 0.030,
     },
     {
+        "name": "Glycine",
+        "rt": 7.20,
+        "loffset": 0.12,
+        "roffset": 0.12,
+        "quant": 174.0,
+        "q1": 248.0,
+        "q1_ratio": None,
+        "q2": None,
+        "q2_ratio": None,
+        "amount": 4.0,
+        "istd_amt": None,
+        "sigma": 0.032,
+        "tau": 0.022,
+    },
+    {
+        "name": "Serine",
+        "rt": 8.10,
+        "loffset": 0.12,
+        "roffset": 0.12,
+        "quant": 204.0,
+        "q1": 218.0,
+        "q1_ratio": 0.40,
+        "q2": 100.0,
+        "q2_ratio": None,
+        "amount": 3.5,
+        "istd_amt": None,
+        "sigma": 0.034,
+        "tau": 0.024,
+    },
+    {
+        "name": "Phenylethanol",
+        "rt": 9.40,
+        "loffset": 0.10,
+        "roffset": 0.20,
+        "quant": 106.0,
+        "q1": 91.0,
+        "q1_ratio": 0.55,
+        "q2": 77.0,
+        "q2_ratio": 0.22,
+        "amount": 2.0,
+        "istd_amt": None,
+        "sigma": 0.028,
+        "tau": 0.018,
+        "overlap_dt": 0.11,
+        "overlap_frac": 0.70,
+    },
+    {
         "name": "Citrate",
         "rt": 12.00,
         "loffset": 0.15,
@@ -79,6 +128,21 @@ COMPOUNDS = [
         "istd_amt": None,
         "sigma": 0.045,
         "tau": 0.040,
+    },
+    {
+        "name": "Uncalibrated",
+        "rt": 13.20,
+        "loffset": 0.12,
+        "roffset": 0.12,
+        "quant": 156.0,
+        "q1": 99.0,
+        "q1_ratio": 0.33,
+        "q2": None,
+        "q2_ratio": None,
+        "amount": None,
+        "istd_amt": None,
+        "sigma": 0.033,
+        "tau": 0.021,
     },
     {
         "name": "scyllo-Inositol",
@@ -97,22 +161,62 @@ COMPOUNDS = [
     },
 ]
 
+
+@dataclass
+class SampleSpec:
+    name: str
+    note: str
+    rt_shift: float = 0.0
+    quant_scale: float = 1.0
+    is_scale: float = 1.0
+    omit: frozenset[str] = field(default_factory=frozenset)
+    v_scale: dict[str, dict[int, float]] = field(default_factory=dict)
+    overlap_frac: float | None = None
+
+
+SAMPLES = [
+    SampleSpec("Sample_01", "nominal biological sample"),
+    SampleSpec("Sample_02", "later RT, lower abundance", rt_shift=0.02, quant_scale=0.70),
+    SampleSpec("Sample_03", "earlier RT, higher abundance", rt_shift=-0.01, quant_scale=1.25),
+    SampleSpec(
+        "Sample_04_ratio_fail",
+        "Alanine both V/Q ratios fail → Fail / Review required",
+        v_scale={"Alanine": {1: 1.80, 2: 1.80}},
+    ),
+    SampleSpec(
+        "Sample_05_rt_shift",
+        "RT +0.16 min; Alanine tR window is 0.08 → Validated bar, Review in export",
+        rt_shift=0.16,
+    ),
+    SampleSpec(
+        "Sample_06_partial",
+        "Citrate V2 only is off → Partial",
+        v_scale={"Citrate": {2: 2.40}},
+    ),
+    SampleSpec(
+        "Sample_07_missing",
+        "Alanine omitted → No ratio / Not detected",
+        omit=frozenset({"Alanine"}),
+    ),
+    SampleSpec(
+        "Sample_08_low_is",
+        "Internal standard almost gone → peak-height validation fail if IS is set",
+        is_scale=0.03,
+    ),
+    SampleSpec(
+        "Sample_09_overlap",
+        "Strong neighbour on Phenylethanol Q for deconvolution",
+        overlap_frac=1.10,
+    ),
+    SampleSpec("MM_01", "standard mixture replicate 1"),
+    SampleSpec("MM_02", "standard mixture replicate 2", rt_shift=0.01, quant_scale=1.05),
+]
+
 # Silicone column bleed ions (nominal m/z → base amplitude in counts).
 BLEED_IONS = {73.0: 260.0, 147.0: 420.0, 207.0: 350.0, 281.0: 520.0}
 
 # Number of untargeted background peaks that make the TIC look like a real run.
 N_BACKGROUND_PEAKS = 22
-
-# Sample definitions: name, RT shift (min), quant scale, ratio scale, notes
-SAMPLES = [
-    ("Sample_01", 0.00, 1.00, 1.00, "nominal biological sample"),
-    ("Sample_02", 0.02, 0.70, 1.00, "later RT, lower abundance"),
-    ("Sample_03", -0.01, 1.25, 0.98, "earlier RT, higher abundance"),
-    ("Sample_04_ratio_fail", 0.00, 1.00, 1.80, "Alanine qualifier ratio will fail QC"),
-    ("Sample_05_rt_shift", 0.09, 1.00, 1.00, "RT near tolerance edge for Alanine"),
-    ("MM_01", 0.00, 1.00, 1.00, "standard mixture replicate 1"),
-    ("MM_02", 0.01, 1.05, 1.00, "standard mixture replicate 2"),
-]
 
 
 def _emg_trace(
@@ -242,12 +346,7 @@ def _background_peaks(
     return peaks
 
 
-def build_sample_cdf(
-    sample_name: str,
-    rt_shift: float,
-    quant_scale: float,
-    ratio_scale: float,
-) -> tuple[np.ndarray, ...]:
+def build_sample_cdf(sample: SampleSpec) -> tuple[np.ndarray, ...]:
     scan_time_s = np.arange(START_S, END_S + DT_S / 2, DT_S, dtype=np.float64)
     time_min = scan_time_s / 60.0
     duration = float(time_min[-1] - time_min[0])
@@ -255,32 +354,34 @@ def build_sample_cdf(
     masses_by_scan: list[list[float]] = [[] for _ in scan_time_s]
     intens_by_scan: list[list[float]] = [[] for _ in scan_time_s]
 
-    rng = np.random.default_rng(abs(hash(sample_name)) % (2**32))
+    rng = np.random.default_rng(abs(hash(sample.name)) % (2**32))
 
-    # Targeted compound channels on a shared per-channel chemical baseline.
     for compound in COMPOUNDS:
+        if compound["name"] in sample.omit:
+            continue
         center = (
-            float(compound["rt"]) + rt_shift + float(rng.normal(0.0, 0.004))
+            float(compound["rt"]) + sample.rt_shift + float(rng.normal(0.0, 0.004))
         )
-        compound_scale = quant_scale * float(
+        amount = float(compound["amount"] or 2.0)
+        compound_scale = sample.quant_scale * float(
             np.clip(rng.normal(1.0, 0.05), 0.5, 1.6)
         )
-        base_amp = 2.0e4 * float(compound["amount"]) * compound_scale
-        if compound["name"] == "Alanine" and sample_name == "Sample_04_ratio_fail":
-            local_ratio_scale = ratio_scale
-        else:
-            local_ratio_scale = 1.0 if "ratio_fail" in sample_name else ratio_scale
+        if compound["name"] == "scyllo-Inositol":
+            compound_scale *= sample.is_scale
+        base_amp = 2.0e4 * amount * compound_scale
+        v_scales = sample.v_scale.get(compound["name"], {})
 
-        channel_specs = [
-            (float(compound["quant"]), 1.0),
-            (float(compound["q1"]), float(compound["q1_ratio"]) * local_ratio_scale),
+        channel_specs: list[tuple[float, float, int]] = [
+            (float(compound["quant"]), 1.0, 0),
         ]
+        if compound["q1"] is not None:
+            relative = float(compound["q1_ratio"] or 0.35) * v_scales.get(1, 1.0)
+            channel_specs.append((float(compound["q1"]), relative, 1))
         if compound["q2"] is not None:
-            channel_specs.append(
-                (float(compound["q2"]), float(compound["q2_ratio"]) * local_ratio_scale)
-            )
+            relative = float(compound["q2_ratio"] or 0.20) * v_scales.get(2, 1.0)
+            channel_specs.append((float(compound["q2"]), relative, 2))
 
-        for mz, relative in channel_specs:
+        for mz, relative, _ordinal in channel_specs:
             peak = _emg_trace(
                 time_min,
                 center,
@@ -288,6 +389,19 @@ def build_sample_cdf(
                 float(compound["sigma"]),
                 float(compound["tau"]),
             )
+            if _ordinal == 0 and compound.get("overlap_dt"):
+                neighbor_frac = (
+                    sample.overlap_frac
+                    if sample.overlap_frac is not None
+                    else float(compound["overlap_frac"])
+                )
+                peak = peak + _emg_trace(
+                    time_min,
+                    center + float(compound["overlap_dt"]),
+                    base_amp * neighbor_frac,
+                    float(compound["sigma"]),
+                    float(compound["tau"]),
+                )
             baseline = _baseline_trace(
                 time_min, rng, level=float(rng.uniform(35.0, 90.0))
             )
@@ -365,15 +479,23 @@ def write_compound_list(path: Path) -> None:
                 "tR": compound["rt"],
                 "lOffset": compound["loffset"],
                 "rOffset": compound["roffset"],
-                "tR Window": max(compound["loffset"], compound["roffset"]),
+                "tR Window": compound.get(
+                    "tr_window", max(compound["loffset"], compound["roffset"])
+                ),
                 "QIon": compound["quant"],
-                "ValIon1": compound["q1"],
+                "ValIon1": compound["q1"] if compound["q1"] is not None else "",
                 "ValIon2": q2 if q2 is not None else "",
-                "Qualifier 1 Ratio": compound["q1_ratio"],
-                "Qualifier 1 Tolerance": 0.25,
+                "Qualifier 1 Ratio": (
+                    compound["q1_ratio"] if compound["q1_ratio"] is not None else ""
+                ),
+                "Qualifier 1 Tolerance": (
+                    0.25 if compound["q1_ratio"] is not None else ""
+                ),
                 "Qualifier 2 Ratio": q2_ratio if q2_ratio is not None else "",
                 "Qualifier 2 Tolerance": 0.25 if q2_ratio is not None else "",
-                "Amount in StdMix": compound["amount"],
+                "Amount in StdMix": (
+                    compound["amount"] if compound["amount"] is not None else ""
+                ),
                 "Int Std amount": istd_amt if istd_amt is not None else "",
                 "MM Files": "MM_*",
             }
@@ -400,16 +522,33 @@ and untargeted background peaks in the TIC.
    semi-quantitative amounts.
 5. Inspect EICs, then **File → Export Data...**.
 
-## What to expect
+## Compounds
+
+| Compound | Ions | What it tests |
+|---|---|---|
+| Alanine | Q + V1 + V2, both ratios, tight tR window (0.08 min) | Validated; RT fail in Sample_05 |
+| Lactate | Q + V1 with ratio | Single-V Validated |
+| Glycine | Q + V1, no expected ratio | No ratio / Not assessed |
+| Serine | Q + V1 + V2, only V1 has a ratio | Partial even when V1 passes |
+| Phenylethanol | Q + V1 + V2, neighbour on Q | Deconvolution split |
+| Citrate | Q + V1 + V2, both ratios | Partial when only V2 is off |
+| Uncalibrated | Q + V1, no Amount in StdMix | Relative / assumed-RF abundance |
+| scyllo-Inositol | Internal standard | Set this as IS; Sample_08 tanks its height |
+
+## Samples
 
 | Sample | Purpose |
 |---|---|
-| `Sample_01`–`Sample_03` | Peaks within QC limits; identity supported |
-| `Sample_04_ratio_fail` | Alanine qualifier ratios deliberately high → review |
-| `Sample_05_rt_shift` | RT shifted +0.09 min (near Alanine tolerance) |
+| `Sample_01`–`Sample_03` | Ordinary biological variation |
+| `Sample_04_ratio_fail` | Alanine both V/Q checks fail |
+| `Sample_05_rt_shift` | tR miss on Alanine; V/Q still good |
+| `Sample_06_partial` | Citrate V2 fail, V1 pass |
+| `Sample_07_missing` | Alanine absent |
+| `Sample_08_low_is` | IS almost gone (tile validation if IS is set) |
+| `Sample_09_overlap` | Stronger Phenylethanol neighbour |
 | `MM_01`, `MM_02` | Standard-mix files matched by `MM_*` |
 
-Reference ion ratios in `compounds.csv` are fractional tolerances (±25%).
+Reference ion ratios in `compounds.csv` use fractional tolerances (±25%).
 
 ## Notes
 
@@ -433,7 +572,7 @@ def main() -> None:
     write_compound_list(OUT_DIR / "compounds.csv")
     write_readme(OUT_DIR / "README.md")
 
-    for sample_name, rt_shift, quant_scale, ratio_scale, _note in SAMPLES:
+    for sample in SAMPLES:
         (
             scan_time_s,
             mass,
@@ -441,9 +580,9 @@ def main() -> None:
             scan_index,
             point_count,
             total_intensity,
-        ) = build_sample_cdf(sample_name, rt_shift, quant_scale, ratio_scale)
+        ) = build_sample_cdf(sample)
         _write_cdf(
-            OUT_DIR / f"{sample_name}.cdf",
+            OUT_DIR / f"{sample.name}.cdf",
             scan_time_s=scan_time_s,
             mass=mass,
             intensity=intensity,

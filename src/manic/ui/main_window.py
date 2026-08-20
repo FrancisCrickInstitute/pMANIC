@@ -2864,16 +2864,15 @@ class MainWindow(QMainWindow):
             else:
                 radio_time.setChecked(True)
 
-            # Optional sheets section
-            vbox.addSpacing(10)
-            optional_label = QLabel("Optional sheets:")
-            vbox.addWidget(optional_label)
-            checkbox_carbon_enrichment = QCheckBox("Include % Carbons Labelled sheet")
-            checkbox_carbon_enrichment.setChecked(False)  # Off by default
-            checkbox_carbon_enrichment.setVisible(
-                self.analysis_mode is AnalysisMode.LABELLED
-            )
-            vbox.addWidget(checkbox_carbon_enrichment)
+            include_carbon_enrichment = False
+            if self.analysis_mode is AnalysisMode.LABELLED:
+                vbox.addSpacing(10)
+                vbox.addWidget(QLabel("Optional sheets:"))
+                checkbox_carbon_enrichment = QCheckBox(
+                    "Include % Carbons Labelled sheet"
+                )
+                checkbox_carbon_enrichment.setChecked(False)
+                vbox.addWidget(checkbox_carbon_enrichment)
 
             buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
             vbox.addWidget(buttons)
@@ -2886,7 +2885,8 @@ class MainWindow(QMainWindow):
             # Read selection and persist to window state
             chosen_use_legacy = radio_legacy.isChecked()
             self.use_legacy_integration = chosen_use_legacy
-            include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
+            if self.analysis_mode is AnalysisMode.LABELLED:
+                include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
 
             # Get current internal standard selection from toolbar
             internal_standard = self.toolbar.get_internal_standard()
@@ -2970,18 +2970,26 @@ class MainWindow(QMainWindow):
             progress_dialog.close()
 
             if success:
-                # Build dynamic sheet list based on options
-                sheet_list = [
-                    "• Raw Values - Direct instrument signals",
-                    "• Corrected Values - Natural isotope corrected signals",
-                    "• Isotope Ratios - Normalized corrected values",
-                    "• % Label Incorporation - Experimental label percentages",
-                ]
-                if include_carbon_enrichment:
+                if self.analysis_mode is AnalysisMode.UNLABELLED:
+                    sheet_list = [
+                        "• Raw Values - Quantifier ion areas",
+                        "• Abundances - Quantifier-only amounts",
+                        "• Qualifier QC - V/Q ratio pass or review",
+                    ]
+                else:
+                    sheet_list = [
+                        "• Raw Values - Direct instrument signals",
+                        "• Corrected Values - Natural isotope corrected signals",
+                        "• Isotope Ratios - Normalized corrected values",
+                        "• % Label Incorporation - Experimental label percentages",
+                    ]
+                    if include_carbon_enrichment:
+                        sheet_list.append(
+                            "• % Carbons Labelled - Average fractional carbon enrichment"
+                        )
                     sheet_list.append(
-                        "• % Carbons Labelled - Average fractional carbon enrichment"
+                        "• Abundances - Absolute metabolite concentrations"
                     )
-                sheet_list.append("• Abundances - Absolute metabolite concentrations")
                 sheet_count = len(sheet_list)
                 sheets_text = "\n".join(sheet_list)
 

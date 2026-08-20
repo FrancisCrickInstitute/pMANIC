@@ -408,38 +408,80 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
 
     workbook = openpyxl.load_workbook(export_path, data_only=True)
     assert workbook.sheetnames == [
-        "Targeted Results",
+        "Raw Values",
+        "Abundances",
         "Qualifier QC",
-        "Targeted Method",
     ]
-    result = workbook["Targeted Results"]
-    assert result["D2"].value == pytest.approx(10.0)
-    assert result["H2"].value == IdentityStatus.NOT_ASSESSED.value
+    raw = workbook["Raw Values"]
+    assert raw["A1"].value == "Compound Name"
+    assert raw["C1"].value == "Target"
+    assert raw["D1"].value is None
+    assert raw["A2"].value == "Mass"
+    assert raw["A3"].value == "tR"
+    assert raw["C2"].value == pytest.approx(217)
+    assert raw["C3"].value == pytest.approx(1.0)
+    assert raw["C4"].value == pytest.approx(10.0)
+    abundances = workbook["Abundances"]
+    assert abundances["C1"].value == "Target"
+    assert abundances["A3"].value == "tR"
+    assert abundances["A4"].value == "Units"
+    qc = workbook["Qualifier QC"]
+    assert [cell.value for cell in qc[1][:7]] == [
+        "Sample",
+        "Compound",
+        "Q Ion m/z",
+        "Q Ion Area",
+        "V Ion",
+        "V Ion m/z",
+        "V Ion Area",
+    ]
+    assert qc["D2"].value == pytest.approx(10.0)
+    assert qc["G2"].value == pytest.approx(4.0)
 
-    with database.get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO session_activity
-                (compound_name, sample_name, retention_time, loffset, roffset)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            ("Target", "S1", 1.25, 1.1, 1.1),
-        )
-    export_path = tmp_path / "targeted_session_tr.xlsx"
-    assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
-    method = openpyxl.load_workbook(export_path, data_only=True)["Targeted Method"]
-    rows = list(method.iter_rows(min_row=1, max_row=40, values_only=True))
-    assert any(row and row[0] == "Ion definitions" for row in rows)
-    assert any(row and row[0] == "Current tR" for row in rows)
-    ion_header = next(row for row in rows if row and row[0] == "Compound")
-    assert ion_header[1] == "Role"
-    assert "tR (min)" not in ion_header
-    current_header = next(row for row in rows if row and row[0] == "Sample")
-    assert current_header[:3] == ("Sample", "Compound", "tR (min)")
-    current_row = next(
-        row for row in rows if row and row[0] == "S1" and row[1] == "Target"
+
+def test_unlabelled_excel_export_with_internal_standard(unlabelled_db, tmp_path):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        ValIon1=147,
+        **{"Amount in StdMix": 2.5},
     )
-    assert current_row[2] == pytest.approx(1.25)
+    _import_targets(
+        tmp_path,
+        name="Std",
+        tR=2.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=318,
+        ValIon1=217,
+        **{"Amount in StdMix": 1.0, "Int Std amount": 10.0, "MM Files": "S1"},
+    )
+    _insert_eic(
+        "S1",
+        "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S1",
+        "Std",
+        [1.0, 2.0, 3.0],
+        [[0.0, 20.0, 0.0], [0.0, 6.0, 0.0]],
+        rt_window=1.1,
+    )
+
+    exporter = DataExporter(AnalysisMode.UNLABELLED)
+    exporter.set_internal_standard("Std")
+    export_path = tmp_path / "with_is.xlsx"
+    assert exporter.export_to_excel(str(export_path))
+    workbook = openpyxl.load_workbook(export_path, data_only=True)
+    assert "Abundances" in workbook.sheetnames
+    assert workbook["Abundances"]["A4"].value == "Units"
 
 
 def _unlabelled_mixed_bundle(time, *, failed_index: int):
@@ -533,8 +575,13 @@ def test_deconvolution_on_quantifies_q_only_and_pairs_vq(unlabelled_db, tmp_path
 
     export_path = tmp_path / "deconv.xlsx"
     assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
-    result = openpyxl.load_workbook(export_path, data_only=True)["Targeted Results"]
-    assert result["D2"].value == pytest.approx(areas[0])
+    exported = openpyxl.load_workbook(export_path, data_only=True)
+    raw = exported["Raw Values"]
+    assert raw["C4"].value == pytest.approx(areas[0])
+    assert raw["D4"].value is None
+    qc = exported["Qualifier QC"]
+    assert qc["D2"].value == pytest.approx(areas[0])
+    assert qc["G2"].value == pytest.approx(areas[1])
 
 
 def test_raw_calibrated_expected_ratio_fails_after_deconvolution_on(
@@ -687,6 +734,12 @@ def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
         rOffset=0.1,
         QIon=217,
         ValIon1=147,
+        **{
+            "tR Window": 0.08,
+            "Amount in StdMix": 2.5,
+            "Int Std amount": 1.2,
+            "MM Files": "S1",
+        },
     )
     export_path = tmp_path / "targeted.xlsx"
     generate_changelog(
@@ -700,3 +753,16 @@ def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
     assert "isotopologue deconvolution are not applied" not in changelog
     assert "Chromatographic peak deconvolution defaults to level 4" in changelog
     assert "Deconvolution" in changelog
+    assert "Label Atoms" not in changelog
+    assert "tR Window (min)" in changelog
+    assert "Amount in StdMix" in changelog
+    assert "MM Files" in changelog
+    assert "| Target |" in changelog
+    assert "2.5" in changelog
+    assert "S1" in changelog
+    assert "Q-ion area only" in changelog
+    assert "V-ion areas are on Qualifier QC" in changelog
+    assert "Raw Q-ion apex" in changelog
+    assert "raw-window areas" in changelog
+    assert "not in this workbook" in changelog
+    assert "Identity chart" in changelog

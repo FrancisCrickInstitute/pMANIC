@@ -11,6 +11,7 @@ from manic.models.database import get_connection
 from manic.io.changelog_sections import (
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
+    format_unlabelled_compounds_table_for_data_export,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ def generate_changelog(
         compounds_query = """
             SELECT compound_name, retention_time, loffset, roffset, mass0, rt_tolerance,
                    label_atoms, formula, label_type, tbdms, meox, me,
-                   amount_in_std_mix, int_std_amount, mm_files,
+                   amount_in_std_mix, int_std_amount, mm_files, baseline_correction,
                    deconvolution_level, deconvolution_fit_type, deconvolution_noise_gate
             FROM compounds 
             WHERE deleted = 0 
@@ -72,28 +73,33 @@ def generate_changelog(
         deleted_samples = conn.execute(deleted_samples_query).fetchall()
         diagnostic_ions = conn.execute(
             """
-            SELECT compound_name, role, ordinal, mz, expected_ratio, ratio_tolerance
-            FROM compound_ions
-            ORDER BY compound_name,
-                     CASE role WHEN 'quantifier' THEN 0 ELSE 1 END,
-                     ordinal
+            SELECT ci.compound_name, ci.role, ci.ordinal, ci.mz,
+                   ci.expected_ratio, ci.ratio_tolerance
+            FROM compound_ions ci
+            JOIN compounds c ON c.compound_name = ci.compound_name
+            WHERE c.deleted = 0
+            ORDER BY ci.compound_name,
+                     CASE ci.role WHEN 'quantifier' THEN 0 ELSE 1 END,
+                     ci.ordinal
             """
         ).fetchall()
 
     if mode is AnalysisMode.UNLABELLED:
-        processing_description = f"""- **Diagnostic-ion workflow:** Q-ion area with V-ion identity checks
-- **V-ion ratio:** Integrated V-ion area / integrated Q-ion area
-- **Retention-time check:** Q-ion apex versus the current compound tR
-- **Natural Isotope Correction:** Not applied; these channels are diagnostic ions, not isotopologues
-- **Quantitative claim:** Peak area, response ratio, or explicitly labelled semi-quantitative single-point estimate"""
-        sheets_description = """1. **Targeted Results** - Q-ion response, relative/semi-quantitative result, and identity status
-2. **Qualifier QC** - Observed V-ion ratios, references, tolerances, and pass/review flags
-3. **Targeted Method** - Diagnostic ions and interpretation limits"""
-        key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values
-- Q-ion area alone supplies the analytical response; V-ion areas are identity evidence
-- Current tR is used for both integration and identity RT QC; changing tR updates both
-- Natural-isotope correction is not applied; Q and V are diagnostic ions, not isotopologues
-- Chromatographic peak deconvolution defaults to level 4, as in labelled mode; each Q/V ion is then fitted independently, and V/Q uses the same area list as the Q-ion amount"""
+        processing_description = """- **Diagnostic-ion workflow:** Amount uses Q-ion area only. V ions are identity evidence and are not added to amount
+- **V-ion ratio:** Observed ratio is V-ion area / Q-ion area. A ratio passes when |observed - expected| <= |expected| * fractional tolerance. If expected is 0 the comparison is absolute
+- **Observed RT:** Raw Q-ion apex inside the shared window [tR - lOffset, tR + rOffset], not a fitted-centre time
+- **tR window:** Identity RT check uses the compound tR window. Offsets still set the integration window
+- **Natural Isotope Correction:** Not applied. Q and V are diagnostic ions, not isotopologues
+- **Quantitative claim:** Peak Area without an internal standard. With an IS, nmol when Amount in StdMix is set, otherwise Relative. Single-point response factor, not a calibration curve"""
+        sheets_description = """1. **Raw Values** - One column per compound, Q-ion area only. `Mass` is the Q m/z. V-ion areas are on Qualifier QC
+2. **Abundances** - One column per compound, Q-ion response only. Units row is Peak Area, nmol, or Relative
+3. **Qualifier QC** - Q and V raw areas, observed V/Q, expected ratio, fractional tolerance, and PASS / REVIEW / N/A. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
+        key_processing_notes = """- Integration uses the shared Q/V window [tR - lOffset, tR + rOffset]. A V peak outside that window integrates near zero and fails ratio QC
+- Q-ion area alone supplies the analytical response. V-ion areas are identity evidence
+- Current tR is used for integration and for the in-app identity RT check. Changing tR updates both. That RT check is not written to the workbook
+- Natural-isotope correction is not applied. Q and V are diagnostic ions, not isotopologues
+- Chromatographic peak deconvolution defaults to level 4, as in labelled mode. Each Q/V ion is fitted independently. If any Q or V ion of a compound in a sample fails to fit, every ion of that compound/sample uses raw-window areas so V/Q is never mixed measurement types
+- Observed RT used for identity is the raw Q apex in the window, not the fitted-centre time"""
     else:
         processing_description = """- **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0
 - **Internal Standard Handling:** Raw values copied directly for label_atoms = 0"""
@@ -148,7 +154,12 @@ def generate_changelog(
             changelog_content += "\n"
 
     # Compounds table
-    changelog_content += format_compounds_table_for_data_export(compounds) + "\n"
+    if mode is AnalysisMode.UNLABELLED:
+        changelog_content += (
+            format_unlabelled_compounds_table_for_data_export(compounds) + "\n"
+        )
+    else:
+        changelog_content += format_compounds_table_for_data_export(compounds) + "\n"
 
     if diagnostic_ions:
         changelog_content += "\n## Diagnostic Ion Definitions\n\n"

@@ -314,6 +314,7 @@ class DataExporter:
                         workbook,
                         self,
                         sheet_callback,
+                        validation_data=validation_data,
                     ),
                 )
                 _time_phase("workbook_close", workbook.close)

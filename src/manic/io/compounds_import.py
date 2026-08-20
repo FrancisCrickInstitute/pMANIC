@@ -23,6 +23,9 @@ from manic.models.analysis import (
     validate_unlabelled_channels,
 )
 from manic.models.database import get_connection
+from manic.processors.chromatographic_peak_deconvolution import (
+    DEFAULT_DECONVOLUTION_LEVEL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -441,6 +444,7 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
                     int_std_amount,
                     mm_files,
                     0,
+                    DEFAULT_DECONVOLUTION_LEVEL,
                 )
             )
             ions_by_compound.append((name, channels))
@@ -461,7 +465,7 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
             (compound_name, retention_time, mass0, loffset, roffset, label_atoms,
              formula, label_type, tbdms, meox, me, amount_in_std_mix,
              int_std_amount, mm_files, deleted, deconvolution_level)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'off')
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     ion_sql = """
         INSERT OR REPLACE INTO compound_ions

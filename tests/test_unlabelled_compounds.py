@@ -188,7 +188,7 @@ def test_unlabelled_compound_import_stores_arbitrary_ion_channels(
         IonRole.QUALIFIER,
         IonRole.QUALIFIER,
     ]
-    assert compound.deconvolution_level == "off"
+    assert compound.deconvolution_level == "4"
     assert compound.baseline_correction == 1
     assert compound.analysis_channels[1].expected_ratio == pytest.approx(0.42)
     assert compound.analysis_channels[1].ratio_tolerance == pytest.approx(0.25)
@@ -572,6 +572,7 @@ def test_raw_calibrated_expected_ratio_fails_after_deconvolution_on(
         **{"Qualifier 1 Ratio": raw_ratio, "Qualifier 1 Tolerance": 0.25},
     )
     _insert_eic("S1", "Target", time, matrix, rt_window=4.0)
+    _enable_deconvolution("Target", "off")
 
     qc_off = DataProvider().assess_unlabelled_identity("S1", "Target")
     assert qc_off.qualifier_ratios[0].passed is True
@@ -697,5 +698,5 @@ def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
     changelog = next(tmp_path.glob("changelog_*.md")).read_text(encoding="utf-8")
     assert "Natural-isotope correction is not applied" in changelog
     assert "isotopologue deconvolution are not applied" not in changelog
-    assert "Chromatographic peak deconvolution is off unless enabled per compound" in changelog
+    assert "Chromatographic peak deconvolution defaults to level 4" in changelog
     assert "Deconvolution" in changelog

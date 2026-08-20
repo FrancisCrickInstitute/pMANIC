@@ -163,13 +163,9 @@ class GraphView(QWidget):
 
         # Unlabelled identity QC status per sample (drives tile highlighting)
         self._identity_status: Dict[str, str] = {}
-        self._observed_retention_times: Dict[str, float] = {}
 
         # Shared y-axis scaling across tiles (off = per-tile autoscaling)
         self._shared_y_scale: bool = False
-        # Display-only legacy Gv3-style scaling: normalize V traces to the
-        # Q-ion peak height so co-elution and peak-shape agreement are visible.
-        self._normalize_targeted_traces: bool = False
         # (scale_factor, scale_exp, shared_scaled_max); None = per-tile autoscale
         self._scale_override: tuple[float, int, float] | None = None
         self._last_validation_data: Dict[str, bool] | None = None
@@ -437,8 +433,6 @@ class GraphView(QWidget):
         # so restore the stored QC overlays on the fresh tiles.
         if self._identity_status:
             self.set_identity_status(self._identity_status)
-        if self._observed_retention_times:
-            self.set_observed_retention_times(self._observed_retention_times)
 
     def select_sample(self, sample_name: str) -> bool:
         """Select the plot for ``sample_name``; return False if not shown."""
@@ -456,53 +450,12 @@ class GraphView(QWidget):
             if container is not None:
                 self._restyle_container(container)
 
-    def set_observed_retention_times(
-        self, observed_by_sample: Optional[Dict[str, float]]
-    ) -> None:
-        """Draw measured Q-ion apexes without moving integration/reference guides."""
-        self._observed_retention_times = dict(observed_by_sample or {})
-        # Distinct from trace colors (esp. orange M+1) so the observed apex
-        # guide is never mistaken for an ion channel.
-        observed_color = QColor("#D946EF")
-        for plot in self._current_plots:
-            chart = plot.chart()
-            for series in list(chart.series()):
-                if series.property("guide_role") == "observed_rt":
-                    chart.removeSeries(series)
-
-            observed_rt = self._observed_retention_times.get(plot.sample_name)
-            axes = chart.axes()
-            if observed_rt is None or len(axes) < 2:
-                continue
-            x_axis, y_axis = axes[0], axes[1]
-            if observed_rt < x_axis.min() or observed_rt > x_axis.max():
-                continue
-            self._add_guide_line(
-                chart,
-                x_axis,
-                y_axis,
-                observed_rt,
-                0,
-                y_axis.max(),
-                observed_color,
-                role="observed_rt",
-                width=1.8,
-            )
-
     def set_shared_y_scale(self, enabled: bool):
         """Toggle one common y-axis scale across all tiles and re-plot."""
         enabled = bool(enabled)
         if enabled == self._shared_y_scale:
             return
         self._shared_y_scale = enabled
-        self._replot_current()
-
-    def set_targeted_trace_normalization(self, enabled: bool):
-        """Toggle display-only Q/V peak-height normalization and re-plot."""
-        enabled = bool(enabled)
-        if enabled == self._normalize_targeted_traces:
-            return
-        self._normalize_targeted_traces = enabled
         self._replot_current()
 
     def _replot_current(self) -> None:
@@ -676,7 +629,6 @@ class GraphView(QWidget):
                 sample_name=sample_name,
                 parent=self,
                 use_corrected=self.use_corrected,
-                normalize_targeted_traces=self._normalize_targeted_traces,
             )
             dialog.exec()
 
@@ -1384,9 +1336,13 @@ class GraphView(QWidget):
                 fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
                 noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
             )
-            if bundle.uses_model_areas():
+            if bundle.shows_model_overlays(
+                independent_channels=getattr(compound, "is_unlabelled_target", False)
+            ):
                 drew_baseline = False
                 for channel in bundle.channels:
+                    if channel.result.model is None:
+                        continue
                     selected_trace = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
                     trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
                     if not np.any(trace_mask):
@@ -1537,7 +1493,7 @@ class GraphView(QWidget):
         compound,
         scale_factor: float,
     ):
-        """Draw the EIC, with model overlays only when every ion fitted."""
+        """Draw the EIC, with a fit overlay on each channel that has a model."""
         bundle = None
         if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
             bundle = deconvolve_channel_matrix(
@@ -1551,7 +1507,9 @@ class GraphView(QWidget):
                 noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
             )
 
-        if bundle is None or not bundle.uses_model_areas():
+        if bundle is None or not bundle.shows_model_overlays(
+            independent_channels=getattr(compound, "is_unlabelled_target", False)
+        ):
             self._add_trace_series(
                 chart,
                 x_axis,
@@ -1577,8 +1535,12 @@ class GraphView(QWidget):
             raw_context=True,
             compound=compound,
         )
+        unfitted_indices: list[int] = []
         for channel in bundle.channels:
             model = channel.result.model
+            if model is None:
+                unfitted_indices.append(channel.index)
+                continue
             self._add_model_component_series(
                 chart,
                 x_axis,
@@ -1604,6 +1566,19 @@ class GraphView(QWidget):
                     selected=False,
                     color_index=channel.index,
                 )
+        if unfitted_indices:
+            self._add_trace_series(
+                chart,
+                x_axis,
+                y_axis,
+                eic_time,
+                eic_intensity,
+                scale_factor,
+                selected=True,
+                raw_context=False,
+                compound=compound,
+                channel_indices=tuple(unfitted_indices),
+            )
 
     def _add_trace_series(
         self,
@@ -1618,15 +1593,9 @@ class GraphView(QWidget):
         raw_context: bool,
         selected_mask: np.ndarray | None = None,
         compound=None,
+        channel_indices: tuple[int, ...] | None = None,
     ):
         matrix = eic_intensity if eic_intensity.ndim > 1 else eic_intensity.reshape(1, -1)
-        if (
-            self._normalize_targeted_traces
-            and compound is not None
-            and compound.is_unlabelled_target
-            and matrix.shape[0] > 1
-        ):
-            matrix = self._normalize_channels_to_quantifier(matrix)
         mask_matrix = None
         if selected_mask is not None:
             mask_matrix = (
@@ -1637,6 +1606,8 @@ class GraphView(QWidget):
 
         multi_trace = eic_intensity.ndim > 1
         for i, trace in enumerate(matrix):
+            if channel_indices is not None and i not in channel_indices:
+                continue
             qcolor = label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
             pen_color = QColor(qcolor)
             if raw_context:
@@ -1669,21 +1640,6 @@ class GraphView(QWidget):
             series.attachAxis(x_axis)
             series.attachAxis(y_axis)
 
-    @staticmethod
-    def _normalize_channels_to_quantifier(matrix: np.ndarray) -> np.ndarray:
-        """Scale each channel to Q-ion height for display without mutating data."""
-        display = np.asarray(matrix, dtype=np.float64).copy()
-        finite_q = display[0, np.isfinite(display[0])]
-        q_peak = float(np.max(finite_q)) if finite_q.size else 0.0
-        if q_peak <= 0:
-            return display
-        for index in range(1, display.shape[0]):
-            finite = display[index, np.isfinite(display[index])]
-            channel_peak = float(np.max(finite)) if finite.size else 0.0
-            if channel_peak > 0:
-                display[index] *= q_peak / channel_peak
-        return display
-
     def _update_graph_sizes(self) -> None:
         # Invalidate first, then activate to force recalculation
         self._layout.invalidate()
@@ -1702,26 +1658,11 @@ class GraphView(QWidget):
         self._restyle_container(container)
 
     def _restyle_container(self, container: QWidget):
-        """Combine peak-height validation and identity QC status into styling.
-
-        Identity failures (unlabelled mode) take visual precedence: an amber
-        border means the peak was found but its qualifier ratios or retention
-        time failed; grey means the quantifier was not detected. A red
-        background still marks labelled peak-height validation failures.
-        """
         is_valid = getattr(container, "is_valid_peak", True)
         sample_name = getattr(container.chart_view, "sample_name", "")
         status = self._identity_status.get(sample_name)
 
-        if status == "review_required":
-            container.setStyleSheet("""
-                QWidget {
-                    background-color: rgba(253, 232, 215, 130);
-                    border: 2px solid #d97706;
-                    border-radius: 4px;
-                }
-            """)
-        elif status == "not_detected":
+        if status == "not_detected":
             container.setStyleSheet("""
                 QWidget {
                     background-color: rgba(236, 239, 241, 130);

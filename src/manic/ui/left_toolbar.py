@@ -50,7 +50,6 @@ class Toolbar(QWidget):
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
     shared_y_scale_toggled = Signal(bool)
-    targeted_trace_normalization_toggled = Signal(bool)
 
     def __init__(
         self,
@@ -229,25 +228,6 @@ class Toolbar(QWidget):
         )
         content_layout.addWidget(self.shared_yscale_checkbox, stretch=0)
 
-        self.targeted_trace_normalization_checkbox = QCheckBox("Normalize Q/V shapes")
-        self.targeted_trace_normalization_checkbox.setObjectName(
-            "targeted_trace_normalization_checkbox"
-        )
-        self.targeted_trace_normalization_checkbox.setToolTip(
-            "Scale each V-ion trace to the Q-ion peak height so their chromatographic "
-            "shapes and apex alignment can be compared visually.\n"
-            "Display only: integration and exported areas always use the original signals."
-        )
-        self.targeted_trace_normalization_checkbox.setStyleSheet(
-            self.baseline_checkbox.styleSheet()
-        )
-        self.targeted_trace_normalization_checkbox.stateChanged.connect(
-            lambda state: self.targeted_trace_normalization_toggled.emit(state != 0)
-        )
-        content_layout.addWidget(
-            self.targeted_trace_normalization_checkbox, stretch=0
-        )
-
         self.isotopologue_ratios = IsotopologueRatioWidget()
         content_layout.addWidget(
             self.isotopologue_ratios, stretch=2
@@ -259,14 +239,13 @@ class Toolbar(QWidget):
         )  # Increased stretch for plots
 
         self.targeted_qc = TargetedQcWidget()
-        content_layout.addWidget(self.targeted_qc, stretch=1)
+        content_layout.addWidget(self.targeted_qc, stretch=2)
 
         if self.analysis_mode is AnalysisMode.UNLABELLED:
             self.isotopologue_ratios.hide()
             self.total_abundance.hide()
         else:
             self.targeted_qc.hide()
-            self.targeted_trace_normalization_checkbox.hide()
 
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)
@@ -275,8 +254,7 @@ class Toolbar(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
 
-        # Wide enough that the unlabelled targeted-QC table fits without
-        # horizontal scrolling; the splitter still allows widening.
+        # Wide enough that sample names on the Identity chart remain readable.
         self.setMinimumWidth(256)
 
         self.setLayout(main_layout)

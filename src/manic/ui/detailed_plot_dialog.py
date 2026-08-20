@@ -76,13 +76,11 @@ class DetailedPlotDialog(QDialog):
         sample_name: str,
         parent=None,
         use_corrected: bool = False,
-        normalize_targeted_traces: bool = False,
     ):
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
         self.use_corrected = use_corrected  # Store the isotope correction flag
-        self.normalize_targeted_traces = bool(normalize_targeted_traces)
 
         # Initialize data containers
         self.eic_data = None
@@ -454,7 +452,6 @@ class DetailedPlotDialog(QDialog):
                 width=PLOT_GUIDELINE_WIDTH,
                 style="dotted",
             )
-            self._add_targeted_reference_lines(self.eic_plot)
 
             # Add baseline lines if baseline correction is enabled
             self._add_baseline_lines(left_bound, right_bound)
@@ -496,9 +493,13 @@ class DetailedPlotDialog(QDialog):
                 fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
                 noise_gate=getattr(self.compound_info, "deconvolution_noise_gate", "balanced"),
             )
-            if bundle.uses_model_areas():
+            if bundle.shows_model_overlays(
+                independent_channels=getattr(self.compound_info, "is_unlabelled_target", False)
+            ):
                 drew_baseline = False
                 for channel in bundle.channels:
+                    if channel.result.model is None:
+                        continue
                     selected_trace = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
                     trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
                     if not np.any(trace_mask):
@@ -614,7 +615,7 @@ class DetailedPlotDialog(QDialog):
                 )
 
     def _plot_eic_traces(self):
-        """Draw the EIC, with model overlays only when every ion fitted."""
+        """Draw the EIC, with a fit overlay on each channel that has a model."""
         bundle = None
         if chromatographic_peak_deconvolution_enabled(getattr(self.compound_info, "deconvolution_level", "off")):
             bundle = deconvolve_channel_matrix(
@@ -628,13 +629,19 @@ class DetailedPlotDialog(QDialog):
                 noise_gate=getattr(self.compound_info, "deconvolution_noise_gate", "balanced"),
             )
 
-        if bundle is None or not bundle.uses_model_areas():
+        if bundle is None or not bundle.shows_model_overlays(
+            independent_channels=getattr(self.compound_info, "is_unlabelled_target", False)
+        ):
             self._plot_trace_matrix(self.eic_data.intensity, selected=True)
             return
 
         self._plot_trace_matrix(self.eic_data.intensity, selected=False, alpha=0.32)
+        unfitted_indices: list[int] = []
         for channel in bundle.channels:
             model = channel.result.model
+            if model is None:
+                unfitted_indices.append(channel.index)
+                continue
             self._plot_model_component(
                 model, model.selected_index, selected=True, color_index=channel.index
             )
@@ -644,6 +651,12 @@ class DetailedPlotDialog(QDialog):
                 self._plot_model_component(
                     model, component_index, selected=False, color_index=channel.index
                 )
+        if unfitted_indices:
+            self._plot_trace_matrix(
+                self.eic_data.intensity,
+                selected=True,
+                channel_indices=tuple(unfitted_indices),
+            )
 
     def _plot_trace_matrix(
         self,
@@ -651,28 +664,14 @@ class DetailedPlotDialog(QDialog):
         *,
         selected: bool,
         alpha: float = 1.0,
+        channel_indices: tuple[int, ...] | None = None,
     ):
         matrix = intensity if intensity.ndim > 1 else intensity.reshape(1, -1)
-        if (
-            self.normalize_targeted_traces
-            and self.compound_info is not None
-            and self.compound_info.is_unlabelled_target
-            and matrix.shape[0] > 1
-        ):
-            # Match OLD_MANIC's optional Scale ValIons view: all channels are
-            # scaled to the Q-ion peak height for shape comparison only.
-            matrix = np.asarray(matrix, dtype=np.float64).copy()
-            finite_q = matrix[0, np.isfinite(matrix[0])]
-            q_peak = float(np.max(finite_q)) if finite_q.size else 0.0
-            if q_peak > 0:
-                for index in range(1, matrix.shape[0]):
-                    finite = matrix[index, np.isfinite(matrix[index])]
-                    channel_peak = float(np.max(finite)) if finite.size else 0.0
-                    if channel_peak > 0:
-                        matrix[index] *= q_peak / channel_peak
         multi_trace = intensity.ndim > 1
         time = np.asarray(self.eic_data.time, dtype=np.float64)
         for i, trace in enumerate(matrix):
+            if channel_indices is not None and i not in channel_indices:
+                continue
             qcolor = label_colors[i % len(label_colors)] if multi_trace else label_colors[0]
             color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
             self.eic_plot.plot_line(
@@ -717,7 +716,6 @@ class DetailedPlotDialog(QDialog):
                     width=PLOT_GUIDELINE_WIDTH,
                     style="solid",
                 )
-                self._add_targeted_reference_lines(self.tic_plot)
 
             # Execute batch rendering for performance
             self.tic_plot.finalize_plot()
@@ -725,16 +723,6 @@ class DetailedPlotDialog(QDialog):
         except Exception as e:
             logger.error(f"Failed to plot TIC: {e}")
             self.tic_plot.set_title("Total Ion Chromatogram (error loading data)")
-
-    def _add_targeted_reference_lines(self, plot) -> None:
-        """Observed Q apex (magenta) when identity QC found a peak."""
-        if self.observed_rt is not None:
-            plot.add_vertical_line(
-                self.observed_rt,
-                color="#D946EF",
-                width=1.8,
-                style="solid",
-            )
 
     def _plot_ms(self):
         """Plot the mass spectrum data."""

@@ -95,6 +95,20 @@ QWidget#toolbar QScrollBar::sub-page:vertical {
     background: none;
 }
 
+QWidget#toolbar QSplitter::handle:vertical {
+    background-color: #e2e8f0;
+    height: 3px;
+}
+
+QWidget#toolbar QLabel#unlabelledLoadStatus,
+QWidget#toolbar QLabel#unlabelledIsStatus,
+QWidget#toolbar QLabel#unlabelledIonStatus {
+    color: #64748b;
+    font-size: 11px;
+    background-color: transparent;
+    border: none;
+}
+
 /* Chart widget borders */
 QWidget#isotopologueRatioWidget, QWidget#totalAbundanceWidget {
     border: 1px solid #d0d0d0;

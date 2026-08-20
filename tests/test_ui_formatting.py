@@ -8,7 +8,7 @@ and other UI components.
 import pytest
 from PySide6.QtCharts import QChart, QValueAxis
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QSplitter
 import sys
 import numpy as np
 from types import SimpleNamespace
@@ -55,11 +55,25 @@ def integration_window(qapp):
 def test_unlabelled_toolbar_hides_label_derived_summaries(qapp):
     toolbar = Toolbar(AnalysisMode.UNLABELLED)
     try:
-        assert toolbar.isotopologue_ratios.isHidden()
-        assert toolbar.total_abundance.isHidden()
+        assert toolbar.isotopologue_ratios is None
+        assert toolbar.total_abundance is None
         assert not toolbar.targeted_qc.isHidden()
         assert not toolbar.targeted_trace_normalization_checkbox.isHidden()
         assert toolbar.integration.findChild(QLabel, "reference_rt_note") is None
+    finally:
+        toolbar.deleteLater()
+
+
+def test_unlabelled_toolbar_qc_pane_geometry(qapp):
+    toolbar = Toolbar(AnalysisMode.UNLABELLED)
+    try:
+        toolbar.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        toolbar.resize(280, 900)
+        toolbar.show()
+        QApplication.processEvents()
+        assert toolbar.targeted_qc.height() >= 240
+        splitter = toolbar.findChild(QSplitter, "unlabelledToolbarSplitter")
+        assert splitter is not None
     finally:
         toolbar.deleteLater()
 

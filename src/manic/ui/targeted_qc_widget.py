@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QHeaderView,
     QLabel,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -57,12 +58,13 @@ class TargetedQcWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
         self.title = QLabel("Targeted identity QC")
-        self.title.setStyleSheet("font-weight: 600; color: #15324b;")
+        self.title.setStyleSheet("font-weight: 600; color: #15324b; font-size: 11px;")
         layout.addWidget(self.title)
 
         self.summary = QLabel("")
@@ -97,7 +99,7 @@ class TargetedQcWidget(QWidget):
         self.table = QTableWidget(0, 4)
         self.observed_retention_times: dict[str, float] = {}
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(20)
+        self.table.verticalHeader().setDefaultSectionSize(22)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setFocusPolicy(Qt.NoFocus)
@@ -107,9 +109,9 @@ class TargetedQcWidget(QWidget):
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.table.setTextElideMode(Qt.ElideMiddle)
         self.table.setStyleSheet(
-            "QTableWidget { font-size: 10px; gridline-color: #e3e9ee; }"
+            "QTableWidget { font-size: 11px; gridline-color: #e3e9ee; }"
             "QHeaderView::section { background-color: #eef3f7; color: #15324b;"
-            " font-size: 10px; padding: 1px; border: none; }"
+            " font-size: 11px; padding: 1px; border: none; }"
         )
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.Stretch
@@ -124,7 +126,7 @@ class TargetedQcWidget(QWidget):
         self.details.setStyleSheet(
             "background-color: #f5f8fa; color: #334155; "
             "border: 1px solid #d7e0e7; border-radius: 4px; padding: 5px; "
-            "font-size: 10px;"
+            "font-size: 11px;"
         )
         self.details.hide()
         layout.addWidget(self.details)

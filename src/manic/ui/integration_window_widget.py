@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
 )
 
@@ -246,59 +247,65 @@ class IntegrationWindow(QGroupBox):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setContentsMargins(6, 10, 6, 6)
+        layout.setSpacing(6)
 
-        # Integration parameter fields
+        fields_row = QHBoxLayout()
+        fields_row.setSpacing(6)
         for label_text, obj_name in [
-            ("Left Offset", "lo_input"),
+            ("Left", "lo_input"),
             ("tR", "tr_input"),
-            ("Right Offset", "ro_input"),
+            ("Right", "ro_input"),
         ]:
-            row = QHBoxLayout()
             lbl = QLabel(label_text)
             lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
             edt = QLineEdit()
             edt.setObjectName(obj_name)
-            # Enable Enter key to trigger apply (same as clicking Apply button)
+            edt.setMinimumWidth(0)
+            edt.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             edt.returnPressed.connect(self._on_apply_clicked)
-            row.addWidget(lbl)
-            row.addWidget(edt, 1)
-            layout.addLayout(row)
+            fields_row.addWidget(lbl)
+            fields_row.addWidget(edt, 1)
+        layout.addLayout(fields_row)
 
-        # Action buttons
-        button_row = QHBoxLayout()
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(6)
         self.apply_button = QPushButton("Apply")
         self.apply_button.setObjectName("ApplyButton")
         self.apply_button.clicked.connect(self._on_apply_clicked)
-        button_row.addWidget(self.apply_button)
+        actions_row.addWidget(self.apply_button)
 
         self.restore_button = QPushButton("Reset")
         self.restore_button.setObjectName("RestoreButton")
         self.restore_button.clicked.connect(self._on_restore_clicked)
-        button_row.addWidget(self.restore_button)
+        actions_row.addWidget(self.restore_button)
 
-        layout.addLayout(button_row)
-
-        # tR Window field for data regeneration
-        tr_window_row = QHBoxLayout()
         tr_window_lbl = QLabel("tR Window")
         tr_window_lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
-        # Enable Enter key to trigger regeneration (same as clicking Update tR Window button)
+        self.tr_window_edit.setMinimumWidth(0)
+        self.tr_window_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
-        tr_window_row.addWidget(tr_window_lbl)
-        tr_window_row.addWidget(self.tr_window_edit, 1)
-        layout.addLayout(tr_window_row)
+        actions_row.addWidget(tr_window_lbl)
+        actions_row.addWidget(self.tr_window_edit, 1)
 
-        # Regeneration button
-        regen_button_row = QHBoxLayout()
-        self.regenerate_button = QPushButton("Update tR Window")
+        self.regenerate_button = QPushButton("Update")
         self.regenerate_button.setObjectName("RegenerateButton")
         self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
-        regen_button_row.addWidget(self.regenerate_button)
+        actions_row.addWidget(self.regenerate_button)
 
-        layout.addLayout(regen_button_row)
+        for button in (
+            self.apply_button,
+            self.restore_button,
+            self.regenerate_button,
+        ):
+            button.setMinimumWidth(0)
+            button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+
+        layout.addLayout(actions_row)
 
     def _format_number(self, value: float, sig_figs: int = 4) -> str:
         """

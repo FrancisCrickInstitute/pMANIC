@@ -55,8 +55,11 @@ QGroupBox#integrationWindow QLineEdit {
     border: 1px solid #cccccc;
     border-radius: 2px;
     padding: 0px;
-    min-width: 70px;  /* Set consistent width */
-    max-width: 70px;  /* Prevent stretching beyond this */
+    min-width: 0;
+}
+
+QGroupBox#integrationWindow QPushButton {
+    min-width: 0;
 }
 
 /* Styling for "Apply" buttons - only within integration window */
@@ -78,19 +81,19 @@ QGroupBox#integrationWindow QPushButton#ApplyButton:pressed {
 
 /* Styling for "Restore" buttons - only within integration window */
 QGroupBox#integrationWindow QPushButton#RestoreButton {
-    background-color: #dc3545;
-    color: white;
+    background-color: #f1f3f5;
+    color: #334155;
     border: none;
     padding: 4px;
     border-radius: 6px 12px;
 }
 
 QGroupBox#integrationWindow QPushButton#RestoreButton:hover {
-    background-color: #bb2d3b;
+    background-color: #e2e8f0;
 }
 
 QGroupBox#integrationWindow QPushButton#RestoreButton:pressed {
-    background-color: #b02a37;
+    background-color: #cbd5e1;
 }
 
 

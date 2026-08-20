@@ -2492,8 +2492,12 @@ class MainWindow(QMainWindow):
 
                 # Clear visual elements immediately
                 self.graph_view.clear_all_plots()
-                self.toolbar.isotopologue_ratios._clear_chart()
-                self.toolbar.total_abundance._clear_chart()
+                if self.toolbar.isotopologue_ratios is not None:
+                    self.toolbar.isotopologue_ratios._clear_chart()
+                if self.toolbar.total_abundance is not None:
+                    self.toolbar.total_abundance._clear_chart()
+                if self.toolbar.targeted_qc is not None:
+                    self.toolbar.targeted_qc.clear()
 
                 # Force UI update to show cleared graphs
                 self.graph_view.repaint()
@@ -2508,7 +2512,7 @@ class MainWindow(QMainWindow):
                 self.toolbar.update_label_colours(False, False)
 
                 # Clear internal standard
-                self.toolbar.standard.clear_internal_standard()
+                self.toolbar.clear_internal_standard()
 
                 # Clear integration window
                 self.toolbar.integration.populate_fields(None)

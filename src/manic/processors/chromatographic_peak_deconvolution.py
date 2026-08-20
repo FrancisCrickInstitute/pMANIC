@@ -154,6 +154,14 @@ class ChannelDeconvolutionBundle:
             channel.result.model is not None for channel in self.channels
         )
 
+    def has_any_model(self) -> bool:
+        return any(channel.result.model is not None for channel in self.channels)
+
+    def shows_model_overlays(self, *, independent_channels: bool) -> bool:
+        if independent_channels:
+            return self.has_any_model()
+        return self.uses_model_areas()
+
     def evaluate_selected_stack(self, grid: np.ndarray) -> np.ndarray:
         """Evaluate every channel's selected component on a shared time grid."""
         grid = np.asarray(grid, dtype=np.float64)
@@ -419,11 +427,7 @@ def _deconvolve_matrix(
         except Exception:
             fitted = None
 
-        if fitted is not None and not _fit_reproduces_window(
-            window_matrix,
-            fitted,
-            allow_single_component=candidate_count < 2,
-        ):
+        if fitted is not None and not _fit_reproduces_window(window_matrix, fitted):
             fitted = None
     if fitted is None:
         selected_mask = np.zeros_like(matrix, dtype=bool)
@@ -771,8 +775,58 @@ def _candidate_peak_indices(
         if all(abs(index - kept_index) > min_distance for kept_index, _ in merged):
             merged.append((index, score))
 
+    # find_peaks misses a peak clipped at the EIC extract edge.
+    if len(merged) < 2:
+        leftover = _leftover_peak_index(
+            np.sum(matrix, axis=0),
+            exclude_indices=[index for index, _ in merged],
+            min_height_fraction=params.min_height_fraction,
+        )
+        if leftover is not None:
+            merged.append((leftover, float(np.sum(matrix, axis=0)[leftover])))
+
     merged.sort(key=lambda item: item[1], reverse=True)
     return [index for index, _ in merged]
+
+
+def _leftover_peak_index(
+    trace: np.ndarray,
+    *,
+    exclude_indices: list[int],
+    min_height_fraction: float,
+) -> int | None:
+    """Return the strongest remaining maximum after known peaks are blanked."""
+    y = np.maximum(np.asarray(trace, dtype=np.float64), 0.0)
+    if y.size < 3:
+        return None
+    peak = float(np.max(y))
+    if peak <= 0:
+        return None
+    suppressed = y.copy()
+    for index in exclude_indices:
+        apex = int(index)
+        half = float(y[apex]) * 0.5
+        left = apex
+        while left > 0 and y[left] >= half:
+            left -= 1
+        right = apex
+        while right < y.size - 1 and y[right] >= half:
+            right += 1
+        suppressed[left : right + 1] = 0.0
+    leftover_index = int(np.argmax(suppressed))
+    leftover_height = float(suppressed[leftover_index])
+    if leftover_height < peak * min_height_fraction:
+        return None
+    # The cut face of a blanked peak is a slope, not a second apex.
+    if leftover_index == 0:
+        if y[0] < y[1]:
+            return None
+    elif leftover_index == y.size - 1:
+        if y[-1] < y[-2]:
+            return None
+    elif y[leftover_index] < y[leftover_index - 1] or y[leftover_index] < y[leftover_index + 1]:
+        return None
+    return leftover_index
 
 
 def _has_structured_residuals(fitted: FittedComponentModel, y: np.ndarray) -> bool:
@@ -851,12 +905,7 @@ def _too_messy_to_fit(
 def _fit_reproduces_window(
     window_matrix: np.ndarray,
     fitted: FittedComponentModel,
-    *,
-    allow_single_component: bool = False,
 ) -> bool:
-    """Keep a fit that reproduces the window. One component only if the peak was clean."""
-    if fitted.components.shape[0] < 2 and not allow_single_component:
-        return False
     recon = fitted.baseline + np.sum(fitted.components, axis=0)
     raw = np.asarray(window_matrix, dtype=np.float64)
     denominator = float(np.sum(raw ** 2))

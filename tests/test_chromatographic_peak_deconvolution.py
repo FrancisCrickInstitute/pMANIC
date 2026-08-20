@@ -960,6 +960,64 @@ def test_calculate_peak_areas_mixed_bundle_uses_raw_window(monkeypatch):
     assert mixed == pytest.approx(expected)
 
 
+def test_clipped_neighbor_peak_is_split_from_target():
+    """A tall Q peak clipped at the extract edge must still be split off tR."""
+    full_time = np.linspace(14.20, 14.80, 241)
+    full_intensity = _gaussian(full_time, 14.40, 0.04, 13.0) + _gaussian(
+        full_time, 14.62, 0.03, 8.0
+    )
+    keep = full_time >= 14.40
+    time = full_time[keep]
+    intensity = full_intensity[keep]
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=14.62,
+        loffset=0.10,
+        roffset=0.10,
+        stringency="4",
+    )
+
+    assert result.model is not None
+    assert result.selected_center == pytest.approx(14.62, abs=0.03)
+    assert len(result.excluded) == 1
+    assert np.trapezoid(result.selected[time >= 14.52], time[time >= 14.52]) == pytest.approx(
+        np.trapezoid(
+            _gaussian(time, 14.62, 0.03, 8.0)[time >= 14.52],
+            time[time >= 14.52],
+        ),
+        rel=0.15,
+    )
+
+
+def test_false_extra_seeds_keep_single_component_model(monkeypatch):
+    """Shoulder leftovers must not discard a 1-component fit that already matches."""
+    time = np.linspace(9.10, 9.70, 80)
+    intensity = _gaussian(time, 9.40, 0.025, 20.0)
+    real = deconv._candidate_peak_indices
+
+    def extra_seeds(matrix, params):
+        seeds = real(matrix, params)
+        apex = seeds[0]
+        return list(dict.fromkeys(seeds + [max(0, apex - 3), 15, 57]))
+
+    monkeypatch.setattr(deconv, "_candidate_peak_indices", extra_seeds)
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=9.40,
+        loffset=0.10,
+        roffset=0.20,
+        stringency="5",
+    )
+
+    assert result.model is not None
+    assert result.model.n_components == 1
+    assert result.selected_center == pytest.approx(9.40, abs=0.03)
+
+
 def test_collapsed_overlap_falls_back_to_raw(monkeypatch):
     time = np.linspace(0.0, 10.0, 201)
     intensity = _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 7.0, 0.25, 6.0)
@@ -1028,4 +1086,8 @@ def test_bundle_uses_model_areas_only_when_every_channel_fitted():
     )
     assert not ChannelDeconvolutionBundle(time=time, channels=()).uses_model_areas()
     assert not mixed.uses_model_areas()
+    assert mixed.has_any_model()
+    assert mixed.shows_model_overlays(independent_channels=True)
+    assert not mixed.shows_model_overlays(independent_channels=False)
     assert all_fitted.uses_model_areas()
+    assert all_fitted.shows_model_overlays(independent_channels=False)

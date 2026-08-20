@@ -104,8 +104,6 @@ class TargetedQcWidget(QWidget):
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setShowGrid(True)
-        # Fit the sidebar: never scroll horizontally; elide long sample names
-        # (full names remain available in tooltips).
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.table.setTextElideMode(Qt.ElideMiddle)
         self.table.setStyleSheet(

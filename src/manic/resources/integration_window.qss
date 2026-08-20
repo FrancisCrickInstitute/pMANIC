@@ -62,7 +62,6 @@ QGroupBox#integrationWindow QPushButton {
     min-width: 0;
 }
 
-/* Styling for "Apply" buttons - only within integration window */
 QGroupBox#integrationWindow QPushButton#ApplyButton {
     background-color: #0d6efd;
     color: white;
@@ -79,7 +78,6 @@ QGroupBox#integrationWindow QPushButton#ApplyButton:pressed {
     background-color: #0a58ca;
 }
 
-/* Styling for "Restore" buttons - only within integration window */
 QGroupBox#integrationWindow QPushButton#RestoreButton {
     background-color: #f1f3f5;
     color: #334155;

@@ -2490,7 +2490,6 @@ class MainWindow(QMainWindow):
                 progress.setLabelText("Clearing visual elements...")
                 QCoreApplication.processEvents()
 
-                # Clear visual elements immediately
                 self.graph_view.clear_all_plots()
                 if self.toolbar.isotopologue_ratios is not None:
                     self.toolbar.isotopologue_ratios._clear_chart()
@@ -2499,22 +2498,18 @@ class MainWindow(QMainWindow):
                 if self.toolbar.targeted_qc is not None:
                     self.toolbar.targeted_qc.clear()
 
-                # Force UI update to show cleared graphs
                 self.graph_view.repaint()
 
                 progress.setValue(30)
                 progress.setLabelText("Clearing data lists...")
                 QCoreApplication.processEvents()
 
-                # Clear data lists
                 self.toolbar.update_compound_list([])
                 self.toolbar.update_sample_list([])
                 self.toolbar.update_label_colours(False, False)
 
-                # Clear internal standard
                 self.toolbar.clear_internal_standard()
 
-                # Clear integration window
                 self.toolbar.integration.populate_fields(None)
 
                 progress.setValue(40)

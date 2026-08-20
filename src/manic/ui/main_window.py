@@ -83,8 +83,8 @@ class MainWindow(QMainWindow):
         # Flag to prevent cascading sample deletion events
         self._deleting_samples = False
 
-        # Guard: plot selection that originated from the QC table must not
-        # collapse the QC table to a single row
+        # Guard: plot selection that originated from the Identity chart
+        # must not rebuild that chart from the newly selected sample alone.
         self._qc_link_guard = False
 
         # Set window icon
@@ -397,11 +397,8 @@ class MainWindow(QMainWindow):
         self.toolbar.shared_y_scale_toggled.connect(
             self.graph_view.set_shared_y_scale
         )
-        self.toolbar.targeted_trace_normalization_toggled.connect(
-            self.graph_view.set_targeted_trace_normalization
-        )
 
-        # Clicking a row in the targeted QC table highlights that sample's plot
+        # Clicking an Identity bar highlights that sample's plot.
         self.toolbar.targeted_qc.sample_activated.connect(
             self._on_qc_sample_activated
         )
@@ -570,7 +567,14 @@ class MainWindow(QMainWindow):
         # Import/reload workers still hold the database; do not clear it.
         for thread_attr in ("_thread", "_regen_thread", "_mass_tol_thread"):
             thread = getattr(self, thread_attr, None)
-            if thread is not None and thread.isRunning():
+            if thread is None:
+                continue
+            try:
+                running = thread.isRunning()
+            except RuntimeError:
+                setattr(self, thread_attr, None)
+                continue
+            if running:
                 self._show_message(
                     "information",
                     "Operation in progress",
@@ -926,12 +930,9 @@ class MainWindow(QMainWindow):
             provider,
         )
         self.graph_view.set_identity_status(statuses)
-        self.graph_view.set_observed_retention_times(
-            self.toolbar.targeted_qc.observed_retention_times
-        )
 
     def _on_qc_sample_activated(self, sample_name: str) -> None:
-        """Highlight the plot for a sample clicked in the QC table."""
+        """Highlight the plot for a sample clicked on the Identity chart."""
         self._qc_link_guard = True
         try:
             self.graph_view.select_sample(sample_name)
@@ -2105,7 +2106,7 @@ class MainWindow(QMainWindow):
         info_label = QLabel(
             f"Choose how MANIC fits and separates overlapping chromatographic peaks "
             f"for <b>{compound_name}</b> before integration. These settings are saved "
-            f"per compound."
+            f"per compound and apply to every sample of that compound."
         )
         info_label.setWordWrap(True)
         info_label.setMinimumWidth(600)
@@ -2494,6 +2495,7 @@ class MainWindow(QMainWindow):
                 self.graph_view.clear_all_plots()
                 self.toolbar.isotopologue_ratios._clear_chart()
                 self.toolbar.total_abundance._clear_chart()
+                self.toolbar.targeted_qc.clear()
 
                 # Force UI update to show cleared graphs
                 self.graph_view.repaint()

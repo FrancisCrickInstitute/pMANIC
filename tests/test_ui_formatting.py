@@ -26,7 +26,8 @@ from manic.ui.integration_window_widget import IntegrationWindow
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
-from manic.ui.targeted_qc_widget import TargetedQcWidget
+from manic.ui.chart_popup_dialog import ChartPopupDialog
+from manic.ui.targeted_qc_widget import RatioVerdict, TargetedQcWidget, ratio_verdict
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
     IdentityQcResult,
@@ -58,51 +59,18 @@ def test_unlabelled_toolbar_hides_label_derived_summaries(qapp):
         assert toolbar.isotopologue_ratios.isHidden()
         assert toolbar.total_abundance.isHidden()
         assert not toolbar.targeted_qc.isHidden()
-        assert not toolbar.targeted_trace_normalization_checkbox.isHidden()
         assert toolbar.integration.findChild(QLabel, "reference_rt_note") is None
     finally:
         toolbar.deleteLater()
 
 
-def test_targeted_trace_normalization_preserves_q_and_scales_v():
-    matrix = np.array(
-        [
-            [0.0, 10.0, 5.0],
-            [0.0, 2.0, 1.0],
-            [0.0, 20.0, 10.0],
-        ]
-    )
-
-    normalized = GraphView._normalize_channels_to_quantifier(matrix)
-
-    assert normalized[0].tolist() == [0.0, 10.0, 5.0]
-    assert normalized[1].tolist() == [0.0, 10.0, 5.0]
-    assert normalized[2].tolist() == [0.0, 10.0, 5.0]
-    assert np.array_equal(matrix[1], [0.0, 2.0, 1.0])
-
-
-def test_targeted_qc_shows_observed_rt_and_filterable_status(qapp, monkeypatch):
-    q = IonChannel(217.0, IonRole.QUANTIFIER)
+def test_targeted_qc_identity_chart_records_observed_rt(qapp):
     v = IonChannel(
         147.0,
         IonRole.QUALIFIER,
         ordinal=1,
         expected_ratio=0.4,
         ratio_tolerance=0.2,
-    )
-    compound = SimpleNamespace(
-        analysis_channels=(q, v),
-        is_unlabelled_target=True,
-        rt_tolerance=0.1,
-        retention_time=1.2,
-    )
-    monkeypatch.setattr(
-        "manic.ui.targeted_qc_widget.read_compound",
-        lambda _name: compound,
-    )
-    monkeypatch.setattr(
-        "manic.ui.targeted_qc_widget.read_compound_with_session",
-        lambda _name, _sample: compound,
     )
     result = IdentityQcResult(
         status=IdentityStatus.SUPPORTED,
@@ -119,13 +87,142 @@ def test_targeted_qc_shows_observed_rt_and_filterable_status(qapp, monkeypatch):
     widget = TargetedQcWidget()
     try:
         widget.update_results("Target", ["S1"], provider)
-        assert widget.table.horizontalHeaderItem(2).text() == "Obs RT"
-        assert widget.table.item(0, 2).text() == "1.23"
-        assert widget.observed_retention_times == {"S1": 1.23}
-        widget.show_issues_only.setChecked(True)
-        assert widget.table.isRowHidden(0)
+        assert [row.sample_name for row in widget._rows] == ["S1"]
+        assert widget._rows[0].verdict is RatioVerdict.VALIDATED
+        assert widget.chart.title() == "Identity"
+        assert widget.chart.legend().isVisible()
+        assert len(widget.chart.series()) == 1
+        assert widget._rows[0].note == "V1  expected 0.400  ±20%  observed 0.410"
+        widget.clear()
+        assert widget._rows == []
+        assert widget.chart.series() == []
     finally:
         widget.deleteLater()
+
+
+def test_identity_chart_popup_shows_sample_names(qapp):
+    dialog = ChartPopupDialog(
+        chart_type="identity",
+        title="Identity",
+        data=["validated", "mismatch"],
+        sample_names=["S1", "S2"],
+    )
+    try:
+        assert dialog.chart.title() == "Identity"
+        assert dialog.chart.legend().isVisible()
+        y_axes = dialog.chart.axes(Qt.Vertical)
+        assert y_axes
+        categories = y_axes[0].categories()
+        assert "S1" in categories
+        assert "S2" in categories
+        labels = [
+            bar_set.label()
+            for series in dialog.chart.series()
+            for bar_set in series.barSets()
+        ]
+        assert "Validated" in labels
+        assert "Partial" in labels
+        assert "Fail" in labels
+    finally:
+        dialog.deleteLater()
+
+
+def test_ratio_verdict_maps_configured_v_over_q_checks():
+    v = IonChannel(
+        147.0,
+        IonRole.QUALIFIER,
+        ordinal=1,
+        expected_ratio=0.4,
+        ratio_tolerance=0.25,
+    )
+    match = IdentityQcResult(
+        status=IdentityStatus.SUPPORTED,
+        quantifier_area=100.0,
+        observed_rt=1.2,
+        rt_error=0.0,
+        rt_passed=True,
+        qualifier_ratios=(QualifierRatioResult(v, 0.41, True),),
+        reasons=(),
+    )
+    mismatch = IdentityQcResult(
+        status=IdentityStatus.REVIEW_REQUIRED,
+        quantifier_area=100.0,
+        observed_rt=1.2,
+        rt_error=0.0,
+        rt_passed=True,
+        qualifier_ratios=(QualifierRatioResult(v, 0.70, False),),
+        reasons=("V ion 1 ratio 0.700 is outside 0.400 ±25%",),
+    )
+    not_given = IdentityQcResult(
+        status=IdentityStatus.NOT_ASSESSED,
+        quantifier_area=100.0,
+        observed_rt=1.2,
+        rt_error=0.0,
+        rt_passed=True,
+        qualifier_ratios=(QualifierRatioResult(v, 0.41, None),),
+        reasons=("Identity references are incomplete; signal is reported without confirmation",),
+    )
+    missing_q = IdentityQcResult(
+        status=IdentityStatus.NOT_DETECTED,
+        quantifier_area=0.0,
+        observed_rt=None,
+        rt_error=None,
+        rt_passed=None,
+        qualifier_ratios=(QualifierRatioResult(v, None, None),),
+        reasons=("Q ion was not detected above the assessment floor",),
+    )
+    v2_pass = IonChannel(
+        73.0,
+        IonRole.QUALIFIER,
+        ordinal=2,
+        expected_ratio=0.2,
+        ratio_tolerance=0.25,
+    )
+    v2_unchecked = IonChannel(73.0, IonRole.QUALIFIER, ordinal=2)
+    both_pass = IdentityQcResult(
+        status=IdentityStatus.SUPPORTED,
+        quantifier_area=100.0,
+        observed_rt=1.2,
+        rt_error=0.0,
+        rt_passed=True,
+        qualifier_ratios=(
+            QualifierRatioResult(v, 0.41, True),
+            QualifierRatioResult(v2_pass, 0.21, True),
+        ),
+        reasons=(),
+    )
+    one_of_two = IdentityQcResult(
+        status=IdentityStatus.REVIEW_REQUIRED,
+        quantifier_area=100.0,
+        observed_rt=1.2,
+        rt_error=0.0,
+        rt_passed=True,
+        qualifier_ratios=(
+            QualifierRatioResult(v, 0.41, True),
+            QualifierRatioResult(v2_pass, 0.80, False),
+        ),
+        reasons=("V ion 2 ratio 0.800 is outside 0.200 ±25%",),
+    )
+    one_checked = IdentityQcResult(
+        status=IdentityStatus.NOT_ASSESSED,
+        quantifier_area=100.0,
+        observed_rt=1.2,
+        rt_error=0.0,
+        rt_passed=True,
+        qualifier_ratios=(
+            QualifierRatioResult(v, 0.41, True),
+            QualifierRatioResult(v2_unchecked, 0.21, None),
+        ),
+        reasons=("Identity references are incomplete; signal is reported without confirmation",),
+    )
+    assert ratio_verdict(match) is RatioVerdict.VALIDATED
+    assert ratio_verdict(both_pass) is RatioVerdict.VALIDATED
+    assert ratio_verdict(one_of_two) is RatioVerdict.PARTIAL
+    assert ratio_verdict(one_checked) is RatioVerdict.PARTIAL
+    assert ratio_verdict(mismatch) is RatioVerdict.MISMATCH
+    assert ratio_verdict(not_given) is RatioVerdict.NOT_GIVEN
+    assert ratio_verdict(missing_q) is RatioVerdict.NOT_GIVEN
+    assert ratio_verdict(None) is RatioVerdict.NOT_GIVEN
 
 
 def test_new_session_ignores_qaction_checked_boolean(monkeypatch):
@@ -140,6 +237,30 @@ def test_new_session_ignores_qaction_checked_boolean(monkeypatch):
     )
 
     MainWindow.new_analysis_session(window_stub, False)
+
+
+def test_new_session_ignores_deleted_import_thread(monkeypatch):
+    monkeypatch.setattr(
+        "manic.ui.analysis_mode_dialog.choose_analysis_mode",
+        lambda _parent: None,
+    )
+
+    class DeadThread:
+        def isRunning(self):
+            raise RuntimeError(
+                "Internal C++ object (PySide6.QtCore.QThread) already deleted."
+            )
+
+    window_stub = SimpleNamespace(
+        compound_data_loaded=False,
+        cdf_data_loaded=False,
+        _thread=DeadThread(),
+        _regen_thread=None,
+        _mass_tol_thread=None,
+    )
+
+    MainWindow.new_analysis_session(window_stub, False)
+    assert window_stub._thread is None
 
 
 class TestSignificantFigures:
@@ -487,10 +608,7 @@ def _mixed_deconvolution_bundle(time):
     )
 
 
-@pytest.mark.parametrize("is_unlabelled_target", [False, True])
-def test_mixed_bundle_draws_scans_not_model_overlay(
-    qapp, monkeypatch, is_unlabelled_target
-):
+def test_labelled_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
     time = np.linspace(4.0, 6.0, 81)
     intensity = np.vstack(
         [
@@ -516,7 +634,7 @@ def test_mixed_bundle_draws_scans_not_model_overlay(
             y_axis,
             time,
             intensity,
-            _deconvolution_plot_compound(is_unlabelled_target=is_unlabelled_target),
+            _deconvolution_plot_compound(is_unlabelled_target=False),
             1.0,
         )
         widths = {series.pen().widthF() for series in chart.series()}
@@ -526,7 +644,42 @@ def test_mixed_bundle_draws_scans_not_model_overlay(
         view.deleteLater()
 
 
-def test_unlabelled_mixed_bundle_detailed_plot_draws_scans(qapp, monkeypatch):
+def test_unlabelled_mixed_bundle_draws_fitted_ion_overlay(qapp, monkeypatch):
+    time = np.linspace(4.0, 6.0, 81)
+    intensity = np.vstack(
+        [
+            12.0 * np.exp(-0.5 * ((time - 5.0) / 0.08) ** 2),
+            np.full(time.size, 3.0),
+        ]
+    )
+    monkeypatch.setattr(
+        graphs_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
+    )
+    view = GraphView()
+    try:
+        chart = QChart()
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        view._add_eic_series(
+            chart,
+            x_axis,
+            y_axis,
+            time,
+            intensity,
+            _deconvolution_plot_compound(is_unlabelled_target=True),
+            1.0,
+        )
+        widths = {series.pen().widthF() for series in chart.series()}
+        assert 2.2 in widths
+    finally:
+        view.deleteLater()
+
+
+def test_unlabelled_mixed_bundle_detailed_plot_draws_fitted_ion(qapp, monkeypatch):
     from manic.ui import detailed_plot_dialog as dialog_module
     from manic.ui.detailed_plot_dialog import DetailedPlotDialog
 
@@ -550,6 +703,6 @@ def test_unlabelled_mixed_bundle_detailed_plot_draws_scans(qapp, monkeypatch):
         dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
         dialog._plot_model_component = lambda *args, **kwargs: drew_model.append(True)
         dialog._plot_eic_traces()
-        assert drew_model == []
+        assert drew_model == [True]
     finally:
         dialog.deleteLater()

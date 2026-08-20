@@ -1,7 +1,7 @@
 # Workflow: Data Interpretation
 
 ## Overview
-When you export data from MANIC (Step 5), the application generates a multi-sheet Excel workbook. This document explains the purpose, units, and derivation logic for each sheet in that report.
+When you export data from MANIC (Step 5), the application generates a multi-sheet Excel workbook. This document explains the labelled (isotope-tracing) sheets. Unlabelled sessions write **Raw Values** and **Abundances** in the same matrix layout, then add **Qualifier QC**. See [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md#8-excel-export).
 
 ---
 

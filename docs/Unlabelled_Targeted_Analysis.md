@@ -270,7 +270,8 @@ Natural-abundance correction is **not** applied in this mode.
 ### Step E — Export
 
 Export the Excel workbook when review is complete. Unlabelled sessions write
-three sheets (see [§8](#8-excel-export)).
+Raw Values and Abundances in the labelled matrix layout, plus Qualifier QC
+(see [§8](#8-excel-export)).
 
 ---
 
@@ -342,55 +343,40 @@ chart, not on the tiles. Peak-height validation against an internal standard
 
 ## 8. Excel export
 
-Unlabelled exports contain three worksheets.
+Unlabelled exports keep the labelled matrix layout for the two sheets that
+still make scientific sense, then add Qualifier QC.
 
-### Targeted Results
+### Raw Values
 
-One row per sample × compound:
+Matrix of Q-ion areas only (`Compound Name`, `Mass`, `tR`). There is no
+isotope row and no V-ion columns. `Mass` is the Q *m/z*.
 
-| Column | Content |
-| :--- | :--- |
-| Q Ion m/z / Area | Quantifier definition and integrated area |
-| Response Ratio to Internal Standard | Q area ÷ internal-standard Q area (when an IS is set) |
-| Estimated Amount | Semi-quantitative estimate when calibration metadata and a response factor are available |
-| Result Type | What the numeric columns represent (see below) |
-| Identity Status / Observed RT / RT Error / Identity Reasons | Identity QC summary |
+### Abundances
 
-**Result Type** values:
-
-- `Q ion peak area` — only the raw Q response is available
-- `Relative response ratio` — IS ratio available, but not a calibrated amount
-- `Semi-quantitative estimate (single-point RF)` — amount from a measured
-  single-point response factor
-- `Uncalibrated estimate (response factor assumed = 1.0)` — amount computed
-  with an assumed RF of 1.0 when no measured factor was available; treat with
-  caution
+Same Q-only matrix, plus a Units row. With an internal standard this is the
+single-point calibrated amount (or a relative value when `Amount in StdMix`
+is missing). Without an IS the units row says `Peak Area`. There is no
+isotope row: unlabelled amount is not a sum of isotopologues.
 
 Semi-quantitative amounts are **not** multi-point calibration-curve results.
-Report them as estimates unless your laboratory has separately validated the
-calibration.
+
+There is no Corrected Values, Isotope Ratios, or label-incorporation sheet.
+Those describe an isotopologue envelope that this mode does not have.
 
 ### Qualifier QC
 
-Long-form V-ion ratios: observed ratio, expected ratio, fractional tolerance,
-and `PASS` / `REVIEW` / `N/A`.
+Long-form V-ion ratios plus the raw Q and V areas used to compute them:
+observed ratio, expected ratio, fractional tolerance, and
+`PASS` / `REVIEW` / `N/A`. Identity status stays in the app chart, not
+the workbook.
 
-### Targeted Method
-
-Human-readable interpretation limits, then two tables:
-
-- **Ion definitions** — one row per Q/V channel (role, ordinal, *m/z*,
-  expected ratios, RT tolerance)
-- **Current tR** — one row per sample × compound, the session `tR` used for
-  integration and identity QC after Apply
-
-A session changelog is also written; for unlabelled mode it states that
-Q-ion area alone supplies the analytical response, V ions are identity
-evidence, current tR is used for both integration and identity RT QC, and
-natural-isotope correction is not applied. Chromatographic peak
-deconvolution defaults to level 4 and is recorded per compound in the
-compounds table. It is independent per-ion fitting, not isotopologue-envelope
-deconvolution.
+A session changelog is also written. For unlabelled mode it records Q/V ion
+definitions, tR window, Amount in StdMix, MM Files, and baseline, and it
+states how to read the sheets: Raw Values and Abundances are Q-only
+(Peak Area / nmol / Relative), V-ion raw areas sit on Qualifier QC,
+observed RT is the raw Q apex, a
+failed ion fit forces raw-window areas for every ion of that
+compound/sample, and composite identity status stays in the Identity chart.
 
 ---
 
@@ -455,7 +441,7 @@ Right-click a tile for the detail view:
 | Identity | RT + optional V/Q ratios | Envelope / experimental design | Visual V scaling; no automated ratio QC |
 | Natural-abundance correction | Off | On | N/A for Gv3 unlabelled |
 | Deconvolution | Level 4 by default; independent Q/V fits | Level 4 by default | N/A |
-| Export | Targeted Results / Qualifier QC / Method | Isotope-tracing sheets | Legacy MATLAB exports |
+| Export | Raw Values + Abundances (labelled layout), plus Qualifier QC | Isotope-tracing sheets | Legacy MATLAB exports |
 
 Old MANIC Gv3 lists (exactly
 `name, tR, lOffset, rOffset, QIon, ValIon1, ValIon2, tR_Window`) import into

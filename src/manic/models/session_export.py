@@ -83,13 +83,9 @@ def read_session_internal_standard(import_path: str) -> SessionInternalStandard 
 
 
 def clamp_reference_isotope(isotope: int, channel_count: int) -> int:
-    try:
-        count = int(channel_count)
-    except (TypeError, ValueError):
+    if channel_count <= 0:
         return 0
-    if count <= 0:
-        return 0
-    max_idx = count - 1
+    max_idx = channel_count - 1
     if 0 <= isotope <= max_idx:
         return isotope
     return 0

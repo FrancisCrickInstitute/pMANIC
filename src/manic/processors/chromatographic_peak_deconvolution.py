@@ -432,7 +432,7 @@ def _deconvolve_matrix(
         if fitted is not None and not _fit_reproduces_window(
             window_matrix,
             fitted,
-            quality_mask=integration_mask[fit_mask],
+            integration_mask=integration_mask[fit_mask],
         ):
             fitted = None
     if fitted is None:
@@ -929,15 +929,11 @@ def _too_messy_to_fit(
 def _fit_reproduces_window(
     window_matrix: np.ndarray,
     fitted: FittedComponentModel,
-    quality_mask: np.ndarray | None = None,
+    integration_mask: np.ndarray,
 ) -> bool:
     recon = fitted.baseline + np.sum(fitted.components, axis=0)
-    raw = np.asarray(window_matrix, dtype=np.float64)
-    if quality_mask is not None:
-        mask = np.asarray(quality_mask, dtype=bool).reshape(-1)
-        if mask.size == raw.shape[1] and np.any(mask):
-            recon = recon[:, mask]
-            raw = raw[:, mask]
+    recon = recon[:, integration_mask]
+    raw = np.asarray(window_matrix, dtype=np.float64)[:, integration_mask]
     denominator = float(np.sum(raw ** 2))
     if denominator <= np.finfo(float).eps:
         return False

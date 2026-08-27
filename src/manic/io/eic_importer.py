@@ -518,10 +518,8 @@ def regenerate_compound_eics(
     """
     Regenerate EIC data for a specific compound across given samples with new tR window.
 
-    Re-extracts EIC data for the compound from raw CDF files. Each sample is
-    replaced only after extraction succeeds, so a failed window (for example a
-    typo retention time with no scans) leaves the previous EIC in place.
-    Session data is NOT touched.
+    Each sample is replaced only after extraction succeeds, so a failed window
+    leaves the previous EIC in place. Session data is NOT touched.
 
     Parameters
     ----------

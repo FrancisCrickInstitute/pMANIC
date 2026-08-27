@@ -10,12 +10,24 @@ These tests follow TDD (Test-Driven Development) principles:
 3. Implementation will be written to make these tests pass
 """
 
+import sqlite3
+import zlib
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from manic.io.eic_importer import _compress, regenerate_compound_eics
+from manic.models import database
 from manic.ui.integration_window_widget import (
     calculate_integration_boundaries,
     calculate_minimum_rt_window,
     check_boundaries_within_window,
     IntegrationWindow,
 )
+
+SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
 
 
 class TestIntegrationBoundaryCalculation:
@@ -281,3 +293,138 @@ class TestPerSampleReloadChecking:
             sample_rts, new_loffset=2.0, new_roffset=2.0, samples_to_check=["s1", "s2"]
         )
         assert set(need_reload) == {"s1", "s2"}
+
+
+def _seed_eic_db(db_path: Path, cdf_path: Path):
+    time_axis = np.array([7.07, 7.17, 7.27], dtype=np.float64)
+    intensity = np.array([1.0, 10.0, 1.0], dtype=np.float64)
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms) "
+            "VALUES (?, ?, ?, ?)",
+            ("Glucose", 7.17, 100.0, 0),
+        )
+        conn.execute(
+            "INSERT INTO samples (sample_name, file_name) VALUES (?, ?)",
+            ("s1", str(cdf_path)),
+        )
+        conn.execute(
+            """
+            INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window, deleted)
+            VALUES (?, ?, ?, ?, ?, 0)
+            """,
+            ("s1", "Glucose", _compress(time_axis), _compress(intensity), 0.2),
+        )
+
+
+class TestRecoveryAfterEmptyExtract:
+    def test_refresh_drops_bounds_when_eic_missing(self, monkeypatch):
+        w = IntegrationWindow.__new__(IntegrationWindow)
+        w._current_compound = "cmpd"
+        w._data_window_bounds = {("cmpd", "s1"): (6.97, 7.37)}
+
+        def _no_eics(*_args, **_kwargs):
+            raise LookupError("No EIC data found")
+
+        monkeypatch.setattr(
+            "manic.ui.integration_window_widget.get_eics_for_compound",
+            _no_eics,
+        )
+        w.refresh_data_window_bounds("cmpd", ["s1"])
+
+        assert ("cmpd", "s1") not in w._data_window_bounds
+        assert w._get_samples_needing_reload(7.17, 0.1, 0.1, ["s1"]) == ["s1"]
+
+    def test_corrected_rt_reloads_when_new_rt_leaves_stale_window(self):
+        w = IntegrationWindow.__new__(IntegrationWindow)
+        w._current_compound = "cmpd"
+        w._data_window_bounds = {("cmpd", "s1"): (716.8, 717.2)}
+
+        assert w._get_samples_needing_reload(7.17, 0.1, 0.1, ["s1"]) == ["s1"]
+
+    def test_failed_extract_keeps_existing_eic(self, tmp_path, monkeypatch):
+        db_path = tmp_path / "regen.db"
+        cdf_path = tmp_path / "s1.cdf"
+        cdf_path.write_bytes(b"cdf")
+        monkeypatch.setattr(database, "DB_FILE", db_path)
+        _seed_eic_db(db_path, cdf_path)
+
+        monkeypatch.setattr(
+            "manic.io.eic_importer.read_cdf_file",
+            lambda _path: object(),
+        )
+
+        def _no_scans(*_args, **_kwargs):
+            raise ValueError("No scans found within specified RT window")
+
+        monkeypatch.setattr("manic.io.eic_importer.extract_eic", _no_scans)
+        monkeypatch.setattr(
+            "manic.processors.eic_correction_manager.apply_correction_to_eic",
+            lambda *_args, **_kwargs: False,
+        )
+
+        regenerated = regenerate_compound_eics(
+            "Glucose",
+            0.2,
+            ["s1"],
+            retention_time=717.0,
+        )
+
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM eic WHERE compound_name = ? AND sample_name = ? AND deleted = 0",
+                ("Glucose", "s1"),
+            ).fetchone()
+
+        assert regenerated == 0
+        assert row[0] == 1
+
+    def test_successful_extract_replaces_existing_eic(self, tmp_path, monkeypatch):
+        db_path = tmp_path / "regen.db"
+        cdf_path = tmp_path / "s1.cdf"
+        cdf_path.write_bytes(b"cdf")
+        monkeypatch.setattr(database, "DB_FILE", db_path)
+        _seed_eic_db(db_path, cdf_path)
+
+        new_time = np.array([7.00, 7.10, 7.20], dtype=np.float64)
+        new_intensity = np.array([2.0, 20.0, 2.0], dtype=np.float64)
+        monkeypatch.setattr(
+            "manic.io.eic_importer.read_cdf_file",
+            lambda _path: object(),
+        )
+        monkeypatch.setattr(
+            "manic.io.eic_importer.extract_eic",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                sample_name="s1",
+                compound_name="Glucose",
+                time=new_time,
+                intensity=new_intensity,
+            ),
+        )
+        monkeypatch.setattr(
+            "manic.processors.eic_correction_manager.apply_correction_to_eic",
+            lambda *_args, **_kwargs: False,
+        )
+
+        regenerated = regenerate_compound_eics(
+            "Glucose",
+            0.2,
+            ["s1"],
+            retention_time=7.10,
+        )
+
+        with sqlite3.connect(db_path) as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM eic WHERE compound_name = ? AND sample_name = ?",
+                ("Glucose", "s1"),
+            ).fetchone()[0]
+            stored = conn.execute(
+                "SELECT x_axis FROM eic WHERE compound_name = ? AND sample_name = ?",
+                ("Glucose", "s1"),
+            ).fetchone()[0]
+
+        restored = np.frombuffer(zlib.decompress(stored), dtype=np.float64)
+        assert regenerated == 1
+        assert count == 1
+        assert restored == pytest.approx(new_time)

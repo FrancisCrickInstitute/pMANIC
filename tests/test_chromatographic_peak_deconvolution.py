@@ -960,6 +960,87 @@ def test_calculate_peak_areas_mixed_bundle_uses_raw_window(monkeypatch):
     assert mixed == pytest.approx(expected)
 
 
+def test_taller_out_of_window_neighbors_do_not_starve_target_peak():
+    time = np.linspace(14.554, 14.950, 97)
+    intensity = (
+        _gaussian(time, 14.653, 0.012, 18.0)
+        + _gaussian(time, 14.698, 0.012, 16.2)
+        + _gaussian(time, 14.748, 0.012, 15.4)
+        + _gaussian(time, 14.872, 0.012, 17.4)
+    )
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=14.75,
+        loffset=0.03,
+        roffset=0.095,
+        stringency="4",
+    )
+
+    assert result.model is not None
+    assert result.selected_center == pytest.approx(14.75, abs=0.02)
+    assert result.model.n_components >= 2
+
+
+def test_out_of_window_residual_does_not_discard_target_fit(monkeypatch):
+    time = np.linspace(0.2, 0.8, 121)
+    target = _gaussian(time, 0.5, 0.01, 10.0)
+    intensity = (
+        target
+        + _gaussian(time, 0.32, 0.02, 30.0)
+        + _gaussian(time, 0.68, 0.02, 30.0)
+    )
+    attempted_fits = []
+
+    def fit_target_only(time_bytes, matrix_bytes, matrix_shape, _params, target_rt):
+        window_time = np.frombuffer(time_bytes, dtype=np.float64)
+        window_matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(
+            matrix_shape
+        )
+        fitted = deconv.FittedComponentModel(
+            baseline=np.zeros_like(window_matrix),
+            components=_gaussian(window_time, target_rt, 0.01, 10.0)[None, None, :],
+            centers=np.array([target_rt]),
+            bic=0.0,
+            rss=0.0,
+            shape_model="gaussian",
+            shape_params=np.array([[target_rt - window_time[0], 0.01]]),
+            norms=np.array([1.0]),
+            weights=np.array([[10.0]]),
+            intercept=np.array([0.0]),
+            x0=float(window_time[0]),
+        )
+        attempted_fits.append((window_matrix, fitted))
+        return fitted
+
+    monkeypatch.setattr(
+        deconv,
+        "_fit_joint_component_model_cached",
+        fit_target_only,
+    )
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=0.5,
+        loffset=0.04,
+        roffset=0.04,
+        stringency="4",
+        noise_gate="off",
+    )
+
+    window_matrix, fitted = attempted_fits[0]
+    full_context = np.ones(window_matrix.shape[1], dtype=bool)
+    assert deconv._fit_reproduces_window(
+        window_matrix,
+        fitted,
+        full_context,
+    ) is False
+    assert result.model is not None
+    assert result.selected_center == pytest.approx(0.5)
+
+
 def test_clipped_neighbor_peak_is_split_from_target():
     """A tall Q peak clipped at the extract edge must still be split off tR."""
     full_time = np.linspace(14.20, 14.80, 241)

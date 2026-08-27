@@ -9,8 +9,10 @@ by maintaining the primacy of raw data while preserving analytical workflows.
 import json
 import logging
 import tempfile
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from manic.models.database import (
     get_connection,
@@ -34,9 +36,111 @@ from manic.processors.chromatographic_peak_deconvolution import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class SessionInternalStandard:
+    compound_name: str | None
+    reference_isotope: int = 0
+
+
+class InternalStandardRestoreKind(StrEnum):
+    UNCHANGED = "unchanged"
+    CLEARED = "cleared"
+    RESTORED = "restored"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class InternalStandardRestore:
+    kind: InternalStandardRestoreKind
+    compound_name: str | None = None
+    reference_isotope: int = 0
+
+
+def format_session_import_standard_note(
+    restore: InternalStandardRestore,
+    *,
+    labelled: bool,
+) -> str | None:
+    if restore.kind is InternalStandardRestoreKind.RESTORED and restore.compound_name:
+        if labelled:
+            return (
+                f"Internal standard: {restore.compound_name} "
+                f"(M+{restore.reference_isotope})."
+            )
+        return f"Internal standard: {restore.compound_name}."
+    if restore.kind is InternalStandardRestoreKind.FAILED:
+        return "The internal standard could not be restored. Select it again."
+    return None
+
+
+def _normalize_reference_isotope(value: Any, *, has_standard: bool) -> int:
+    if not has_standard:
+        return 0
+    try:
+        isotope = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return isotope if isotope >= 0 else 0
+
+
+def parse_session_internal_standard(
+    method_data: dict[str, Any],
+) -> SessionInternalStandard | None:
+    if "internal_standard" not in method_data:
+        return None
+    raw = method_data.get("internal_standard")
+    if raw is None:
+        name = None
+    else:
+        name = str(raw).strip() or None
+    return SessionInternalStandard(
+        compound_name=name,
+        reference_isotope=_normalize_reference_isotope(
+            method_data.get("internal_standard_reference_isotope", 0),
+            has_standard=name is not None,
+        ),
+    )
+
+
+def read_session_internal_standard(import_path: str) -> SessionInternalStandard | None:
+    try:
+        with open(import_path, encoding="utf-8") as handle:
+            method_data = json.load(handle)
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+        logger.warning("Could not read internal standard from %s", import_path)
+        return None
+    if not isinstance(method_data, dict):
+        return None
+    return parse_session_internal_standard(method_data)
+
+
+def clamp_reference_isotope(isotope: int, channel_count: int) -> int:
+    if channel_count <= 0:
+        return 0
+    max_idx = channel_count - 1
+    if 0 <= isotope <= max_idx:
+        return isotope
+    return 0
+
+
+def resolve_session_internal_standard(
+    parsed: SessionInternalStandard | None,
+    active_compound_names: Iterable[str],
+) -> SessionInternalStandard | None:
+    if parsed is None:
+        return None
+    if parsed.compound_name is None or parsed.compound_name not in set(
+        active_compound_names
+    ):
+        return SessionInternalStandard(compound_name=None, reference_isotope=0)
+    return parsed
+
+
 def export_session_method(
     export_path: str,
     analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+    internal_standard: str | None = None,
+    internal_standard_reference_isotope: int = 0,
 ) -> bool:
     """
     Export session methodology and parameters only (no processed data).
@@ -45,14 +149,12 @@ def export_session_method(
     - Compound definitions and parameters
     - Integration boundary overrides (session_activity)
     - Analysis methodology
+    - Selected internal standard and labelled reference peak (M+N)
 
     Does NOT export:
     - Raw CDF file data
     - Processed EIC data
     - Sample file paths
-
-    This approach ensures scientific integrity by requiring users to
-    re-import and reprocess raw data using the exported methodology.
 
     Args:
         export_path: Path where to save the method file
@@ -80,7 +182,19 @@ def export_session_method(
         changelog_path = export_dir / f"changelog_{timestamp}.md"
 
         mode = AnalysisMode.coerce(analysis_mode)
-        method_data = {"analysis_mode": mode.value}
+        standard_name = (
+            None
+            if internal_standard is None
+            else str(internal_standard).strip() or None
+        )
+        method_data = {
+            "analysis_mode": mode.value,
+            "internal_standard": standard_name,
+            "internal_standard_reference_isotope": _normalize_reference_isotope(
+                internal_standard_reference_isotope,
+                has_standard=standard_name is not None,
+            ),
+        }
 
         with get_connection() as conn:
             # Export compound definitions and parameters
@@ -625,8 +739,16 @@ def _generate_changelog(method_data: dict, changelog_path: Path) -> None:
             f.write(f"**Export Version:** {export_version}\n")
             f.write(f"**Application:** {metadata.get('application', APP_NAME)}\n\n")
             f.write(
-                f"**Analysis Mode:** {method_data.get('analysis_mode', 'labelled')}\n\n"
+                f"**Analysis Mode:** {method_data.get('analysis_mode', 'labelled')}\n"
             )
+            standard = method_data.get("internal_standard")
+            f.write(f"**Internal Standard:** {standard or 'None selected'}\n")
+            if standard:
+                f.write(
+                    "**Internal Standard Reference Peak:** "
+                    f"M+{method_data.get('internal_standard_reference_isotope', 0)}\n"
+                )
+            f.write("\n")
 
             f.write("---\n\n")
 

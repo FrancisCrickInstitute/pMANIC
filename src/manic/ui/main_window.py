@@ -41,8 +41,20 @@ from manic.io.data_exporter import DataExporter, validate_internal_standard_meta
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
-from manic.io.compound_reader import read_compound_with_session
+from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisContext, AnalysisMode
+from manic.models.session_export import (
+    InternalStandardRestore,
+    InternalStandardRestoreKind,
+    clamp_reference_isotope,
+    export_session_method,
+    format_session_import_standard_note,
+    get_method_info,
+    import_session_overrides,
+    read_session_internal_standard,
+    resolve_session_internal_standard,
+    validate_method_file,
+)
 from manic.processors.chromatographic_peak_deconvolution import (
     normalize_fit_type,
     normalize_noise_gate,
@@ -1632,8 +1644,6 @@ class MainWindow(QMainWindow):
         """Export current analytical session to a file."""
         from PySide6.QtWidgets import QFileDialog
 
-        from manic.models.session_export import export_session_method
-
         # Get export file path
         file_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -1646,7 +1656,12 @@ class MainWindow(QMainWindow):
             return  # User cancelled
 
         try:
-            success = export_session_method(file_path, self.analysis_mode)
+            success = export_session_method(
+                file_path,
+                self.analysis_mode,
+                internal_standard=self.toolbar.get_internal_standard(),
+                internal_standard_reference_isotope=self.internal_standard_reference_isotope,
+            )
 
             if success:
                 # Show info about what was exported
@@ -1694,12 +1709,6 @@ class MainWindow(QMainWindow):
     def import_session(self):
         """Import session overrides from a session file."""
         from PySide6.QtWidgets import QFileDialog
-
-        from manic.models.session_export import (
-            get_method_info,
-            import_session_overrides,
-            validate_method_file,
-        )
 
         # Get import file path
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1788,7 +1797,7 @@ class MainWindow(QMainWindow):
             )
 
             if success:
-                # Show warning for legacy format without deletion data
+                restore = self._apply_imported_internal_standard(file_path)
                 if not has_deletion_data:
                     legacy_msg = self._create_message_box(
                         "warning",
@@ -1800,16 +1809,23 @@ class MainWindow(QMainWindow):
                     )
                     legacy_msg.exec()
 
+                import_text = (
+                    f"Session overrides imported successfully from:\n{file_path}\n\n"
+                    f"Integration boundaries have been updated for the affected samples."
+                )
+                standard_note = format_session_import_standard_note(
+                    restore,
+                    labelled=self.analysis_mode is AnalysisMode.LABELLED,
+                )
+                if standard_note:
+                    import_text = f"{import_text}\n\n{standard_note}"
                 msg_box = self._create_message_box(
                     "information",
                     "Session Import Successful",
-                    f"Session overrides imported successfully from:\n{file_path}\n\n"
-                    f"Integration boundaries have been updated for the affected samples.",
+                    import_text,
                 )
                 msg_box.exec()
                 logger.info(f"Session overrides imported from {file_path}")
-
-                # Refresh current display if compound/sample are selected
                 self._refresh_after_session_import()
             else:
                 msg_box = self._create_message_box(
@@ -1889,6 +1905,41 @@ class MainWindow(QMainWindow):
                 f"Failed to rebuild export.\n{e}",
             )
             msg.exec()
+
+    def _apply_imported_internal_standard(
+        self, import_path: str
+    ) -> InternalStandardRestore:
+        try:
+            parsed = read_session_internal_standard(import_path)
+            resolved = resolve_session_internal_standard(parsed, list_compound_names())
+            if resolved is None:
+                return InternalStandardRestore(InternalStandardRestoreKind.UNCHANGED)
+            if resolved.compound_name is None:
+                self.toolbar.standard.clear_internal_standard()
+                isotope = 0
+                result = InternalStandardRestore(InternalStandardRestoreKind.CLEARED)
+            else:
+                compound = read_compound(resolved.compound_name)
+                isotope = clamp_reference_isotope(
+                    resolved.reference_isotope,
+                    compound.channel_count,
+                )
+                self.toolbar.standard.set_internal_standard(resolved.compound_name)
+                result = InternalStandardRestore(
+                    InternalStandardRestoreKind.RESTORED,
+                    compound_name=resolved.compound_name,
+                    reference_isotope=isotope,
+                )
+            self.internal_standard_reference_isotope = isotope
+            if self._validation_provider is not None:
+                self._validation_provider.invalidate_cache()
+            self._update_menu_states()
+            return result
+        except Exception:
+            logger.exception(
+                "Failed to restore internal standard from session import"
+            )
+            return InternalStandardRestore(InternalStandardRestoreKind.FAILED)
 
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""

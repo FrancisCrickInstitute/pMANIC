@@ -87,7 +87,23 @@ def read_eics_batch(samples: List[str], compound: Compound, use_corrected: bool 
             inten = inten.reshape((channel_count, len(inten) // channel_count))
         
         results_by_sample[row["sample_name"]] = EIC(row["sample_name"], compound_name, time, inten)
-    
+
+    if use_corrected:
+        missing_samples = [
+            sample_name
+            for sample_name in samples
+            if sample_name not in results_by_sample
+        ]
+        if missing_samples:
+            raw_eics = read_eics_batch(
+                missing_samples,
+                compound,
+                use_corrected=False,
+            )
+            results_by_sample.update(
+                (eic.sample_name, eic) for eic in raw_eics
+            )
+
     # Return EICs in the same order as requested samples to preserve UI ordering
     eics = []
     for sample_name in samples:

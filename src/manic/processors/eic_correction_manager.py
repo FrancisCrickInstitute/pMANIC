@@ -6,18 +6,39 @@ to EIC data and store the corrected results in the database.
 """
 
 import logging
+import sqlite3
 import time
 import zlib
+from contextlib import nullcontext
 from typing import Optional
 
 import numpy as np
 
-from manic.io.compound_reader import read_compound
+from manic.io.compound_reader import Compound, read_compound
 from manic.io.eic_reader import read_eic
 from manic.models.database import get_connection
+from manic.processors.eic_calculator import EIC
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
 
 logger = logging.getLogger(__name__)
+
+
+def compute_corrected_intensity(eic: EIC, compound: Compound) -> Optional[np.ndarray]:
+    if not compound.formula:
+        return None
+    intensity = np.asarray(eic.intensity)
+    if intensity.ndim == 1:
+        return None
+    corrector = NaturalAbundanceCorrector()
+    return corrector.correct_time_series(
+        intensity,
+        compound.formula,
+        compound.label_type,
+        compound.label_atoms,
+        compound.tbdms,
+        compound.meox,
+        compound.me,
+    )
 
 
 def apply_correction_to_eic(sample_name: str, compound_name: str) -> bool:
@@ -32,48 +53,20 @@ def apply_correction_to_eic(sample_name: str, compound_name: str) -> bool:
         True if correction was successful, False otherwise
     """
     try:
-        # Read compound information (just use basic read_compound, don't need session overrides for correction)
-        from manic.io.compound_reader import read_compound
-
         compound = read_compound(compound_name)
 
-        # Check if formula is available
         if not compound.formula:
             logger.warning(f"No formula for {compound_name}, skipping correction")
             return False
 
-        # Read EIC data (raw uncorrected data for correction processing)
         eic = read_eic(sample_name, compound, use_corrected=False)
-
-        # Apply NA correction for all compounds (including unlabeled) for GVISO parity
-
-        # Check if we have isotopologue data
-        if eic.intensity.ndim == 1:
+        corrected_intensity = compute_corrected_intensity(eic, compound)
+        if corrected_intensity is None:
             logger.warning(f"No isotopologue data for {compound_name} in {sample_name}")
             return False
 
-        # Log correction attempt (only at debug level)
-        logger.debug(
-            f"Correcting {compound_name} in {sample_name}: "
-            f"{compound.formula}, {compound.label_atoms} {compound.label_type}"
-        )
-
-        # Apply correction
-        corrector = NaturalAbundanceCorrector()
-        corrected_intensity = corrector.correct_time_series(
-            eic.intensity,
-            compound.formula,
-            compound.label_type,
-            compound.label_atoms,
-            compound.tbdms,
-            compound.meox,
-            compound.me,
-        )
-
-        # Store corrected data
         store_corrected_eic(sample_name, compound_name, eic.time, corrected_intensity)
 
-        # Log success (minimal)
         logger.debug(f"Corrected {compound_name} in {sample_name}")
 
         return True
@@ -88,6 +81,7 @@ def store_corrected_eic(
     compound_name: str,
     time_array: np.ndarray,
     corrected_intensity: np.ndarray,
+    connection: sqlite3.Connection | None = None,
 ) -> None:
     """
     Store corrected EIC data in the database.
@@ -109,7 +103,10 @@ def store_corrected_eic(
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """
 
-    with get_connection() as conn:
+    connection_context = (
+        nullcontext(connection) if connection is not None else get_connection()
+    )
+    with connection_context as conn:
         conn.execute(
             sql,
             (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Signal
@@ -13,9 +14,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from manic.constants import DEFAULT_RT_WINDOW_BUFFER
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisMode
-from manic.models.session_activity import SessionActivityService
+from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.paths import resource_path
 from manic.utils.utils import load_stylesheet
@@ -40,16 +42,6 @@ def _parse_rt_text(rt_text: str) -> tuple[str, float, Optional[tuple[float, floa
     Raises:
         ValueError if the format is invalid.
     """
-    """Parse an RT input field value.
-
-    Returns:
-        ("single", rt_float) OR ("range", (min_rt, max_rt))
-
-    Raises:
-        ValueError if the format is invalid.
-    """
-    import re
-
     text = (rt_text or "").strip()
     if not text:
         raise ValueError("Retention time cannot be empty")
@@ -168,7 +160,7 @@ class IntegrationWindow(QGroupBox):
 
     # Signal emitted when regenerate button is clicked (for future implementation)
     data_regeneration_requested = Signal(
-        str, float, list, float
+        str, float, list, object
     )  # compound_name, tr_window, sample_names, retention_time
 
 
@@ -191,15 +183,7 @@ class IntegrationWindow(QGroupBox):
         # Maps (compound_name, sample_name) to (min_time, max_time) of stored EIC data
         self._data_window_bounds: Dict[Tuple[str, str], Tuple[float, float]] = {}
 
-        # Store pending session update when reload is triggered
-        # Tuple of (retention_time_or_None, loffset, roffset, samples_to_apply)
-        # If retention_time is None, retain each sample's existing RT (offset-only apply).
-        self._pending_session_update: Optional[
-            Tuple[Optional[float], float, float, List[str]]
-        ] = None
-        
-        # Track which samples were actually regenerated (for bounds refresh)
-        self._samples_regenerated: List[str] = []
+        self._pending_session_update: PendingRegeneration | None = None
 
         self._build_ui()
         self._setup_apply_button_state()
@@ -728,17 +712,24 @@ class IntegrationWindow(QGroupBox):
         logger = logging.getLogger(__name__)
         
         try:
-            # Refresh bounds for each regenerated sample
             for sample_name in sample_names:
-                eics = get_eics_for_compound(compound_name, [sample_name], use_corrected=False)
-                if eics and len(eics) > 0 and len(eics[0].time) > 0:
+                key = (compound_name, sample_name)
+                try:
+                    eics = get_eics_for_compound(
+                        compound_name, [sample_name], use_corrected=False
+                    )
+                except LookupError:
+                    self._data_window_bounds.pop(key, None)
+                    continue
+                if eics and len(eics[0].time) > 0:
                     time_data = eics[0].time
-                    key = (compound_name, sample_name)
                     self._data_window_bounds[key] = (time_data.min(), time_data.max())
                     logger.debug(
                         f"Refreshed bounds for {sample_name}: "
                         f"[{time_data.min():.3f}, {time_data.max():.3f}]"
                     )
+                else:
+                    self._data_window_bounds.pop(key, None)
         except Exception as e:
             logger.warning(f"Failed to refresh data window bounds: {e}")
 
@@ -811,9 +802,6 @@ class IntegrationWindow(QGroupBox):
                     float(tr_window_field.text()) if tr_window_field and tr_window_field.text() else 0.2
                 )
 
-                # Calculate required RT window (ensure it covers integration boundaries)
-                # Use tested helper function with configurable buffer constant
-                from manic.constants import DEFAULT_RT_WINDOW_BUFFER
                 min_required_window = calculate_minimum_rt_window(
                     loffset, roffset, buffer=DEFAULT_RT_WINDOW_BUFFER
                 )
@@ -823,23 +811,25 @@ class IntegrationWindow(QGroupBox):
                     f"Regenerating {len(samples_needing_reload)} samples with RT window {actual_window:.3f} min"
                 )
 
-                # Store pending session update to be applied after reload completes
-                # Apply to ALL originally selected samples, not just those needing reload
-                # If we're preserving per-sample RTs, store only offsets for later apply.
-                # We can't persist per-sample RTs in this tuple, so we recompute them after reload.
                 pending_rt = None if preserve_sample_rts else retention_time
-                self._pending_session_update = (pending_rt, loffset, roffset, samples_to_apply)
-                
-                # Track which samples are being regenerated (for bounds refresh)
-                self._samples_regenerated = samples_needing_reload.copy()
-
-                # Emit signal to trigger EIC data regeneration for ONLY affected samples
-                # Pass the new retention time so EIC is centered at the correct position
-                self.data_regeneration_requested.emit(
-                    self._current_compound, actual_window, samples_needing_reload, retention_time
+                self._pending_session_update = PendingRegeneration(
+                    compound_name=self._current_compound,
+                    retention_time=pending_rt,
+                    loffset=loffset,
+                    roffset=roffset,
+                    sample_names=tuple(samples_to_apply),
+                    regenerated_sample_names=tuple(samples_needing_reload),
                 )
 
-                # Note: Session data will be updated in _regeneration_completed handler
+                regeneration_rts = (
+                    sample_rts if preserve_sample_rts else retention_time
+                )
+                self.data_regeneration_requested.emit(
+                    self._current_compound,
+                    actual_window,
+                    samples_needing_reload,
+                    regeneration_rts,
+                )
                 return
 
             # No reload needed - update session activity data immediately
@@ -1049,26 +1039,17 @@ class IntegrationWindow(QGroupBox):
             tr_window_field.setFocus()
             return
 
-        # Get retention time from UI field (allows updating RT and window together)
-        rt_field = self.findChild(QLineEdit, "retention_time_input")
+        rt_field = self.findChild(QLineEdit, "tr_input")
         retention_time = None
-        
+        rt_mode = "single"
         if rt_field:
             try:
-                rt_text = rt_field.text().strip()
-                if rt_text:
-                    # Handle range format (take first value)
-                    if " - " in rt_text:
-                        rt_text = rt_text.split(" - ")[0]
-                    retention_time = float(rt_text)
+                rt_mode, retention_time, _rt_range = _parse_rt_text(rt_field.text())
             except ValueError:
-                pass  # Fall through to database query
-        
-        # Fall back to database if UI field unavailable or invalid
+                retention_time = None
         if retention_time is None:
             retention_time = self._get_current_retention_time()
 
-        # Check that samples are available
         samples_to_affect = self._all_samples if self._all_samples else []
         if not samples_to_affect:
             self._show_message(
@@ -1076,7 +1057,14 @@ class IntegrationWindow(QGroupBox):
             )
             return
 
-        # Emit signal to trigger data regeneration
+        if rt_mode == "range" and len(samples_to_affect) > 1:
+            retention_time = {
+                sample_name: read_compound_with_session(
+                    self._current_compound, sample_name
+                ).retention_time
+                for sample_name in samples_to_affect
+            }
+
         try:
             self.data_regeneration_requested.emit(
                 self._current_compound, tr_window, samples_to_affect, retention_time

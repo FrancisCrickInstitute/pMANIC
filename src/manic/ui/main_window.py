@@ -1282,11 +1282,17 @@ class MainWindow(QMainWindow):
         compound_name: str,
         tr_window: float,
         sample_names: list,
-        retention_time: float,
+        retention_time: float | dict[str, float],
     ):
         """Handle data regeneration request - start background regeneration with progress dialog"""
+        rt_description = (
+            "per-sample retention times"
+            if isinstance(retention_time, dict)
+            else f"RT {retention_time:.3f}"
+        )
         logger.info(
-            f"Data regeneration requested for compound '{compound_name}' with tR window {tr_window} centered at RT {retention_time:.3f}"
+            f"Data regeneration requested for compound '{compound_name}' "
+            f"with tR window {tr_window} centered at {rt_description}"
         )
 
         try:
@@ -1298,8 +1304,13 @@ class MainWindow(QMainWindow):
 
             # Create background thread and worker
             self._regen_thread = QThread(self)
+            pending_regeneration = self.toolbar.integration._pending_session_update
             self._regen_worker = EicRegenerationWorker(
-                compound_name, tr_window, sample_names, retention_time
+                compound_name,
+                tr_window,
+                sample_names,
+                retention_time,
+                pending_regeneration,
             )
             self._regen_worker.moveToThread(self._regen_thread)
 
@@ -1319,12 +1330,10 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to start regeneration: {e}")
-            msg_box = self._create_message_box(
-                "critical",
-                "Regeneration Error",
-                f"Failed to start data regeneration: {str(e)}",
+            self._regeneration_failed(
+                f"Could not start data regeneration. "
+                f"No changes were applied. {e}"
             )
-            msg_box.exec()
 
     def _on_mass_tolerance_changed(self, new_mass_tol: float):
         """Handle mass tolerance change - regenerate all EICs with new tolerance"""
@@ -1462,7 +1471,6 @@ class MainWindow(QMainWindow):
             QCoreApplication.processEvents()
 
     def _regeneration_completed(self, regenerated_count: int):
-        """Handle successful regeneration completion"""
         if hasattr(self, "regen_progress_dialog"):
             self.regen_progress_dialog.close()
 
@@ -1471,92 +1479,46 @@ class MainWindow(QMainWindow):
         )
 
         try:
-            # Check if there's a pending session update from Apply button (auto-reload feature)
-            if (
-                hasattr(self.toolbar.integration, "_pending_session_update")
-                and self.toolbar.integration._pending_session_update is not None
-            ):
-                # Apply the pending session update now that data has been reloaded
-                retention_time, loffset, roffset, samples_to_apply = (
-                    self.toolbar.integration._pending_session_update
-                )
-
-                from manic.models.session_activity import SessionActivityService
-
-                compound_name = self.graph_view.get_current_compound()
-
-                if retention_time is None:
-                    SessionActivityService.update_offsets_preserve_rt(
-                        compound_name=compound_name,
-                        sample_names=samples_to_apply,
-                        loffset=loffset,
-                        roffset=roffset,
-                    )
-                else:
-                    SessionActivityService.update_session_data(
-                        compound_name=compound_name,
-                        sample_names=samples_to_apply,
-                        retention_time=retention_time,
-                        loffset=loffset,
-                        roffset=roffset,
-                    )
-
-                # Refresh data window bounds for the regenerated samples
-                # Use the list of samples that were actually regenerated, not all samples_to_apply
-                current_compound = self.graph_view.get_current_compound()
-                samples_regenerated = getattr(
-                    self.toolbar.integration, "_samples_regenerated", []
-                )
-                if samples_regenerated:
+            pending_update = self.toolbar.integration._pending_session_update
+            if pending_update is not None:
+                if pending_update.regenerated_sample_names:
                     logger.info(
-                        f"Refreshing bounds for {len(samples_regenerated)} regenerated samples"
+                        f"Refreshing bounds for "
+                        f"{len(pending_update.regenerated_sample_names)} "
+                        f"regenerated samples"
                     )
                     self.toolbar.integration.refresh_data_window_bounds(
-                        current_compound, samples_regenerated
-                    )
-                else:
-                    logger.warning(
-                        "No samples_regenerated list found, skipping bounds refresh"
+                        pending_update.compound_name,
+                        list(pending_update.regenerated_sample_names),
                     )
 
-                # Clear the pending update and regenerated list
                 self.toolbar.integration._pending_session_update = None
-                self.toolbar.integration._samples_regenerated = []
 
-                logger.info(
-                    f"Applied pending session update after EIC reload: RT={retention_time:.3f}, loffset={loffset:.3f}, roffset={roffset:.3f}"
-                )
-
-            # Update integration window BEFORE refreshing plots
-            # This ensures the plots draw RT lines at the correct (updated) positions
             current_compound = self.graph_view.get_current_compound()
             current_selected = self.graph_view.get_selected_samples()
             current_samples = self.graph_view.get_current_samples()
 
             if current_compound and current_samples:
-                # Update integration window fields with new session data (RT, loffset, roffset)
+                if self._validation_provider is not None:
+                    self._validation_provider.invalidate_cache()
+
                 self.toolbar.integration.populate_fields_from_plots(
                     current_compound, current_selected, current_samples
                 )
 
-                # Update tR window field with the ACTUAL persisted value from EIC table
-                # (Don't use the old value - use the new regenerated RT window)
                 self.toolbar.integration.populate_tr_window_field(current_compound)
 
-                # NOW replot with fresh EIC data and updated integration parameters
-                # The plots will draw RT lines at the correct new positions
                 validation_data = {}
-                if self.min_peak_height_ratio > 0:  # Only if validation is enabled
+                if self.min_peak_height_ratio > 0:
                     for sample in current_samples:
                         validation_data[sample] = self._validate_peak_area(
                             current_compound, sample
                         )
                 self.graph_view.refresh_plots_with_session_data(validation_data)
+                self._refresh_mode_charts(current_compound, current_samples)
             else:
-                # Fallback to session data refresh
                 self.graph_view.refresh_plots_with_session_data()
 
-            # Show success message
             msg_box = self._create_message_box(
                 "information",
                 "Regeneration Complete",
@@ -1567,27 +1529,40 @@ class MainWindow(QMainWindow):
             msg_box.exec()
 
         except Exception as e:
+            self.toolbar.integration._pending_session_update = None
             logger.error(f"Error during post-regeneration refresh: {e}")
             msg_box = self._create_message_box(
                 "warning",
-                "Regeneration Complete with Warning",
-                f"Data regeneration completed ({regenerated_count} EICs), "
-                f"but plot refresh failed: {str(e)}\n\n"
-                f"Try manually refreshing the plots.",
+                "Plots Did Not Refresh",
+                f"The new EIC data was saved, but the display failed: "
+                f"{e}\n\nRefresh the plots manually.",
             )
             msg_box.exec()
 
     def _regeneration_failed(self, error_msg: str):
-        """Handle regeneration failure"""
         if hasattr(self, "regen_progress_dialog"):
             self.regen_progress_dialog.close()
+
+        self.toolbar.integration._pending_session_update = None
+
+        try:
+            current_compound = self.graph_view.get_current_compound()
+            current_samples = self.graph_view.get_current_samples()
+            if current_compound and current_samples:
+                self.toolbar.integration.populate_fields_from_plots(
+                    current_compound,
+                    self.graph_view.get_selected_samples(),
+                    current_samples,
+                )
+                self.toolbar.integration.populate_tr_window_field(current_compound)
+        except Exception as e:
+            logger.warning(f"Failed to restore integration fields: {e}")
 
         logger.error(f"Regeneration failed: {error_msg}")
         msg_box = self._create_message_box(
             "critical",
-            "Regeneration Failed",
-            f"Data regeneration failed:\n\n{error_msg}\n\n"
-            f"Please check the log files for more details.",
+            "Regeneration Blocked",
+            error_msg,
         )
         msg_box.exec()
 

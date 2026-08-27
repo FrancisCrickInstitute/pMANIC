@@ -1,11 +1,13 @@
 import logging
 import time
 import zlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
 
+from manic.constants import DEFAULT_RT_WINDOW_BUFFER
 from manic.io.cdf_reader import read_cdf_file
 from manic.io.compound_reader import read_compound
 from manic.models.database import get_connection
@@ -14,6 +16,16 @@ from manic.io.tic_reader import store_tic_data
 from manic.io.ms_reader import store_ms_data_batch
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class CompoundExtractionTarget:
+    compound_name: str
+    retention_time: float
+    mass0: float
+    label_atoms: int
+    target_mzs: tuple[float, ...]
+    required_rt_window: float
 
 
 # ─────────────────────────── Utility Functions ────────────────────────────
@@ -38,16 +50,51 @@ def _iter_compounds(conn):
     Yields:
         Tuple of (compound_name, retention_time, mass0, label_atoms)
     """
-    for row in conn.execute(
-        "SELECT compound_name, retention_time, mass0, label_atoms "
-        "FROM   compounds "
-        "WHERE  deleted = 0"
-    ):
-        yield (
+    rows = conn.execute(
+        """
+        SELECT c.compound_name, c.retention_time, c.mass0, c.label_atoms,
+               c.loffset, c.roffset,
+               ci.mz AS channel_mz
+        FROM compounds c
+        LEFT JOIN compound_ions ci ON ci.compound_name = c.compound_name
+        WHERE c.deleted = 0
+        ORDER BY c.id,
+                 CASE ci.role WHEN 'quantifier' THEN 0 ELSE 1 END,
+                 ci.ordinal
+        """
+    ).fetchall()
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        data = grouped.setdefault(
             row["compound_name"],
-            row["retention_time"],
-            row["mass0"],
-            row["label_atoms"],
+            {
+                "retention_time": row["retention_time"],
+                "mass0": row["mass0"],
+                "label_atoms": int(row["label_atoms"] or 0),
+                "loffset": float(row["loffset"] or 0.0),
+                "roffset": float(row["roffset"] or 0.0),
+                "target_mzs": [],
+            },
+        )
+        if row["channel_mz"] is not None:
+            data["target_mzs"].append(float(row["channel_mz"]))
+
+    for name, data in grouped.items():
+        target_mzs = tuple(data["target_mzs"])
+        if not target_mzs:
+            target_mzs = tuple(
+                float(data["mass0"]) + index
+                for index in range(data["label_atoms"] + 1)
+            )
+        yield CompoundExtractionTarget(
+            compound_name=name,
+            retention_time=float(data["retention_time"]),
+            mass0=float(data["mass0"]),
+            label_atoms=data["label_atoms"],
+            target_mzs=target_mzs,
+            required_rt_window=(
+                max(data["loffset"], data["roffset"]) + DEFAULT_RT_WINDOW_BUFFER
+            ),
         )
 
 
@@ -109,11 +156,23 @@ def _extract_all_eics_for_file(
     times = cdf_data.scan_time / 60.0
 
     # Process each compound using cached CDF data and pre-computed time array
-    for i, (name, rt, mz, label_atoms) in enumerate(compounds):
+    for i, target in enumerate(compounds):
         try:
+            # The stored EIC must contain the complete integration interval.
+            # Treat the caller's rt_window as a minimum rather than silently
+            # clipping compounds whose configured offsets are wider.
+            target_rt_window = max(float(rt_window), target.required_rt_window)
             # Use optimized extraction algorithm that leverages cached computations
             eic = _extract_eic_optimized(
-                name, rt, mz, cdf_data, times, mass_tol, rt_window, label_atoms
+                target.compound_name,
+                target.retention_time,
+                target.mass0,
+                cdf_data,
+                times,
+                mass_tol,
+                target_rt_window,
+                target.label_atoms,
+                target.target_mzs,
             )
 
             # Prepare compressed data tuple for batch database insertion
@@ -123,7 +182,7 @@ def _extract_all_eics_for_file(
                 eic.compound_name,  # Compound identifier
                 _compress(eic.time),  # Compressed time array (zlib)
                 _compress(eic.intensity),  # Compressed intensity array (zlib)
-                rt_window,  # Retention time window used for extraction
+                target_rt_window,  # Retention time window used for extraction
             )
             eic_batch.append(eic_data)
 
@@ -140,7 +199,15 @@ def _extract_all_eics_for_file(
 
 
 def _extract_eic_optimized(
-    compound_name, t_r, target_mz, cdf, times, mass_tol, rt_window, label_atoms
+    compound_name,
+    t_r,
+    target_mz,
+    cdf,
+    times,
+    mass_tol,
+    rt_window,
+    label_atoms,
+    target_mzs=None,
 ):
     """
     MEMORY-OPTIMIZED EIC extraction algorithm with pre-computed time arrays.
@@ -176,84 +243,18 @@ def _extract_eic_optimized(
     Raises:
         ValueError: If no scans found within specified RT window
     """
-    from manic.processors.eic_calculator import EIC
+    from manic.processors.eic_calculator import _extract_eic_with_times
 
-    # Ensure label_atoms is properly typed (handles None/string inputs)
-    label_atoms = int(label_atoms) if label_atoms else 0
-
-    # OPTIMIZATION: Use pre-computed time array instead of recalculating
-    # Original: times = cdf.scan_time / 60.0 (computed for each compound)
-    # Current:  times passed as parameter (computed once per file)
-    time_mask = (times >= t_r - rt_window) & (times <= t_r + rt_window)
-    idx = np.where(time_mask)[0]
-
-    # Validate that compound is detectable within specified parameters
-    if idx.size == 0:
-        raise ValueError("no scans inside RT window")
-
-    # Calculate scan boundaries using vectorized array operations
-    # This maps scan indices to mass spectra start/end positions in CDF arrays
-    starts = cdf.scan_index[idx]
-    if idx[-1] + 1 < len(cdf.scan_index):
-        ends = cdf.scan_index[idx + 1]
-    else:
-        # Handle edge case: last scan in file
-        ends = np.append(cdf.scan_index[idx[1:]], len(cdf.mass))
-
-    start_end_array = np.array([starts, ends]).T
-
-    # VECTORIZED MASS SPECTRA EXTRACTION
-    # Concatenate all relevant mass and intensity data from selected scans
-    # This creates flattened arrays while maintaining scan association via indices
-    all_relevant_mass = np.concatenate([cdf.mass[s:e] for s, e in start_end_array])
-    all_relevant_intensity = np.concatenate(
-        [cdf.intensity[s:e] for s, e in start_end_array]
-    )
-
-    # Create scan index mapping for efficient groupby operations
-    # Associates each mass/intensity point with its originating scan
-    scan_indices = np.concatenate(
-        [np.full(e - s, i, dtype=int) for i, (s, e) in enumerate(start_end_array)]
-    )
-
-    # Initialize isotopologue intensity matrix
-    num_scans = len(idx)
-    num_labels = label_atoms + 1  # M+0, M+1, M+2, etc.
-    intensities_arr = np.zeros((num_labels, num_scans), dtype=np.float64)
-
-    # VECTORIZED ISOTOPOLOGUE INTEGRATION
-    # Process each isotopologue (M+0, M+1, M+2, etc.) using numpy operations
-    label_ions = np.arange(num_labels)
-    target_mzs = target_mz + label_ions  # e.g., [174.0, 175.0, 176.0] for pyruvate
-
-    # Precompute MATLAB-aligned half-up rounding of (mass - offset)
-    offset_masses = all_relevant_mass - mass_tol
-    rounded_masses = np.floor(offset_masses + 0.5).astype(int)
-    target_mzs_int = np.floor(target_mzs + 0.5).astype(
-        int
-    )  # Use half-up rounding (MATLAB compatible)
-
-    for label in label_ions:
-        target_int = target_mzs_int[label]
-        # MANIC's asymmetric mass tolerance method: offset + half-up rounding
-        mask = rounded_masses == target_int
-
-        # Sum intensities per scan using vectorized bincount operation
-        # This efficiently groups intensities by scan index and sums them
-        intensities_arr[label] = np.bincount(
-            scan_indices[mask], all_relevant_intensity[mask], minlength=num_scans
-        )
-
-    # Flatten intensity array for database storage (maintains isotopologue ordering)
-    concat_intensities_array = intensities_arr.ravel()
-
-    # Return structured EIC object with identical format to original implementation
-    return EIC(
+    return _extract_eic_with_times(
         compound_name,
-        cdf.sample_name,
-        times[time_mask],  # Time points for selected scans
-        concat_intensities_array,  # Flattened intensity matrix
+        t_r,
+        target_mz,
+        cdf,
+        times,
+        mass_tol,
+        rt_window,
         label_atoms,
+        target_mzs,
     )
 
 
@@ -446,7 +447,7 @@ def import_eics(
 
                 # Extract and store mass spectrum data at compound retention times
                 compound_retention_times = [
-                    rt for name, rt, mz, label_atoms in compounds
+                    target.retention_time for target in compounds
                 ]
                 ms_data_points = _extract_ms_at_retention_times(
                     cdf_data, compound_retention_times
@@ -560,6 +561,9 @@ def regenerate_compound_eics(
         )
         mz = compound_data.mass0
         label_atoms = compound_data.label_atoms
+        target_mzs = tuple(
+            channel.mz for channel in compound_data.analysis_channels
+        )
     except Exception as e:
         raise RuntimeError(f"Failed to read compound '{compound_name}': {e}")
 
@@ -624,7 +628,14 @@ def regenerate_compound_eics(
             # Read CDF file and extract EIC
             cdf = read_cdf_file(cdf_path)
             eic = extract_eic(
-                compound_name, rt, mz, cdf, mass_tol, tr_window, label_atoms
+                compound_name,
+                rt,
+                mz,
+                cdf,
+                mass_tol,
+                tr_window,
+                label_atoms,
+                target_mzs,
             )
 
             # Insert new EIC record
@@ -732,6 +743,7 @@ def regenerate_all_eics_with_mass_tolerance(
     # Get all active compounds (base data)
     with get_connection() as conn:
         compounds = list(_iter_compounds(conn))
+    targets_by_name = {target.compound_name: target for target in compounds}
 
     if not compounds:
         raise RuntimeError("Compounds table is empty")
@@ -780,7 +792,9 @@ def regenerate_all_eics_with_mass_tolerance(
                     c.compound_name,
                     COALESCE(sa.retention_time, c.retention_time) as retention_time,
                     c.mass0,
-                    c.label_atoms
+                    c.label_atoms,
+                    COALESCE(sa.loffset, c.loffset) as loffset,
+                    COALESCE(sa.roffset, c.roffset) as roffset
                 FROM compounds c
                 LEFT JOIN session_activity sa
                     ON sa.compound_name = c.compound_name
@@ -792,15 +806,22 @@ def regenerate_all_eics_with_mass_tolerance(
             ).fetchall()
 
         # Convert to list of tuples for _extract_all_eics_for_file
-        compounds_with_overrides = [
-            (
-                row["compound_name"],
-                row["retention_time"],
-                row["mass0"],
-                row["label_atoms"],
+        compounds_with_overrides = []
+        for row in compound_overrides:
+            base_target = targets_by_name[row["compound_name"]]
+            compounds_with_overrides.append(
+                CompoundExtractionTarget(
+                    compound_name=base_target.compound_name,
+                    retention_time=float(row["retention_time"]),
+                    mass0=base_target.mass0,
+                    label_atoms=base_target.label_atoms,
+                    target_mzs=base_target.target_mzs,
+                    required_rt_window=(
+                        max(float(row["loffset"]), float(row["roffset"]))
+                        + DEFAULT_RT_WINDOW_BUFFER
+                    ),
+                )
             )
-            for row in compound_overrides
-        ]
 
         try:
             # Delete existing EIC records for this sample

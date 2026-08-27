@@ -15,6 +15,7 @@ from manic.io.changelog_sections import (
     format_overrides_section_for_data_export,
     format_compounds_table_for_session_export,
     format_overrides_section_for_session_export,
+    format_unlabelled_compounds_table_for_data_export,
 )
 
 
@@ -43,6 +44,38 @@ def test_format_compounds_table_for_data_export_single():
     assert '| Compound Name | RT (min) | L Offset | R Offset | Mass (m/z) | Label Atoms | Formula | Internal Std Amount |' in out
     # Row content with precision
     assert '| Glucose | 5.123 | 0.500 | 0.750 | 180.0634 | 6 | C6H12O6 | 2.0 |' in out
+
+
+def test_format_unlabelled_compounds_table_for_data_export_single():
+    compounds = [
+        {
+            "compound_name": "Alanine",
+            "retention_time": 8.12,
+            "loffset": 0.08,
+            "roffset": 0.10,
+            "mass0": 116.0,
+            "rt_tolerance": 0.08,
+            "amount_in_std_mix": 2.5,
+            "int_std_amount": 1.2,
+            "mm_files": "MM_01,MM_02",
+            "baseline_correction": 1,
+            "deconvolution_level": "4",
+            "deconvolution_fit_type": "auto",
+            "deconvolution_noise_gate": "balanced",
+        }
+    ]
+    out = format_unlabelled_compounds_table_for_data_export(compounds)
+
+    assert "## Compounds Processed" in out
+    assert "tR Window (min)" in out
+    assert "Amount in StdMix" in out
+    assert "MM Files" in out
+    assert "Baseline" in out
+    assert "Label Atoms" not in out
+    assert (
+        "| Alanine | 8.120 | 0.080 | 0.100 | 0.080 | 116.0000 | "
+        "2.5 | 1.2 | MM_01,MM_02 | On | Level 4 | Auto | Balanced |"
+    ) in out
 
 
 def test_format_overrides_section_for_data_export_multiple():

@@ -16,7 +16,16 @@ from typing import Optional
 import pandas as pd
 from pydantic import BaseModel, ValidationError, validator
 
+from manic.models.analysis import (
+    AnalysisMode,
+    IonChannel,
+    IonRole,
+    validate_unlabelled_channels,
+)
 from manic.models.database import get_connection
+from manic.processors.chromatographic_peak_deconvolution import (
+    DEFAULT_DECONVOLUTION_LEVEL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +102,44 @@ class CompoundRow(BaseModel):
 
 
 # 2.  Import function (
-def import_compound_excel(filepath: str | Path) -> int:
+def detect_compound_list_format(filepath: str | Path) -> AnalysisMode | None:
+    """Sniff a compound list's headers to infer which workflow it targets.
+
+    Gv3-style lists (QIon / ValIon1 / ValIon2 columns) are unlabelled targeted
+    lists; Gv5-style lists (Mass0 / LabelAtoms) are labelled isotope-tracing
+    lists. Returns None when the format can't be determined — callers should
+    then fall back to the session's own mode.
+    """
+
+    path = Path(filepath).expanduser()
+    if not path.exists():
+        return None
+
+    try:
+        if path.suffix.lower() == ".xlsx":
+            columns = pd.read_excel(path, engine="openpyxl", nrows=0).columns
+        elif path.suffix.lower() == ".xls":
+            columns = pd.read_excel(path, engine="xlrd", nrows=0).columns
+        else:
+            columns = pd.read_csv(path, nrows=0).columns
+    except Exception as exc:
+        logger.warning(f"Could not sniff compound list format of {path.name}: {exc}")
+        return None
+
+    normalized = {
+        str(c).strip().lower().replace(" ", "").replace("_", "") for c in columns
+    }
+    if {"qion", "valion1"} & normalized:
+        return AnalysisMode.UNLABELLED
+    if {"mass0", "labelatoms"} & normalized:
+        return AnalysisMode.LABELLED
+    return None
+
+
+def import_compound_excel(
+    filepath: str | Path,
+    analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+) -> int:
     """
     Parameters
     ----------
@@ -136,9 +182,24 @@ def import_compound_excel(filepath: str | Path) -> int:
 
     # Apply normalization to columns
     df.columns = [_normalize_col(c) for c in df.columns]
+    df = df.rename(
+        columns={
+            "qion": "quantion",
+            "valion1": "qualifierion1",
+            "valion2": "qualifierion2",
+            "valion1ratio": "qualifier1ratio",
+            "valion2ratio": "qualifier2ratio",
+            "valion1tolerance": "qualifier1tolerance",
+            "valion2tolerance": "qualifier2tolerance",
+        }
+    )
     
     # Debug: log available columns
     logger.info(f"Available columns in {path.name} (normalized): {list(df.columns)}")
+
+    mode = AnalysisMode.coerce(analysis_mode)
+    if mode is AnalysisMode.UNLABELLED:
+        return _import_unlabelled_dataframe(df, path)
 
     # Required columns: enforce presence to avoid silent partial imports
     # (headers are normalized; see _normalize_col above)
@@ -288,3 +349,155 @@ def import_compound_excel(filepath: str | Path) -> int:
 
     logger.info("Imported %d compound(s) from %s", len(params), path.name)
     return len(params)
+
+
+def _optional_float(row: pd.Series, key: str) -> Optional[float]:
+    if key not in row or pd.isna(row[key]):
+        return None
+    if isinstance(row[key], str) and not row[key].strip():
+        return None
+    return float(row[key])
+
+
+def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
+    """Import a targeted quantifier/qualifier compound list."""
+
+    required = {"name", "tr", "loffset", "roffset", "quantion", "qualifierion1"}
+    missing = required - set(df.columns)
+    if missing:
+        ordered_missing = ", ".join(sorted(missing))
+        raise ValueError(
+            f"{path.name}: missing unlabelled column(s): {ordered_missing}.\n"
+            "Required columns are name, tR, lOffset, rOffset, quant_ion, "
+            "and qualifier_ion_1."
+        )
+
+    compounds: list[tuple] = []
+    ions_by_compound: list[tuple[str, tuple[IonChannel, ...]]] = []
+    rt_tolerances: list[tuple[float, str]] = []
+    validation_errors: list[str] = []
+
+    for idx, row in df.iterrows():
+        spreadsheet_row = idx + 2
+        try:
+            name = str(row["name"]).strip()
+            if not name:
+                raise ValueError("name is blank")
+            retention_time = float(row["tr"])
+            if not pd.notna(retention_time):
+                raise ValueError("retention time is missing")
+
+            quantifier = IonChannel(
+                mz=float(row["quantion"]),
+                role=IonRole.QUANTIFIER,
+                ordinal=0,
+            )
+            channel_values = [quantifier]
+            for ordinal in (1, 2):
+                mz = _optional_float(row, f"qualifierion{ordinal}")
+                if mz is None:
+                    continue
+                channel_values.append(
+                    IonChannel(
+                        mz=mz,
+                        role=IonRole.QUALIFIER,
+                        ordinal=ordinal,
+                        expected_ratio=_optional_float(
+                            row, f"qualifier{ordinal}ratio"
+                        ),
+                        ratio_tolerance=_optional_float(
+                            row, f"qualifier{ordinal}tolerance"
+                        ),
+                    )
+                )
+
+            channels = validate_unlabelled_channels(channel_values)
+            amount_in_std_mix = _optional_float(row, "amountinstdmix")
+            int_std_amount = _optional_float(row, "intstdamount")
+            loffset = float(row["loffset"])
+            roffset = float(row["roffset"])
+            rt_tolerance = _optional_float(row, "trwindow")
+            if rt_tolerance is None:
+                rt_tolerance = max(loffset, roffset)
+            if rt_tolerance < 0:
+                raise ValueError("tR window cannot be negative")
+            mm_files = (
+                str(row["mmfiles"]).strip()
+                if "mmfiles" in row and pd.notna(row["mmfiles"])
+                else None
+            )
+
+            compounds.append(
+                (
+                    name,
+                    retention_time,
+                    float(quantifier.mz),
+                    loffset,
+                    roffset,
+                    0,
+                    None,
+                    "C",
+                    0,
+                    0,
+                    0,
+                    amount_in_std_mix,
+                    int_std_amount,
+                    mm_files,
+                    0,
+                    DEFAULT_DECONVOLUTION_LEVEL,
+                )
+            )
+            ions_by_compound.append((name, channels))
+            rt_tolerances.append((rt_tolerance, name))
+        except (TypeError, ValueError) as exc:
+            validation_errors.append(f"row {spreadsheet_row}: {exc}")
+
+    if validation_errors:
+        raise ValueError(
+            f"{path.name}: invalid unlabelled compound data:\n"
+            + "\n".join(validation_errors)
+        )
+    if not compounds:
+        return 0
+
+    compound_sql = """
+        INSERT OR IGNORE INTO compounds
+            (compound_name, retention_time, mass0, loffset, roffset, label_atoms,
+             formula, label_type, tbdms, meox, me, amount_in_std_mix,
+             int_std_amount, mm_files, deleted, deconvolution_level)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    ion_sql = """
+        INSERT OR REPLACE INTO compound_ions
+            (compound_name, role, ordinal, mz, expected_ratio, ratio_tolerance)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """
+
+    with get_connection() as conn:
+        conn.executemany(compound_sql, compounds)
+        conn.executemany(
+            "UPDATE compounds SET rt_tolerance = ? WHERE compound_name = ?",
+            rt_tolerances,
+        )
+        for compound_name, channels in ions_by_compound:
+            conn.execute(
+                "DELETE FROM compound_ions WHERE compound_name = ?",
+                (compound_name,),
+            )
+            conn.executemany(
+                ion_sql,
+                [
+                    (
+                        compound_name,
+                        channel.role.value,
+                        channel.ordinal,
+                        channel.mz,
+                        channel.expected_ratio,
+                        channel.ratio_tolerance,
+                    )
+                    for channel in channels
+                ],
+            )
+
+    logger.info("Imported %d unlabelled compound(s) from %s", len(compounds), path.name)
+    return len(compounds)

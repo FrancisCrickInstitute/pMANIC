@@ -11,6 +11,7 @@ from PySide6.QtGui import (
     QIcon,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -41,6 +42,7 @@ from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound_with_session
+from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.processors.chromatographic_peak_deconvolution import (
     normalize_fit_type,
     normalize_noise_gate,
@@ -60,15 +62,19 @@ from manic.utils.workers import (
     MassToleranceReloadWorker,
     UpdateCheckWorker,
 )
-from src.manic.utils.timer import measure_time
+from manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, analysis_context: AnalysisContext | None = None):
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} v{__version__}")
+        self.analysis_context = analysis_context or AnalysisContext()
+        self.analysis_mode = self.analysis_context.mode
+        self.setWindowTitle(
+            f"{APP_NAME} v{__version__} — {self.analysis_mode.display_name} analysis"
+        )
         self.setObjectName("mainWindow")
 
         # Flag to prevent cascading compound deletion events
@@ -76,6 +82,10 @@ class MainWindow(QMainWindow):
 
         # Flag to prevent cascading sample deletion events
         self._deleting_samples = False
+
+        # Guard: plot selection that originated from the Identity chart
+        # must not rebuild that chart from the newly selected sample alone.
+        self._qc_link_guard = False
 
         # Set window icon
         self._set_window_icon()
@@ -204,7 +214,7 @@ class MainWindow(QMainWindow):
         splitter.setHandleWidth(5)  # Makes the grab area slightly larger/easier to hit
 
         # Create the toolbar
-        self.toolbar = Toolbar()
+        self.toolbar = Toolbar(self.analysis_mode)
         self.toolbar.setObjectName("toolbar")
         # Add toolbar to splitter instead of layout
         splitter.addWidget(self.toolbar)
@@ -263,6 +273,10 @@ class MainWindow(QMainWindow):
         self.import_session_action = QAction("Import Session...", self)
         self.import_session_action.triggered.connect(self.import_session)
         file_menu.addAction(self.import_session_action)
+
+        self.new_session_action = QAction("New Analysis Session...", self)
+        self.new_session_action.triggered.connect(self.new_analysis_session)
+        file_menu.addAction(self.new_session_action)
 
         # Create the Clear Session action
         self.clear_session_action = QAction("Clear Session", self)
@@ -323,6 +337,10 @@ class MainWindow(QMainWindow):
         )
         settings_menu.addAction(self.nat_abundance_toggle)
 
+        if self.analysis_mode is not AnalysisMode.LABELLED:
+            self.labelled_internal_standard_action.setVisible(False)
+            self.nat_abundance_toggle.setVisible(False)
+
         # Legacy integration mode toggle action
         self.legacy_integration_toggle = QAction("Legacy Integration Mode: Off", self)
         self.legacy_integration_toggle.setCheckable(True)
@@ -352,7 +370,8 @@ class MainWindow(QMainWindow):
         self._update_menu_states()
 
         # Initialize natural abundance correction state
-        self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
+        if self.analysis_mode is AnalysisMode.LABELLED:
+            self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
         self.update_deconvolution_indicator(None)
 
         # Connect the toolbar's custom signals to handler methods
@@ -374,6 +393,14 @@ class MainWindow(QMainWindow):
         )
         self.toolbar.baseline_correction_changed.connect(
             self.on_baseline_correction_changed
+        )
+        self.toolbar.shared_y_scale_toggled.connect(
+            self.graph_view.set_shared_y_scale
+        )
+
+        # Clicking an Identity bar highlights that sample's plot.
+        self.toolbar.targeted_qc.sample_activated.connect(
+            self._on_qc_sample_activated
         )
 
     def _get_logo_path(self) -> str:
@@ -435,6 +462,12 @@ class MainWindow(QMainWindow):
             "question", title, text, informative_text, parent
         )
         return msg_box.exec()
+
+    def _show_message(
+        self, msg_type: str, title: str, text: str, informative_text: str = ""
+    ) -> None:
+        """Create and show an information/warning/critical message box."""
+        self._create_message_box(msg_type, title, text, informative_text).exec()
 
     def _update_menu_states(self):
         """Update menu item enabled/disabled states based on current data state."""
@@ -514,6 +547,82 @@ class MainWindow(QMainWindow):
 
         return dlg
 
+    def new_analysis_session(
+        self,
+        _checked: bool = False,
+        *,
+        preset_mode: AnalysisMode | None = None,
+    ) -> None:
+        """Start a fresh session, optionally switching analysis mode.
+
+        The session is the unit of scientific consistency: compounds and
+        results from one mode must never be interpreted with the other mode's
+        workflow, so switching mode means starting a new session. The
+        database is cleared and the window is rebuilt exactly as at startup.
+
+        ``QAction.triggered`` supplies a checked-state boolean even for a
+        non-checkable action. Keep that signal argument separate from the
+        optional mode selected by compound-list format detection.
+        """
+        # Import/reload workers still hold the database; do not clear it.
+        for thread_attr in ("_thread", "_regen_thread", "_mass_tol_thread"):
+            thread = getattr(self, thread_attr, None)
+            if thread is None:
+                continue
+            try:
+                running = thread.isRunning()
+            except RuntimeError:
+                setattr(self, thread_attr, None)
+                continue
+            if running:
+                self._show_message(
+                    "information",
+                    "Operation in progress",
+                    "Wait for the current import or reload to finish "
+                    "before starting a new session.",
+                )
+                return
+
+        if self.compound_data_loaded or self.cdf_data_loaded:
+            reply = self._show_question_dialog(
+                "New Analysis Session",
+                "Starting a new session will clear all loaded data.",
+                "Compound data, raw data, and results in this session will be "
+                "removed. Export anything you want to keep first.",
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        if preset_mode is not None:
+            mode = AnalysisMode.coerce(preset_mode)
+        else:
+            from manic.ui.analysis_mode_dialog import choose_analysis_mode
+
+            mode = choose_analysis_mode(self)
+            if mode is None:
+                return
+            if mode is self.analysis_mode:
+                self._show_message(
+                    "information",
+                    "Already in this mode",
+                    f"This session is already in {mode.display_name} mode. "
+                    "Use 'Clear Session' to reset its data.",
+                )
+                return
+
+        try:
+            clear_database()
+        except Exception as exc:
+            self._show_message("critical", "Could not clear session", str(exc))
+            return
+
+        window = MainWindow(AnalysisContext(mode))
+        # Parent-less widgets need a live Python reference or GC destroys them
+        QApplication.instance()._manic_main_window = window
+        window.showMaximized()
+        self.close()
+        logger.info(f"New analysis session started in {mode.display_name} mode")
+
     def load_compound_list_data(self: QMainWindow) -> None:
         """
         1. Prompt the user to select a compound list file.
@@ -532,8 +641,33 @@ class MainWindow(QMainWindow):
         if not file_path:
             return
 
+        # Guard against loading a list written for the other workflow: a Gv3
+        # (QIon/ValIon) list in a labelled session (or vice versa) can only be
+        # misinterpreted, so offer to restart in the right mode instead.
+        from manic.io.compounds_import import detect_compound_list_format
+
+        detected_mode = detect_compound_list_format(file_path)
+        if detected_mode is not None and detected_mode is not self.analysis_mode:
+            list_kind = "Gv3" if detected_mode is AnalysisMode.UNLABELLED else "Gv5"
+            msg_box = self._create_message_box(
+                "warning",
+                "Compound list does not match this session",
+                f"This looks like a {detected_mode.display_name} ({list_kind}) "
+                f"compound list, but this session is in "
+                f"{self.analysis_mode.display_name} mode.\n\n"
+                f"Start a new {detected_mode.display_name} session and load it there?",
+            )
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.Yes)
+            if msg_box.exec() == QMessageBox.Yes:
+                self.new_analysis_session(preset_mode=detected_mode)
+            return
+
         try:
-            self.compounds_data_storage = import_compound_excel(file_path)
+            self.compounds_data_storage = import_compound_excel(
+                file_path,
+                analysis_mode=self.analysis_mode,
+            )
             self.toolbar.update_label_colours(False, True)
             self.toolbar.update_compound_list(list_compound_names())
 
@@ -542,8 +676,7 @@ class MainWindow(QMainWindow):
             self._update_menu_states()
 
         except Exception as e:
-            msg_box = self._create_message_box("warning", "Error", str(e))
-            msg_box.exec()
+            self._show_message("warning", "Error", str(e))
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(
@@ -699,31 +832,29 @@ class MainWindow(QMainWindow):
                 # Update tR window field only when compound changes
                 self.toolbar.integration.populate_tr_window_field(compound_name)
 
-                # Update isotopologue ratios first (calculates both ratios and abundances)
-                current_eics = self._get_current_eics()
-                self.toolbar.isotopologue_ratios.update_ratios(
-                    compound_name, current_eics
-                )
-
-                # Share the calculated abundances with total abundance widget (no recalculation)
-                abundances, eics = (
-                    self.toolbar.isotopologue_ratios.get_last_total_abundances()
-                )
-
-                # Fallback: total abundance should always be available, even for unlabeled
-                # (single-trace) compounds where the isotopologue widget clears itself.
-                if abundances is None:
-                    abundances = self._calculate_total_abundances_fallback(
+                if self.analysis_mode is AnalysisMode.LABELLED:
+                    # Label-derived summaries are deliberately unavailable in
+                    # targeted mode, where channels are diagnostic ions.
+                    current_eics = self._get_current_eics()
+                    self.toolbar.isotopologue_ratios.update_ratios(
                         compound_name, current_eics
                     )
-                    eics = current_eics
-
-                if abundances is not None:
-                    self.toolbar.total_abundance.update_abundance_from_data(
-                        compound_name, eics, abundances
+                    abundances, eics = (
+                        self.toolbar.isotopologue_ratios.get_last_total_abundances()
                     )
+                    if abundances is None:
+                        abundances = self._calculate_total_abundances_fallback(
+                            compound_name, current_eics
+                        )
+                        eics = current_eics
+                    if abundances is not None:
+                        self.toolbar.total_abundance.update_abundance_from_data(
+                            compound_name, eics, abundances
+                        )
+                    else:
+                        self.toolbar.total_abundance._clear_chart()
                 else:
-                    self.toolbar.total_abundance._clear_chart()
+                    self._update_targeted_qc(compound_name, samples)
         except LookupError as err:
             msg_box = self._create_message_box("warning", "Missing data", str(err))
             msg_box.exec()
@@ -764,13 +895,18 @@ class MainWindow(QMainWindow):
             compound = read_compound_with_session(compound_name, eic.sample_name)
             baseline_correction = bool(getattr(compound, "baseline_correction", 0))
 
+            intensity = np.asarray(eic.intensity, dtype=np.float64)
+            channel_count = (
+                intensity.shape[0] if intensity.ndim > 1 else compound.channel_count
+            )
             isotope_areas = calculate_peak_areas(
                 eic.time,
-                eic.intensity,
+                intensity.ravel(),
                 label_atoms=0,
                 retention_time=compound.retention_time,
                 loffset=compound.loffset,
                 roffset=compound.roffset,
+                channel_count=channel_count,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
                 chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
@@ -779,6 +915,29 @@ class MainWindow(QMainWindow):
             abundances.append(float(sum(isotope_areas)))
 
         return np.asarray(abundances, dtype=float)
+
+    def _update_targeted_qc(
+        self, compound_name: str, sample_names: list[str]
+    ) -> None:
+        if self.analysis_mode is not AnalysisMode.UNLABELLED:
+            return
+        provider = DataProvider(
+            use_legacy_integration=self.use_legacy_integration
+        )
+        statuses = self.toolbar.targeted_qc.update_results(
+            compound_name,
+            sample_names,
+            provider,
+        )
+        self.graph_view.set_identity_status(statuses)
+
+    def _on_qc_sample_activated(self, sample_name: str) -> None:
+        """Highlight the plot for a sample clicked on the Identity chart."""
+        self._qc_link_guard = True
+        try:
+            self.graph_view.select_sample(sample_name)
+        finally:
+            self._qc_link_guard = False
 
     def on_compound_selected(self, compound_selected):
         """
@@ -939,6 +1098,12 @@ class MainWindow(QMainWindow):
                 current_compound, selected_samples, all_samples
             )
 
+            if self.analysis_mode is not AnalysisMode.LABELLED:
+                if not self._qc_link_guard:
+                    qc_samples = selected_samples or all_samples
+                    self._update_targeted_qc(current_compound, qc_samples)
+                return
+
             # Update isotopologue ratios and total abundance (integration parameters may have changed)
             current_eics = self._get_current_eics()
             self.toolbar.isotopologue_ratios.update_ratios(
@@ -1000,6 +1165,12 @@ class MainWindow(QMainWindow):
 
             # Update isotopologue ratios and total abundance with new integration parameters
             def update_charts():
+                if self.analysis_mode is not AnalysisMode.LABELLED:
+                    self._update_targeted_qc(
+                        compound_name,
+                        self.graph_view.get_current_samples(),
+                    )
+                    return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(
                     compound_name, current_eics
@@ -1051,6 +1222,12 @@ class MainWindow(QMainWindow):
 
             # Update isotopologue ratios and total abundance with restored default parameters
             def update_charts():
+                if self.analysis_mode is not AnalysisMode.LABELLED:
+                    self._update_targeted_qc(
+                        compound_name,
+                        self.graph_view.get_current_samples(),
+                    )
+                    return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(
                     compound_name, current_eics
@@ -1104,6 +1281,12 @@ class MainWindow(QMainWindow):
             from PySide6.QtCore import QTimer
 
             def update_charts():
+                if self.analysis_mode is not AnalysisMode.LABELLED:
+                    self._update_targeted_qc(
+                        compound_name,
+                        self.graph_view.get_current_samples(),
+                    )
+                    return
                 current_eics = self._get_current_eics()
                 self.toolbar.isotopologue_ratios.update_ratios(
                     compound_name, current_eics
@@ -1463,7 +1646,7 @@ class MainWindow(QMainWindow):
             return  # User cancelled
 
         try:
-            success = export_session_method(file_path)
+            success = export_session_method(file_path, self.analysis_mode)
 
             if success:
                 # Show info about what was exported
@@ -1531,7 +1714,10 @@ class MainWindow(QMainWindow):
 
         try:
             # Validate method file
-            is_valid, error_msg = validate_method_file(file_path)
+            is_valid, error_msg = validate_method_file(
+                file_path,
+                expected_mode=self.analysis_mode,
+            )
 
             if not is_valid:
                 msg_box = self._create_message_box(
@@ -1596,7 +1782,10 @@ class MainWindow(QMainWindow):
                 return
 
             # Import the session overrides
-            success, has_deletion_data = import_session_overrides(file_path)
+            success, has_deletion_data = import_session_overrides(
+                file_path,
+                expected_mode=self.analysis_mode,
+            )
 
             if success:
                 # Show warning for legacy format without deletion data
@@ -1917,7 +2106,7 @@ class MainWindow(QMainWindow):
         info_label = QLabel(
             f"Choose how MANIC fits and separates overlapping chromatographic peaks "
             f"for <b>{compound_name}</b> before integration. These settings are saved "
-            f"per compound."
+            f"per compound and apply to every sample of that compound."
         )
         info_label.setWordWrap(True)
         info_label.setMinimumWidth(600)
@@ -2306,6 +2495,7 @@ class MainWindow(QMainWindow):
                 self.graph_view.clear_all_plots()
                 self.toolbar.isotopologue_ratios._clear_chart()
                 self.toolbar.total_abundance._clear_chart()
+                self.toolbar.targeted_qc.clear()
 
                 # Force UI update to show cleared graphs
                 self.graph_view.repaint()
@@ -2555,6 +2745,9 @@ class MainWindow(QMainWindow):
         - Only missing corrections are computed
         - Original raw data is never modified
         """
+        if self.analysis_mode is AnalysisMode.UNLABELLED:
+            return
+
         try:
             from manic.models.database import get_connection
             from manic.processors.eic_correction_manager import process_all_corrections
@@ -2671,13 +2864,15 @@ class MainWindow(QMainWindow):
             else:
                 radio_time.setChecked(True)
 
-            # Optional sheets section
-            vbox.addSpacing(10)
-            optional_label = QLabel("Optional sheets:")
-            vbox.addWidget(optional_label)
-            checkbox_carbon_enrichment = QCheckBox("Include % Carbons Labelled sheet")
-            checkbox_carbon_enrichment.setChecked(False)  # Off by default
-            vbox.addWidget(checkbox_carbon_enrichment)
+            include_carbon_enrichment = False
+            if self.analysis_mode is AnalysisMode.LABELLED:
+                vbox.addSpacing(10)
+                vbox.addWidget(QLabel("Optional sheets:"))
+                checkbox_carbon_enrichment = QCheckBox(
+                    "Include % Carbons Labelled sheet"
+                )
+                checkbox_carbon_enrichment.setChecked(False)
+                vbox.addWidget(checkbox_carbon_enrichment)
 
             buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
             vbox.addWidget(buttons)
@@ -2690,7 +2885,8 @@ class MainWindow(QMainWindow):
             # Read selection and persist to window state
             chosen_use_legacy = radio_legacy.isChecked()
             self.use_legacy_integration = chosen_use_legacy
-            include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
+            if self.analysis_mode is AnalysisMode.LABELLED:
+                include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
 
             # Get current internal standard selection from toolbar
             internal_standard = self.toolbar.get_internal_standard()
@@ -2701,11 +2897,16 @@ class MainWindow(QMainWindow):
                 reply = self._show_question_dialog(
                     "No Internal Standard Selected",
                     "You have not selected an internal standard. Proceed with export?",
-                    "Abundance values will represent 'Peak Area' (Sum of corrected isotopologues). ",
+                    (
+                        "Results will contain quantifier-ion peak areas."
+                        if self.analysis_mode is AnalysisMode.UNLABELLED
+                        else "Abundance values will represent 'Peak Area' "
+                        "(sum of corrected isotopologues)."
+                    ),
                 )
                 if reply != QMessageBox.Yes:
                     return
-            else:
+            elif self.analysis_mode is AnalysisMode.LABELLED:
                 ok, problems = validate_internal_standard_metadata(
                     DataProvider(use_legacy_integration=self.use_legacy_integration),
                     internal_standard,
@@ -2739,7 +2940,7 @@ class MainWindow(QMainWindow):
             progress_dialog.setValue(0)
 
             # Create exporter and set internal standard and integration mode
-            exporter = DataExporter()
+            exporter = DataExporter(self.analysis_mode)
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
@@ -2769,18 +2970,26 @@ class MainWindow(QMainWindow):
             progress_dialog.close()
 
             if success:
-                # Build dynamic sheet list based on options
-                sheet_list = [
-                    "• Raw Values - Direct instrument signals",
-                    "• Corrected Values - Natural isotope corrected signals",
-                    "• Isotope Ratios - Normalized corrected values",
-                    "• % Label Incorporation - Experimental label percentages",
-                ]
-                if include_carbon_enrichment:
+                if self.analysis_mode is AnalysisMode.UNLABELLED:
+                    sheet_list = [
+                        "• Raw Values - Quantifier ion areas",
+                        "• Abundances - Quantifier-only amounts",
+                        "• Qualifier QC - V/Q ratio pass or review",
+                    ]
+                else:
+                    sheet_list = [
+                        "• Raw Values - Direct instrument signals",
+                        "• Corrected Values - Natural isotope corrected signals",
+                        "• Isotope Ratios - Normalized corrected values",
+                        "• % Label Incorporation - Experimental label percentages",
+                    ]
+                    if include_carbon_enrichment:
+                        sheet_list.append(
+                            "• % Carbons Labelled - Average fractional carbon enrichment"
+                        )
                     sheet_list.append(
-                        "• % Carbons Labelled - Average fractional carbon enrichment"
+                        "• Abundances - Absolute metabolite concentrations"
                     )
-                sheet_list.append("• Abundances - Absolute metabolite concentrations")
                 sheet_count = len(sheet_list)
                 sheets_text = "\n".join(sheet_list)
 

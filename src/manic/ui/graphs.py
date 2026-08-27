@@ -25,12 +25,13 @@ from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
-    deconvolve_eic,
+    deconvolve_channel_matrix,
 )
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
 # Import shared colors
+from .channel_labels import channel_legend_label, has_defined_channel
 from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,13 @@ class ClickableChartView(QChartView):
             self.chart().setPlotAreaBackgroundBrush(QColor(255, 255, 255))
 
 
+_SUPERSCRIPT_MAP = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def _superscript(n: int) -> str:
+    return str(n).translate(_SUPERSCRIPT_MAP)
+
+
 class GraphView(QWidget):
     """
     Re-implements the old grid-of-charts look with pyqtgraph,
@@ -121,7 +129,22 @@ class GraphView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self._layout = QGridLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setSpacing(0)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.channel_legend = QLabel("")
+        self.channel_legend.setContentsMargins(4, 2, 4, 2)
+        self.channel_legend.setStyleSheet(
+            "color: #333; font-size: 11px; background: transparent;"
+        )
+        self.channel_legend.hide()
+        outer_layout.addWidget(self.channel_legend, stretch=0)
+
+        grid_host = QWidget()
+        outer_layout.addWidget(grid_host, stretch=1)
+
+        self._layout = QGridLayout(grid_host)
         self._layout.setSpacing(0)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
@@ -137,6 +160,15 @@ class GraphView(QWidget):
 
         # Track whether to use corrected data
         self.use_corrected = False  # Default to using uncorrected data
+
+        # Unlabelled identity QC status per sample (drives tile highlighting)
+        self._identity_status: Dict[str, str] = {}
+
+        # Shared y-axis scaling across tiles (off = per-tile autoscaling)
+        self._shared_y_scale: bool = False
+        # (scale_factor, scale_exp, shared_scaled_max); None = per-tile autoscale
+        self._scale_override: tuple[float, int, float] | None = None
+        self._last_validation_data: Dict[str, bool] | None = None
 
         # Track max grid dimensions we've used, so we can reliably reset
         # stretch/min-size for any historical rows/cols when the grid shrinks.
@@ -258,8 +290,10 @@ class GraphView(QWidget):
             if not chart_container:
                 continue
 
-            # Ensure geometry is in GraphView coordinates
-            container_rect = chart_container.geometry()
+            # Map the container rect into GraphView coordinates (the grid
+            # lives in an inner host widget since the legend strip was added)
+            top_left = chart_container.mapTo(self, chart_container.rect().topLeft())
+            container_rect = QRect(top_left, chart_container.size())
 
             if band_rect.intersects(container_rect):
                 if not container.is_selected:
@@ -292,6 +326,7 @@ class GraphView(QWidget):
         # Begin compound plotting - logging removed to reduce noise
         self._clear_layout()
         if not samples:
+            self.channel_legend.hide()
             return
 
         # Store current compound and samples for integration window updates
@@ -306,7 +341,34 @@ class GraphView(QWidget):
 
         num = len(eics)
         if num == 0:
+            self.channel_legend.hide()
             return
+
+        self._last_validation_data = validation_data
+
+        # Shared y-scale: one scale factor derived from the tallest peak across
+        # all tiles so abundances are visually comparable between samples.
+        self._scale_override = None
+        if self._shared_y_scale:
+            global_max = max(
+                (
+                    float(np.max(eic.intensity))
+                    for eic in eics
+                    if getattr(eic.intensity, "size", 0)
+                ),
+                default=0.0,
+            )
+            if global_max > 0:
+                scale_exp = int(np.floor(np.log10(global_max)))
+                scale_factor = 10**scale_exp
+                self._scale_override = (
+                    scale_factor,
+                    scale_exp,
+                    global_max / scale_factor,
+                )
+
+        self._update_channel_legend(compound_name, eics)
+
         cols = math.ceil(math.sqrt(num))
         rows = math.ceil(num / cols)
 
@@ -366,6 +428,93 @@ class GraphView(QWidget):
 
         # ensure the added widgets are correctly sized with stretch factors
         self._update_graph_sizes()
+
+        # A re-plot (compound change or a display toggle) rebuilds the charts,
+        # so restore the stored QC overlays on the fresh tiles.
+        if self._identity_status:
+            self.set_identity_status(self._identity_status)
+
+    def select_sample(self, sample_name: str) -> bool:
+        """Select the plot for ``sample_name``; return False if not shown."""
+        for plot in self._current_plots:
+            if plot.sample_name == sample_name:
+                self.select_only_plot(plot)
+                return True
+        return False
+
+    def set_identity_status(self, status_by_sample: Optional[Dict[str, str]]):
+        """Update unlabelled identity QC highlighting on existing tiles."""
+        self._identity_status = dict(status_by_sample or {})
+        for plot in self._current_plots:
+            container = plot.parent()
+            if container is not None:
+                self._restyle_container(container)
+
+    def set_shared_y_scale(self, enabled: bool):
+        """Toggle one common y-axis scale across all tiles and re-plot."""
+        enabled = bool(enabled)
+        if enabled == self._shared_y_scale:
+            return
+        self._shared_y_scale = enabled
+        self._replot_current()
+
+    def _replot_current(self) -> None:
+        """Re-plot the current compound/samples after a display toggle."""
+        if self._current_compound and self._current_samples:
+            self.plot_compound(
+                self._current_compound,
+                self._current_samples,
+                self._last_validation_data,
+            )
+
+    def _resolve_y_scaling(self, eic_intensity) -> tuple[float, int, float]:
+        """Return (scale_factor, scale_exp, scaled_y_max) for one tile.
+
+        With shared y-scale enabled, the override carries the dataset-wide
+        scaled max so every tile gets the same axis range; otherwise each tile
+        autoscales to its own tallest peak.
+        """
+        if self._scale_override is not None:
+            return self._scale_override
+        unscaled_y_max = float(np.max(eic_intensity.flatten()))
+        scale_exp = int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
+        scale_factor = 10**scale_exp
+        scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
+        return scale_factor, scale_exp, scaled_y_max
+
+    def _update_channel_legend(self, compound_name: str, eics) -> None:
+        """Show a colour key naming each plotted channel above the grid."""
+        multi_trace = bool(
+            eics and getattr(eics[0].intensity, "ndim", 1) > 1
+        )
+        if not multi_trace:
+            self.channel_legend.hide()
+            return
+        try:
+            compound = read_compound_with_session(compound_name, None)
+            intensity = eics[0].intensity
+            n_traces = (
+                intensity.shape[0] if getattr(intensity, "ndim", 1) > 1 else 1
+            )
+            n_names = min(n_traces, len(compound.analysis_channels))
+            if n_names == 0:
+                self.channel_legend.hide()
+                return
+
+            parts = []
+            for index in range(n_names):
+                color = label_colors[index % len(label_colors)].name()
+                label = channel_legend_label(compound, index)
+                parts.append(f'<span style="color:{color}">●</span> {label}')
+            self.channel_legend.setText(
+                f"<b>{compound_name}</b>&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(parts)
+            )
+            self.channel_legend.show()
+        except LookupError:
+            self.channel_legend.hide()
+        except Exception:
+            logger.exception("Failed to update channel colour key")
+            self.channel_legend.hide()
 
     def _on_plot_clicked(self, clicked_plot: ClickableChartView):
         """Handle plot click - toggle selection"""
@@ -544,6 +693,8 @@ class GraphView(QWidget):
         self.clear_selection()
         self._current_compound = ""
         self._current_samples = []
+        self._identity_status = {}
+        self.channel_legend.hide()
         # Note: _current_plots will be cleared in _clear_layout
         self._clear_layout(force_destroy=force_destroy)
 
@@ -853,13 +1004,9 @@ class GraphView(QWidget):
             eic_intensity = eic.intensity
 
             # Compute y_max and scaling (with edge case handling)
-            all_intensities = eic_intensity.flatten()
-            unscaled_y_max = float(np.max(all_intensities))
-            scale_exp = (
-                int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
+            scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(
+                eic_intensity
             )
-            scale_factor = 10**scale_exp
-            scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
 
             # Reuse existing axes
             axes = chart.axes()
@@ -928,13 +1075,8 @@ class GraphView(QWidget):
 
             # Add scale factor text if needed
             if scale_exp != 0:
-
-                def superscript(n):
-                    sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
-                    return str(n).translate(sup_map)
-
                 html_text = (
-                    f'×10<span style="font-size: 14pt;">{superscript(scale_exp)}</span>'
+                    f'×10<span style="font-size: 14pt;">{_superscript(scale_exp)}</span>'
                 )
                 scale_text = QGraphicsTextItem()
                 scale_text.setHtml(html_text)
@@ -1014,14 +1156,9 @@ class GraphView(QWidget):
         eic_intensity = eic.intensity
 
         # Compute y_max and scaling (with edge case handling)
-        all_intensities = eic_intensity.flatten()
-        unscaled_y_max = float(np.max(all_intensities))
-        scale_exp = int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
-        scale_factor = 10**scale_exp
-        scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
+        scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(eic_intensity)
 
-        # Create reusable font
-        font = create_font(8)  # Cross-platform font
+        font = create_font(8)
 
         # Create axes
         x_axis = QValueAxis()
@@ -1099,11 +1236,6 @@ class GraphView(QWidget):
             scale_factor,
         )
 
-        # helper function get superscript num
-        def superscript(n):
-            sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
-            return str(n).translate(sup_map)
-
         # Create chart view first to get access to scene
         chart_view = ClickableChartView(chart, eic.sample_name, eic.compound_name)
 
@@ -1111,7 +1243,7 @@ class GraphView(QWidget):
         if scale_exp != 0:
             # Use HTML to make only the superscript larger
             html_text = (
-                f'×10<span style="font-size: 14pt;">{superscript(scale_exp)}</span>'
+                f'×10<span style="font-size: 14pt;">{_superscript(scale_exp)}</span>'
             )
             scale_text = QGraphicsTextItem()
             scale_text.setHtml(html_text)
@@ -1134,19 +1266,33 @@ class GraphView(QWidget):
         return chart_view
 
     def _add_guide_line(
-        self, chart, x_axis, y_axis, x_pos, y_start, y_end, color, dashed=False
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        x_pos,
+        y_start,
+        y_end,
+        color,
+        dashed=False,
+        *,
+        role: str | None = None,
+        width: float = 1.2,
     ):
         """Add a vertical guide line to the chart."""
         line_series = QLineSeries()
         line_series.append(x_pos, y_start)
         line_series.append(x_pos, y_end)
-        pen = QPen(color, 1.2)  # pen width 1.2
+        if role:
+            line_series.setProperty("guide_role", role)
+        pen = QPen(color, width)
         if dashed:
             pen.setStyle(Qt.DashLine)
         line_series.setPen(pen)
         chart.addSeries(line_series)
         line_series.attachAxis(x_axis)
         line_series.attachAxis(y_axis)
+        return line_series
 
     def _add_baseline_lines(
         self,
@@ -1180,7 +1326,7 @@ class GraphView(QWidget):
         logger.debug(f"Drawing baseline lines for {compound.compound_name}")
 
         if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
-            result = deconvolve_eic(
+            bundle = deconvolve_channel_matrix(
                 eic_time,
                 eic_intensity,
                 retention_time=compound.retention_time,
@@ -1190,45 +1336,43 @@ class GraphView(QWidget):
                 fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
                 noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
             )
-            selected_matrix = (
-                result.selected if eic_intensity.ndim > 1 else result.selected.reshape(1, -1)
-            )
-            mask_matrix = (
-                result.selected_mask
-                if eic_intensity.ndim > 1
-                else result.selected_mask.reshape(1, -1)
-            )
-            drew_baseline = False
-            for i, selected_trace in enumerate(selected_matrix):
-                trace_mask = np.asarray(mask_matrix[i, :], dtype=bool)
-                if not np.any(trace_mask):
-                    continue
-                baseline_result = compute_linear_baseline(
-                    eic_time[trace_mask], selected_trace[trace_mask]
-                )
-                if baseline_result is None:
-                    continue
-                td_base, baseline_y = baseline_result
-                baseline_y_scaled = (
-                    baseline_y / scale_factor if scale_factor != 0 else baseline_y
-                )
-                qcolor = (
-                    label_colors[i % len(label_colors)]
-                    if eic_intensity.ndim > 1
-                    else dark_red_colour
-                )
-                baseline_series = QLineSeries()
-                baseline_series.append(td_base[0], baseline_y_scaled[0])
-                baseline_series.append(td_base[-1], baseline_y_scaled[-1])
-                baseline_pen = QPen(qcolor, 1.2)
-                baseline_pen.setStyle(Qt.DashLine)
-                baseline_series.setPen(baseline_pen)
-                chart.addSeries(baseline_series)
-                baseline_series.attachAxis(x_axis)
-                baseline_series.attachAxis(y_axis)
-                drew_baseline = True
-            if drew_baseline:
-                return
+            if bundle.shows_model_overlays(
+                independent_channels=getattr(compound, "is_unlabelled_target", False)
+            ):
+                drew_baseline = False
+                for channel in bundle.channels:
+                    if channel.result.model is None:
+                        continue
+                    selected_trace = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                    trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                    if not np.any(trace_mask):
+                        continue
+                    baseline_result = compute_linear_baseline(
+                        eic_time[trace_mask], selected_trace[trace_mask]
+                    )
+                    if baseline_result is None:
+                        continue
+                    td_base, baseline_y = baseline_result
+                    baseline_y_scaled = (
+                        baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                    )
+                    qcolor = (
+                        label_colors[channel.index % len(label_colors)]
+                        if eic_intensity.ndim > 1
+                        else dark_red_colour
+                    )
+                    baseline_series = QLineSeries()
+                    baseline_series.append(td_base[0], baseline_y_scaled[0])
+                    baseline_series.append(td_base[-1], baseline_y_scaled[-1])
+                    baseline_pen = QPen(qcolor, 1.2)
+                    baseline_pen.setStyle(Qt.DashLine)
+                    baseline_series.setPen(baseline_pen)
+                    chart.addSeries(baseline_series)
+                    baseline_series.attachAxis(x_axis)
+                    baseline_series.attachAxis(y_axis)
+                    drew_baseline = True
+                if drew_baseline:
+                    return
 
         # Calculate integration window boundaries
         l_boundary = compound.retention_time - compound.loffset
@@ -1296,13 +1440,9 @@ class GraphView(QWidget):
         multi_trace: bool,
         scale_factor: float,
         selected: bool,
+        color_index: int | None = None,
     ):
-        """Draw one fitted component as the continuous model curve.
-
-        The exact same smooth model is what integration uses, so the displayed
-        peak and the exported area come from one source. The selected component
-        is drawn over the integration window; excluded ones over the fit window.
-        """
+        """Draw one fitted component over the integration or fit window."""
         t_left, t_right = (
             (model.integration_left, model.integration_right)
             if selected
@@ -1315,8 +1455,11 @@ class GraphView(QWidget):
         values = model.evaluate(grid, component_index)
         matrix = values if values.ndim > 1 else values.reshape(1, -1)
         for i, row in enumerate(matrix):
+            series_index = color_index if color_index is not None else i
             qcolor = (
-                label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
+                label_colors[series_index % len(label_colors)]
+                if multi_trace
+                else dark_red_colour
             )
             if selected:
                 pen = QPen(QColor(qcolor), 2.2)
@@ -1350,10 +1493,10 @@ class GraphView(QWidget):
         compound,
         scale_factor: float,
     ):
-        """Draw raw context plus deconvolved selected/excluded components."""
-        result = None
+        """Draw the EIC, with a fit overlay on each channel that has a model."""
+        bundle = None
         if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
-            result = deconvolve_eic(
+            bundle = deconvolve_channel_matrix(
                 eic_time,
                 eic_intensity,
                 retention_time=compound.retention_time,
@@ -1364,9 +1507,9 @@ class GraphView(QWidget):
                 noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
             )
 
-        model = result.model if result is not None else None
-        if model is None:
-            # Deconvolution off, or the fit failed and fell back to the raw trace.
+        if bundle is None or not bundle.shows_model_overlays(
+            independent_channels=getattr(compound, "is_unlabelled_target", False)
+        ):
             self._add_trace_series(
                 chart,
                 x_axis,
@@ -1376,6 +1519,7 @@ class GraphView(QWidget):
                 scale_factor,
                 selected=False,
                 raw_context=False,
+                compound=compound,
             )
             return
 
@@ -1389,29 +1533,51 @@ class GraphView(QWidget):
             scale_factor,
             selected=False,
             raw_context=True,
+            compound=compound,
         )
-        self._add_model_component_series(
-            chart,
-            x_axis,
-            y_axis,
-            model,
-            model.selected_index,
-            multi_trace=multi_trace,
-            scale_factor=scale_factor,
-            selected=True,
-        )
-        for component_index in range(model.n_components):
-            if component_index == model.selected_index:
+        unfitted_indices: list[int] = []
+        for channel in bundle.channels:
+            model = channel.result.model
+            if model is None:
+                unfitted_indices.append(channel.index)
                 continue
             self._add_model_component_series(
                 chart,
                 x_axis,
                 y_axis,
                 model,
-                component_index,
+                model.selected_index,
                 multi_trace=multi_trace,
                 scale_factor=scale_factor,
-                selected=False,
+                selected=True,
+                color_index=channel.index,
+            )
+            for component_index in range(model.n_components):
+                if component_index == model.selected_index:
+                    continue
+                self._add_model_component_series(
+                    chart,
+                    x_axis,
+                    y_axis,
+                    model,
+                    component_index,
+                    multi_trace=multi_trace,
+                    scale_factor=scale_factor,
+                    selected=False,
+                    color_index=channel.index,
+                )
+        if unfitted_indices:
+            self._add_trace_series(
+                chart,
+                x_axis,
+                y_axis,
+                eic_time,
+                eic_intensity,
+                scale_factor,
+                selected=True,
+                raw_context=False,
+                compound=compound,
+                channel_indices=tuple(unfitted_indices),
             )
 
     def _add_trace_series(
@@ -1426,6 +1592,8 @@ class GraphView(QWidget):
         selected: bool,
         raw_context: bool,
         selected_mask: np.ndarray | None = None,
+        compound=None,
+        channel_indices: tuple[int, ...] | None = None,
     ):
         matrix = eic_intensity if eic_intensity.ndim > 1 else eic_intensity.reshape(1, -1)
         mask_matrix = None
@@ -1438,6 +1606,8 @@ class GraphView(QWidget):
 
         multi_trace = eic_intensity.ndim > 1
         for i, trace in enumerate(matrix):
+            if channel_indices is not None and i not in channel_indices:
+                continue
             qcolor = label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
             pen_color = QColor(qcolor)
             if raw_context:
@@ -1460,8 +1630,12 @@ class GraphView(QWidget):
                     np.ascontiguousarray(ys, dtype=np.float64),
                 )
             series.setPen(pen)
-            if not raw_context:
-                series.setName(f"Label {i}" if multi_trace else "")
+            if (
+                not raw_context
+                and multi_trace
+                and has_defined_channel(compound, i)
+            ):
+                series.setName(channel_legend_label(compound, i))
             chart.addSeries(series)
             series.attachAxis(x_axis)
             series.attachAxis(y_axis)
@@ -1479,23 +1653,31 @@ class GraphView(QWidget):
             parent.update()
 
     def _apply_validation_styling(self, container: QWidget, is_valid: bool):
-        """
-        Apply visual styling to indicate peak height validation status.
+        """Record peak-height validation state and restyle the tile."""
+        container.is_valid_peak = is_valid
+        self._restyle_container(container)
 
-        Args:
-            container: The plot container widget
-            is_valid: True if peak meets minimum height threshold, False otherwise
-        """
-        if is_valid:
-            # Valid peak - use default styling
-            container.setStyleSheet("")
-        else:
-            # Invalid peak - apply light red background
+    def _restyle_container(self, container: QWidget):
+        is_valid = getattr(container, "is_valid_peak", True)
+        sample_name = getattr(container.chart_view, "sample_name", "")
+        status = self._identity_status.get(sample_name)
+
+        if status == "not_detected":
+            container.setStyleSheet("""
+                QWidget {
+                    background-color: rgba(236, 239, 241, 130);
+                    border: 1px solid #9ca3af;
+                    border-radius: 4px;
+                }
+            """)
+        elif not is_valid:
             container.setStyleSheet("""
                 QWidget {
                     background-color: rgba(255, 200, 200, 120);
                 }
             """)
+        else:
+            container.setStyleSheet("")
 
     def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:

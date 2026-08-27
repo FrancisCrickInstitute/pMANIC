@@ -8,12 +8,31 @@
 
 Built with Python and PySide6, it serves as a successor to the legacy MATLAB [MANIC application](https://doi.org/10.1016/j.ab.2011.04.009). It provides a workflow for extracting ion chromatograms, correcting for natural isotope abundance, validating peak quality, and calculating absolute metabolite concentrations.
 
+## Analysis modes
+
+MANIC asks you to choose a mode when an analysis starts. The choice is fixed for
+that session so the same ion signals cannot accidentally be interpreted using
+two different scientific models. Switch modes with
+**File → New Analysis Session…** (this clears the current session).
+
+- **Labelled** is for stable-isotope tracing. It extracts consecutive M+0 to
+  M+n channels and uses natural-abundance correction and label-derived outputs.
+- **Unlabelled** is for targeted profiling. It integrates one quantifier ion
+  (Q ion) for the reported response and uses qualifier ions (V ions), retention
+  time, and optional reference ion ratios as identity-supporting checks. It does
+  not apply isotopologue correction or calculate label incorporation.
+
+Full unlabelled documentation (compound-list format, identity QC, UI guides,
+export sheets, and scientific rationale) is in
+**[Unlabelled Targeted Analysis](docs/Unlabelled_Targeted_Analysis.md)**.
+
 ---
 
 ## Documentation
 
 ### For Users
 * **[Getting Started / User Guide](docs/01_user_guide.md)** - *The primary manual. Step-by-step instructions for import, integration, and export.*
+* **[Unlabelled Targeted Analysis](docs/Unlabelled_Targeted_Analysis.md)** - *Q/V ions, compound lists, identity QC, review UI, and unlabelled exports.*
 * **[Understanding the Output](/docs/Workflow_Data_Interpretation.md)** - *How to interpret the results exported in the excel workbook.*
 * **[Process External Data](docs/Workflow_Process_External_Data.md)** - *How to re-process results files without raw CDF data.*
 

@@ -1,7 +1,7 @@
 # Workflow: Data Interpretation
 
 ## Overview
-When you export data from MANIC (Step 5), the application generates a multi-sheet Excel workbook. This document explains the purpose, units, and derivation logic for each sheet in that report.
+When you export data from MANIC (Step 5), the application generates a multi-sheet Excel workbook. This document explains the labelled (isotope-tracing) sheets. Unlabelled sessions write **Raw Values** and **Abundances** in the same matrix layout, then add **Qualifier QC**. See [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md#8-excel-export).
 
 ---
 
@@ -12,6 +12,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 * **Units:** Arbitrary Counts (Intensity × Time).
     * *Note:* If using "Legacy Mode," values will be ~100× larger than "Time-Based" values.
 * **Use Case:** Quality control. Use this to check if a sample had low overall signal or injection issues.
+* **Deconvolution:** When chromatographic peak deconvolution is on and every ion of the compound in that sample fitted, these areas come from the selected model curve (the same curve drawn on the plot). If any ion failed to fit, plots show the raw scan traces and every ion of that pair uses those same raw in-window scans instead (same rule on Corrected Values). See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
 
 > **📖 Deep Dive:**
 > Understand the mathematical difference between Time-Based and Legacy integration in **[Reference: Integration Methods](Reference_Integration_Methods.md)**.
@@ -21,7 +22,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 ## 2. Corrected Values
 **Description:** The "pure" peak areas after the **Natural Isotope Abundance Correction** has been applied.
 
-* **Correction:** Mathematically deconvoluted to remove signal from naturally occurring heavy isotopes (¹³C, etc.).
+* **Correction:** Mathematically deconvoluted to remove signal from naturally occurring heavy isotopes (¹³C, etc.). When chromatographic deconvolution is on, this correction is applied to the same selected component used for Raw Values (dense curve if every ion fitted; otherwise the raw in-window scans for every ion of that compound/sample).
 * **Units:** Arbitrary Counts (Intensity × Time).
 * **Use Case:** This is your primary dataset for relative quantification if you are not using an internal standard. It represents the true experimental label distribution.
 

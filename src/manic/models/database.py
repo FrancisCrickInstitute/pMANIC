@@ -130,6 +130,11 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                 conn.execute("ALTER TABLE compounds ADD COLUMN formula TEXT")
                 conn.commit()
 
+            if "rt_tolerance" not in columns:
+                logger.info("Adding rt_tolerance column to compounds table")
+                conn.execute("ALTER TABLE compounds ADD COLUMN rt_tolerance REAL")
+                conn.commit()
+
             # Add label_type column if missing
             if "label_type" not in columns:
                 logger.info("Adding label_type column to compounds table")
@@ -413,6 +418,7 @@ def _clear_database_fast(progress_callback=None):
         DELETE FROM tic_data;  
         DELETE FROM ms_data;
         DELETE FROM samples;
+        DELETE FROM compound_ions;
         DELETE FROM compounds;
         """
         
@@ -451,6 +457,7 @@ def _clear_database_detailed(progress_callback=None):
         ("tic_data", "Clearing TIC chromatograms..."),
         ("ms_data", "Clearing mass spectra..."),
         ("samples", "Clearing sample records..."),
+        ("compound_ions", "Clearing diagnostic ion definitions..."),
         ("compounds", "Clearing compound definitions...")
     ]
     

@@ -16,11 +16,11 @@ import numpy as np
 from manic.models.database import get_connection
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
-    deconvolve_eic,
+    deconvolve_channel_matrix,
     get_deconvolution_fit_cache_info,
 )
 from manic.processors.integration import (
-    _integrate_deconvolved_trace,
+    _integrate_dense_rows,
     calculate_peak_areas,
 )
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
@@ -36,6 +36,16 @@ _PROCESS_POOL_MIN_TASKS = 64
 # beyond a (per-process) natural-abundance corrector, so a fresh instance is
 # equivalent to the main one for integration purposes.
 _WORKER_PROVIDER: Optional["DataProvider"] = None
+
+
+def _row_channel_count(row) -> Optional[int]:
+    try:
+        value = row["channel_count"]
+    except (KeyError, IndexError):
+        return None
+    if value is None or int(value) <= 0:
+        return None
+    return int(value)
 
 
 def _init_export_worker(use_legacy: bool) -> None:
@@ -76,6 +86,7 @@ def _run_integration(provider: "DataProvider", use_legacy: bool, task) -> tuple:
             row['retention_time'],
             row['loffset'],
             row['roffset'],
+            channel_count=row.get('channel_count'),
             use_legacy=use_legacy,
             baseline_correction=baseline_flag,
             chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
@@ -103,6 +114,7 @@ class DataProvider:
     ):
         self.use_legacy_integration = use_legacy_integration
         self._mrrf_cache: Dict[str, Dict[str, float]] = {}
+        self._mrrf_assumed_cache: Dict[str, set] = {}
         self._background_ratios_cache: Dict[str, Dict[str, float]] = {}
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._bulk_raw_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
@@ -117,6 +129,7 @@ class DataProvider:
 
     def invalidate_cache(self) -> None:
         self._mrrf_cache.clear()
+        self._mrrf_assumed_cache.clear()
         self._background_ratios_cache.clear()
         self._bulk_sample_data_cache.clear()
         self._bulk_raw_sample_data_cache.clear()
@@ -131,9 +144,11 @@ class DataProvider:
     def get_all_compounds(self) -> List[dict]:
         with get_connection() as conn:
             sql = (
-                "SELECT compound_name, label_atoms, mass0, retention_time, loffset, roffset, "
+                "SELECT c.compound_name, c.label_atoms, c.mass0, c.retention_time, c.loffset, c.roffset, "
                 "amount_in_std_mix, int_std_amount, mm_files, formula, baseline_correction "
-                "FROM compounds WHERE deleted=0 ORDER BY id"
+                ", COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), 0), c.label_atoms + 1) AS channel_count "
+                "FROM compounds c WHERE c.deleted=0 ORDER BY c.id"
             )
             return list(conn.execute(sql))
 
@@ -241,6 +256,9 @@ class DataProvider:
             raw_eic_query = """
                 SELECT e.sample_name, e.compound_name, e.x_axis, e.y_axis,
                        c.label_atoms,
+                       COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci
+                                 WHERE ci.compound_name = c.compound_name), 0),
+                                c.label_atoms + 1) AS channel_count,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
                        COALESCE(sa.roffset, c.roffset) as roffset,
@@ -266,6 +284,9 @@ class DataProvider:
             corrected_eic_query = """
                 SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected,
                        c.label_atoms,
+                       COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci
+                                 WHERE ci.compound_name = c.compound_name), 0),
+                                c.label_atoms + 1) AS channel_count,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
                        COALESCE(sa.roffset, c.roffset) as roffset,
@@ -500,7 +521,9 @@ class DataProvider:
                 "SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, "
                 "c.loffset, c.roffset, c.baseline_correction, "
                 "c.deconvolution_level, c.deconvolution_fit_type, "
-                "c.deconvolution_noise_gate "
+                "c.deconvolution_noise_gate, "
+                "COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), 0), c.label_atoms + 1) AS channel_count "
                 "FROM eic e JOIN compounds c ON e.compound_name = c.compound_name "
                 "WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0 "
                 "ORDER BY e.compound_name"
@@ -521,6 +544,7 @@ class DataProvider:
                     retention_time,
                     loffset,
                     roffset,
+                    channel_count=row["channel_count"],
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
                     chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
@@ -536,25 +560,34 @@ class DataProvider:
 
     def get_compound_total_area(self, sample_name: str, compound_name: str) -> float:
         """
-        Get the sum of all isotopologue peak areas for a compound in a sample.
+        Get the analytical response used to quantify a compound in a sample.
 
-        This returns the total integrated area across all isotopologues (M0, M1, M2, etc.)
-        for the specified compound. The areas are already integrated using the compound's
-        own retention time and offset boundaries (respecting session overrides).
+        Labelled compounds use the sum across M+0...M+n. Unlabelled targeted
+        compounds use the Q-ion area only; V ions provide identity evidence and
+        must never contribute to the reported response.
 
         Args:
             sample_name: Name of the sample to query
             compound_name: Name of the compound to query
 
         Returns:
-            Total area (sum of all isotopologue areas), or 0.0 if compound not found
+            Quantification response, or 0.0 if the compound is not found
 
         Example:
             If compound has isotopologue areas [100.0, 50.0, 25.0], returns 175.0
         """
-        sample_data = self.get_sample_corrected_data(sample_name)
-        areas = sample_data.get(compound_name, [])
-        return float(sum(areas)) if areas else 0.0
+        # Use the per-compound path (targeted cache) rather than forcing a
+        # full-dataset bulk integration for interactive callers.
+        areas = self.get_compound_areas(sample_name, compound_name)
+        if not areas:
+            return 0.0
+        with get_connection() as conn:
+            has_quantifier = conn.execute(
+                "SELECT 1 FROM compound_ions "
+                "WHERE compound_name = ? AND role = 'quantifier' LIMIT 1",
+                (compound_name,),
+            ).fetchone()
+        return float(areas[0] if has_quantifier else sum(areas))
 
     def get_compound_isotope_area(
         self, sample_name: str, compound_name: str, isotope_index: int
@@ -599,6 +632,38 @@ class DataProvider:
         self._targeted_area_cache[cache_key] = areas
         return areas
 
+    def assess_unlabelled_identity(self, sample_name: str, compound_name: str):
+        """Return RT and qualifier-ratio QC for one targeted compound."""
+
+        from manic.io.compound_reader import read_compound_with_session
+        from manic.io.eic_reader import read_eic
+        from manic.validation.unlabelled_identity import (
+            assess_identity,
+            quantifier_apex_time,
+        )
+
+        compound = read_compound_with_session(compound_name, sample_name)
+        if not compound.is_unlabelled_target:
+            raise ValueError(
+                f"{compound_name!r} does not have quantifier/qualifier channels"
+            )
+        eic = read_eic(sample_name, compound, use_corrected=False)
+        observed_rt = quantifier_apex_time(
+            eic.time,
+            eic.intensity,
+            compound.channel_count,
+            expected_rt=compound.retention_time,
+            loffset=compound.loffset,
+            roffset=compound.roffset,
+        )
+        return assess_identity(
+            self.get_compound_areas(sample_name, compound_name),
+            compound.analysis_channels,
+            expected_rt=compound.retention_time,
+            observed_rt=observed_rt,
+            rt_tolerance=compound.rt_tolerance,
+        )
+
     def _get_corrector(self) -> NaturalAbundanceCorrector:
         corrector = getattr(self._corrector_local, "corrector", None)
         if corrector is None:
@@ -636,6 +701,7 @@ class DataProvider:
                 row["retention_time"],
                 row["loffset"],
                 row["roffset"],
+                channel_count=_row_channel_count(row),
                 use_legacy=use_legacy,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=row["deconvolution_level"],
@@ -652,7 +718,7 @@ class DataProvider:
             return [], []
 
         raw_matrix = raw_intensity_data.reshape(num_isotopologues, n_time_points)
-        deconvolved = deconvolve_eic(
+        bundle = deconvolve_channel_matrix(
             time_data,
             raw_matrix,
             retention_time=row["retention_time"],
@@ -664,8 +730,9 @@ class DataProvider:
         )
         return self._areas_from_deconvolved(
             time_data,
-            deconvolved,
+            bundle,
             row,
+            raw_matrix,
             use_legacy=use_legacy,
             baseline_correction=baseline_correction,
         )
@@ -673,91 +740,73 @@ class DataProvider:
     def _areas_from_deconvolved(
         self,
         time_data: np.ndarray,
-        deconvolved,
+        bundle,
         row,
+        raw_intensity: np.ndarray,
         *,
         use_legacy: bool,
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
-        """Integrate raw and corrected areas from a single deconvolution result.
-
-        Both outputs come from the same selected chromatographic component so they
-        differ only by the natural-abundance correction. In the time-based model
-        path the component is evaluated once on a shared dense grid and raw and
-        corrected areas go through the *identical* integration routine; this keeps
-        Raw Values and Corrected Values on the same footing (e.g. an unlabeled
-        channel integrates to the same number on both export sheets).
-        """
+        """Integrate raw and corrected areas from one measurement per compound/sample."""
         label_atoms = row["label_atoms"] or 0
-        num_isotopologues = label_atoms + 1
+        raw_matrix = np.asarray(raw_intensity, dtype=np.float64)
 
-        if deconvolved.model is not None and not use_legacy:
-            model = deconvolved.model
-            selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
-            scans_in_window = max(1, int(np.max(np.sum(selected_mask, axis=1))))
+        if not use_legacy and bundle.uses_model_areas():
+            model = bundle.channels[0].result.model
+            scans_in_window = max(
+                1, int(np.count_nonzero(bundle.channels[0].result.selected_mask))
+            )
             grid = np.linspace(
                 model.integration_left,
                 model.integration_right,
                 max(65, scans_in_window * 16),
             )
-            raw_dense = np.asarray(model.evaluate_selected(grid), dtype=np.float64)
-            corrected_dense = self._correct_time_series(raw_dense, row)
-            raw_areas = self._integrate_dense_matrix(
-                grid, raw_dense, label_atoms, baseline_correction
+            raw_dense = np.asarray(bundle.evaluate_selected_stack(grid), dtype=np.float64)
+            td = np.asarray(time_data, dtype=np.float64)
+            masks = [
+                np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                for channel in bundle.channels
+            ]
+            selected_matrix = np.vstack(
+                [
+                    np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                    for channel in bundle.channels
+                ]
             )
-            corrected_areas = self._integrate_dense_matrix(
-                grid, corrected_dense, label_atoms, baseline_correction
+            scan_times = [td[mask] for mask in masks]
+            raw_areas = _integrate_dense_rows(
+                grid,
+                raw_dense,
+                scan_times,
+                [selected_matrix[i, masks[i]] for i in range(len(masks))],
+                baseline_correction=baseline_correction,
+            )
+            corrected_selected = self._correct_time_series(selected_matrix, row)
+            corrected_areas = _integrate_dense_rows(
+                grid,
+                self._correct_time_series(raw_dense, row),
+                scan_times,
+                [corrected_selected[i, masks[i]] for i in range(len(masks))],
+                baseline_correction=baseline_correction,
             )
             return raw_areas, corrected_areas
 
-        # Raw-trace fallback (model is None): the selected component is the raw
-        # matrix restricted to the integration window, so raw and corrected both
-        # integrate that same masked support.
-        selected_matrix = np.asarray(deconvolved.selected, dtype=np.float64)
-        selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
-        td = np.asarray(time_data, dtype=np.float64)
-        raw_areas = [
-            _integrate_deconvolved_trace(
-                td,
-                selected_matrix[i, :],
-                selected_mask[i, :],
+        def scan_areas(matrix: np.ndarray) -> List[float]:
+            return calculate_peak_areas(
+                time_data,
+                np.asarray(matrix, dtype=np.float64).ravel(),
+                label_atoms,
+                row["retention_time"],
+                row["loffset"],
+                row["roffset"],
+                channel_count=_row_channel_count(row),
                 use_legacy=use_legacy,
                 baseline_correction=baseline_correction,
+                chromatographic_peak_deconvolution_stringency="off",
             )
-            for i in range(num_isotopologues)
-        ]
-        corrected_matrix = self._correct_time_series(selected_matrix, row)
-        corrected_areas = calculate_peak_areas(
-            time_data,
-            corrected_matrix.ravel(),
-            label_atoms,
-            row["retention_time"],
-            row["loffset"],
-            row["roffset"],
-            use_legacy=use_legacy,
-            baseline_correction=baseline_correction,
-            chromatographic_peak_deconvolution_stringency="off",
-        )
-        return raw_areas, corrected_areas
 
-    def _integrate_dense_matrix(
-        self,
-        grid: np.ndarray,
-        matrix: np.ndarray,
-        label_atoms: int,
-        baseline_correction: bool,
-    ) -> List[float]:
-        """Integrate every channel of a dense component matrix over ``grid``."""
-        return calculate_peak_areas(
-            np.asarray(grid, dtype=np.float64),
-            np.asarray(matrix, dtype=np.float64).ravel(),
-            label_atoms,
-            None,
-            None,
-            None,
-            use_legacy=False,
-            baseline_correction=baseline_correction,
-            chromatographic_peak_deconvolution_stringency="off",
+        return scan_areas(raw_matrix), scan_areas(
+            self._correct_time_series(raw_matrix, row)
         )
 
     def _calculate_corrected_areas_from_raw_component(
@@ -769,14 +818,7 @@ class DataProvider:
         use_legacy: bool,
         baseline_correction: bool,
     ) -> List[float]:
-        """Correct and integrate the same chromatographic component selected in raw data.
-
-        Stored ``eic_corrected`` traces are generated from the full raw EIC, before
-        chromatographic deconvolution. For labeled compounds with deconvolution
-        enabled, downstream corrected values need to follow the component selected
-        from the raw isotopologue matrix; otherwise Raw Values can change while
-        Corrected Values/Abundances remain tied to the unresolved full trace.
-        """
+        """Correct and integrate the same measurement used for Raw Values."""
         label_atoms = row["label_atoms"] or 0
         if label_atoms <= 0 or not row["formula"]:
             return calculate_peak_areas(
@@ -786,6 +828,7 @@ class DataProvider:
                 row["retention_time"],
                 row["loffset"],
                 row["roffset"],
+                channel_count=_row_channel_count(row),
                 use_legacy=use_legacy,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=row["deconvolution_level"],
@@ -799,7 +842,7 @@ class DataProvider:
             return []
 
         raw_matrix = raw_intensity_data.reshape(num_isotopologues, n_time_points)
-        deconvolved = deconvolve_eic(
+        bundle = deconvolve_channel_matrix(
             time_data,
             raw_matrix,
             retention_time=row["retention_time"],
@@ -811,8 +854,9 @@ class DataProvider:
         )
         _, corrected_areas = self._areas_from_deconvolved(
             time_data,
-            deconvolved,
+            bundle,
             row,
+            raw_matrix,
             use_legacy=use_legacy,
             baseline_correction=baseline_correction,
         )
@@ -824,6 +868,8 @@ class DataProvider:
         with get_connection() as conn:
             meta = conn.execute(
                 "SELECT c.label_atoms, "
+                "COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci "
+                "WHERE ci.compound_name = c.compound_name), 0), c.label_atoms + 1) AS channel_count, "
                 "COALESCE(sa.retention_time, c.retention_time) as retention_time, "
                 "COALESCE(sa.loffset, c.loffset) as loffset, "
                 "COALESCE(sa.roffset, c.roffset) as roffset, "
@@ -893,6 +939,7 @@ class DataProvider:
                 meta["retention_time"],
                 meta["loffset"],
                 meta["roffset"],
+                channel_count=meta["channel_count"],
                 use_legacy=self.use_legacy_integration,
                 baseline_correction=baseline_flag,
                 chromatographic_peak_deconvolution_stringency=meta["deconvolution_level"],
@@ -939,8 +986,10 @@ class DataProvider:
 
         # Compute only the two compounds we actually need (the validated compound
         # and the internal standard) rather than deconvolving the whole dataset.
-        compound_areas = self.get_compound_areas(sample_name, compound_name)
-        compound_total = float(sum(compound_areas)) if compound_areas else 0.0
+        # Unlabelled quantification is defined by the Q ion alone. Summing V-ion
+        # areas here could let a weak/absent Q ion pass validation merely because
+        # an interfering qualifier channel is intense.
+        compound_total = self.get_compound_total_area(sample_name, compound_name)
 
         idx = internal_standard_isotope_index
         is_areas = self.get_compound_areas(sample_name, internal_standard)
@@ -961,7 +1010,7 @@ class DataProvider:
         internal_standard_isotope_index: int = 0,
     ) -> Dict[str, Dict[str, float]]:
         """
-        Get total area metrics for all compounds in a sample for validation.
+        Get quantification-response metrics for all compounds in a sample.
         
         Returns a dictionary mapping each compound to its total area and the
         internal standard's reference peak area. Useful for batch validation or export.
@@ -986,7 +1035,7 @@ class DataProvider:
 
         metrics = {}
         for compound_name, areas in sample_data.items():
-            compound_total = float(sum(areas)) if areas else 0.0
+            compound_total = self.get_compound_total_area(sample_name, compound_name)
             metrics[compound_name] = {
                 "compound_total": compound_total,
                 "internal_standard_reference": is_ref,
@@ -1009,6 +1058,7 @@ class DataProvider:
         compounds: List[dict],
         internal_standard_compound: str,
         internal_standard_isotope_index: int = 0,
+        assumed: Optional[set] = None,
     ) -> Dict[str, float]:
         from manic.processors.calibration import calculate_mrrf_values
 
@@ -1018,13 +1068,20 @@ class DataProvider:
         )
         if cache_key in self._mrrf_cache:
             logger.debug("Using cached MRRF values")
+            if assumed is not None:
+                assumed.update(self._mrrf_assumed_cache.get(cache_key, set()))
             return self._mrrf_cache[cache_key]
+        assumed_set: set = set()
         values = calculate_mrrf_values(
             self,
             compounds,
             internal_standard_compound,
             internal_standard_isotope_index=internal_standard_isotope_index,
+            assumed=assumed_set,
         )
         self._mrrf_cache[cache_key] = values
+        self._mrrf_assumed_cache[cache_key] = assumed_set
+        if assumed is not None:
+            assumed.update(assumed_set)
         return values
 

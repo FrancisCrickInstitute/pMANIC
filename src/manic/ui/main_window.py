@@ -945,10 +945,6 @@ class MainWindow(QMainWindow):
         elif not current_eics:
             abundances, eics = None, current_eics
         else:
-            if provider is None:
-                provider = DataProvider(
-                    use_legacy_integration=self.use_legacy_integration
-                )
             eics = current_eics
             abundances = abundances_from_provider(
                 provider,

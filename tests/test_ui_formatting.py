@@ -82,6 +82,36 @@ def test_labelled_toolbar_keeps_abundance_under_ratios(qapp):
         toolbar.deleteLater()
 
 
+def test_refresh_mode_charts_shares_one_provider(monkeypatch):
+    created = []
+
+    class CountingProvider:
+        def __init__(self, use_legacy_integration=False):
+            created.append(self)
+
+    monkeypatch.setattr("manic.ui.main_window.DataProvider", CountingProvider)
+
+    seen_qc = []
+    seen_abundance = []
+    host = SimpleNamespace(
+        analysis_mode=AnalysisMode.UNLABELLED,
+        use_legacy_integration=False,
+        graph_view=SimpleNamespace(get_current_samples=lambda: ["S1"]),
+        _update_targeted_qc=lambda compound, samples, provider: seen_qc.append(
+            provider
+        ),
+        _update_total_abundance=lambda compound, provider=None: seen_abundance.append(
+            provider
+        ),
+    )
+
+    MainWindow._refresh_mode_charts(host, "Target", ["S1"])
+
+    assert len(created) == 1
+    assert seen_qc == created
+    assert seen_abundance == created
+
+
 def test_targeted_qc_identity_chart_records_observed_rt(qapp):
     v = IonChannel(
         147.0,

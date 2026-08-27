@@ -44,8 +44,11 @@ from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.models.session_export import (
+    InternalStandardRestore,
+    InternalStandardRestoreKind,
     clamp_reference_isotope,
     export_session_method,
+    format_session_import_standard_note,
     get_method_info,
     import_session_overrides,
     read_session_internal_standard,
@@ -1794,7 +1797,7 @@ class MainWindow(QMainWindow):
             )
 
             if success:
-                # Show warning for legacy format without deletion data
+                restore = self._apply_imported_internal_standard(file_path)
                 if not has_deletion_data:
                     legacy_msg = self._create_message_box(
                         "warning",
@@ -1806,16 +1809,23 @@ class MainWindow(QMainWindow):
                     )
                     legacy_msg.exec()
 
+                import_text = (
+                    f"Session overrides imported successfully from:\n{file_path}\n\n"
+                    f"Integration boundaries have been updated for the affected samples."
+                )
+                standard_note = format_session_import_standard_note(
+                    restore,
+                    labelled=self.analysis_mode is AnalysisMode.LABELLED,
+                )
+                if standard_note:
+                    import_text = f"{import_text}\n\n{standard_note}"
                 msg_box = self._create_message_box(
                     "information",
                     "Session Import Successful",
-                    f"Session overrides imported successfully from:\n{file_path}\n\n"
-                    f"Integration boundaries have been updated for the affected samples.",
+                    import_text,
                 )
                 msg_box.exec()
                 logger.info(f"Session overrides imported from {file_path}")
-
-                self._apply_imported_internal_standard(file_path)
                 self._refresh_after_session_import()
             else:
                 msg_box = self._create_message_box(
@@ -1896,15 +1906,18 @@ class MainWindow(QMainWindow):
             )
             msg.exec()
 
-    def _apply_imported_internal_standard(self, import_path: str) -> None:
+    def _apply_imported_internal_standard(
+        self, import_path: str
+    ) -> InternalStandardRestore:
         try:
             parsed = read_session_internal_standard(import_path)
             resolved = resolve_session_internal_standard(parsed, list_compound_names())
             if resolved is None:
-                return
+                return InternalStandardRestore(InternalStandardRestoreKind.UNCHANGED)
             if resolved.compound_name is None:
                 self.toolbar.standard.clear_internal_standard()
                 isotope = 0
+                result = InternalStandardRestore(InternalStandardRestoreKind.CLEARED)
             else:
                 compound = read_compound(resolved.compound_name)
                 isotope = clamp_reference_isotope(
@@ -1912,14 +1925,21 @@ class MainWindow(QMainWindow):
                     compound.channel_count,
                 )
                 self.toolbar.standard.set_internal_standard(resolved.compound_name)
+                result = InternalStandardRestore(
+                    InternalStandardRestoreKind.RESTORED,
+                    compound_name=resolved.compound_name,
+                    reference_isotope=isotope,
+                )
             self.internal_standard_reference_isotope = isotope
             if self._validation_provider is not None:
                 self._validation_provider.invalidate_cache()
             self._update_menu_states()
+            return result
         except Exception:
             logger.exception(
                 "Failed to restore internal standard from session import"
             )
+            return InternalStandardRestore(InternalStandardRestoreKind.FAILED)
 
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""

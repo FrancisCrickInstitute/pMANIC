@@ -232,6 +232,47 @@ def test_resolve_session_internal_standard_keeps_active_name():
     assert resolved == parsed
 
 
+def test_format_session_import_standard_note():
+    restored = session_export.InternalStandardRestore(
+        session_export.InternalStandardRestoreKind.RESTORED,
+        compound_name="Alanine",
+        reference_isotope=2,
+    )
+    assert (
+        session_export.format_session_import_standard_note(restored, labelled=True)
+        == "Internal standard: Alanine (M+2)."
+    )
+    assert (
+        session_export.format_session_import_standard_note(restored, labelled=False)
+        == "Internal standard: Alanine."
+    )
+    failed = session_export.InternalStandardRestore(
+        session_export.InternalStandardRestoreKind.FAILED
+    )
+    assert (
+        session_export.format_session_import_standard_note(failed, labelled=True)
+        == "The internal standard could not be restored. Select it again."
+    )
+    assert (
+        session_export.format_session_import_standard_note(
+            session_export.InternalStandardRestore(
+                session_export.InternalStandardRestoreKind.UNCHANGED
+            ),
+            labelled=True,
+        )
+        is None
+    )
+    assert (
+        session_export.format_session_import_standard_note(
+            session_export.InternalStandardRestore(
+                session_export.InternalStandardRestoreKind.CLEARED
+            ),
+            labelled=True,
+        )
+        is None
+    )
+
+
 def test_clamp_reference_isotope_rejects_out_of_range():
     assert session_export.clamp_reference_isotope(2, 4) == 2
     assert session_export.clamp_reference_isotope(0, 4) == 0
@@ -287,10 +328,13 @@ def test_apply_imported_standard_restores_name_and_isotope(temp_method_db):
         internal_standard_reference_isotope=2,
     )
     host = _FakeWindow()
-    MainWindow._apply_imported_internal_standard(host, str(json_path))
+    result = MainWindow._apply_imported_internal_standard(host, str(json_path))
     assert host.toolbar.standard.internal_standard == "Alanine"
     assert host.internal_standard_reference_isotope == 2
     assert host.menu_updated is True
+    assert result.kind is session_export.InternalStandardRestoreKind.RESTORED
+    assert result.compound_name == "Alanine"
+    assert result.reference_isotope == 2
 
 
 def test_apply_imported_standard_leaves_toolbar_when_key_absent(tmp_path):
@@ -300,10 +344,11 @@ def test_apply_imported_standard_leaves_toolbar_when_key_absent(tmp_path):
         encoding="utf-8",
     )
     host = _FakeWindow()
-    MainWindow._apply_imported_internal_standard(host, str(legacy_path))
+    result = MainWindow._apply_imported_internal_standard(host, str(legacy_path))
     assert host.toolbar.standard.internal_standard == "keep-me"
     assert host.internal_standard_reference_isotope == 7
     assert host.menu_updated is False
+    assert result.kind is session_export.InternalStandardRestoreKind.UNCHANGED
 
 
 def test_apply_imported_standard_clears_on_explicit_null(temp_method_db):
@@ -314,10 +359,11 @@ def test_apply_imported_standard_clears_on_explicit_null(temp_method_db):
         encoding="utf-8",
     )
     host = _FakeWindow()
-    MainWindow._apply_imported_internal_standard(host, str(path))
+    result = MainWindow._apply_imported_internal_standard(host, str(path))
     assert host.toolbar.standard.internal_standard is None
     assert host.internal_standard_reference_isotope == 0
     assert host.menu_updated is True
+    assert result.kind is session_export.InternalStandardRestoreKind.CLEARED
 
 
 def test_apply_imported_standard_clamps_out_of_range_isotope(temp_method_db):
@@ -328,10 +374,12 @@ def test_apply_imported_standard_clamps_out_of_range_isotope(temp_method_db):
         internal_standard_reference_isotope=99,
     )
     host = _FakeWindow()
-    MainWindow._apply_imported_internal_standard(host, str(json_path))
+    result = MainWindow._apply_imported_internal_standard(host, str(json_path))
     assert host.toolbar.standard.internal_standard == "Alanine"
     assert host.internal_standard_reference_isotope == 0
     assert host.menu_updated is True
+    assert result.kind is session_export.InternalStandardRestoreKind.RESTORED
+    assert result.reference_isotope == 0
 
 
 def test_apply_imported_standard_leaves_toolbar_when_restore_fails(
@@ -345,10 +393,11 @@ def test_apply_imported_standard_leaves_toolbar_when_restore_fails(
 
     monkeypatch.setattr("manic.ui.main_window.read_compound", _boom)
     host = _FakeWindow()
-    MainWindow._apply_imported_internal_standard(host, str(json_path))
+    result = MainWindow._apply_imported_internal_standard(host, str(json_path))
     assert host.toolbar.standard.internal_standard == "keep-me"
     assert host.internal_standard_reference_isotope == 7
     assert host.menu_updated is False
+    assert result.kind is session_export.InternalStandardRestoreKind.FAILED
 
 
 def test_apply_imported_standard_clears_deleted_name(temp_method_db):
@@ -364,7 +413,8 @@ def test_apply_imported_standard_clears_deleted_name(temp_method_db):
         encoding="utf-8",
     )
     host = _FakeWindow()
-    MainWindow._apply_imported_internal_standard(host, str(path))
+    result = MainWindow._apply_imported_internal_standard(host, str(path))
     assert host.toolbar.standard.internal_standard is None
     assert host.internal_standard_reference_isotope == 0
     assert host.menu_updated is True
+    assert result.kind is session_export.InternalStandardRestoreKind.CLEARED

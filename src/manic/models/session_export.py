@@ -10,6 +10,7 @@ import json
 import logging
 import tempfile
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -39,6 +40,37 @@ logger = logging.getLogger(__name__)
 class SessionInternalStandard:
     compound_name: str | None
     reference_isotope: int = 0
+
+
+class InternalStandardRestoreKind(StrEnum):
+    UNCHANGED = "unchanged"
+    CLEARED = "cleared"
+    RESTORED = "restored"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class InternalStandardRestore:
+    kind: InternalStandardRestoreKind
+    compound_name: str | None = None
+    reference_isotope: int = 0
+
+
+def format_session_import_standard_note(
+    restore: InternalStandardRestore,
+    *,
+    labelled: bool,
+) -> str | None:
+    if restore.kind is InternalStandardRestoreKind.RESTORED and restore.compound_name:
+        if labelled:
+            return (
+                f"Internal standard: {restore.compound_name} "
+                f"(M+{restore.reference_isotope})."
+            )
+        return f"Internal standard: {restore.compound_name}."
+    if restore.kind is InternalStandardRestoreKind.FAILED:
+        return "The internal standard could not be restored. Select it again."
+    return None
 
 
 def _normalize_reference_isotope(value: Any, *, has_standard: bool) -> int:

@@ -518,8 +518,10 @@ def regenerate_compound_eics(
     """
     Regenerate EIC data for a specific compound across given samples with new tR window.
 
-    This function deletes existing EIC records for the compound and recalculates them
-    using the new tR window parameter. Session data is NOT touched.
+    Re-extracts EIC data for the compound from raw CDF files. Each sample is
+    replaced only after extraction succeeds, so a failed window (for example a
+    typo retention time with no scans) leaves the previous EIC in place.
+    Session data is NOT touched.
 
     Parameters
     ----------
@@ -587,37 +589,8 @@ def regenerate_compound_eics(
     done = 0
     regenerated = 0
 
-    # Delete existing EIC and corrected records for this compound
-    with get_connection() as conn:
-        # Delete raw EIC records
-        delete_result = conn.execute(
-            "DELETE FROM eic WHERE compound_name = ? AND sample_name IN ({})".format(
-                ",".join("?" * len(sample_names))
-            ),
-            [compound_name] + sample_names,
-        )
-        deleted_count = delete_result.rowcount
-        logger.info(
-            f"Deleted {deleted_count} existing EIC records for '{compound_name}'"
-        )
-
-        # Also delete corrected EIC records
-        delete_corrected_result = conn.execute(
-            "DELETE FROM eic_corrected WHERE compound_name = ? AND sample_name IN ({})".format(
-                ",".join("?" * len(sample_names))
-            ),
-            [compound_name] + sample_names,
-        )
-        deleted_corrected_count = delete_corrected_result.rowcount
-        if deleted_corrected_count > 0:
-            logger.info(
-                f"Deleted {deleted_corrected_count} existing corrected EIC records for '{compound_name}'"
-            )
-
-    # Regenerate EICs for each sample
     for sample_name, cdf_path in sample_files.items():
         try:
-            # Check if CDF file exists
             if not cdf_path.exists():
                 logger.warning(f"CDF file not found: {cdf_path}")
                 done += 1
@@ -625,7 +598,6 @@ def regenerate_compound_eics(
                     progress_cb(done, total_work)
                 continue
 
-            # Read CDF file and extract EIC
             cdf = read_cdf_file(cdf_path)
             eic = extract_eic(
                 compound_name,
@@ -638,8 +610,15 @@ def regenerate_compound_eics(
                 target_mzs,
             )
 
-            # Insert new EIC record
             with get_connection() as conn:
+                conn.execute(
+                    "DELETE FROM eic WHERE compound_name = ? AND sample_name = ?",
+                    (compound_name, sample_name),
+                )
+                conn.execute(
+                    "DELETE FROM eic_corrected WHERE compound_name = ? AND sample_name = ?",
+                    (compound_name, sample_name),
+                )
                 conn.execute(
                     """
                     INSERT INTO eic (

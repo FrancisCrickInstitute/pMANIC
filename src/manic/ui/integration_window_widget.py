@@ -728,17 +728,24 @@ class IntegrationWindow(QGroupBox):
         logger = logging.getLogger(__name__)
         
         try:
-            # Refresh bounds for each regenerated sample
             for sample_name in sample_names:
-                eics = get_eics_for_compound(compound_name, [sample_name], use_corrected=False)
+                key = (compound_name, sample_name)
+                try:
+                    eics = get_eics_for_compound(
+                        compound_name, [sample_name], use_corrected=False
+                    )
+                except LookupError:
+                    self._data_window_bounds.pop(key, None)
+                    continue
                 if eics and len(eics) > 0 and len(eics[0].time) > 0:
                     time_data = eics[0].time
-                    key = (compound_name, sample_name)
                     self._data_window_bounds[key] = (time_data.min(), time_data.max())
                     logger.debug(
                         f"Refreshed bounds for {sample_name}: "
                         f"[{time_data.min():.3f}, {time_data.max():.3f}]"
                     )
+                else:
+                    self._data_window_bounds.pop(key, None)
         except Exception as e:
             logger.warning(f"Failed to refresh data window bounds: {e}")
 
@@ -1049,22 +1056,13 @@ class IntegrationWindow(QGroupBox):
             tr_window_field.setFocus()
             return
 
-        # Get retention time from UI field (allows updating RT and window together)
-        rt_field = self.findChild(QLineEdit, "retention_time_input")
+        rt_field = self.findChild(QLineEdit, "tr_input")
         retention_time = None
-        
         if rt_field:
             try:
-                rt_text = rt_field.text().strip()
-                if rt_text:
-                    # Handle range format (take first value)
-                    if " - " in rt_text:
-                        rt_text = rt_text.split(" - ")[0]
-                    retention_time = float(rt_text)
+                _rt_mode, retention_time, _rt_range = _parse_rt_text(rt_field.text())
             except ValueError:
-                pass  # Fall through to database query
-        
-        # Fall back to database if UI field unavailable or invalid
+                retention_time = None
         if retention_time is None:
             retention_time = self._get_current_retention_time()
 

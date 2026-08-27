@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMainWindow,
     QMenuBar,
     QMessageBox,
@@ -32,18 +34,23 @@ from PySide6.QtWidgets import (
 )
 
 from manic.__version__ import APP_NAME, __version__
+from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.io.compounds_import import import_compound_excel
 from manic.io.data_exporter import DataExporter, validate_internal_standard_metadata
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound_with_session
+from manic.processors.chromatographic_peak_deconvolution import (
+    normalize_fit_type,
+    normalize_noise_gate,
+    normalize_stringency,
+)
 from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
-from manic.ui.toast_notification import ToastNotification
 from manic.ui.toast_notification import ToastNotification
 from manic.utils.paths import docs_path, resource_path
 from manic.utils.utils import load_stylesheet
@@ -89,7 +96,7 @@ class MainWindow(QMainWindow):
         self.mass_tolerance = 0.2
 
         # Minimum peak area ratio setting (fraction of internal std reference peak)
-        self.min_peak_height_ratio = 0.05
+        self.min_peak_height_ratio = DEFAULT_MIN_PEAK_HEIGHT_RATIO
 
         # Labelled internal standard setting: which isotopologue peak (M+N) is used
         # as the internal standard "reference peak" across validation + abundance + MRRF.
@@ -297,6 +304,14 @@ class MainWindow(QMainWindow):
         )
         settings_menu.addAction(self.labelled_internal_standard_action)
 
+        self.chromatographic_peak_deconvolution_action = QAction(
+            "Chromatographic Peak Deconvolution", self
+        )
+        self.chromatographic_peak_deconvolution_action.triggered.connect(
+            self.show_chromatographic_peak_deconvolution_dialog
+        )
+        settings_menu.addAction(self.chromatographic_peak_deconvolution_action)
+
         # Natural abundance correction toggle action
         self.nat_abundance_toggle = QAction(
             "Preview Natural Abundance Correction: Off", self
@@ -338,6 +353,7 @@ class MainWindow(QMainWindow):
 
         # Initialize natural abundance correction state
         self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
+        self.update_deconvolution_indicator(None)
 
         # Connect the toolbar's custom signals to handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
@@ -434,10 +450,6 @@ class MainWindow(QMainWindow):
         self.export_method_action.setEnabled(self.compound_data_loaded)
 
         # Export Data: enabled only if compound data, CDF data loaded
-        internal_standard = self.toolbar.get_internal_standard()
-        has_internal_standard = (
-            internal_standard is not None and internal_standard != ""
-        )
         self.export_data_action.setEnabled(
             self.compound_data_loaded and self.cdf_data_loaded
         )
@@ -636,7 +648,7 @@ class MainWindow(QMainWindow):
         try:
             if self._validation_provider is None:
                 self._validation_provider = DataProvider(
-                    use_legacy_integration=self.use_legacy_integration
+                    use_legacy_integration=self.use_legacy_integration,
                 )
 
             return self._validation_provider.validate_peak_area(
@@ -760,6 +772,9 @@ class MainWindow(QMainWindow):
                 loffset=compound.loffset,
                 roffset=compound.roffset,
                 baseline_correction=baseline_correction,
+                chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
+                chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
+                chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
             )
             abundances.append(float(sum(isotope_areas)))
 
@@ -771,6 +786,7 @@ class MainWindow(QMainWindow):
         'selected_text' is the text of the selected item (passed from the signal).
         """
         samples = self.toolbar.get_selected_samples()
+        self.update_deconvolution_indicator(compound_selected)
         self.on_plot_button(compound_selected, samples)
 
     def on_compounds_deleted(self, compound_names: list):
@@ -929,7 +945,9 @@ class MainWindow(QMainWindow):
                 current_compound, current_eics
             )
 
-
+            abundances, eics = (
+                self.toolbar.isotopologue_ratios.get_last_total_abundances()
+            )
             if abundances is None:
                 abundances = self._calculate_total_abundances_fallback(
                     current_compound, current_eics
@@ -1795,7 +1813,7 @@ class MainWindow(QMainWindow):
         peak_area_layout.addWidget(peak_area_spinbox)
 
         # Add explanation
-        explanation_label = QLabel("(e.g., 0.05 = 5% of internal standard reference peak area)")
+        explanation_label = QLabel("(e.g., 0.005 = 0.5% of internal standard reference peak area)")
         explanation_label.setStyleSheet("color: gray; font-style: italic;")
         peak_area_layout.addWidget(explanation_label)
 
@@ -1827,6 +1845,262 @@ class MainWindow(QMainWindow):
                     current_samples = self.toolbar.get_selected_samples()
                     if current_compound and current_samples:
                         self.on_plot_button(current_compound, current_samples)
+
+    def _deconvolution_indicator_text(self, compound_name: str | None) -> str:
+        """Build the status-bar text describing the selected compound's settings."""
+        if not compound_name:
+            return "Deconvolution: -"
+        try:
+            compound = read_compound_with_session(compound_name)
+        except Exception:
+            return "Deconvolution: -"
+        level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
+        if level == "off":
+            return f"Deconvolution: Off  ({compound_name})"
+        fit_labels = {
+            "auto": "Auto",
+            "gaussian": "Gaussian",
+            "bi_gaussian": "Bi-Gaussian",
+            "emg": "EMG",
+        }
+        fit = fit_labels.get(
+            normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto")),
+            "Auto",
+        )
+        gate = normalize_noise_gate(
+            getattr(compound, "deconvolution_noise_gate", "balanced")
+        ).capitalize()
+        return (
+            f"Deconvolution: On · Level {level} · {fit} · Gate {gate}  ({compound_name})"
+        )
+
+    def update_deconvolution_indicator(self, compound_name: str | None) -> None:
+        """Refresh the status-bar deconvolution indicator for the given compound."""
+        if not hasattr(self, "deconvolution_indicator_label"):
+            self.deconvolution_indicator_label = QLabel()
+            self.statusBar().addWidget(self.deconvolution_indicator_label)
+        self.deconvolution_indicator_label.setText(
+            self._deconvolution_indicator_text(compound_name)
+        )
+
+    def show_chromatographic_peak_deconvolution_dialog(self):
+        """Edit chromatographic peak deconvolution settings for the selected compound."""
+        compound_name = self.toolbar.get_selected_compound()
+        if not compound_name:
+            QMessageBox.information(
+                self,
+                "No Compound Selected",
+                "Select a compound before editing its deconvolution settings.",
+            )
+            return
+
+        try:
+            compound = read_compound_with_session(compound_name)
+            current_level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
+            current_fit = normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto"))
+            current_gate = normalize_noise_gate(getattr(compound, "deconvolution_noise_gate", "balanced"))
+        except Exception as exc:
+            logger.error(f"Failed to read deconvolution settings for {compound_name}: {exc}")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Deconvolution - {compound_name}")
+        dialog.setModal(True)
+        dialog.setMinimumWidth(640)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        # Grow the dialog to fit its word-wrapped labels rather than clipping them.
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+
+        info_label = QLabel(
+            f"Choose how MANIC fits and separates overlapping chromatographic peaks "
+            f"for <b>{compound_name}</b> before integration. These settings are saved "
+            f"per compound."
+        )
+        info_label.setWordWrap(True)
+        info_label.setMinimumWidth(600)
+        layout.addWidget(info_label)
+
+        form_layout = QFormLayout()
+        form_layout.setHorizontalSpacing(16)
+        form_layout.setVerticalSpacing(10)
+        form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        level_combo = QComboBox()
+        level_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
+        level_options = [
+            ("Off - no chromatographic deconvolution", "off"),
+            ("Level 1 - coarsest, fastest, obvious overlaps only", "1"),
+            ("Level 2 - conservative splitting", "2"),
+            ("Level 3 - moderate resolution", "3"),
+            ("Level 4 - default, high-resolution overlap splitting", "4"),
+            ("Level 5 - higher resolution, EMG model + shoulder detection", "5"),
+            ("Level 6 - very high resolution, shoulder detection", "6"),
+            ("Level 7 - finest, slowest, weakest shoulders considered", "7"),
+        ]
+        for label, value in level_options:
+            level_combo.addItem(label, value)
+        level_combo.setCurrentIndex(
+            next((i for i, (_, v) in enumerate(level_options) if v == current_level), 0)
+        )
+        form_layout.addRow("Resolution:", level_combo)
+
+        fit_combo = QComboBox()
+        fit_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
+        fit_options = [
+            ("Auto - compare peak shapes and pick the best by BIC", "auto"),
+            ("Gaussian - symmetric peaks only", "gaussian"),
+            ("Bi-Gaussian - asymmetric (separate left/right widths)", "bi_gaussian"),
+            ("EMG - exponentially modified Gaussian (tailing)", "emg"),
+        ]
+        for label, value in fit_options:
+            fit_combo.addItem(label, value)
+        fit_combo.setCurrentIndex(
+            next((i for i, (_, v) in enumerate(fit_options) if v == current_fit), 0)
+        )
+        form_layout.addRow("Fit type:", fit_combo)
+
+        gate_combo = QComboBox()
+        gate_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
+        gate_options = [
+            ("Balanced - skip noise-only peaks (recommended)", "balanced"),
+            ("Lenient - only skip near-pure noise", "lenient"),
+            ("Aggressive - only fit clearly smooth peaks", "aggressive"),
+            ("Off - always attempt a fit", "off"),
+        ]
+        for label, value in gate_options:
+            gate_combo.addItem(label, value)
+        gate_combo.setCurrentIndex(
+            next((i for i, (_, v) in enumerate(gate_options) if v == current_gate), 0)
+        )
+        form_layout.addRow("Noise gate:", gate_combo)
+        layout.addLayout(form_layout)
+
+        def _sync_fit_enabled():
+            on = level_combo.currentData() != "off"
+            fit_combo.setEnabled(on)
+            gate_combo.setEnabled(on)
+
+        level_combo.currentIndexChanged.connect(lambda _: _sync_fit_enabled())
+        _sync_fit_enabled()
+
+        hint_label = QLabel(
+            "Lower levels are faster and less likely to split noise. Forcing a single "
+            "fit type (instead of Auto) is faster because fewer peak shapes are tried. "
+            "The noise gate skips fitting on messy/noise-only peaks (shown as the raw "
+            "trace); a stricter gate is faster but may skip weak real peaks."
+        )
+        hint_label.setWordWrap(True)
+        hint_label.setMinimumWidth(600)
+        hint_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(hint_label)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator)
+
+        apply_all_checkbox = QCheckBox("Apply these settings to all compounds")
+        apply_all_checkbox.setToolTip(
+            "Overwrite the deconvolution settings of every compound with the "
+            "values chosen above (e.g. tick this with 'Off' to disable "
+            "deconvolution globally)."
+        )
+        layout.addWidget(apply_all_checkbox)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        dialog.adjustSize()
+
+        if dialog.exec() == QDialog.Accepted:
+            new_level = level_combo.currentData()
+            new_fit = fit_combo.currentData()
+            new_gate = gate_combo.currentData()
+            apply_to_all = apply_all_checkbox.isChecked()
+
+            if apply_to_all:
+                self._apply_deconvolution_settings_to_all(
+                    compound_name, new_level, new_fit, new_gate
+                )
+            elif (
+                new_level != current_level
+                or new_fit != current_fit
+                or new_gate != current_gate
+            ):
+                with get_connection() as conn:
+                    conn.execute(
+                        "UPDATE compounds SET deconvolution_level = ?, "
+                        "deconvolution_fit_type = ?, deconvolution_noise_gate = ? "
+                        "WHERE compound_name = ? AND deleted = 0",
+                        (new_level, new_fit, new_gate, compound_name),
+                    )
+                logger.info(
+                    f"Deconvolution settings updated for '{compound_name}': "
+                    f"level={new_level}, fit_type={new_fit}, noise_gate={new_gate}"
+                )
+                if self._validation_provider is not None:
+                    self._validation_provider.invalidate_cache()
+                self.update_deconvolution_indicator(compound_name)
+                if self.cdf_data_loaded and self.compound_data_loaded:
+                    current_compound = self.toolbar.get_selected_compound()
+                    current_samples = self.toolbar.get_selected_samples()
+                    if current_compound and current_samples:
+                        self.on_plot_button(current_compound, current_samples)
+
+    def _apply_deconvolution_settings_to_all(
+        self, current_compound_name: str, new_level: str, new_fit: str, new_gate: str
+    ) -> None:
+        """Overwrite deconvolution settings for every compound after confirmation."""
+        with get_connection() as conn:
+            compound_count = conn.execute(
+                "SELECT COUNT(*) FROM compounds WHERE deleted = 0"
+            ).fetchone()[0]
+
+        if compound_count == 0:
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Apply to All Compounds",
+            f"This will overwrite the deconvolution settings of all "
+            f"{compound_count} compound(s) with:\n\n"
+            f"    Resolution: {new_level}\n"
+            f"    Fit type: {new_fit}\n"
+            f"    Noise gate: {new_gate}\n\n"
+            f"Existing per-compound settings will be replaced. Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE compounds SET deconvolution_level = ?, "
+                "deconvolution_fit_type = ?, deconvolution_noise_gate = ? "
+                "WHERE deleted = 0",
+                (new_level, new_fit, new_gate),
+            )
+        logger.info(
+            f"Deconvolution settings applied to all {compound_count} compounds: "
+            f"level={new_level}, fit_type={new_fit}, noise_gate={new_gate}"
+        )
+
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+        self.update_deconvolution_indicator(current_compound_name)
+        if self.cdf_data_loaded and self.compound_data_loaded:
+            current_compound = self.toolbar.get_selected_compound()
+            current_samples = self.toolbar.get_selected_samples()
+            if current_compound and current_samples:
+                self.on_plot_button(current_compound, current_samples)
 
     def show_labelled_internal_standard_dialog(self) -> None:
         """Choose which internal standard isotopologue (M+N) is the reference peak."""

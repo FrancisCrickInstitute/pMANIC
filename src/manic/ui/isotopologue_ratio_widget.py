@@ -174,6 +174,9 @@ class IsotopologueRatioWidget(QWidget):
                     loffset=loffset,
                     roffset=roffset,
                     baseline_correction=baseline_correction,
+                    chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
+                    chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
+                    chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
                 )
                 total_area = sum(isotope_areas)
                 ratios.append(np.array([1.0]))  # 100% for single isotope
@@ -202,6 +205,9 @@ class IsotopologueRatioWidget(QWidget):
                     loffset=loffset,
                     roffset=roffset,
                     baseline_correction=baseline_correction,
+                    chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
+                    chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
+                    chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
                 )
 
                 # Calculate total abundance (sum of all isotopologue areas)
@@ -382,7 +388,6 @@ class IsotopologueRatioWidget(QWidget):
         """
         logger.info(f"Setting use_corrected to {use_corrected}")
         self.use_corrected = use_corrected
-        # Refresh current display if we have data
         if self._current_eics and self._current_compound:
             logger.info(f"Refreshing display for {self._current_compound}")
             self.update_ratios(self._current_compound, self._current_eics)

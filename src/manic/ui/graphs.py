@@ -23,6 +23,10 @@ from PySide6.QtWidgets import (
 from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
+from manic.processors.chromatographic_peak_deconvolution import (
+    chromatographic_peak_deconvolution_enabled,
+    deconvolve_eic,
+)
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
@@ -30,6 +34,10 @@ from manic.utils.timer import measure_time
 from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
 
 logger = logging.getLogger(__name__)
+
+# Headroom above the tallest raw sample so a smooth fitted apex (which can sit
+# slightly above the highest measured point) is not clipped by the fixed y-axis.
+PLOT_Y_AXIS_HEADROOM = 1.05
 
 
 class ElidingLabel(QLabel):
@@ -574,8 +582,23 @@ class GraphView(QWidget):
         if not self._current_plots:
             return
 
-        # Use consolidated context menu (no specific plot clicked)
-        self._show_context_menu(event.globalPos(), clicked_plot=None)
+        # Qt fires contextMenuEvent in addition to the chart view's right-click
+        # signal. Previously this path always passed clicked_plot=None, so if it
+        # won the race it greyed out "View Detailed" even over a real plot. Hit-
+        # test the cursor position so the correct plot is used either way.
+        clicked_plot = self._plot_at_global_pos(event.globalPos())
+        self._show_context_menu(event.globalPos(), clicked_plot=clicked_plot)
+
+    def _plot_at_global_pos(self, global_pos):
+        """Return the plot whose area contains the given global position."""
+        for plot in self._current_plots:
+            try:
+                top_left = plot.mapToGlobal(plot.rect().topLeft())
+                if QRect(top_left, plot.size()).contains(global_pos):
+                    return plot
+            except RuntimeError:
+                continue
+        return None
 
     def refresh_plots_with_session_data(
         self, validation_data: Optional[Dict[str, bool]] = None
@@ -828,16 +851,14 @@ class GraphView(QWidget):
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
 
             eic_intensity = eic.intensity
-            multi_trace = eic_intensity.ndim > 1
 
             # Compute y_max and scaling (with edge case handling)
-            all_intensities = eic_intensity.flatten() if multi_trace else eic_intensity
+            all_intensities = eic_intensity.flatten()
             unscaled_y_max = float(np.max(all_intensities))
             scale_exp = (
                 int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
             )
             scale_factor = 10**scale_exp
-            scaled_intensity = eic_intensity / scale_factor
             scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
 
             # Reuse existing axes
@@ -846,33 +867,16 @@ class GraphView(QWidget):
             y_axis = axes[1] if len(axes) > 1 else None
 
             # Create new series with updated data
-            if multi_trace:
-                # Pre-create pens for multi-trace to reuse
-                pens = [
-                    QPen(label_colors[i % len(label_colors)], 2)
-                    for i in range(len(scaled_intensity))
-                ]
-
-                for i, intensity in enumerate(scaled_intensity):
-                    series = QLineSeries()
-                    for x, y in zip(eic.time, intensity):
-                        series.append(x, y)
-                    series.setPen(pens[i])
-                    series.setName(f"Label {i}")
-                    chart.addSeries(series)
-                    if x_axis and y_axis:
-                        series.attachAxis(x_axis)
-                        series.attachAxis(y_axis)
-            else:
-                series = QLineSeries()
-                dark_red_pen = QPen(dark_red_colour, 2)
-                for x, y in zip(eic.time, scaled_intensity):
-                    series.append(x, y)
-                series.setPen(dark_red_pen)
-                chart.addSeries(series)
-                if x_axis and y_axis:
-                    series.attachAxis(x_axis)
-                    series.attachAxis(y_axis)
+            if x_axis and y_axis:
+                self._add_eic_series(
+                    chart,
+                    x_axis,
+                    y_axis,
+                    eic.time,
+                    eic_intensity,
+                    compound,
+                    scale_factor,
+                )
 
             # Update axis ranges
             if x_axis and y_axis:
@@ -880,7 +884,7 @@ class GraphView(QWidget):
                 x_min = float(np.min(eic.time))
                 x_max = float(np.max(eic.time))
                 x_axis.setRange(x_min, x_max)
-                y_axis.setRange(0, scaled_y_max)
+                y_axis.setRange(0, scaled_y_max * PLOT_Y_AXIS_HEADROOM)
 
                 # Re-add guide lines
                 self._add_guide_line(
@@ -1008,19 +1012,16 @@ class GraphView(QWidget):
         chart.legend().hide()
 
         eic_intensity = eic.intensity
-        multi_trace = eic_intensity.ndim > 1
 
         # Compute y_max and scaling (with edge case handling)
-        all_intensities = eic_intensity.flatten() if multi_trace else eic_intensity
+        all_intensities = eic_intensity.flatten()
         unscaled_y_max = float(np.max(all_intensities))
         scale_exp = int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
         scale_factor = 10**scale_exp
-        scaled_intensity = eic_intensity / scale_factor
         scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
 
-        # Create reusable font and dark red pen
+        # Create reusable font
         font = create_font(8)  # Cross-platform font
-        dark_red_pen = QPen(dark_red_colour, 2)
 
         # Create axes
         x_axis = QValueAxis()
@@ -1028,30 +1029,15 @@ class GraphView(QWidget):
         chart.addAxis(x_axis, Qt.AlignBottom)
         chart.addAxis(y_axis, Qt.AlignLeft)
 
-        if multi_trace:
-            # Pre-create pens for multi-trace to reuse
-            pens = [
-                QPen(label_colors[i % len(label_colors)], 2)
-                for i in range(len(scaled_intensity))
-            ]
-
-            for i, intensity in enumerate(scaled_intensity):
-                series = QLineSeries()
-                for x, y in zip(eic.time, intensity):
-                    series.append(x, y)
-                series.setPen(pens[i])
-                series.setName(f"Label {i}")  # Or use actual mass if you want
-                chart.addSeries(series)
-                series.attachAxis(x_axis)
-                series.attachAxis(y_axis)
-        else:
-            series = QLineSeries()
-            for x, y in zip(eic.time, scaled_intensity):
-                series.append(x, y)
-            series.setPen(dark_red_pen)
-            chart.addSeries(series)
-            series.attachAxis(x_axis)
-            series.attachAxis(y_axis)
+        self._add_eic_series(
+            chart,
+            x_axis,
+            y_axis,
+            eic.time,
+            eic_intensity,
+            compound,
+            scale_factor,
+        )
 
         # Set up axes
         x_axis.setGridLineVisible(False)
@@ -1066,7 +1052,7 @@ class GraphView(QWidget):
         x_max = float(np.max(eic.time))
         x_axis.setRange(x_min, x_max)
 
-        y_axis.setRange(0, scaled_y_max)
+        y_axis.setRange(0, scaled_y_max * PLOT_Y_AXIS_HEADROOM)
         y_axis.setLabelFormat("%.2g")
 
         # Set tick count (number of major ticks/labels)
@@ -1193,6 +1179,57 @@ class GraphView(QWidget):
 
         logger.debug(f"Drawing baseline lines for {compound.compound_name}")
 
+        if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
+            result = deconvolve_eic(
+                eic_time,
+                eic_intensity,
+                retention_time=compound.retention_time,
+                loffset=compound.loffset,
+                roffset=compound.roffset,
+                stringency=getattr(compound, "deconvolution_level", "off"),
+                fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
+                noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
+            )
+            selected_matrix = (
+                result.selected if eic_intensity.ndim > 1 else result.selected.reshape(1, -1)
+            )
+            mask_matrix = (
+                result.selected_mask
+                if eic_intensity.ndim > 1
+                else result.selected_mask.reshape(1, -1)
+            )
+            drew_baseline = False
+            for i, selected_trace in enumerate(selected_matrix):
+                trace_mask = np.asarray(mask_matrix[i, :], dtype=bool)
+                if not np.any(trace_mask):
+                    continue
+                baseline_result = compute_linear_baseline(
+                    eic_time[trace_mask], selected_trace[trace_mask]
+                )
+                if baseline_result is None:
+                    continue
+                td_base, baseline_y = baseline_result
+                baseline_y_scaled = (
+                    baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                )
+                qcolor = (
+                    label_colors[i % len(label_colors)]
+                    if eic_intensity.ndim > 1
+                    else dark_red_colour
+                )
+                baseline_series = QLineSeries()
+                baseline_series.append(td_base[0], baseline_y_scaled[0])
+                baseline_series.append(td_base[-1], baseline_y_scaled[-1])
+                baseline_pen = QPen(qcolor, 1.2)
+                baseline_pen.setStyle(Qt.DashLine)
+                baseline_series.setPen(baseline_pen)
+                chart.addSeries(baseline_series)
+                baseline_series.attachAxis(x_axis)
+                baseline_series.attachAxis(y_axis)
+                drew_baseline = True
+            if drew_baseline:
+                return
+
         # Calculate integration window boundaries
         l_boundary = compound.retention_time - compound.loffset
         r_boundary = compound.retention_time + compound.roffset
@@ -1247,6 +1284,187 @@ class GraphView(QWidget):
                 chart.addSeries(baseline_series)
                 baseline_series.attachAxis(x_axis)
                 baseline_series.attachAxis(y_axis)
+
+    def _add_model_component_series(
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        model,
+        component_index: int,
+        *,
+        multi_trace: bool,
+        scale_factor: float,
+        selected: bool,
+    ):
+        """Draw one fitted component as the continuous model curve.
+
+        The exact same smooth model is what integration uses, so the displayed
+        peak and the exported area come from one source. The selected component
+        is drawn over the integration window; excluded ones over the fit window.
+        """
+        t_left, t_right = (
+            (model.integration_left, model.integration_right)
+            if selected
+            else (model.fit_left, model.fit_right)
+        )
+        if not (t_right > t_left):
+            return
+
+        grid = np.linspace(t_left, t_right, 256)
+        values = model.evaluate(grid, component_index)
+        matrix = values if values.ndim > 1 else values.reshape(1, -1)
+        for i, row in enumerate(matrix):
+            qcolor = (
+                label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
+            )
+            if selected:
+                pen = QPen(QColor(qcolor), 2.2)
+            else:
+                overlay_color = QColor(qcolor)
+                overlay_color.setAlpha(95)
+                pen = QPen(overlay_color, 1.2)
+                pen.setStyle(Qt.DotLine)
+
+            scaled = row / scale_factor if scale_factor != 0 else row
+            finite = np.isfinite(scaled)
+            if not np.any(finite):
+                continue
+            series = QLineSeries()
+            series.appendNp(
+                np.ascontiguousarray(grid[finite], dtype=np.float64),
+                np.ascontiguousarray(scaled[finite], dtype=np.float64),
+            )
+            series.setPen(pen)
+            chart.addSeries(series)
+            series.attachAxis(x_axis)
+            series.attachAxis(y_axis)
+
+    def _add_eic_series(
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        eic_time: np.ndarray,
+        eic_intensity: np.ndarray,
+        compound,
+        scale_factor: float,
+    ):
+        """Draw raw context plus deconvolved selected/excluded components."""
+        result = None
+        if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
+            result = deconvolve_eic(
+                eic_time,
+                eic_intensity,
+                retention_time=compound.retention_time,
+                loffset=compound.loffset,
+                roffset=compound.roffset,
+                stringency=getattr(compound, "deconvolution_level", "off"),
+                fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
+                noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
+            )
+
+        model = result.model if result is not None else None
+        if model is None:
+            # Deconvolution off, or the fit failed and fell back to the raw trace.
+            self._add_trace_series(
+                chart,
+                x_axis,
+                y_axis,
+                eic_time,
+                eic_intensity,
+                scale_factor,
+                selected=False,
+                raw_context=False,
+            )
+            return
+
+        multi_trace = eic_intensity.ndim > 1
+        self._add_trace_series(
+            chart,
+            x_axis,
+            y_axis,
+            eic_time,
+            eic_intensity,
+            scale_factor,
+            selected=False,
+            raw_context=True,
+        )
+        self._add_model_component_series(
+            chart,
+            x_axis,
+            y_axis,
+            model,
+            model.selected_index,
+            multi_trace=multi_trace,
+            scale_factor=scale_factor,
+            selected=True,
+        )
+        for component_index in range(model.n_components):
+            if component_index == model.selected_index:
+                continue
+            self._add_model_component_series(
+                chart,
+                x_axis,
+                y_axis,
+                model,
+                component_index,
+                multi_trace=multi_trace,
+                scale_factor=scale_factor,
+                selected=False,
+            )
+
+    def _add_trace_series(
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        eic_time: np.ndarray,
+        eic_intensity: np.ndarray,
+        scale_factor: float,
+        *,
+        selected: bool,
+        raw_context: bool,
+        selected_mask: np.ndarray | None = None,
+    ):
+        matrix = eic_intensity if eic_intensity.ndim > 1 else eic_intensity.reshape(1, -1)
+        mask_matrix = None
+        if selected_mask is not None:
+            mask_matrix = (
+                selected_mask
+                if selected_mask.ndim > 1
+                else selected_mask.reshape(1, -1)
+            )
+
+        multi_trace = eic_intensity.ndim > 1
+        for i, trace in enumerate(matrix):
+            qcolor = label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
+            pen_color = QColor(qcolor)
+            if raw_context:
+                pen_color.setAlpha(75)
+                width = 1.0
+            else:
+                width = 2.2 if selected else 2.0
+
+            pen = QPen(pen_color, width)
+            series = QLineSeries()
+            scaled_trace = trace / scale_factor if scale_factor != 0 else trace
+            keep = np.isfinite(scaled_trace)
+            if mask_matrix is not None:
+                keep &= np.asarray(mask_matrix[i, :], dtype=bool)
+            if np.any(keep):
+                xs = np.ascontiguousarray(eic_time[keep], dtype=np.float64)
+                ys = np.ascontiguousarray(scaled_trace[keep], dtype=np.float64)
+                series.appendNp(
+                    np.ascontiguousarray(xs, dtype=np.float64),
+                    np.ascontiguousarray(ys, dtype=np.float64),
+                )
+            series.setPen(pen)
+            if not raw_context:
+                series.setName(f"Label {i}" if multi_trace else "")
+            chart.addSeries(series)
+            series.attachAxis(x_axis)
+            series.attachAxis(y_axis)
 
     def _update_graph_sizes(self) -> None:
         # Invalidate first, then activate to force recalculation

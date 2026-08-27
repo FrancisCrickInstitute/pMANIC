@@ -5,6 +5,11 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from manic.processors.chromatographic_peak_deconvolution import (
+    chromatographic_peak_deconvolution_enabled,
+    deconvolve_eic,
+)
+
 logger = logging.getLogger(__name__)
 
 BASELINE_NUM_POINTS = 3  # Number of points to sample at each edge for baseline fitting
@@ -202,6 +207,9 @@ def calculate_peak_areas(
     *,
     use_legacy: bool = False,
     baseline_correction: bool = False,
+    chromatographic_peak_deconvolution_stringency: str = "off",
+    chromatographic_peak_deconvolution_fit_type: str = "auto",
+    chromatographic_peak_deconvolution_noise_gate: str = "balanced",
 ) -> List[float]:
     """
     Calculate integrated peak areas for each isotopologue from EIC data.
@@ -217,6 +225,7 @@ def calculate_peak_areas(
         roffset: Right offset from retention time
         use_legacy: If True, use unit-spacing integration (MATLAB v3.3.0 compatible)
         baseline_correction: If True, subtract linear baseline from peak area
+        chromatographic_peak_deconvolution_stringency: off/low/medium/high chromatographic peak component splitting
 
     Returns:
         List of integrated peak areas, one per isotopologue
@@ -270,9 +279,45 @@ def calculate_peak_areas(
 
     # Unlabeled compound - single trace
     if (label_atoms or 0) == 0:
-        td, idata = apply_integration_boundaries(time_data, intensity_data)
-        if len(td) == 0:
-            return [0.0]
+        if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
+            deconvolved = deconvolve_eic(
+                time_data,
+                intensity_data,
+                retention_time=retention_time,
+                loffset=loffset,
+                roffset=roffset,
+                stringency=chromatographic_peak_deconvolution_stringency,
+                fit_type=chromatographic_peak_deconvolution_fit_type,
+                noise_gate=chromatographic_peak_deconvolution_noise_gate,
+            )
+            idata = deconvolved.selected
+            selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
+            if not np.any(selected_mask):
+                return [0.0]
+            if deconvolved.model is not None and not use_legacy:
+                td = np.asarray(time_data, dtype=np.float64)
+                return [
+                    _integrate_model_component(
+                        deconvolved.model,
+                        td[selected_mask],
+                        np.asarray(idata, dtype=np.float64)[selected_mask],
+                        channel=0,
+                        baseline_correction=baseline_correction,
+                    )
+                ]
+            total_area = _integrate_deconvolved_trace(
+                np.asarray(time_data, dtype=np.float64),
+                np.asarray(idata, dtype=np.float64),
+                selected_mask,
+                use_legacy=use_legacy,
+                baseline_correction=baseline_correction,
+            )
+            return [float(total_area)]
+        else:
+            td, idata = apply_integration_boundaries(time_data, intensity_data)
+            if len(td) == 0:
+                return [0.0]
+
         total_area = integrate_peak(idata, td, use_legacy=use_legacy)
 
         # Apply baseline correction if enabled
@@ -293,13 +338,50 @@ def calculate_peak_areas(
         # Reshape intensity data for isotopologues FIRST
         intensity_reshaped = intensity_data.reshape(num_isotopologues, num_time_points)
 
-        # THEN apply integration boundaries to the reshaped data
+        intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
+
+        if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
+            deconvolved = deconvolve_eic(
+                time_data,
+                intensity_matrix,
+                retention_time=retention_time,
+                loffset=loffset,
+                roffset=roffset,
+                stringency=chromatographic_peak_deconvolution_stringency,
+                fit_type=chromatographic_peak_deconvolution_fit_type,
+                noise_gate=chromatographic_peak_deconvolution_noise_gate,
+            )
+            selected = np.asarray(deconvolved.selected, dtype=np.float64)
+            selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
+            if deconvolved.model is not None and not use_legacy:
+                td = np.asarray(time_data, dtype=np.float64)
+                return [
+                    _integrate_model_component(
+                        deconvolved.model,
+                        td[selected_mask[i, :]],
+                        selected[i, selected_mask[i, :]],
+                        channel=i,
+                        baseline_correction=baseline_correction,
+                    )
+                    for i in range(num_isotopologues)
+                ]
+            return [
+                _integrate_deconvolved_trace(
+                    np.asarray(time_data, dtype=np.float64),
+                    selected[i, :],
+                    selected_mask[i, :],
+                    use_legacy=use_legacy,
+                    baseline_correction=baseline_correction,
+                )
+                for i in range(num_isotopologues)
+            ]
+
+        # Apply integration boundaries only after deciding deconvolution is off.
         td, intensity_reshaped = apply_integration_boundaries(
             time_data, intensity_reshaped
         )
         if len(td) == 0:
             return [0.0] * num_isotopologues
-
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
         if use_legacy:
@@ -327,3 +409,65 @@ def calculate_peak_areas(
             f"Got total elements: {len(intensity_data)}. Error: {e}"
         )
         return [0.0] * num_isotopologues
+
+
+def _integrate_model_component(
+    model,
+    scan_time: np.ndarray,
+    scan_values: np.ndarray,
+    *,
+    channel: int,
+    baseline_correction: bool,
+    samples_per_scan: int = 16,
+) -> float:
+    """Integrate the continuous fitted model over the integration window.
+
+    Uses the same smooth curve that is drawn on screen (evaluated on a dense
+    grid) rather than the model's values sampled at the acquisition scans, so
+    the exported area matches the displayed peak and captures the curved apex
+    that a coarse scan-point trapezoid under-counts. Only used for time-based
+    (non-legacy) integration; the integration limits are unchanged.
+    """
+    scan_time = np.asarray(scan_time, dtype=np.float64)
+    if scan_time.size == 0:
+        return 0.0
+
+    n_points = max(65, int(scan_time.size) * samples_per_scan)
+    grid = np.linspace(model.integration_left, model.integration_right, n_points)
+    values = model.evaluate(grid, model.selected_index)
+    channel_values = values[channel] if values.ndim > 1 else values
+
+    total_area = float(np.trapezoid(channel_values, grid))
+    if baseline_correction:
+        baseline_area = compute_baseline_area(
+            scan_time, np.asarray(scan_values, dtype=np.float64), use_legacy=False
+        )
+        if baseline_area is not None:
+            total_area = max(0.0, total_area - baseline_area)
+    return float(total_area)
+
+
+def _integrate_deconvolved_trace(
+    time_data: np.ndarray,
+    intensity_data: np.ndarray,
+    selected_mask: np.ndarray,
+    *,
+    use_legacy: bool,
+    baseline_correction: bool,
+) -> float:
+    """Integrate one deconvolved component using only its selected support."""
+    mask = np.asarray(selected_mask, dtype=bool)
+    if not np.any(mask):
+        return 0.0
+
+    td = np.asarray(time_data, dtype=np.float64)[mask]
+    idata = np.asarray(intensity_data, dtype=np.float64)[mask]
+    if td.size == 0:
+        return 0.0
+
+    total_area = integrate_peak(idata, td, use_legacy=use_legacy)
+    if baseline_correction:
+        baseline_area = compute_baseline_area(td, idata, use_legacy=use_legacy)
+        if baseline_area is not None:
+            total_area = max(0.0, total_area - baseline_area)
+    return float(total_area)

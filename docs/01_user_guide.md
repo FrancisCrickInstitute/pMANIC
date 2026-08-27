@@ -244,7 +244,7 @@ The Excel file contains five worksheets representing successive stages of analys
 | Worksheet | Description |
 | :--- | :--- |
 | **1. Raw Values** | Direct instrument signals (uncorrected peak areas). Useful for quality control and verifying raw signal strength. |
-| **2. Corrected Values** | Peak areas after mathematical deconvolution to remove natural isotope abundance. This is the "clean" signal representing true experimental labeling. |
+| **2. Corrected Values** | Peak areas after mathematical removal of natural isotope abundance. This is the "clean" signal representing true experimental labeling. (If chromatographic deconvolution is enabled for the compound, this correction is applied to the selected deconvolved component.) |
 | **3. Isotope Ratios** | Normalized distributions where all isotopologues for a compound sum to 1.0. Used for comparing labeling patterns independent of concentration. |
 | **4. % Label Incorporation** | The percentage of the metabolite pool that has incorporated the experimental label. Includes background correction derived from standard (MM) files. |
 | **5. % Carbons Labelled** | The weighted average enrichment of the total carbon pool. Useful for distinguishing between light (M+1) and heavy (M+N) labeling patterns. |
@@ -263,17 +263,18 @@ MANIC allows you to save the "state" of your analysis—including all compound d
 ### Export Session
 **File → Export Session...**
 * **Function:** Creates a `.json` file containing your analytical method and a human-readable changelog.
-* **What is saved:** Compound library, retention times, and all integration offsets (global and sample-specific).
+* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), and each compound's processing settings — baseline correction and the deconvolution settings (level, fit type, and noise gate).
 * **What is NOT saved:** The raw mass spectrometry data (CDF content).
 * **Use Case:** Archiving your analysis method or sharing it with a colleague who has the same raw files.
 
 ### Import Session
 **File → Import Session...**
-* **Function:** Applies saved integration parameters to the currently loaded data.
+* **Function:** Applies saved integration parameters and per-compound processing settings to the currently loaded data.
 * **Workflow:**
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
-    3.  **Import Session** to apply the saved boundaries and overrides.
+    3.  **Import Session** to apply the saved boundaries, overrides, and deconvolution/baseline settings.
+* **Backward compatibility:** Older session files that predate the deconvolution settings import without error — compounds simply keep their current settings for any value the file does not contain.
 
 ---
 
@@ -312,8 +313,8 @@ These settings control the global behavior of the application. Changing them usu
 
 ### Minimum Peak Area
 **Settings → Minimum Peak Area...**
-* **Default:** `0.05` (5%)
-* **Function:** Sets the validation threshold. Peaks with a total area less than 5% of the Internal Standard's area are flagged with a **red background**.
+* **Default:** `0.005` (0.5%)
+* **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area are flagged with a **red background**.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
 
 ### Baseline Correction
@@ -322,6 +323,29 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 * **Off:** Uses the raw integrated area without baseline subtraction.
 * **Scope:** This is a per-compound setting. Toggling it affects all samples for the selected compound.
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
+
+### Chromatographic Peak Deconvolution
+**Settings → Chromatographic Peak Deconvolution**
+* **Default:** `Level 4`, `Auto` fit type
+* **Function:** Fits chromatographic peak shapes inside the integration window and selects the component nearest the expected retention time. This can separate overlapping peaks before area calculation.
+* **Scope:** This is a **per-compound** setting. Open the dialog with a compound selected; the chosen resolution level and fit type are saved for that compound and applied across all of its samples. (There is no longer a single global setting.)
+* **Resolution levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered (and cost more time). The default `Level 4` is tuned for aggressive splitting of resolved overlaps while staying fast; levels `5`-`7` additionally enable shoulder detection (separating components that ride on a flank without their own peak) for the hardest coelutions.
+* **Fit type:** Choose how the elution shape is modelled:
+    * `Auto` - compares the candidate shapes and picks the best by BIC (recommended default).
+    * `Gaussian` - symmetric peaks only.
+    * `Bi-Gaussian` - asymmetric peaks with separate left/right widths.
+    * `EMG` - exponentially modified Gaussian for tailing peaks.
+* **Only deconvolves genuine overlaps:** When on, MANIC fits a model but only *uses* it when there is something real to separate - i.e. the window genuinely contains two or more overlapping peaks and the fit is good. The component nearest the expected retention time is then integrated and the others excluded, and the plots draw that fitted curve over the faint raw trace. For a well-resolved single peak (nothing to deconvolve), MANIC integrates and displays the **raw trace** directly, since fitting a model would add error without separating any overlap and could distort a clean peak. Set the level to `Off` to always integrate the raw trace.
+* **Noise gate:** Controls how aggressively MANIC skips fitting on messy/noise-only peaks. When a window is skipped it simply shows and integrates the plain raw trace instead of drawing a meaningless fitted curve - which also keeps exports fast, since noise-only traces are otherwise the slowest to (pointlessly) fit. This is a per-compound setting with four presets:
+    * `Balanced` - skip noise and weak peaks buried in heavy noise (recommended default).
+    * `Lenient` - skip only near-pure noise.
+    * `Aggressive` - only fit clearly smooth peaks.
+    * `Off` - always attempt a fit (the old behaviour).
+* **Apply to all compounds:** The dialog has an **"Apply these settings to all compounds"** checkbox. Tick it to copy the chosen resolution, fit type, and noise gate to *every* compound at once (after a confirmation prompt). This is the quickest way to, for example, turn deconvolution **off everywhere** (select `Off`, tick the box, confirm) or roll one configuration out across your whole method. Note that this overwrites each compound's existing per-compound settings.
+* **Affects raw, corrected, and abundance results:** When deconvolution is warranted, the *same* selected component is used for the Raw Values, the natural-abundance Corrected Values, and the Abundances. So turning deconvolution on or off for a compound changes all of its result sheets consistently (not just the raw areas).
+* **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto · Gate Balanced (compound_name)`, or `Deconvolution: Off`.
+* **Logging:** The per-compound resolution, fit type, and noise gate are recorded in the export changelog so processed results are reproducible.
+* **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction
 **Settings → Natural Abundance Correction** (Toggle)

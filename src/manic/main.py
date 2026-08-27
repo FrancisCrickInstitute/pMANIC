@@ -39,4 +39,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Required for the frozen (PyInstaller) build: worker processes started with
+    # the spawn method re-run the entry module, and freeze_support() stops that
+    # from relaunching the whole app. Harmless when running from source.
+    import multiprocessing
+
+    multiprocessing.freeze_support()
     sys.exit(main())

@@ -844,29 +844,9 @@ class MainWindow(QMainWindow):
                 # Update tR window field only when compound changes
                 self.toolbar.integration.populate_tr_window_field(compound_name)
 
-                if self.analysis_mode is AnalysisMode.LABELLED:
-                    # Label-derived summaries are deliberately unavailable in
-                    # targeted mode, where channels are diagnostic ions.
-                    current_eics = self._get_current_eics()
-                    self.toolbar.isotopologue_ratios.update_ratios(
-                        compound_name, current_eics
-                    )
-                    abundances, eics = (
-                        self.toolbar.isotopologue_ratios.get_last_total_abundances()
-                    )
-                    if abundances is None:
-                        abundances = self._calculate_total_abundances_fallback(
-                            compound_name, current_eics
-                        )
-                        eics = current_eics
-                    if abundances is not None:
-                        self.toolbar.total_abundance.update_abundance_from_data(
-                            compound_name, eics, abundances
-                        )
-                    else:
-                        self.toolbar.total_abundance._clear_chart()
-                else:
+                if self.analysis_mode is not AnalysisMode.LABELLED:
                     self._update_targeted_qc(compound_name, samples)
+                self._update_total_abundance(compound_name)
         except LookupError as err:
             msg_box = self._create_message_box("warning", "Missing data", str(err))
             msg_box.exec()
@@ -927,6 +907,43 @@ class MainWindow(QMainWindow):
             abundances.append(float(sum(isotope_areas)))
 
         return np.asarray(abundances, dtype=float)
+
+    def _update_total_abundance(self, compound_name: str) -> None:
+        current_eics = self._get_current_eics()
+        if self.analysis_mode is AnalysisMode.LABELLED:
+            self.toolbar.isotopologue_ratios.update_ratios(
+                compound_name, current_eics
+            )
+            abundances, eics = (
+                self.toolbar.isotopologue_ratios.get_last_total_abundances()
+            )
+            if abundances is None:
+                abundances = self._calculate_total_abundances_fallback(
+                    compound_name, current_eics
+                )
+                eics = current_eics
+        elif not current_eics:
+            self.toolbar.total_abundance._clear_chart()
+            return
+        else:
+            provider = DataProvider(
+                use_legacy_integration=self.use_legacy_integration
+            )
+            eics = current_eics
+            abundances = np.asarray(
+                [
+                    provider.get_compound_total_area(eic.sample_name, compound_name)
+                    for eic in eics
+                ],
+                dtype=float,
+            )
+
+        if abundances is not None:
+            self.toolbar.total_abundance.update_abundance_from_data(
+                compound_name, eics, abundances
+            )
+        else:
+            self.toolbar.total_abundance._clear_chart()
 
     def _update_targeted_qc(
         self, compound_name: str, sample_names: list[str]
@@ -1114,29 +1131,7 @@ class MainWindow(QMainWindow):
                 if not self._qc_link_guard:
                     qc_samples = selected_samples or all_samples
                     self._update_targeted_qc(current_compound, qc_samples)
-                return
-
-            # Update isotopologue ratios and total abundance (integration parameters may have changed)
-            current_eics = self._get_current_eics()
-            self.toolbar.isotopologue_ratios.update_ratios(
-                current_compound, current_eics
-            )
-
-            abundances, eics = (
-                self.toolbar.isotopologue_ratios.get_last_total_abundances()
-            )
-            if abundances is None:
-                abundances = self._calculate_total_abundances_fallback(
-                    current_compound, current_eics
-                )
-                eics = current_eics
-
-            if abundances is not None:
-                self.toolbar.total_abundance.update_abundance_from_data(
-                    current_compound, eics, abundances
-                )
-            else:
-                self.toolbar.total_abundance._clear_chart()
+            self._update_total_abundance(current_compound)
 
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         """Handle when session data is applied - refresh plots to show updated parameters"""
@@ -1182,20 +1177,7 @@ class MainWindow(QMainWindow):
                         compound_name,
                         self.graph_view.get_current_samples(),
                     )
-                    return
-                current_eics = self._get_current_eics()
-                self.toolbar.isotopologue_ratios.update_ratios(
-                    compound_name, current_eics
-                )
-
-                # Share calculated abundances
-                abundances, eics = (
-                    self.toolbar.isotopologue_ratios.get_last_total_abundances()
-                )
-                if abundances is not None:
-                    self.toolbar.total_abundance.update_abundance_from_data(
-                        compound_name, eics, abundances
-                    )
+                self._update_total_abundance(compound_name)
 
             QTimer.singleShot(150, update_charts)
 
@@ -1239,20 +1221,7 @@ class MainWindow(QMainWindow):
                         compound_name,
                         self.graph_view.get_current_samples(),
                     )
-                    return
-                current_eics = self._get_current_eics()
-                self.toolbar.isotopologue_ratios.update_ratios(
-                    compound_name, current_eics
-                )
-
-                # Share calculated abundances
-                abundances, eics = (
-                    self.toolbar.isotopologue_ratios.get_last_total_abundances()
-                )
-                if abundances is not None:
-                    self.toolbar.total_abundance.update_abundance_from_data(
-                        compound_name, eics, abundances
-                    )
+                self._update_total_abundance(compound_name)
 
             QTimer.singleShot(150, update_charts)
 
@@ -1298,20 +1267,7 @@ class MainWindow(QMainWindow):
                         compound_name,
                         self.graph_view.get_current_samples(),
                     )
-                    return
-                current_eics = self._get_current_eics()
-                self.toolbar.isotopologue_ratios.update_ratios(
-                    compound_name, current_eics
-                )
-
-                # Share calculated abundances
-                abundances, eics = (
-                    self.toolbar.isotopologue_ratios.get_last_total_abundances()
-                )
-                if abundances is not None:
-                    self.toolbar.total_abundance.update_abundance_from_data(
-                        compound_name, eics, abundances
-                    )
+                self._update_total_abundance(compound_name)
 
             QTimer.singleShot(150, update_charts)
 

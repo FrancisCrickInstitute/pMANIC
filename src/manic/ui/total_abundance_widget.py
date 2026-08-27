@@ -18,6 +18,16 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 from manic.io.eic_reader import EIC
 
 
+def abundances_from_provider(provider, compound_name: str, sample_names: list[str]) -> np.ndarray:
+    return np.asarray(
+        [
+            provider.get_compound_total_area(sample_name, compound_name)
+            for sample_name in sample_names
+        ],
+        dtype=float,
+    )
+
+
 class TotalAbundanceWidget(QWidget):
     """
     Horizontal bar chart showing total abundance for each sample.

@@ -229,21 +229,16 @@ class Toolbar(QWidget):
         content_layout.addWidget(self.shared_yscale_checkbox, stretch=0)
 
         self.isotopologue_ratios = IsotopologueRatioWidget()
-        content_layout.addWidget(
-            self.isotopologue_ratios, stretch=2
-        )  # Increased stretch for plots
-
-        self.total_abundance = TotalAbundanceWidget()
-        content_layout.addWidget(
-            self.total_abundance, stretch=2
-        )  # Increased stretch for plots
+        content_layout.addWidget(self.isotopologue_ratios, stretch=2)
 
         self.targeted_qc = TargetedQcWidget()
         content_layout.addWidget(self.targeted_qc, stretch=2)
 
+        self.total_abundance = TotalAbundanceWidget()
+        content_layout.addWidget(self.total_abundance, stretch=2)
+
         if self.analysis_mode is AnalysisMode.UNLABELLED:
             self.isotopologue_ratios.hide()
-            self.total_abundance.hide()
         else:
             self.targeted_qc.hide()
 

@@ -29,6 +29,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
     deconvolve_eic,
 )
 from manic.processors.integration import calculate_peak_areas
+from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.validation.unlabelled_identity import IdentityStatus
 
 
@@ -264,6 +265,9 @@ def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
         [10.0, 4.0, 2.0]
     )
     assert provider.get_compound_total_area("S1", "Target") == pytest.approx(10.0)
+    chart_values = abundances_from_provider(provider, "Target", ["S1"])
+    assert chart_values == pytest.approx([10.0])
+    assert chart_values[0] != pytest.approx(10.0 + 4.0 + 2.0)
     qc = provider.assess_unlabelled_identity("S1", "Target")
     assert qc.status is IdentityStatus.NOT_ASSESSED
     assert qc.observed_rt == pytest.approx(1.0)

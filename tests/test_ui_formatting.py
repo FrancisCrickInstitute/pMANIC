@@ -53,15 +53,63 @@ def integration_window(qapp):
     window.deleteLater()
 
 
-def test_unlabelled_toolbar_hides_label_derived_summaries(qapp):
+def test_unlabelled_toolbar_shows_abundance_under_identity(qapp):
     toolbar = Toolbar(AnalysisMode.UNLABELLED)
     try:
         assert toolbar.isotopologue_ratios.isHidden()
-        assert toolbar.total_abundance.isHidden()
+        assert not toolbar.total_abundance.isHidden()
         assert not toolbar.targeted_qc.isHidden()
+        layout = toolbar.targeted_qc.parentWidget().layout()
+        identity_index = layout.indexOf(toolbar.targeted_qc)
+        abundance_index = layout.indexOf(toolbar.total_abundance)
+        assert 0 <= identity_index < abundance_index
         assert toolbar.integration.findChild(QLabel, "reference_rt_note") is None
     finally:
         toolbar.deleteLater()
+
+
+def test_labelled_toolbar_keeps_abundance_under_ratios(qapp):
+    toolbar = Toolbar(AnalysisMode.LABELLED)
+    try:
+        assert not toolbar.isotopologue_ratios.isHidden()
+        assert not toolbar.total_abundance.isHidden()
+        assert toolbar.targeted_qc.isHidden()
+        layout = toolbar.total_abundance.parentWidget().layout()
+        ratio_index = layout.indexOf(toolbar.isotopologue_ratios)
+        abundance_index = layout.indexOf(toolbar.total_abundance)
+        assert 0 <= ratio_index < abundance_index
+    finally:
+        toolbar.deleteLater()
+
+
+def test_refresh_mode_charts_shares_one_provider(monkeypatch):
+    created = []
+
+    class CountingProvider:
+        def __init__(self, use_legacy_integration=False):
+            created.append(self)
+
+    monkeypatch.setattr("manic.ui.main_window.DataProvider", CountingProvider)
+
+    seen_qc = []
+    seen_abundance = []
+    host = SimpleNamespace(
+        analysis_mode=AnalysisMode.UNLABELLED,
+        use_legacy_integration=False,
+        graph_view=SimpleNamespace(get_current_samples=lambda: ["S1"]),
+        _update_targeted_qc=lambda compound, samples, provider: seen_qc.append(
+            provider
+        ),
+        _update_total_abundance=lambda compound, provider=None: seen_abundance.append(
+            provider
+        ),
+    )
+
+    MainWindow._refresh_mode_charts(host, "Target", ["S1"])
+
+    assert len(created) == 1
+    assert seen_qc == created
+    assert seen_abundance == created
 
 
 def test_targeted_qc_identity_chart_records_observed_rt(qapp):

@@ -416,6 +416,7 @@ def _deconvolve_matrix(
                     window_matrix.tobytes(),
                     window_matrix.shape,
                     params,
+                    retention_time,
                 )
             else:
                 fitted = _fit_joint_component_model_cached(
@@ -423,11 +424,16 @@ def _deconvolve_matrix(
                     window_matrix.tobytes(),
                     window_matrix.shape,
                     params,
+                    retention_time,
                 )
         except Exception:
             fitted = None
 
-        if fitted is not None and not _fit_reproduces_window(window_matrix, fitted):
+        if fitted is not None and not _fit_reproduces_window(
+            window_matrix,
+            fitted,
+            quality_mask=integration_mask[fit_mask],
+        ):
             fitted = None
     if fitted is None:
         selected_mask = np.zeros_like(matrix, dtype=bool)
@@ -500,6 +506,7 @@ def _fit_single_component_model_cached(
     matrix_bytes: bytes,
     matrix_shape: tuple[int, int],
     params: ChromatographicPeakDeconvolutionParameters,
+    target_rt: float | None = None,
 ) -> FittedComponentModel | None:
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
@@ -509,7 +516,7 @@ def _fit_single_component_model_cached(
         shape_models=(params.shape_models[0],),
         max_nfev=min(80, params.max_nfev),
     )
-    return _fit_joint_component_model(time, matrix, cheap)
+    return _fit_joint_component_model(time, matrix, cheap, target_rt=target_rt)
 
 
 @functools.lru_cache(maxsize=8192)
@@ -518,6 +525,7 @@ def _fit_joint_component_model_cached(
     matrix_bytes: bytes,
     matrix_shape: tuple[int, int],
     params: ChromatographicPeakDeconvolutionParameters,
+    target_rt: float | None = None,
 ) -> FittedComponentModel | None:
     """Cache fits keyed by the windowed data so repeated calls reuse the result.
 
@@ -533,7 +541,7 @@ def _fit_joint_component_model_cached(
     """
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
-    return _fit_joint_component_model(time, matrix, params)
+    return _fit_joint_component_model(time, matrix, params, target_rt=target_rt)
 
 
 def get_deconvolution_fit_cache_info():
@@ -545,6 +553,7 @@ def _fit_joint_component_model(
     time: np.ndarray,
     matrix: np.ndarray,
     params: ChromatographicPeakDeconvolutionParameters,
+    target_rt: float | None = None,
 ) -> FittedComponentModel | None:
     if time.size < 5 or matrix.size == 0:
         return None
@@ -569,7 +578,11 @@ def _fit_joint_component_model(
                                min_sigma, x_span))
     max_sigma = min(max(min_sigma * 4.0, init_sigma * 4.0), x_span)
 
-    seed_indices = _candidate_peak_indices(y, params)
+    seed_indices = _prioritize_target_seed(
+        _candidate_peak_indices(y, params),
+        x,
+        target_rt,
+    )
     max_components = max(1, min(params.max_components, len(seed_indices), points // 3))
 
     best: FittedComponentModel | None = None
@@ -752,6 +765,18 @@ def _fit_shape_candidate(
     )
 
 
+def _prioritize_target_seed(
+    indices: list[int],
+    time: np.ndarray,
+    target_rt: float | None,
+) -> list[int]:
+    """Put the seed nearest the compound RT first so it always has a component slot."""
+    if target_rt is None or not indices:
+        return indices
+    nearest = min(indices, key=lambda index: abs(float(time[index]) - float(target_rt)))
+    return [nearest] + [index for index in indices if index != nearest]
+
+
 def _candidate_peak_indices(
     matrix: np.ndarray, params: ChromatographicPeakDeconvolutionParameters
 ) -> list[int]:
@@ -905,9 +930,15 @@ def _too_messy_to_fit(
 def _fit_reproduces_window(
     window_matrix: np.ndarray,
     fitted: FittedComponentModel,
+    quality_mask: np.ndarray | None = None,
 ) -> bool:
     recon = fitted.baseline + np.sum(fitted.components, axis=0)
     raw = np.asarray(window_matrix, dtype=np.float64)
+    if quality_mask is not None:
+        mask = np.asarray(quality_mask, dtype=bool).reshape(-1)
+        if mask.size == raw.shape[1] and np.any(mask):
+            recon = recon[:, mask]
+            raw = raw[:, mask]
     denominator = float(np.sum(raw ** 2))
     if denominator <= np.finfo(float).eps:
         return False

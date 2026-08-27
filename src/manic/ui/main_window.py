@@ -66,6 +66,7 @@ from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.toast_notification import ToastNotification
+from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.utils.paths import docs_path, resource_path
 from manic.utils.utils import load_stylesheet
 from manic.utils.workers import (
@@ -841,12 +842,9 @@ class MainWindow(QMainWindow):
                     samples,  # All visible samples
                 )
 
-                # Update tR window field only when compound changes
                 self.toolbar.integration.populate_tr_window_field(compound_name)
 
-                if self.analysis_mode is not AnalysisMode.LABELLED:
-                    self._update_targeted_qc(compound_name, samples)
-                self._update_total_abundance(compound_name)
+                self._refresh_mode_charts(compound_name, samples)
         except LookupError as err:
             msg_box = self._create_message_box("warning", "Missing data", str(err))
             msg_box.exec()
@@ -908,7 +906,29 @@ class MainWindow(QMainWindow):
 
         return np.asarray(abundances, dtype=float)
 
-    def _update_total_abundance(self, compound_name: str) -> None:
+    def _refresh_mode_charts(
+        self,
+        compound_name: str,
+        qc_samples: list[str] | None = None,
+        *,
+        skip_qc: bool = False,
+    ) -> None:
+        provider = None
+        if self.analysis_mode is not AnalysisMode.LABELLED:
+            provider = DataProvider(
+                use_legacy_integration=self.use_legacy_integration
+            )
+            if not skip_qc:
+                self._update_targeted_qc(
+                    compound_name,
+                    qc_samples or self.graph_view.get_current_samples(),
+                    provider,
+                )
+        self._update_total_abundance(compound_name, provider)
+
+    def _update_total_abundance(
+        self, compound_name: str, provider: DataProvider | None = None
+    ) -> None:
         current_eics = self._get_current_eics()
         if self.analysis_mode is AnalysisMode.LABELLED:
             self.toolbar.isotopologue_ratios.update_ratios(
@@ -923,36 +943,34 @@ class MainWindow(QMainWindow):
                 )
                 eics = current_eics
         elif not current_eics:
+            abundances, eics = None, current_eics
+        else:
+            if provider is None:
+                provider = DataProvider(
+                    use_legacy_integration=self.use_legacy_integration
+                )
+            eics = current_eics
+            abundances = abundances_from_provider(
+                provider,
+                compound_name,
+                [eic.sample_name for eic in eics],
+            )
+
+        if abundances is None:
             self.toolbar.total_abundance._clear_chart()
             return
-        else:
-            provider = DataProvider(
-                use_legacy_integration=self.use_legacy_integration
-            )
-            eics = current_eics
-            abundances = np.asarray(
-                [
-                    provider.get_compound_total_area(eic.sample_name, compound_name)
-                    for eic in eics
-                ],
-                dtype=float,
-            )
-
-        if abundances is not None:
-            self.toolbar.total_abundance.update_abundance_from_data(
-                compound_name, eics, abundances
-            )
-        else:
-            self.toolbar.total_abundance._clear_chart()
+        self.toolbar.total_abundance.update_abundance_from_data(
+            compound_name, eics, abundances
+        )
 
     def _update_targeted_qc(
-        self, compound_name: str, sample_names: list[str]
+        self,
+        compound_name: str,
+        sample_names: list[str],
+        provider: DataProvider,
     ) -> None:
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
             return
-        provider = DataProvider(
-            use_legacy_integration=self.use_legacy_integration
-        )
         statuses = self.toolbar.targeted_qc.update_results(
             compound_name,
             sample_names,
@@ -1127,14 +1145,13 @@ class MainWindow(QMainWindow):
                 current_compound, selected_samples, all_samples
             )
 
-            if self.analysis_mode is not AnalysisMode.LABELLED:
-                if not self._qc_link_guard:
-                    qc_samples = selected_samples or all_samples
-                    self._update_targeted_qc(current_compound, qc_samples)
-            self._update_total_abundance(current_compound)
+            self._refresh_mode_charts(
+                current_compound,
+                selected_samples or all_samples,
+                skip_qc=self._qc_link_guard,
+            )
 
     def on_session_data_applied(self, compound_name: str, sample_names: list):
-        """Handle when session data is applied - refresh plots to show updated parameters"""
         logger.info(f"Session data applied for {compound_name}, refreshing plots")
 
         try:
@@ -1170,14 +1187,8 @@ class MainWindow(QMainWindow):
             # Use a timer to delay the update slightly
             QTimer.singleShot(100, update_integration_window)
 
-            # Update isotopologue ratios and total abundance with new integration parameters
             def update_charts():
-                if self.analysis_mode is not AnalysisMode.LABELLED:
-                    self._update_targeted_qc(
-                        compound_name,
-                        self.graph_view.get_current_samples(),
-                    )
-                self._update_total_abundance(compound_name)
+                self._refresh_mode_charts(compound_name)
 
             QTimer.singleShot(150, update_charts)
 
@@ -1214,14 +1225,8 @@ class MainWindow(QMainWindow):
             # Use a timer to delay the update slightly
             QTimer.singleShot(100, update_integration_window)
 
-            # Update isotopologue ratios and total abundance with restored default parameters
             def update_charts():
-                if self.analysis_mode is not AnalysisMode.LABELLED:
-                    self._update_targeted_qc(
-                        compound_name,
-                        self.graph_view.get_current_samples(),
-                    )
-                self._update_total_abundance(compound_name)
+                self._refresh_mode_charts(compound_name)
 
             QTimer.singleShot(150, update_charts)
 
@@ -1258,16 +1263,10 @@ class MainWindow(QMainWindow):
             # Refresh plots to show/hide baseline lines
             self.graph_view.refresh_plots_with_session_data(validation_data)
 
-            # Update isotopologue ratios and total abundance (areas change with baseline correction)
             from PySide6.QtCore import QTimer
 
             def update_charts():
-                if self.analysis_mode is not AnalysisMode.LABELLED:
-                    self._update_targeted_qc(
-                        compound_name,
-                        self.graph_view.get_current_samples(),
-                    )
-                self._update_total_abundance(compound_name)
+                self._refresh_mode_charts(compound_name)
 
             QTimer.singleShot(150, update_charts)
 

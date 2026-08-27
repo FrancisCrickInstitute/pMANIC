@@ -961,8 +961,6 @@ def test_calculate_peak_areas_mixed_bundle_uses_raw_window(monkeypatch):
 
 
 def test_taller_out_of_window_neighbors_do_not_starve_target_peak():
-    """A slightly shorter target must still be modelled when taller neighbours
-    sit in the expanded fit context but outside the integration window."""
     time = np.linspace(14.554, 14.950, 97)
     intensity = (
         _gaussian(time, 14.653, 0.012, 18.0)

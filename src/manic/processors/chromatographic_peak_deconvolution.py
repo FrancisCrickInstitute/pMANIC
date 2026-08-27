@@ -770,7 +770,6 @@ def _prioritize_target_seed(
     time: np.ndarray,
     target_rt: float | None,
 ) -> list[int]:
-    """Put the seed nearest the compound RT first so it always has a component slot."""
     if target_rt is None or not indices:
         return indices
     nearest = min(indices, key=lambda index: abs(float(time[index]) - float(target_rt)))

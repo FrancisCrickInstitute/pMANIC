@@ -262,6 +262,36 @@ class TestPerSampleReloadChecking:
             ("Glucose", 2.1, ["s1", "s2"], sample_rts)
         ]
 
+    def test_update_tr_window_emits_each_sample_retention_time(self, monkeypatch):
+        sample_rts = {"s1": 7.1, "s2": 7.5}
+        monkeypatch.setattr(
+            "manic.ui.integration_window_widget.read_compound_with_session",
+            lambda _compound, sample: SimpleNamespace(
+                retention_time=sample_rts[sample]
+            ),
+        )
+        emitted = []
+        fields = {
+            "tr_input": SimpleNamespace(text=lambda: "7.1 - 7.5"),
+            "tr_window_input": SimpleNamespace(text=lambda: "0.2"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _all_samples=["s1", "s2"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _get_current_retention_time=lambda: 7.1,
+            _show_message=lambda *_args: None,
+        )
+
+        IntegrationWindow._on_regenerate_clicked(window)
+
+        assert emitted == [
+            ("Glucose", 0.2, ["s1", "s2"], sample_rts)
+        ]
+
 
 def _seed_eic_db(db_path: Path, sample_files: dict[str, Path]):
     time_axis = np.array([7.07, 7.17, 7.27], dtype=np.float64)
@@ -680,6 +710,76 @@ class TestRecoveryAfterEmptyExtract:
         assert restored == pytest.approx([7.07, 7.17, 7.27])
         assert session_count == 0
 
+    def test_lost_correction_rejects_change_and_keeps_existing_rows(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = tmp_path / "regen.db"
+        cdf_path = tmp_path / "s1.cdf"
+        cdf_path.write_bytes(b"cdf")
+        monkeypatch.setattr(database, "DB_FILE", db_path)
+        _seed_eic_db(db_path, {"s1": cdf_path})
+        original_time = np.array([7.07, 7.17, 7.27], dtype=np.float64)
+        original_corrected = np.array([2.0, 20.0, 2.0], dtype=np.float64)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO eic_corrected (
+                    sample_name, compound_name, x_axis, y_axis_corrected
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    "s1",
+                    "Glucose",
+                    _compress(original_time),
+                    _compress(original_corrected),
+                ),
+            )
+        monkeypatch.setattr(
+            "manic.io.eic_importer.read_cdf_file",
+            lambda _path: object(),
+        )
+        monkeypatch.setattr(
+            "manic.io.eic_importer.extract_eic",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                time=np.array([7.0, 7.1, 7.2]),
+                intensity=np.array([3.0, 30.0, 3.0]),
+            ),
+        )
+        monkeypatch.setattr(
+            "manic.io.eic_importer.compute_corrected_intensity",
+            lambda *_args, **_kwargs: None,
+        )
+
+        with pytest.raises(
+            RuntimeError,
+            match="Could not recreate the natural abundance correction.*sample 's1'",
+        ):
+            regenerate_compound_eics(
+                "Glucose",
+                0.2,
+                ["s1"],
+                retention_time=7.10,
+            )
+
+        with sqlite3.connect(db_path) as conn:
+            raw = conn.execute(
+                "SELECT x_axis FROM eic WHERE compound_name = ? AND sample_name = ?",
+                ("Glucose", "s1"),
+            ).fetchone()[0]
+            corrected = conn.execute(
+                """
+                SELECT y_axis_corrected FROM eic_corrected
+                WHERE compound_name = ? AND sample_name = ?
+                """,
+                ("Glucose", "s1"),
+            ).fetchone()[0]
+        assert np.frombuffer(zlib.decompress(raw), dtype=np.float64) == pytest.approx(
+            original_time
+        )
+        assert np.frombuffer(
+            zlib.decompress(corrected), dtype=np.float64
+        ) == pytest.approx(original_corrected)
+
     def test_extracts_each_sample_around_its_own_retention_time(
         self, tmp_path, monkeypatch
     ):
@@ -823,6 +923,40 @@ class TestRegenerationCompletion:
             "charts",
         ]
         assert messages[0][0:2] == ("information", "Regeneration Complete")
+
+    def test_refresh_failure_does_not_claim_complete(self):
+        def _refresh_fails(*_args):
+            raise RuntimeError("plot widget gone")
+
+        integration = SimpleNamespace(
+            _pending_session_update=None,
+            populate_fields_from_plots=_refresh_fails,
+            populate_tr_window_field=lambda *_args: None,
+        )
+        messages = []
+        window = SimpleNamespace(
+            toolbar=SimpleNamespace(integration=integration),
+            graph_view=SimpleNamespace(
+                get_current_compound=lambda: "Glucose",
+                get_selected_samples=lambda: ["s1"],
+                get_current_samples=lambda: ["s1"],
+            ),
+            _validation_provider=None,
+            min_peak_height_ratio=0,
+            _create_message_box=lambda *args: messages.append(args)
+            or SimpleNamespace(exec=lambda: None),
+        )
+
+        MainWindow._regeneration_completed(window, 1)
+
+        assert messages == [
+            (
+                "warning",
+                "Plots Did Not Refresh",
+                "The new EIC data was saved, but the display failed: "
+                "plot widget gone\n\nRefresh the plots manually.",
+            )
+        ]
 
     def test_failure_discards_pending_session_update(self):
         refreshed = []

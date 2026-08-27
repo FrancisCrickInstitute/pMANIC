@@ -721,7 +721,7 @@ class IntegrationWindow(QGroupBox):
                 except LookupError:
                     self._data_window_bounds.pop(key, None)
                     continue
-                if eics and len(eics) > 0 and len(eics[0].time) > 0:
+                if eics and len(eics[0].time) > 0:
                     time_data = eics[0].time
                     self._data_window_bounds[key] = (time_data.min(), time_data.max())
                     logger.debug(
@@ -1041,15 +1041,15 @@ class IntegrationWindow(QGroupBox):
 
         rt_field = self.findChild(QLineEdit, "tr_input")
         retention_time = None
+        rt_mode = "single"
         if rt_field:
             try:
-                _rt_mode, retention_time, _rt_range = _parse_rt_text(rt_field.text())
+                rt_mode, retention_time, _rt_range = _parse_rt_text(rt_field.text())
             except ValueError:
                 retention_time = None
         if retention_time is None:
             retention_time = self._get_current_retention_time()
 
-        # Check that samples are available
         samples_to_affect = self._all_samples if self._all_samples else []
         if not samples_to_affect:
             self._show_message(
@@ -1057,7 +1057,14 @@ class IntegrationWindow(QGroupBox):
             )
             return
 
-        # Emit signal to trigger data regeneration
+        if rt_mode == "range" and len(samples_to_affect) > 1:
+            retention_time = {
+                sample_name: read_compound_with_session(
+                    self._current_compound, sample_name
+                ).retention_time
+                for sample_name in samples_to_affect
+            }
+
         try:
             self.data_regeneration_requested.emit(
                 self._current_compound, tr_window, samples_to_affect, retention_time

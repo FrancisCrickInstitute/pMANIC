@@ -1304,11 +1304,7 @@ class MainWindow(QMainWindow):
 
             # Create background thread and worker
             self._regen_thread = QThread(self)
-            pending_regeneration = getattr(
-                self.toolbar.integration,
-                "_pending_session_update",
-                None,
-            )
+            pending_regeneration = self.toolbar.integration._pending_session_update
             self._regen_worker = EicRegenerationWorker(
                 compound_name,
                 tr_window,
@@ -1483,11 +1479,7 @@ class MainWindow(QMainWindow):
         )
 
         try:
-            pending_update = getattr(
-                self.toolbar.integration,
-                "_pending_session_update",
-                None,
-            )
+            pending_update = self.toolbar.integration._pending_session_update
             if pending_update is not None:
                 if pending_update.regenerated_sample_names:
                     logger.info(
@@ -1541,10 +1533,9 @@ class MainWindow(QMainWindow):
             logger.error(f"Error during post-regeneration refresh: {e}")
             msg_box = self._create_message_box(
                 "warning",
-                "Regeneration Complete with Warning",
-                f"Data regeneration completed ({regenerated_count} EICs), "
-                f"but plot refresh failed: {str(e)}\n\n"
-                f"Try manually refreshing the plots.",
+                "Plots Did Not Refresh",
+                f"The new EIC data was saved, but the display failed: "
+                f"{e}\n\nRefresh the plots manually.",
             )
             msg_box.exec()
 

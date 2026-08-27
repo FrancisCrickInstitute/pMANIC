@@ -14,6 +14,10 @@ from manic.io.compound_reader import read_compound
 from manic.models.database import get_connection
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_calculator import EIC, EmptyRtWindowError, extract_eic
+from manic.processors.eic_correction_manager import (
+    compute_corrected_intensity,
+    store_corrected_eic,
+)
 from manic.io.tic_reader import store_tic_data
 from manic.io.ms_reader import store_ms_data_batch
 
@@ -522,8 +526,10 @@ def regenerate_compound_eics(
     Regenerate EIC data for a specific compound across given samples with new tR window.
 
     Extracts every requested sample into memory first. Replaces raw EICs and
-    removes stale corrections in one transaction after every extraction
-    succeeds. Pending session values join that transaction when provided.
+    writes replacements for any existing corrections in one transaction after
+    every extraction succeeds. A sample that already had a correction and
+    cannot get one back aborts before any write. Pending session values join
+    that transaction when provided.
 
     Parameters
     ----------
@@ -658,6 +664,42 @@ def regenerate_compound_eics(
         if progress_cb:
             progress_cb(done, total_work)
 
+    sample_name_list = list(extracted_eics)
+    placeholders = ", ".join("?" * len(sample_name_list))
+    with get_connection() as conn:
+        previously_corrected = {
+            row["sample_name"]
+            for row in conn.execute(
+                f"""
+                SELECT sample_name FROM eic_corrected
+                WHERE compound_name = ?
+                  AND sample_name IN ({placeholders})
+                  AND deleted = 0
+                """,
+                (compound_name, *sample_name_list),
+            ).fetchall()
+        }
+
+    corrected_by_sample: dict[str, np.ndarray] = {}
+    for sample_name, eic in extracted_eics.items():
+        try:
+            corrected = compute_corrected_intensity(eic, compound_data)
+        except Exception as e:
+            if sample_name in previously_corrected:
+                raise RuntimeError(
+                    f"Could not recreate the natural abundance correction "
+                    f"for sample '{sample_name}'. No changes were applied. {e}"
+                ) from e
+            continue
+        if corrected is None:
+            if sample_name in previously_corrected:
+                raise RuntimeError(
+                    f"Could not recreate the natural abundance correction "
+                    f"for sample '{sample_name}'. No changes were applied."
+                )
+            continue
+        corrected_by_sample[sample_name] = corrected
+
     try:
         with get_connection() as conn:
             for sample_name, eic in extracted_eics.items():
@@ -687,6 +729,14 @@ def regenerate_compound_eics(
                         tr_window,
                     ),
                 )
+                if sample_name in corrected_by_sample:
+                    store_corrected_eic(
+                        sample_name,
+                        compound_name,
+                        eic.time,
+                        corrected_by_sample[sample_name],
+                        connection=conn,
+                    )
             if pending_regeneration is not None:
                 if pending_regeneration.retention_time is None:
                     SessionActivityService.update_offsets_preserve_rt(
@@ -715,23 +765,6 @@ def regenerate_compound_eics(
     logger.info(
         f"Regenerated {len(extracted_eics)} EICs for '{compound_name}' in {elapsed:.1f} s"
     )
-
-    try:
-        from manic.processors.eic_correction_manager import apply_correction_to_eic
-
-        logger.info(
-            f"Recalculating natural abundance corrections for '{compound_name}'..."
-        )
-        corrections_count = 0
-        for sample_name in extracted_eics:
-            if apply_correction_to_eic(sample_name, compound_name):
-                corrections_count += 1
-        if corrections_count > 0:
-            logger.info(
-                f"Successfully recalculated {corrections_count} corrections for '{compound_name}'"
-            )
-    except Exception as e:
-        logger.warning(f"Failed to recalculate corrections for '{compound_name}': {e}")
 
     return len(extracted_eics)
 

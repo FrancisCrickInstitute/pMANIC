@@ -22,6 +22,7 @@ import xlsxwriter
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.io.changelog_writer import generate_changelog
 from manic.io.data_provider import DataProvider
+from manic.models.analysis import AnalysisMode
 from manic.sheet_generators import (
     abundances as sheet_abundances,
 )
@@ -40,6 +41,7 @@ from manic.sheet_generators import (
 from manic.sheet_generators import (
     raw_values as sheet_raw_values,
 )
+from manic.sheet_generators import unlabelled_results as sheet_unlabelled_results
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +103,12 @@ class DataExporter:
     high performance through direct database queries and efficient calculations.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+    ):
         """Initialize the data exporter."""
+        self.analysis_mode = AnalysisMode.coerce(analysis_mode)
         self.internal_standard_compound = None  # Set by UI before export
         # Time-based by default (matches app/UI defaults and docs)
         self.use_legacy_integration = False
@@ -205,6 +211,7 @@ class DataExporter:
             export_filepath,
             internal_standard=self.internal_standard_compound,
             use_legacy_integration=self.use_legacy_integration,
+            analysis_mode=self.analysis_mode,
         )
 
     def export_to_excel(
@@ -299,6 +306,26 @@ class DataExporter:
                     },
                 ),
             )
+
+            if self.analysis_mode is AnalysisMode.UNLABELLED:
+                _time_phase(
+                    "unlabelled_targeted_sheets",
+                    lambda: sheet_unlabelled_results.write(
+                        workbook,
+                        self,
+                        sheet_callback,
+                        validation_data=validation_data,
+                    ),
+                )
+                _time_phase("workbook_close", workbook.close)
+                if progress_callback:
+                    progress_callback(100)
+                _time_phase("changelog", lambda: self._generate_changelog(filepath))
+                logger.info(
+                    "Unlabelled targeted Excel export completed successfully: %s",
+                    filepath,
+                )
+                return True
 
             # Create all worksheets
             if sheet_callback:

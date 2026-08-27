@@ -82,11 +82,9 @@ def read_eics_batch(samples: List[str], compound: Compound, use_corrected: bool 
         time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
         inten = np.frombuffer(zlib.decompress(row["y_axis"]), dtype=np.float64)
         
-        # Reshape intensity data for isotopologue compounds (multi-label)
-        label_atoms = compound.label_atoms
-        if label_atoms > 0:
-            num_labels = label_atoms + 1
-            inten = inten.reshape((num_labels, len(inten) // num_labels))
+        channel_count = compound.channel_count
+        if channel_count > 1:
+            inten = inten.reshape((channel_count, len(inten) // channel_count))
         
         results_by_sample[row["sample_name"]] = EIC(row["sample_name"], compound_name, time, inten)
     
@@ -140,16 +138,15 @@ def read_eic(sample: str, compound: Compound, use_corrected: bool = True) -> EIC
         if row is None:
             raise LookupError(f"EIC not found for {compound_name} in {sample}")
 
-    label_atoms = compound.label_atoms
-    num_labels = label_atoms + 1
+    channel_count = compound.channel_count
 
     time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
     inten = np.frombuffer(zlib.decompress(row["y_axis"]), dtype=np.float64)
-    if label_atoms > 0:
+    if channel_count > 1:
         inten = inten.reshape(
             (
-                num_labels,
-                len(inten) // num_labels,
+                channel_count,
+                len(inten) // channel_count,
             )  # floor division works as embedded arrays are same length
         )
     return EIC(sample, compound_name, time, inten)

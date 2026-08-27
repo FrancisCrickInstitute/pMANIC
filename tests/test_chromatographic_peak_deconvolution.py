@@ -1,14 +1,22 @@
+import dataclasses
+
 import numpy as np
 import pytest
 
+from manic.processors import chromatographic_peak_deconvolution as deconv
 from manic.processors.chromatographic_peak_deconvolution import (
     NOISE_GATE_PRESETS,
+    ChannelDeconvolution,
+    ChannelDeconvolutionBundle,
+    EICChromatographicPeakDeconvolutionResult,
     _too_messy_to_fit,
+    deconvolve_channel_matrix,
     deconvolve_eic,
     normalize_fit_type,
     normalize_noise_gate,
     normalize_stringency,
 )
+from manic.processors import integration as integration_module
 from manic.processors.integration import calculate_peak_areas
 
 
@@ -40,13 +48,13 @@ def test_chromatographic_peak_deconvolution_selects_component_closest_to_retenti
     )
 
 
-def test_chromatographic_peak_deconvolution_uses_shared_components_for_isotopologues():
+def test_chromatographic_peak_deconvolution_selects_each_isotopologue_independently():
     time = np.linspace(0.0, 10.0, 201)
     m0 = _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 7.0, 0.25, 6.0)
     m1 = _gaussian(time, 4.0, 0.25, 3.0) + _gaussian(time, 7.0, 0.25, 2.0)
     intensity = np.vstack([m0, m1])
 
-    result = deconvolve_eic(
+    bundle = deconvolve_channel_matrix(
         time,
         intensity,
         retention_time=7.0,
@@ -55,13 +63,13 @@ def test_chromatographic_peak_deconvolution_uses_shared_components_for_isotopolo
         stringency="medium",
     )
 
-    assert result.selected.shape == intensity.shape
-    assert len(result.excluded) == 1
-    assert result.component_centers == pytest.approx([4.0, 7.0])
-    assert np.trapezoid(result.selected[0], time) == pytest.approx(
+    assert len(bundle.channels) == 2
+    assert bundle.channels[0].result.selected_center == pytest.approx(7.0)
+    assert bundle.channels[1].result.selected_center == pytest.approx(7.0)
+    assert np.trapezoid(bundle.channels[0].result.selected, time) == pytest.approx(
         np.trapezoid(_gaussian(time, 7.0, 0.25, 6.0), time), rel=1e-4
     )
-    assert np.trapezoid(result.selected[1], time) == pytest.approx(
+    assert np.trapezoid(bundle.channels[1].result.selected, time) == pytest.approx(
         np.trapezoid(_gaussian(time, 7.0, 0.25, 2.0), time), rel=1e-4
     )
 
@@ -72,7 +80,7 @@ def test_chromatographic_peak_deconvolution_detects_trace_specific_shoulders():
     orange = _gaussian(time, 8.60, 0.012, 18.0)
     intensity = np.vstack([blue, orange])
 
-    result = deconvolve_eic(
+    bundle = deconvolve_channel_matrix(
         time,
         intensity,
         retention_time=8.54,
@@ -81,15 +89,18 @@ def test_chromatographic_peak_deconvolution_detects_trace_specific_shoulders():
         stringency="medium",
     )
 
-    assert 8.52 < result.selected_center < 8.55
-    assert result.excluded
-    assert np.trapezoid(result.selected[0], time) < np.trapezoid(blue, time)
-    assert np.trapezoid(result.selected[1], time) < np.trapezoid(orange, time)
+    blue_result = bundle.channels[0].result
+    orange_result = bundle.channels[1].result
+    assert 8.52 < blue_result.selected_center < 8.55
+    assert blue_result.excluded
+    assert np.trapezoid(blue_result.selected, time) < np.trapezoid(blue, time)
+    assert orange_result.model is not None
+    assert np.trapezoid(orange_result.selected, time) == pytest.approx(
+        np.trapezoid(orange, time), rel=0.05
+    )
 
 
-def test_resolved_single_peak_uses_raw_trace():
-    # Best practice: a well-resolved single peak has nothing to deconvolve, so the
-    # raw trace is used for both display and integration (no model is fitted in).
+def test_resolved_single_peak_is_fitted_when_deconvolution_is_on():
     time = np.linspace(0.0, 10.0, 201)
     peak = _gaussian(time, 5.0, 0.3, 10.0)
     deterministic_noise = 0.15 * np.sin(time * 8.0)
@@ -112,11 +123,65 @@ def test_resolved_single_peak_uses_raw_trace():
         stringency="4",
     )
 
-    # A single resolved peak is left as-is whether or not deconvolution is enabled.
     assert not on.excluded
-    assert on.model is None
+    assert on.model is not None
     assert np.allclose(off.selected, intensity)
-    assert np.allclose(on.selected, intensity)
+    assert np.trapezoid(on.selected, time) == pytest.approx(
+        np.trapezoid(peak, time), rel=0.05
+    )
+
+
+def _spy_overlap_fitter(monkeypatch):
+    calls = []
+    real = deconv._fit_joint_component_model_cached
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(deconv, "_fit_joint_component_model_cached", spy)
+    return calls
+
+
+def test_resolved_single_peak_skips_the_overlap_fitter(monkeypatch):
+    time = np.linspace(0.0, 10.0, 201)
+    peak = _gaussian(time, 5.0, 0.3, 10.0)
+    joint_calls = _spy_overlap_fitter(monkeypatch)
+
+    result = deconvolve_eic(
+        time,
+        peak,
+        retention_time=5.0,
+        loffset=2.0,
+        roffset=2.0,
+        stringency="4",
+    )
+
+    assert result.model is not None
+    assert result.model.n_components == 1
+    assert joint_calls == []
+    assert np.trapezoid(result.selected, time) == pytest.approx(
+        np.trapezoid(peak, time), rel=0.05
+    )
+
+
+def test_overlap_still_uses_the_overlap_fitter(monkeypatch):
+    time = np.linspace(8.0, 9.0, 120)
+    intensity = _gaussian(time, 8.45, 0.03, 1000.0) + _gaussian(time, 8.57, 0.03, 800.0)
+    joint_calls = _spy_overlap_fitter(monkeypatch)
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=8.45,
+        loffset=0.2,
+        roffset=0.2,
+        stringency="4",
+    )
+
+    assert result.model is not None
+    assert result.model.n_components >= 2
+    assert joint_calls
 
 
 def test_normalize_fit_type_accepts_known_values_and_falls_back():
@@ -195,14 +260,45 @@ def test_chromatographic_peak_deconvolution_accepts_numeric_resolution_levels():
     assert normalize_stringency("7") == "7"
 
 
-def test_joint_model_uses_isotopologue_specific_component_evidence():
+def test_labelled_m1_overlap_does_not_change_m0_area():
     time = np.linspace(4.5, 5.8, 261)
     target_m0 = _gaussian(time, 5.0, 0.07, 12.0)
     target_m1 = _gaussian(time, 5.0, 0.07, 4.0)
     interference_m1 = _gaussian(time, 5.26, 0.06, 10.0)
     intensity = np.vstack([target_m0, target_m1 + interference_m1])
 
-    result = deconvolve_eic(
+    clean_m0 = calculate_peak_areas(
+        time,
+        target_m0,
+        label_atoms=0,
+        retention_time=5.0,
+        loffset=0.6,
+        roffset=0.6,
+        chromatographic_peak_deconvolution_stringency="7",
+    )[0]
+    stacked = calculate_peak_areas(
+        time,
+        intensity.flatten(),
+        label_atoms=1,
+        retention_time=5.0,
+        loffset=0.6,
+        roffset=0.6,
+        chromatographic_peak_deconvolution_stringency="7",
+    )
+
+    assert stacked[0] == pytest.approx(clean_m0, rel=1e-4)
+    assert stacked[1] < np.trapezoid(target_m1 + interference_m1, time)
+    assert stacked[1] == pytest.approx(np.trapezoid(target_m1, time), rel=0.15)
+
+
+def test_sibling_overlap_fits_the_clean_isotopologue_as_well():
+    time = np.linspace(4.5, 5.8, 261)
+    target_m0 = _gaussian(time, 5.0, 0.07, 12.0)
+    target_m1 = _gaussian(time, 5.0, 0.07, 4.0)
+    interference_m1 = _gaussian(time, 5.26, 0.06, 10.0)
+    intensity = np.vstack([target_m0, target_m1 + interference_m1])
+
+    bundle = deconvolve_channel_matrix(
         time,
         intensity,
         retention_time=5.0,
@@ -211,14 +307,24 @@ def test_joint_model_uses_isotopologue_specific_component_evidence():
         stringency="7",
     )
 
-    assert 4.98 < result.selected_center < 5.02
-    assert result.excluded
-    assert np.trapezoid(result.selected[0], time) == pytest.approx(
-        np.trapezoid(target_m0, time), rel=0.05
-    )
-    assert np.trapezoid(result.selected[1], time) < np.trapezoid(
-        target_m1 + interference_m1, time
-    )
+    assert bundle.channels[0].result.model is not None
+    assert bundle.channels[1].result.model is not None
+    assert bundle.channels[0].result.selected_center == pytest.approx(5.0, abs=0.05)
+
+
+def test_deconvolve_eic_rejects_multi_channel_matrix():
+    time = np.linspace(0.0, 10.0, 21)
+    intensity = np.vstack([_gaussian(time, 5.0, 0.3, 10.0), _gaussian(time, 5.0, 0.3, 4.0)])
+
+    with pytest.raises(ValueError, match="deconvolve_channel_matrix"):
+        deconvolve_eic(
+            time,
+            intensity,
+            retention_time=5.0,
+            loffset=2.0,
+            roffset=2.0,
+            stringency="4",
+        )
 
 
 def test_level_five_deconvolves_smaller_isotopologue_shoulder():
@@ -228,7 +334,7 @@ def test_level_five_deconvolves_smaller_isotopologue_shoulder():
     interfering_m1 = _gaussian(time, 8.60, 0.010, 8.0)
     intensity = np.vstack([m0, target_m1 + interfering_m1])
 
-    result = deconvolve_eic(
+    bundle = deconvolve_channel_matrix(
         time,
         intensity,
         retention_time=8.64,
@@ -237,9 +343,10 @@ def test_level_five_deconvolves_smaller_isotopologue_shoulder():
         stringency="5",
     )
 
-    assert result.excluded
-    assert result.component_centers == pytest.approx([8.60, 8.64], abs=0.01)
-    assert np.trapezoid(result.selected[1], time) == pytest.approx(
+    m1 = bundle.channels[1].result
+    assert m1.excluded
+    assert m1.component_centers == pytest.approx([8.60, 8.64], abs=0.01)
+    assert np.trapezoid(m1.selected, time) == pytest.approx(
         np.trapezoid(target_m1, time), rel=0.15
     )
 
@@ -251,7 +358,7 @@ def test_offsets_cut_fitted_curve_without_refitting_shape():
     shoulder_m1 = _gaussian(time, 8.60, 0.010, 8.0)
     intensity = np.vstack([target_m0, target_m1 + shoulder_m1])
 
-    narrow = deconvolve_eic(
+    narrow = deconvolve_channel_matrix(
         time,
         intensity,
         retention_time=8.64,
@@ -259,7 +366,7 @@ def test_offsets_cut_fitted_curve_without_refitting_shape():
         roffset=0.04,
         stringency="5",
     )
-    wide = deconvolve_eic(
+    wide = deconvolve_channel_matrix(
         time,
         intensity,
         retention_time=8.64,
@@ -268,13 +375,15 @@ def test_offsets_cut_fitted_curve_without_refitting_shape():
         stringency="5",
     )
 
-    overlap = np.asarray(narrow.selected_mask[1], dtype=bool) & np.asarray(
-        wide.selected_mask[1], dtype=bool
+    narrow_m1 = narrow.channels[1].result
+    wide_m1 = wide.channels[1].result
+    overlap = np.asarray(narrow_m1.selected_mask, dtype=bool) & np.asarray(
+        wide_m1.selected_mask, dtype=bool
     )
     assert np.any(overlap)
-    assert narrow.selected[1, overlap] == pytest.approx(wide.selected[1, overlap])
-    assert np.count_nonzero(wide.selected_mask[1]) > np.count_nonzero(
-        narrow.selected_mask[1]
+    assert narrow_m1.selected[overlap] == pytest.approx(wide_m1.selected[overlap])
+    assert np.count_nonzero(wide_m1.selected_mask) > np.count_nonzero(
+        narrow_m1.selected_mask
     )
 
 
@@ -396,7 +505,7 @@ def test_deconvolution_exposes_continuous_model_matching_scan_points():
         ]
     )
 
-    result = deconvolve_eic(
+    bundle = deconvolve_channel_matrix(
         time,
         intensity,
         retention_time=8.58,
@@ -405,17 +514,18 @@ def test_deconvolution_exposes_continuous_model_matching_scan_points():
         stringency="4",
     )
 
+    result = bundle.channels[0].result
     model = result.model
     assert model is not None
     # The continuous model reproduces the sampled selected curve exactly at the
     # acquisition scan points (it only adds detail between them).
-    mask0 = np.asarray(result.selected_mask[0], dtype=bool)
+    mask0 = np.asarray(result.selected_mask, dtype=bool)
     evaluated = model.evaluate_selected(time[mask0])
-    assert evaluated[0] == pytest.approx(result.selected[0][mask0], abs=1e-9)
+    assert evaluated == pytest.approx(result.selected[mask0], abs=1e-9)
     # Evaluating on a denser grid stays within the same window.
     grid = np.linspace(model.integration_left, model.integration_right, 200)
     dense = model.evaluate_selected(grid)
-    assert dense.shape == (2, 200)
+    assert dense.shape == (200,)
 
 
 def test_deconvolution_recovers_true_area_on_overlap():
@@ -573,3 +683,411 @@ def test_sparse_clean_peak_is_not_treated_as_messy():
     intensity = _gaussian(time, 8.581, 0.018, 1000.0)
 
     assert _too_messy_to_fit(intensity, NOISE_GATE_PRESETS["balanced"]) is False
+
+
+def test_cheap_path_keeps_a_usable_fit_when_max_nfev_is_hit(monkeypatch):
+    real = deconv.least_squares
+
+    def exhausted(*args, **kwargs):
+        result = real(*args, **kwargs)
+        result.success = False
+        result.status = 0
+        return result
+
+    monkeypatch.setattr(deconv, "least_squares", exhausted)
+    time = np.linspace(0.0, 10.0, 201)
+    peak = _gaussian(time, 5.0, 0.3, 10.0) + 0.2 * np.sin(time * 11.0)
+    peak = np.maximum(peak, 0.0)
+    joint_calls = _spy_overlap_fitter(monkeypatch)
+
+    result = deconvolve_eic(
+        time,
+        peak,
+        retention_time=5.0,
+        loffset=2.0,
+        roffset=2.0,
+        stringency="4",
+    )
+
+    assert result.model is not None
+    assert result.model.n_components == 1
+    assert joint_calls == []
+
+
+def test_overlap_path_rejects_a_fit_that_only_hit_max_nfev(monkeypatch):
+    real = deconv.least_squares
+
+    def exhausted(*args, **kwargs):
+        result = real(*args, **kwargs)
+        result.success = False
+        result.status = 0
+        return result
+
+    monkeypatch.setattr(deconv, "least_squares", exhausted)
+    deconv._fit_joint_component_model_cached.cache_clear()
+    deconv._fit_single_component_model_cached.cache_clear()
+    time = np.linspace(0.0, 10.0, 201)
+    intensity = _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 7.0, 0.25, 6.0)
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        stringency="4",
+    )
+
+    assert result.model is None
+    assert np.allclose(result.selected, intensity)
+
+
+def test_flattened_eic_does_not_infer_channel_count_from_length():
+    time = np.array([0.0, 1.0, 2.0])
+    intensity = np.array([[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]]).ravel()
+
+    assert calculate_peak_areas(time, intensity, 0, 1.0, 1.1, 1.1) == pytest.approx(
+        [0.0]
+    )
+    assert calculate_peak_areas(
+        time, intensity, 0, 1.0, 1.1, 1.1, channel_count=0
+    ) == pytest.approx([0.0])
+    assert calculate_peak_areas(
+        time, intensity, 0, 1.0, 1.1, 1.1, channel_count=2
+    ) == pytest.approx([10.0, 4.0])
+
+
+def test_calculate_peak_areas_infers_channel_count_from_2d_intensity():
+    time = np.array([0.0, 1.0, 2.0])
+    intensity = np.array([[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]])
+
+    areas = calculate_peak_areas(time, intensity, 0, 1.0, 1.1, 1.1)
+    assert areas == pytest.approx([10.0, 4.0])
+
+
+def test_calculate_peak_areas_unlabelled_qv_both_fitted_uses_model_areas():
+    deconv._fit_joint_component_model_cached.cache_clear()
+    deconv._fit_single_component_model_cached.cache_clear()
+    time = np.linspace(0.0, 10.0, 201)
+    quantifier = _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 7.0, 0.25, 6.0)
+    qualifier = _gaussian(time, 7.0, 0.25, 2.4)
+    intensity = np.vstack([quantifier, qualifier])
+
+    raw = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        7.0,
+        4.0,
+        4.0,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    modelled = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        7.0,
+        4.0,
+        4.0,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+
+    assert modelled[0] < raw[0]
+    assert modelled[0] == pytest.approx(
+        np.trapezoid(_gaussian(time, 7.0, 0.25, 6.0), time), rel=1e-3
+    )
+    assert modelled[1] == pytest.approx(raw[1], rel=1e-3)
+    assert modelled[1] / modelled[0] == pytest.approx(0.4, rel=5e-2)
+
+
+def _unlabelled_mixed_bundle(time, *, failed_index: int):
+    fitted = deconvolve_eic(
+        time,
+        _gaussian(time, 5.0, 0.08, 12.0),
+        retention_time=5.0,
+        loffset=0.4,
+        roffset=0.4,
+        stringency="4",
+    )
+    assert fitted.model is not None
+    failed = EICChromatographicPeakDeconvolutionResult(
+        selected=np.full(time.size, 3.0),
+        selected_mask=np.asarray(fitted.selected_mask, dtype=bool),
+        excluded=[],
+        excluded_masks=[],
+        selected_center=5.0,
+        component_centers=[5.0],
+        model=None,
+    )
+    channels = [ChannelDeconvolution(index=0, result=fitted), ChannelDeconvolution(index=1, result=fitted)]
+    channels[failed_index] = ChannelDeconvolution(index=failed_index, result=failed)
+    return ChannelDeconvolutionBundle(time=time, channels=tuple(channels))
+
+
+def test_calculate_peak_areas_unlabelled_v_fail_uses_raw_window(monkeypatch):
+    time = np.linspace(4.0, 6.0, 81)
+    intensity = np.vstack(
+        [
+            _gaussian(time, 5.0, 0.08, 12.0),
+            np.full(time.size, 3.0),
+        ]
+    )
+    monkeypatch.setattr(
+        integration_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: _unlabelled_mixed_bundle(time, failed_index=1),
+    )
+    mixed = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+    expected = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    assert mixed == pytest.approx(expected)
+
+
+def test_calculate_peak_areas_unlabelled_q_fail_uses_raw_window(monkeypatch):
+    time = np.linspace(4.0, 6.0, 81)
+    intensity = np.vstack(
+        [
+            np.full(time.size, 3.0),
+            _gaussian(time, 5.0, 0.08, 12.0),
+        ]
+    )
+    monkeypatch.setattr(
+        integration_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: _unlabelled_mixed_bundle(time, failed_index=0),
+    )
+    mixed = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+    expected = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        0,
+        5.0,
+        0.4,
+        0.4,
+        channel_count=2,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    assert mixed == pytest.approx(expected)
+
+
+def test_calculate_peak_areas_mixed_bundle_uses_raw_window(monkeypatch):
+    time = np.linspace(4.0, 6.0, 81)
+    clean = _gaussian(time, 5.0, 0.08, 12.0)
+    failed = np.full(time.size, 3.0)
+    intensity = np.vstack([clean, failed])
+    fitted = deconvolve_eic(
+        time,
+        clean,
+        retention_time=5.0,
+        loffset=0.4,
+        roffset=0.4,
+        stringency="4",
+    )
+    assert fitted.model is not None
+    bundle = ChannelDeconvolutionBundle(
+        time=time,
+        channels=(
+            ChannelDeconvolution(index=0, result=fitted),
+            ChannelDeconvolution(
+                index=1,
+                result=EICChromatographicPeakDeconvolutionResult(
+                    selected=failed,
+                    selected_mask=np.asarray(fitted.selected_mask, dtype=bool),
+                    excluded=[],
+                    excluded_masks=[],
+                    selected_center=5.0,
+                    component_centers=[5.0],
+                    model=None,
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        integration_module,
+        "deconvolve_channel_matrix",
+        lambda *args, **kwargs: bundle,
+    )
+    mixed = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        1,
+        5.0,
+        0.4,
+        0.4,
+        use_legacy=False,
+        baseline_correction=False,
+        chromatographic_peak_deconvolution_stringency="4",
+    )
+    expected = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        1,
+        5.0,
+        0.4,
+        0.4,
+        use_legacy=False,
+        baseline_correction=False,
+        chromatographic_peak_deconvolution_stringency="off",
+    )
+    assert mixed == pytest.approx(expected)
+
+
+def test_clipped_neighbor_peak_is_split_from_target():
+    """A tall Q peak clipped at the extract edge must still be split off tR."""
+    full_time = np.linspace(14.20, 14.80, 241)
+    full_intensity = _gaussian(full_time, 14.40, 0.04, 13.0) + _gaussian(
+        full_time, 14.62, 0.03, 8.0
+    )
+    keep = full_time >= 14.40
+    time = full_time[keep]
+    intensity = full_intensity[keep]
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=14.62,
+        loffset=0.10,
+        roffset=0.10,
+        stringency="4",
+    )
+
+    assert result.model is not None
+    assert result.selected_center == pytest.approx(14.62, abs=0.03)
+    assert len(result.excluded) == 1
+    assert np.trapezoid(result.selected[time >= 14.52], time[time >= 14.52]) == pytest.approx(
+        np.trapezoid(
+            _gaussian(time, 14.62, 0.03, 8.0)[time >= 14.52],
+            time[time >= 14.52],
+        ),
+        rel=0.15,
+    )
+
+
+def test_false_extra_seeds_keep_single_component_model(monkeypatch):
+    """Shoulder leftovers must not discard a 1-component fit that already matches."""
+    time = np.linspace(9.10, 9.70, 80)
+    intensity = _gaussian(time, 9.40, 0.025, 20.0)
+    real = deconv._candidate_peak_indices
+
+    def extra_seeds(matrix, params):
+        seeds = real(matrix, params)
+        apex = seeds[0]
+        return list(dict.fromkeys(seeds + [max(0, apex - 3), 15, 57]))
+
+    monkeypatch.setattr(deconv, "_candidate_peak_indices", extra_seeds)
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=9.40,
+        loffset=0.10,
+        roffset=0.20,
+        stringency="5",
+    )
+
+    assert result.model is not None
+    assert result.model.n_components == 1
+    assert result.selected_center == pytest.approx(9.40, abs=0.03)
+
+
+def test_collapsed_overlap_falls_back_to_raw(monkeypatch):
+    time = np.linspace(0.0, 10.0, 201)
+    intensity = _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 7.0, 0.25, 6.0)
+    monkeypatch.setattr(
+        deconv,
+        "STRINGENCY_PRESETS",
+        {
+            key: dataclasses.replace(value, max_components=1)
+            for key, value in deconv.STRINGENCY_PRESETS.items()
+        },
+    )
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        stringency="medium",
+    )
+
+    assert result.model is None
+    assert np.allclose(result.selected, intensity)
+
+
+def test_empty_bundle_evaluate_selected_stack_has_zero_rows():
+    grid = np.linspace(0.0, 1.0, 11)
+    bundle = ChannelDeconvolutionBundle(time=np.array([0.0, 1.0]), channels=())
+    stacked = bundle.evaluate_selected_stack(grid)
+    assert stacked.shape == (0, 11)
+
+
+def test_bundle_uses_model_areas_only_when_every_channel_fitted():
+    time = np.linspace(4.0, 6.0, 81)
+    fitted = deconvolve_eic(
+        time,
+        _gaussian(time, 5.0, 0.08, 12.0),
+        retention_time=5.0,
+        loffset=0.4,
+        roffset=0.4,
+        stringency="4",
+    )
+    assert fitted.model is not None
+    failed = EICChromatographicPeakDeconvolutionResult(
+        selected=np.full(time.size, 3.0),
+        selected_mask=np.asarray(fitted.selected_mask, dtype=bool),
+        excluded=[],
+        excluded_masks=[],
+        selected_center=5.0,
+        component_centers=[5.0],
+        model=None,
+    )
+    mixed = ChannelDeconvolutionBundle(
+        time=time,
+        channels=(
+            ChannelDeconvolution(index=0, result=fitted),
+            ChannelDeconvolution(index=1, result=failed),
+        ),
+    )
+    all_fitted = ChannelDeconvolutionBundle(
+        time=time,
+        channels=(
+            ChannelDeconvolution(index=0, result=fitted),
+            ChannelDeconvolution(index=1, result=fitted),
+        ),
+    )
+    assert not ChannelDeconvolutionBundle(time=time, channels=()).uses_model_areas()
+    assert not mixed.uses_model_areas()
+    assert mixed.has_any_model()
+    assert mixed.shows_model_overlays(independent_channels=True)
+    assert not mixed.shows_model_overlays(independent_channels=False)
+    assert all_fitted.uses_model_areas()
+    assert all_fitted.shows_model_overlays(independent_channels=False)

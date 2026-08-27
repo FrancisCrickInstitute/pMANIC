@@ -31,6 +31,44 @@ def format_compounds_table_for_data_export(compounds: Iterable[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+def format_unlabelled_compounds_table_for_data_export(compounds: Iterable[dict]) -> str:
+    """Compounds table for unlabelled data-export changelogs."""
+    out = []
+    out.append("## Compounds Processed")
+    out.append(
+        "| Compound Name | RT (min) | L Offset | R Offset | tR Window (min) | Q Ion (m/z) | "
+        "Amount in StdMix | Internal Std Amount | MM Files | Baseline | Deconvolution | Fit Type | Noise Gate |"
+    )
+    out.append(
+        "|---------------|----------|----------|----------|-----------------|-------------|"
+        "------------------|---------------------|----------|----------|---------------|----------|------------|"
+    )
+
+    fit_labels = {"auto": "Auto", "gaussian": "Gaussian", "bi_gaussian": "Bi-Gaussian", "emg": "EMG"}
+    gate_labels = {"off": "Off", "lenient": "Lenient", "balanced": "Balanced", "aggressive": "Aggressive"}
+    for compound in compounds:
+        int_std = _changelog_value(compound, "int_std_amount", None) or "N/A"
+        amount_in_mix = _changelog_value(compound, "amount_in_std_mix", None) or "N/A"
+        mm_files = _changelog_value(compound, "mm_files", None) or "N/A"
+        rt_window = _changelog_value(compound, "rt_tolerance", None)
+        rt_window_display = f"{float(rt_window):.3f}" if rt_window is not None else "N/A"
+        baseline = (
+            "On" if _changelog_value(compound, "baseline_correction", 1) else "Off"
+        )
+        level = _changelog_value(compound, "deconvolution_level", "4") or "off"
+        deconv = "Off" if str(level).lower() == "off" else f"Level {level}"
+        fit_type = str(_changelog_value(compound, "deconvolution_fit_type", "auto") or "auto").lower()
+        fit_display = fit_labels.get(fit_type, "Auto") if deconv != "Off" else "N/A"
+        gate = str(_changelog_value(compound, "deconvolution_noise_gate", "balanced") or "balanced").lower()
+        gate_display = gate_labels.get(gate, "Balanced") if deconv != "Off" else "N/A"
+        out.append(
+            f"| {compound['compound_name']} | {compound['retention_time']:.3f} | {compound['loffset']:.3f} | "
+            f"{compound['roffset']:.3f} | {rt_window_display} | {compound['mass0']:.4f} | "
+            f"{amount_in_mix} | {int_std} | {mm_files} | {baseline} | {deconv} | {fit_display} | {gate_display} |"
+        )
+    return "\n".join(out) + "\n"
+
+
 def _changelog_value(row, key: str, default):
     """Safely read a column from a sqlite Row or dict, with a default if absent."""
     try:

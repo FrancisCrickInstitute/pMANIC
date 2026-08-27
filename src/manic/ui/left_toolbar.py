@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.io.compound_reader import read_compound
+from manic.models.analysis import AnalysisMode
 from manic.utils.paths import resource_path
 
 from .compound_list_widget import CompoundListWidget
@@ -19,6 +20,7 @@ from .isotopologue_ratio_widget import IsotopologueRatioWidget
 from .loaded_data_widget import LoadedDataWidget
 from .sample_list_widget import SampleListWidget
 from .standard_indicator_widget import StandardIndicator
+from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
 
 
@@ -47,8 +49,14 @@ class Toolbar(QWidget):
     # Signal emitted when baseline correction checkbox is toggled
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
-    def __init__(self):
+    shared_y_scale_toggled = Signal(bool)
+
+    def __init__(
+        self,
+        analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+    ):
         super().__init__()
+        self.analysis_mode = AnalysisMode.coerce(analysis_mode)
         self.setObjectName("toolbar")  # Required for CSS targeting
         self._build_ui()
         self._connect_signals()
@@ -166,7 +174,7 @@ class Toolbar(QWidget):
             self.compound_list, stretch=1
         )  # Give compound list more space
 
-        self.integration = IntegrationWindow()
+        self.integration = IntegrationWindow(self.analysis_mode)
         content_layout.addWidget(
             self.integration, stretch=0
         )  # No stretch for integration window
@@ -206,6 +214,20 @@ class Toolbar(QWidget):
         """)
         content_layout.addWidget(self.baseline_checkbox, stretch=0)
 
+        # Shared y-scale toggle: one common scale across all sample tiles so
+        # abundances are visually comparable (off = per-tile autoscaling).
+        self.shared_yscale_checkbox = QCheckBox("Shared y-scale")
+        self.shared_yscale_checkbox.setObjectName("shared_yscale_checkbox")
+        self.shared_yscale_checkbox.setToolTip(
+            "Use one common intensity scale for all sample plots.\n"
+            "Off: each plot autoscales to its own tallest peak."
+        )
+        self.shared_yscale_checkbox.setStyleSheet(self.baseline_checkbox.styleSheet())
+        self.shared_yscale_checkbox.stateChanged.connect(
+            lambda state: self.shared_y_scale_toggled.emit(state != 0)
+        )
+        content_layout.addWidget(self.shared_yscale_checkbox, stretch=0)
+
         self.isotopologue_ratios = IsotopologueRatioWidget()
         content_layout.addWidget(
             self.isotopologue_ratios, stretch=2
@@ -216,6 +238,15 @@ class Toolbar(QWidget):
             self.total_abundance, stretch=2
         )  # Increased stretch for plots
 
+        self.targeted_qc = TargetedQcWidget()
+        content_layout.addWidget(self.targeted_qc, stretch=2)
+
+        if self.analysis_mode is AnalysisMode.UNLABELLED:
+            self.isotopologue_ratios.hide()
+            self.total_abundance.hide()
+        else:
+            self.targeted_qc.hide()
+
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)
 
@@ -223,8 +254,8 @@ class Toolbar(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
 
-        # self.setFixedWidth(222)
-        self.setMinimumWidth(222)
+        # Wide enough that sample names on the Identity chart remain readable.
+        self.setMinimumWidth(256)
 
         self.setLayout(main_layout)
 

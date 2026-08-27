@@ -69,7 +69,11 @@ A key feature of MANIC (compared to the legacy v3.3.0 tool) is that this correct
 * **Legacy:** Integrate raw M+0, M+1, M+2 peaks $\rightarrow$ Apply correction to the total areas.
 * **MANIC:** Apply correction to every scan (timepoint) $\rightarrow$ Integrate the "Corrected Chromatogram."
 
-This provides higher accuracy because it prevents baseline noise or interfering peaks at specific timepoints from skewing the global correction.   
+This provides higher accuracy because it prevents baseline noise or interfering peaks at specific timepoints from skewing the global correction.
+
+The envelope that enters this correction must be the same kind of measurement on every ion. If chromatographic peak deconvolution fitted every ion of a compound in a sample, correction runs on the dense selected curves. If any ion failed to fit, correction runs on the raw in-window scans for every ion of that pair. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
+
+When the dense-curve path is used with baseline correction on, the curve and the baseline ends are corrected separately: the area from the dense grid, the straight-line ends from the isolated component at the real scan times. See [One curve for display and integration](Reference_Chromatographic_Peak_Deconvolution.md#one-curve-for-display-and-integration).   
 
 ---
 

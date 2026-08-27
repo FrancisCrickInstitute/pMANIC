@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.io.compound_reader import read_compound, read_compound_with_session
+from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.paths import resource_path
@@ -172,9 +173,14 @@ class IntegrationWindow(QGroupBox):
 
 
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+        parent=None,
+    ):
         super().__init__("Selected Plots: All", parent)
         self.setObjectName("integrationWindow")
+        self.analysis_mode = AnalysisMode.coerce(analysis_mode)
 
         # Track current state for apply button management
         self._current_compound: str = ""

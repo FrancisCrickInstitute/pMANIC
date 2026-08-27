@@ -7,12 +7,27 @@ import numpy as np
 
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
+    deconvolve_channel_matrix,
     deconvolve_eic,
 )
 
 logger = logging.getLogger(__name__)
 
 BASELINE_NUM_POINTS = 3  # Number of points to sample at each edge for baseline fitting
+
+
+def _resolve_channel_count(
+    time_data: np.ndarray,
+    intensity_data: np.ndarray,
+    label_atoms: int,
+    channel_count: Optional[int],
+) -> int:
+    """Return the number of analytical traces in a raw or 2D EIC."""
+    if channel_count is not None and int(channel_count) > 0:
+        return int(channel_count)
+    if getattr(intensity_data, "ndim", 1) > 1:
+        return max(1, int(intensity_data.shape[0]))
+    return max(1, (label_atoms or 0) + 1)
 
 
 def _fit_baseline_coefficients(
@@ -205,6 +220,7 @@ def calculate_peak_areas(
     loffset: Optional[float] = None,
     roffset: Optional[float] = None,
     *,
+    channel_count: Optional[int] = None,
     use_legacy: bool = False,
     baseline_correction: bool = False,
     chromatographic_peak_deconvolution_stringency: str = "off",
@@ -219,7 +235,9 @@ def calculate_peak_areas(
     Args:
         time_data: Array of time points
         intensity_data: Array of intensity values (1D for unlabeled, flattened for labeled)
-        label_atoms: Number of labeled atoms (0 for unlabeled compounds)
+        label_atoms: Number of labeled atoms (retained for labelled compatibility)
+        channel_count: Explicit analytical channel count. Use this for arbitrary
+            quantifier/qualifier channels in unlabelled targeted analysis.
         retention_time: Center of integration window
         loffset: Left offset from retention time
         roffset: Right offset from retention time
@@ -275,10 +293,20 @@ def calculate_peak_areas(
                 return np.array([]), np.array([])
         return td, idata
 
-    num_isotopologues = (label_atoms or 0) + 1
+    num_channels = _resolve_channel_count(
+        time_data, intensity_data, label_atoms, channel_count
+    )
 
-    # Unlabeled compound - single trace
-    if (label_atoms or 0) == 0:
+    # Single analytical trace
+    if num_channels == 1:
+        time_1d = np.asarray(time_data, dtype=np.float64).reshape(-1)
+        intensity_1d = np.asarray(intensity_data, dtype=np.float64).reshape(-1)
+        if intensity_1d.size != time_1d.size:
+            logger.warning(
+                "Failed to integrate a single-channel EIC. "
+                f"Expected {time_1d.size} intensity points, got {intensity_1d.size}."
+            )
+            return [0.0]
         if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
             deconvolved = deconvolve_eic(
                 time_data,
@@ -332,16 +360,15 @@ def calculate_peak_areas(
 
         return [float(total_area)]
 
-    # Labeled compound - multiple isotopologue traces
+    # Multiple analytical channels (isotopologues or quantifier/qualifiers)
     num_time_points = len(time_data)
     try:
-        # Reshape intensity data for isotopologues FIRST
-        intensity_reshaped = intensity_data.reshape(num_isotopologues, num_time_points)
+        intensity_reshaped = intensity_data.reshape(num_channels, num_time_points)
 
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
         if chromatographic_peak_deconvolution_enabled(chromatographic_peak_deconvolution_stringency):
-            deconvolved = deconvolve_eic(
+            bundle = deconvolve_channel_matrix(
                 time_data,
                 intensity_matrix,
                 retention_time=retention_time,
@@ -351,37 +378,29 @@ def calculate_peak_areas(
                 fit_type=chromatographic_peak_deconvolution_fit_type,
                 noise_gate=chromatographic_peak_deconvolution_noise_gate,
             )
-            selected = np.asarray(deconvolved.selected, dtype=np.float64)
-            selected_mask = np.asarray(deconvolved.selected_mask, dtype=bool)
-            if deconvolved.model is not None and not use_legacy:
+            if bundle.uses_model_areas() and not use_legacy:
                 td = np.asarray(time_data, dtype=np.float64)
-                return [
-                    _integrate_model_component(
-                        deconvolved.model,
-                        td[selected_mask[i, :]],
-                        selected[i, selected_mask[i, :]],
-                        channel=i,
-                        baseline_correction=baseline_correction,
+                areas: List[float] = []
+                for channel in bundle.channels:
+                    selected = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                    selected_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                    areas.append(
+                        _integrate_model_component(
+                            channel.result.model,
+                            td[selected_mask],
+                            selected[selected_mask],
+                            channel=0,
+                            baseline_correction=baseline_correction,
+                        )
                     )
-                    for i in range(num_isotopologues)
-                ]
-            return [
-                _integrate_deconvolved_trace(
-                    np.asarray(time_data, dtype=np.float64),
-                    selected[i, :],
-                    selected_mask[i, :],
-                    use_legacy=use_legacy,
-                    baseline_correction=baseline_correction,
-                )
-                for i in range(num_isotopologues)
-            ]
+                return areas
 
         # Apply integration boundaries only after deciding deconvolution is off.
         td, intensity_reshaped = apply_integration_boundaries(
             time_data, intensity_reshaped
         )
         if len(td) == 0:
-            return [0.0] * num_isotopologues
+            return [0.0] * num_channels
         intensity_matrix = np.asarray(intensity_reshaped, dtype=np.float64)
 
         if use_legacy:
@@ -405,10 +424,10 @@ def calculate_peak_areas(
         # If reshaping fails, log the issue and return zeros
         logger.warning(
             "Failed to reshape intensity data for isotopologue integration. "
-            f"Expected shape: ({num_isotopologues}, {num_time_points}), "
+            f"Expected shape: ({num_channels}, {num_time_points}), "
             f"Got total elements: {len(intensity_data)}. Error: {e}"
         )
-        return [0.0] * num_isotopologues
+        return [0.0] * num_channels
 
 
 def _integrate_model_component(
@@ -420,14 +439,7 @@ def _integrate_model_component(
     baseline_correction: bool,
     samples_per_scan: int = 16,
 ) -> float:
-    """Integrate the continuous fitted model over the integration window.
-
-    Uses the same smooth curve that is drawn on screen (evaluated on a dense
-    grid) rather than the model's values sampled at the acquisition scans, so
-    the exported area matches the displayed peak and captures the curved apex
-    that a coarse scan-point trapezoid under-counts. Only used for time-based
-    (non-legacy) integration; the integration limits are unchanged.
-    """
+    """Integrate the fitted model on a dense grid over the integration window."""
     scan_time = np.asarray(scan_time, dtype=np.float64)
     if scan_time.size == 0:
         return 0.0
@@ -437,14 +449,38 @@ def _integrate_model_component(
     values = model.evaluate(grid, model.selected_index)
     channel_values = values[channel] if values.ndim > 1 else values
 
-    total_area = float(np.trapezoid(channel_values, grid))
-    if baseline_correction:
+    return _integrate_dense_rows(
+        grid,
+        np.asarray(channel_values, dtype=np.float64).reshape(1, -1),
+        [scan_time],
+        [np.asarray(scan_values, dtype=np.float64)],
+        baseline_correction=baseline_correction,
+    )[0]
+
+
+def _integrate_dense_rows(
+    grid: np.ndarray,
+    matrix: np.ndarray,
+    scan_times: List[np.ndarray],
+    scan_values: List[np.ndarray],
+    *,
+    baseline_correction: bool,
+) -> List[float]:
+    """Trapezoid each dense row, then subtract the scan-edge baseline."""
+    grid = np.asarray(grid, dtype=np.float64)
+    matrix = np.asarray(matrix, dtype=np.float64)
+    areas = [float(np.trapezoid(row, grid)) for row in matrix]
+    if not baseline_correction:
+        return areas
+    for index, area in enumerate(areas):
         baseline_area = compute_baseline_area(
-            scan_time, np.asarray(scan_values, dtype=np.float64), use_legacy=False
+            scan_times[index],
+            scan_values[index],
+            use_legacy=False,
         )
         if baseline_area is not None:
-            total_area = max(0.0, total_area - baseline_area)
-    return float(total_area)
+            areas[index] = max(0.0, area - baseline_area)
+    return areas
 
 
 def _integrate_deconvolved_trace(

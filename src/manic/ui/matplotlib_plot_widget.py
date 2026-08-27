@@ -513,6 +513,8 @@ class MatplotlibPlotWidget(QWidget):
                 linestyle = "--"
             elif style == "dotted":
                 linestyle = ":"
+            elif style == "dashdot":
+                linestyle = "-."
 
             # Add vertical line
             self.ax.axvline(

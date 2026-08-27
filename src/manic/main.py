@@ -22,17 +22,25 @@ def configure_logging() -> None:
 def main():
     from PySide6.QtWidgets import QApplication
 
+    from manic.models.analysis import AnalysisContext
+    from manic.ui.analysis_mode_dialog import choose_analysis_mode
     from manic.ui.main_window import MainWindow
 
     logger = logging.getLogger(__name__)
 
     configure_logging()
+    app = QApplication(sys.argv)
+
+    selected_mode = choose_analysis_mode()
+    if selected_mode is None:
+        logger.info("Application start cancelled before analysis selection")
+        return 0
+
     init_db()
     clear_database()
     print("Database initialized")
 
-    app = QApplication(sys.argv)
-    manic = MainWindow()
+    manic = MainWindow(AnalysisContext(selected_mode))
     manic.showMaximized()
     logger.info("Application Running")
     return app.exec()

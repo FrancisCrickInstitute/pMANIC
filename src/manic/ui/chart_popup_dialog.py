@@ -15,18 +15,34 @@ from PySide6.QtGui import QColor, QCursor, QFont, QPainter
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QToolTip, QVBoxLayout
 
 from manic.ui.colors import label_colors
+from manic.ui.identity_chart import (
+    RatioVerdict,
+    add_identity_series,
+    show_identity_tooltip,
+)
 
 
 class ChartPopupDialog(QDialog):
     """Modal dialog showing an enlarged version of toolbar charts with sample names visible."""
 
-    def __init__(self, chart_type: str, title: str, data, sample_names: List[str], parent=None):
+    def __init__(
+        self,
+        chart_type: str,
+        title: str,
+        data,
+        sample_names: List[str],
+        parent=None,
+        *,
+        hover_notes: list[str] | None = None,
+    ):
         super().__init__(parent)
         self.chart_type = chart_type
         self.data = data
         self.sample_names = sample_names
+        self.hover_notes = hover_notes
 
         self._hover_categories: list[str] | None = None
+        self._hover_notes: list[str] | None = None
         self._total_abundance_scale_factor: float = 1.0
         
         self.setWindowTitle(f"MANIC - {title}")
@@ -107,6 +123,8 @@ class ChartPopupDialog(QDialog):
             self._create_total_abundance_chart()
         elif self.chart_type == "isotopologue_ratios":
             self._create_isotopologue_chart()
+        elif self.chart_type == "identity":
+            self._create_identity_chart()
     
     def _create_total_abundance_chart(self):
         """Create enlarged total abundance chart with sample names on Y-axis."""
@@ -196,6 +214,50 @@ class ChartPopupDialog(QDialog):
         # Attach series to axes
         stacked_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         stacked_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+
+    def _create_identity_chart(self):
+        if not self.data or not self.sample_names:
+            return
+
+        samples = [
+            (name, RatioVerdict(value))
+            for name, value in zip(self.sample_names, self.data)
+        ]
+        self._hover_categories = add_identity_series(
+            self.chart, samples, show_names=True
+        )
+        if self.hover_notes:
+            self._hover_notes = list(reversed(self.hover_notes))
+        self.chart.legend().setVisible(True)
+        self.chart.legend().setAlignment(Qt.AlignBottom)
+        self.chart.legend().setFont(QFont("Arial", 10))
+
+        for series in self.chart.series():
+            for bar_set in series.barSets():
+                bar_set.hovered.connect(
+                    lambda status, index, bs=bar_set: self._on_identity_bar_hover(
+                        bs, status, index
+                    )
+                )
+
+    def _on_identity_bar_hover(
+        self, bar_set: QBarSet, status: bool, index: int
+    ) -> None:
+        if not status or float(bar_set.at(index)) <= 0:
+            QToolTip.hideText()
+            return
+
+        sample_name = self._sample_name_for_hover_index(index)
+        if sample_name is None:
+            return
+
+        note = ""
+        if self._hover_notes is not None and 0 <= index < len(self._hover_notes):
+            note = self._hover_notes[index]
+        text = f"{sample_name}\n{bar_set.label()}"
+        if note:
+            text = f"{text}\n{note}"
+        show_identity_tooltip(self.chart_view, text)
     
     def closeEvent(self, event) -> None:
         QToolTip.hideText()

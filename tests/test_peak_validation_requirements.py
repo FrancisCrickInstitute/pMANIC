@@ -102,6 +102,28 @@ def test_data_provider_peak_validation_uses_reference_isotope_index():
     )
 
 
+def test_peak_validation_uses_quantification_total_not_all_channels(monkeypatch):
+    """A strong V ion must not rescue a weak Q ion in unlabelled validation."""
+    provider = DataProvider()
+    monkeypatch.setattr(
+        provider,
+        "get_compound_total_area",
+        lambda _sample, _compound: 1.0,
+    )
+    monkeypatch.setattr(
+        provider,
+        "get_compound_areas",
+        lambda _sample, compound: [10.0] if compound == "ISTD" else [1.0, 100.0],
+    )
+
+    assert not provider.validate_peak_area(
+        "Sample1",
+        "Target",
+        "ISTD",
+        0.5,
+    )
+
+
 def test_data_provider_peak_metrics_with_session_overrides():
     """Peak metrics should reflect session-adjusted integration boundaries."""
     provider = DataProvider()

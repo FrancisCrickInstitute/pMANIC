@@ -960,6 +960,31 @@ def test_calculate_peak_areas_mixed_bundle_uses_raw_window(monkeypatch):
     assert mixed == pytest.approx(expected)
 
 
+def test_taller_out_of_window_neighbors_do_not_starve_target_peak():
+    """A slightly shorter target must still be modelled when taller neighbours
+    sit in the expanded fit context but outside the integration window."""
+    time = np.linspace(14.554, 14.950, 97)
+    intensity = (
+        _gaussian(time, 14.653, 0.012, 18.0)
+        + _gaussian(time, 14.698, 0.012, 16.2)
+        + _gaussian(time, 14.748, 0.012, 15.4)
+        + _gaussian(time, 14.872, 0.012, 17.4)
+    )
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=14.75,
+        loffset=0.03,
+        roffset=0.095,
+        stringency="4",
+    )
+
+    assert result.model is not None
+    assert result.selected_center == pytest.approx(14.75, abs=0.02)
+    assert result.model.n_components >= 2
+
+
 def test_clipped_neighbor_peak_is_split_from_target():
     """A tall Q peak clipped at the extract edge must still be split off tR."""
     full_time = np.linspace(14.20, 14.80, 241)

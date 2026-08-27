@@ -10,6 +10,8 @@ providing sample-specific parameter overrides that persist during the current se
 """
 
 import logging
+import sqlite3
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -29,6 +31,16 @@ class SessionData:
     sample_deleted: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class PendingRegeneration:
+    compound_name: str
+    retention_time: float | None
+    loffset: float
+    roffset: float
+    sample_names: tuple[str, ...]
+    regenerated_sample_names: tuple[str, ...]
+
+
 class SessionActivityService:
     """
     Service for managing session activity data that overrides default compound parameters.
@@ -44,6 +56,7 @@ class SessionActivityService:
         sample_names: List[str],
         loffset: float,
         roffset: float,
+        connection: sqlite3.Connection | None = None,
     ) -> None:
         """Update offsets for samples while preserving each sample's RT.
 
@@ -73,7 +86,12 @@ class SessionActivityService:
         placeholders = ",".join(["?"] * len(sample_names))
 
         try:
-            with get_connection() as conn:
+            connection_context = (
+                nullcontext(connection)
+                if connection is not None
+                else get_connection()
+            )
+            with connection_context as conn:
                 base_row = conn.execute(
                     """
                     SELECT retention_time
@@ -145,7 +163,8 @@ class SessionActivityService:
         sample_names: List[str], 
         retention_time: float,
         loffset: float, 
-        roffset: float
+        roffset: float,
+        connection: sqlite3.Connection | None = None,
     ) -> None:
         """
         Update session activity data for multiple samples with the same compound parameters.
@@ -196,7 +215,12 @@ class SessionActivityService:
         )
         
         try:
-            with get_connection() as conn:
+            connection_context = (
+                nullcontext(connection)
+                if connection is not None
+                else get_connection()
+            )
+            with connection_context as conn:
                 # First, delete existing records to avoid duplicates
                 delete_sql = """
                     DELETE FROM session_activity 

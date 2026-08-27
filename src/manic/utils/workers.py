@@ -11,6 +11,7 @@ from manic.io.eic_importer import (
     regenerate_all_eics_with_mass_tolerance,
     regenerate_compound_eics,
 )
+from manic.models.session_activity import PendingRegeneration
 
 
 class UpdateCheckWorker(QThread):
@@ -97,13 +98,15 @@ class EicRegenerationWorker(QObject):
         compound_name: str,
         tr_window: float,
         sample_names: list,
-        retention_time: float,
+        retention_time: float | dict[str, float],
+        pending_regeneration: PendingRegeneration | None = None,
     ):
         super().__init__()
         self._compound_name = compound_name
         self._tr_window = tr_window
         self._sample_names = sample_names
         self._retention_time = retention_time
+        self._pending_regeneration = pending_regeneration
 
     @Slot()
     def run(self):
@@ -114,6 +117,7 @@ class EicRegenerationWorker(QObject):
                 sample_names=self._sample_names,
                 progress_cb=self.progress.emit,
                 retention_time=self._retention_time,
+                pending_regeneration=self._pending_regeneration,
             )
             self.finished.emit(count)
         except Exception as exc:

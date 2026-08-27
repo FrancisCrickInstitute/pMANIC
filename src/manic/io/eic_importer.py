@@ -1,6 +1,7 @@
 import logging
 import time
 import zlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -11,7 +12,8 @@ from manic.constants import DEFAULT_RT_WINDOW_BUFFER
 from manic.io.cdf_reader import read_cdf_file
 from manic.io.compound_reader import read_compound
 from manic.models.database import get_connection
-from manic.processors.eic_calculator import extract_eic
+from manic.models.session_activity import PendingRegeneration, SessionActivityService
+from manic.processors.eic_calculator import EIC, EmptyRtWindowError, extract_eic
 from manic.io.tic_reader import store_tic_data
 from manic.io.ms_reader import store_ms_data_batch
 
@@ -513,13 +515,15 @@ def regenerate_compound_eics(
     sample_names: list,
     mass_tol: float = 0.25,
     progress_cb: Optional[Callable[[int, int], None]] = None,
-    retention_time: Optional[float] = None,
+    retention_time: float | Mapping[str, float] | None = None,
+    pending_regeneration: PendingRegeneration | None = None,
 ) -> int:
     """
     Regenerate EIC data for a specific compound across given samples with new tR window.
 
-    Each sample is replaced only after extraction succeeds, so a failed window
-    leaves the previous EIC in place. Session data is NOT touched.
+    Extracts every requested sample into memory first. Replaces raw EICs and
+    removes stale corrections in one transaction after every extraction
+    succeeds. Pending session values join that transaction when provided.
 
     Parameters
     ----------
@@ -533,13 +537,15 @@ def regenerate_compound_eics(
         Mass tolerance offset for MANIC's asymmetric matching method (Da)
     progress_cb : Callable[[done, total], None] | None
         Optional callback for GUI progress bars
-    retention_time : float | None
-        Retention time to center the window at. If None, uses compound default.
+    retention_time : float | Mapping[str, float] | None
+        One retention time, per-sample retention times, or the compound default.
+    pending_regeneration : PendingRegeneration | None
+        Session values to commit with the regenerated EICs.
 
     Returns
     -------
     int
-        Number of EIC rows regenerated
+        Number of EIC rows regenerated, equal to the request size on success
     """
     start = time.time()
 
@@ -547,18 +553,8 @@ def regenerate_compound_eics(
         f"Starting regeneration for compound '{compound_name}' with tR window {tr_window}"
     )
 
-    # Get compound data (retention time, mass, label_atoms)
     try:
         compound_data = read_compound(compound_name)
-        # Use provided retention_time if given, otherwise use compound default
-        rt = (
-            retention_time
-            if retention_time is not None
-            else compound_data.retention_time
-        )
-        logger.info(
-            f"Using retention time {rt:.3f} for EIC extraction (compound default: {compound_data.retention_time:.3f})"
-        )
         mz = compound_data.mass0
         label_atoms = compound_data.label_atoms
         target_mzs = tuple(
@@ -567,39 +563,78 @@ def regenerate_compound_eics(
     except Exception as e:
         raise RuntimeError(f"Failed to read compound '{compound_name}': {e}")
 
-    # Get sample file paths from database
-    sample_files = {}
+    if pending_regeneration is not None:
+        if pending_regeneration.compound_name != compound_name:
+            raise ValueError("Pending session compound does not match regeneration")
+        if set(pending_regeneration.regenerated_sample_names) != set(sample_names):
+            raise ValueError("Pending session samples do not match regeneration")
+
+    if isinstance(retention_time, Mapping):
+        missing_rts = [
+            sample_name
+            for sample_name in sample_names
+            if sample_name not in retention_time
+        ]
+        if missing_rts:
+            missing_samples = ", ".join(missing_rts)
+            raise ValueError(
+                f"Missing retention times for {missing_samples}. "
+                f"No changes were applied."
+            )
+        retention_times = {
+            sample_name: float(retention_time[sample_name])
+            for sample_name in sample_names
+        }
+        logger.info("Using per-sample retention times for EIC extraction")
+    else:
+        rt = (
+            float(retention_time)
+            if retention_time is not None
+            else compound_data.retention_time
+        )
+        retention_times = dict.fromkeys(sample_names, rt)
+        logger.info(
+            f"Using retention time {rt:.3f} for EIC extraction "
+            f"(compound default: {compound_data.retention_time:.3f})"
+        )
+
+    sample_files: dict[str, Path] = {}
     with get_connection() as conn:
         for sample_name in sample_names:
+            sample_rt = retention_times[sample_name]
             row = conn.execute(
                 "SELECT file_name FROM samples WHERE sample_name = ? AND deleted = 0",
                 (sample_name,),
             ).fetchone()
-            if row:
-                sample_files[sample_name] = Path(row["file_name"])
-            else:
-                logger.warning(f"Sample '{sample_name}' not found in database")
+            if row is None:
+                raise ValueError(
+                    f"Cannot apply retention time {sample_rt:.3f} min: "
+                    f"sample '{sample_name}' was not found in the database. "
+                    f"No changes were applied."
+                )
+            sample_files[sample_name] = Path(row["file_name"])
 
     if not sample_files:
         raise RuntimeError("No valid samples found for regeneration")
 
+    extracted_eics: dict[str, EIC] = {}
     total_work = len(sample_files)
     done = 0
-    regenerated = 0
 
     for sample_name, cdf_path in sample_files.items():
-        try:
-            if not cdf_path.exists():
-                logger.warning(f"CDF file not found: {cdf_path}")
-                done += 1
-                if progress_cb:
-                    progress_cb(done, total_work)
-                continue
+        sample_rt = retention_times[sample_name]
+        if not cdf_path.exists():
+            raise ValueError(
+                f"Cannot apply retention time {sample_rt:.3f} min: "
+                f"CDF file not found for sample '{sample_name}'. "
+                f"No changes were applied."
+            )
 
+        try:
             cdf = read_cdf_file(cdf_path)
-            eic = extract_eic(
+            extracted_eics[sample_name] = extract_eic(
                 compound_name,
-                rt,
+                sample_rt,
                 mz,
                 cdf,
                 mass_tol,
@@ -607,14 +642,32 @@ def regenerate_compound_eics(
                 label_atoms,
                 target_mzs,
             )
+        except EmptyRtWindowError as e:
+            raise ValueError(
+                f"Cannot apply retention time {sample_rt:.3f} min: "
+                f"no scans inside the ±{tr_window:.3f} min window "
+                f"for sample '{sample_name}'. No changes were applied."
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not regenerate sample '{sample_name}'. "
+                f"No changes were applied. {e}"
+            ) from e
 
-            with get_connection() as conn:
+        done += 1
+        if progress_cb:
+            progress_cb(done, total_work)
+
+    try:
+        with get_connection() as conn:
+            for sample_name, eic in extracted_eics.items():
                 conn.execute(
                     "DELETE FROM eic WHERE compound_name = ? AND sample_name = ?",
                     (compound_name, sample_name),
                 )
                 conn.execute(
-                    "DELETE FROM eic_corrected WHERE compound_name = ? AND sample_name = ?",
+                    "DELETE FROM eic_corrected "
+                    "WHERE compound_name = ? AND sample_name = ?",
                     (compound_name, sample_name),
                 )
                 conn.execute(
@@ -627,38 +680,42 @@ def regenerate_compound_eics(
                     ) VALUES (?,?,?,?,?,0,0,NULL,NULL)
                     """,
                     (
-                        eic.sample_name,
-                        eic.compound_name,
+                        sample_name,
+                        compound_name,
                         _compress(eic.time),
                         _compress(eic.intensity),
                         tr_window,
                     ),
                 )
-
-            regenerated += 1
-            logger.debug(
-                f"Regenerated EIC for '{compound_name}' in sample '{sample_name}' - time range: {eic.time.min():.3f} to {eic.time.max():.3f} min"
-            )
-
-        except ValueError as e:
-            logger.warning(
-                f"No data in RT/m/z window for '{compound_name}' in '{sample_name}': {e}"
-            )
-        except Exception as e:
-            logger.error(
-                f"Failed to regenerate EIC for '{compound_name}' in '{sample_name}': {e}"
-            )
-
-        done += 1
-        if progress_cb:
-            progress_cb(done, total_work)
+            if pending_regeneration is not None:
+                if pending_regeneration.retention_time is None:
+                    SessionActivityService.update_offsets_preserve_rt(
+                        compound_name=compound_name,
+                        sample_names=list(pending_regeneration.sample_names),
+                        loffset=pending_regeneration.loffset,
+                        roffset=pending_regeneration.roffset,
+                        connection=conn,
+                    )
+                else:
+                    SessionActivityService.update_session_data(
+                        compound_name=compound_name,
+                        sample_names=list(pending_regeneration.sample_names),
+                        retention_time=pending_regeneration.retention_time,
+                        loffset=pending_regeneration.loffset,
+                        roffset=pending_regeneration.roffset,
+                        connection=conn,
+                    )
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not commit regenerated data. "
+            f"No changes were applied. {e}"
+        ) from e
 
     elapsed = time.time() - start
     logger.info(
-        f"Regenerated {regenerated} EICs for '{compound_name}' in {elapsed:.1f} s"
+        f"Regenerated {len(extracted_eics)} EICs for '{compound_name}' in {elapsed:.1f} s"
     )
 
-    # Recalculate natural abundance corrections for this compound
     try:
         from manic.processors.eic_correction_manager import apply_correction_to_eic
 
@@ -666,7 +723,7 @@ def regenerate_compound_eics(
             f"Recalculating natural abundance corrections for '{compound_name}'..."
         )
         corrections_count = 0
-        for sample_name in sample_names:
+        for sample_name in extracted_eics:
             if apply_correction_to_eic(sample_name, compound_name):
                 corrections_count += 1
         if corrections_count > 0:
@@ -676,7 +733,7 @@ def regenerate_compound_eics(
     except Exception as e:
         logger.warning(f"Failed to recalculate corrections for '{compound_name}': {e}")
 
-    return regenerated
+    return len(extracted_eics)
 
 
 def regenerate_all_eics_with_mass_tolerance(

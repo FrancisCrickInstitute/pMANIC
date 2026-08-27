@@ -6,6 +6,10 @@ import numpy as np
 from manic.io.cdf_reader import CdfFileData
 
 
+class EmptyRtWindowError(ValueError):
+    pass
+
+
 @dataclass(slots=True)
 class EIC:
     compound_name: str
@@ -63,7 +67,7 @@ def _extract_eic_with_times(
     time_mask = (times >= t_r - rt_window) & (times <= t_r + rt_window)
     idx = np.where(time_mask)[0]
     if idx.size == 0:
-        raise ValueError("no scans inside RT window")
+        raise EmptyRtWindowError("no scans inside RT window")
 
     starts = cdf.scan_index[idx]
     if idx[-1] + 1 < len(cdf.scan_index):

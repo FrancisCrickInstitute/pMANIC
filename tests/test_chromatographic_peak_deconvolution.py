@@ -143,6 +143,24 @@ def _spy_overlap_fitter(monkeypatch):
     return calls
 
 
+def _spy_any_fitter(monkeypatch):
+    calls = []
+    real_single = deconv._fit_single_component_model_cached
+    real_joint = deconv._fit_joint_component_model_cached
+
+    def spy_single(*args, **kwargs):
+        calls.append("single")
+        return real_single(*args, **kwargs)
+
+    def spy_joint(*args, **kwargs):
+        calls.append("joint")
+        return real_joint(*args, **kwargs)
+
+    monkeypatch.setattr(deconv, "_fit_single_component_model_cached", spy_single)
+    monkeypatch.setattr(deconv, "_fit_joint_component_model_cached", spy_joint)
+    return calls
+
+
 def test_resolved_single_peak_skips_the_overlap_fitter(monkeypatch):
     time = np.linspace(0.0, 10.0, 201)
     peak = _gaussian(time, 5.0, 0.3, 10.0)
@@ -653,26 +671,22 @@ def test_noise_gate_threshold_controls_skipping():
     assert _too_messy_to_fit(noise, NOISE_GATE_PRESETS["off"]) is False
 
 
-def test_noise_gate_off_does_not_skip_messy_window():
-    # With the gate off, a noisy window is no longer auto-skipped before fitting.
+def test_noise_gate_off_does_not_skip_messy_window(monkeypatch):
     rng = np.random.default_rng(0)
     time = np.linspace(8.0, 9.0, 80)
     noise = np.clip(rng.normal(20.0, 8.0, time.size), 0.0, None)
-
-    balanced = deconvolve_eic(
-        time, noise, retention_time=8.5, loffset=0.3, roffset=0.3,
-        stringency="4", fit_type="auto", noise_gate="balanced",
+    kwargs = dict(
+        retention_time=8.5, loffset=0.3, roffset=0.3,
+        stringency="4", fit_type="auto",
     )
-    off = deconvolve_eic(
-        time, noise, retention_time=8.5, loffset=0.3, roffset=0.3,
-        stringency="4", fit_type="auto", noise_gate="off",
-    )
+    calls = _spy_any_fitter(monkeypatch)
 
-    assert balanced.model is None  # gate skipped the messy window
-    # "off" went through the fitter instead of short-circuiting; whatever the
-    # fitter decides, it must not be skipped by the gate, so the two paths differ
-    # only via the gate (this asserts the gate is actually wired to the preset).
-    assert _too_messy_to_fit(np.sum(np.atleast_2d(noise), axis=0), None) is False
+    balanced = deconvolve_eic(time, noise, noise_gate="balanced", **kwargs)
+    assert balanced.model is None
+    assert calls == []
+
+    deconvolve_eic(time, noise, noise_gate="off", **kwargs)
+    assert calls
 
 
 def test_sparse_clean_peak_is_not_treated_as_messy():

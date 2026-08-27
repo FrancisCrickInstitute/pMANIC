@@ -71,12 +71,28 @@ def parse_session_internal_standard(
 
 
 def read_session_internal_standard(import_path: str) -> SessionInternalStandard | None:
-    path = Path(import_path)
-    with open(path, encoding="utf-8") as handle:
-        method_data = json.load(handle)
+    try:
+        with open(import_path, encoding="utf-8") as handle:
+            method_data = json.load(handle)
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+        logger.warning("Could not read internal standard from %s", import_path)
+        return None
     if not isinstance(method_data, dict):
         return None
     return parse_session_internal_standard(method_data)
+
+
+def clamp_reference_isotope(isotope: int, channel_count: int) -> int:
+    try:
+        count = int(channel_count)
+    except (TypeError, ValueError):
+        return 0
+    if count <= 0:
+        return 0
+    max_idx = count - 1
+    if 0 <= isotope <= max_idx:
+        return isotope
+    return 0
 
 
 def resolve_session_internal_standard(

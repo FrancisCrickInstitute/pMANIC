@@ -144,8 +144,8 @@ def test_session_export_writes_internal_standard(temp_method_db):
     changelog = next(
         (tmp_path / "manic_session_export").glob("changelog_*.md")
     ).read_text(encoding="utf-8")
-    assert "Alanine" in changelog
-    assert "M+2" in changelog
+    assert "**Internal Standard:** Alanine" in changelog
+    assert "**Internal Standard Reference Peak:** M+2" in changelog
 
 
 def test_session_export_writes_null_standard_by_default(temp_method_db):
@@ -182,13 +182,24 @@ def test_read_session_internal_standard_round_trip(temp_method_db):
     assert parsed.reference_isotope == 1
 
 
-def test_read_session_internal_standard_absent_key_leaves_toolbar(tmp_path):
+def test_read_session_internal_standard_absent_key(tmp_path):
     legacy_path = tmp_path / "legacy.json"
     legacy_path.write_text(
         json.dumps({"compounds": [], "session_overrides": []}),
         encoding="utf-8",
     )
     assert session_export.read_session_internal_standard(str(legacy_path)) is None
+
+
+def test_read_session_internal_standard_unreadable_file_returns_none(tmp_path):
+    missing = tmp_path / "missing.json"
+    assert session_export.read_session_internal_standard(str(missing)) is None
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not-json", encoding="utf-8")
+    assert session_export.read_session_internal_standard(str(bad)) is None
+    listed = tmp_path / "list.json"
+    listed.write_text("[]", encoding="utf-8")
+    assert session_export.read_session_internal_standard(str(listed)) is None
 
 
 def test_read_session_internal_standard_explicit_null_clears(tmp_path):
@@ -219,6 +230,15 @@ def test_resolve_session_internal_standard_keeps_active_name():
     parsed = session_export.SessionInternalStandard("Alanine", 2)
     resolved = session_export.resolve_session_internal_standard(parsed, ["Alanine"])
     assert resolved == parsed
+
+
+def test_clamp_reference_isotope_rejects_out_of_range():
+    assert session_export.clamp_reference_isotope(2, 4) == 2
+    assert session_export.clamp_reference_isotope(0, 4) == 0
+    assert session_export.clamp_reference_isotope(3, 4) == 3
+    assert session_export.clamp_reference_isotope(99, 4) == 0
+    assert session_export.clamp_reference_isotope(-1, 4) == 0
+    assert session_export.clamp_reference_isotope(1, 0) == 0
 
 
 def test_import_session_overrides_still_returns_two_tuple(temp_method_db):
@@ -281,6 +301,51 @@ def test_apply_imported_standard_leaves_toolbar_when_key_absent(tmp_path):
     )
     host = _FakeWindow()
     MainWindow._apply_imported_internal_standard(host, str(legacy_path))
+    assert host.toolbar.standard.internal_standard == "keep-me"
+    assert host.internal_standard_reference_isotope == 7
+    assert host.menu_updated is False
+
+
+def test_apply_imported_standard_clears_on_explicit_null(temp_method_db):
+    _, tmp_path = temp_method_db
+    path = tmp_path / "cleared.json"
+    path.write_text(
+        json.dumps({"internal_standard": None, "internal_standard_reference_isotope": 3}),
+        encoding="utf-8",
+    )
+    host = _FakeWindow()
+    MainWindow._apply_imported_internal_standard(host, str(path))
+    assert host.toolbar.standard.internal_standard is None
+    assert host.internal_standard_reference_isotope == 0
+    assert host.menu_updated is True
+
+
+def test_apply_imported_standard_clamps_out_of_range_isotope(temp_method_db):
+    _, tmp_path = temp_method_db
+    json_path, _ = _exported_method(
+        tmp_path,
+        internal_standard="Alanine",
+        internal_standard_reference_isotope=99,
+    )
+    host = _FakeWindow()
+    MainWindow._apply_imported_internal_standard(host, str(json_path))
+    assert host.toolbar.standard.internal_standard == "Alanine"
+    assert host.internal_standard_reference_isotope == 0
+    assert host.menu_updated is True
+
+
+def test_apply_imported_standard_leaves_toolbar_when_restore_fails(
+    temp_method_db, monkeypatch
+):
+    _, tmp_path = temp_method_db
+    json_path, _ = _exported_method(tmp_path, internal_standard="Alanine")
+
+    def _boom(_name):
+        raise LookupError("compound missing")
+
+    monkeypatch.setattr("manic.ui.main_window.read_compound", _boom)
+    host = _FakeWindow()
+    MainWindow._apply_imported_internal_standard(host, str(json_path))
     assert host.toolbar.standard.internal_standard == "keep-me"
     assert host.internal_standard_reference_isotope == 7
     assert host.menu_updated is False

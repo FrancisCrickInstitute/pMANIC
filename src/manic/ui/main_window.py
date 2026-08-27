@@ -41,9 +41,10 @@ from manic.io.data_exporter import DataExporter, validate_internal_standard_meta
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
-from manic.io.compound_reader import read_compound_with_session
+from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.models.session_export import (
+    clamp_reference_isotope,
     export_session_method,
     get_method_info,
     import_session_overrides,
@@ -1896,18 +1897,29 @@ class MainWindow(QMainWindow):
             msg.exec()
 
     def _apply_imported_internal_standard(self, import_path: str) -> None:
-        parsed = read_session_internal_standard(import_path)
-        resolved = resolve_session_internal_standard(parsed, list_compound_names())
-        if resolved is None:
-            return
-        if resolved.compound_name is None:
-            self.toolbar.standard.clear_internal_standard()
-        else:
-            self.toolbar.standard.set_internal_standard(resolved.compound_name)
-        self.internal_standard_reference_isotope = resolved.reference_isotope
-        if self._validation_provider is not None:
-            self._validation_provider.invalidate_cache()
-        self._update_menu_states()
+        try:
+            parsed = read_session_internal_standard(import_path)
+            resolved = resolve_session_internal_standard(parsed, list_compound_names())
+            if resolved is None:
+                return
+            if resolved.compound_name is None:
+                self.toolbar.standard.clear_internal_standard()
+                isotope = 0
+            else:
+                compound = read_compound(resolved.compound_name)
+                isotope = clamp_reference_isotope(
+                    resolved.reference_isotope,
+                    compound.channel_count,
+                )
+                self.toolbar.standard.set_internal_standard(resolved.compound_name)
+            self.internal_standard_reference_isotope = isotope
+            if self._validation_provider is not None:
+                self._validation_provider.invalidate_cache()
+            self._update_menu_states()
+        except Exception:
+            logger.exception(
+                "Failed to restore internal standard from session import"
+            )
 
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""

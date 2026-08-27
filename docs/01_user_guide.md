@@ -268,7 +268,7 @@ MANIC allows you to save the "state" of your analysis—including all compound d
 ### Export Session
 **File → Export Session...**
 * **Function:** Creates a `.json` file containing your analytical method and a human-readable changelog.
-* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), and each compound's processing settings — baseline correction and the deconvolution settings (level, fit type, and noise gate).
+* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, and the labelled internal-standard reference peak (M+N).
 * **What is NOT saved:** The raw mass spectrometry data (CDF content).
 * **Use Case:** Archiving your analysis method or sharing it with a colleague who has the same raw files.
 
@@ -278,8 +278,8 @@ MANIC allows you to save the "state" of your analysis—including all compound d
 * **Workflow:**
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
-    3.  **Import Session** to apply the saved boundaries, overrides, and deconvolution/baseline settings.
-* **Backward compatibility:** Older session files that predate the deconvolution settings import without error — compounds simply keep their current settings for any value the file does not contain.
+    3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, and internal standard.
+* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged.
 
 ---
 

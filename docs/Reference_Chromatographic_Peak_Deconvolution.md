@@ -2,30 +2,30 @@
 
 ## Overview
 
-Chromatographic peak deconvolution separates partially overlapping extracted ion chromatogram (EIC) signals before peak area integration. In MANIC this is distinct from natural isotope correction: chromatographic deconvolution works in retention-time space, while natural isotope correction works across isotopologue abundances after integration.
+Chromatographic peak deconvolution separates partially overlapping extracted ion chromatogram (EIC) signals before peak area integration. In MANIC this is distinct from natural isotope correction: chromatographic deconvolution works in retention-time space, while natural isotope correction works across isotopologue intensities before integration.
 
-When enabled, MANIC fits peak shapes to the signal around the expected retention time on every fittable channel of every sample. Export then uses one measurement method for that compound in that sample: dense model areas if every ion fitted, or the raw in-window scan traces if any ion did not.
+When enabled, MANIC fits peak shapes to the signal around the expected retention time on every fittable channel of every sample. Export then uses one measurement method for that compound in that sample: dense model areas if every non-empty ion fitted, or the raw in-window scan traces if any ion with real intensity did not. An ion with no finite positive signal inside the integration window is empty. It does not count as a failed fit.
 
-If the window contains two or more overlapping peaks and the fit is acceptable, the component nearest the expected retention time is selected and the others are excluded. A well-resolved single peak becomes a one-component model. Empty, too-short, or too-messy windows, and fits that fail or collapse an overlap to one component, still use the raw trace.
+If the window contains two or more overlapping peaks and the fit is acceptable, the component nearest the expected retention time **whose centre sits inside the loffset/roffset window** is selected and the others are excluded. A neighbour whose centre is outside those dashes is never the selected peak. If a successful fit has no centre inside the dashed boundaries, that ion is empty and contributes zero on model, raw-fallback, and legacy paths. A well-resolved single peak becomes a one-component model. A one-component model can also win when splitting an overlap does not improve BIC enough. Too-short or too-messy windows and unusable fits use the raw trace.
 
-The integration offsets (loffset/roffset) do not alter the shape of the fitted curve. They only determine which portion of the selected peak contributes to the final area. Moving an integration boundary therefore changes how much of the peak is integrated, not its fitted shape.
+The integration offsets (loffset/roffset) decide which component may be selected and which portion contributes to the final area. Each offset also sets the fit context when it exceeds the 0.25-minute minimum, so moving a wider boundary can change the fitted curve.
 
 ## Consistency across samples and isotopologues
 
 Deconvolution settings are per compound and apply to every sample. When the level is not `off`, every fittable isotopologue of every sample is fit. A clean M+0 is not left on a raw trapezoid while a sibling ion is modelled: both are fit independently.
 
-Export is stricter still. If any ion of that compound in that sample failed to fit, every ion of that pair uses the raw in-window scans. A modelled M+0 is not exported as an isolated-component area beside a raw M+1. Those would be different measurements of the same envelope.
+Export is stricter still. If any ion with real intensity failed to fit, every non-empty ion of that pair uses the raw in-window scans. Empty ions stay zero. A modelled M+0 is not exported as an isolated-component area beside a raw M+1. Those would be different measurements of the same envelope. An empty ion does not force that fallback.
 
-## One curve for display and integration
+## One fit for display and integration
 
-When deconvolution is on and every ion of the compound in that sample has a usable model, the selected peak is a continuous analytic model (Gaussian, Bi-Gaussian, or EMG). The same continuous curve is used for both display and export:
+When deconvolution is on and every non-empty ion of the compound in that sample has a usable model, the selected peak is a continuous analytic model (Gaussian, Bi-Gaussian, or EMG). Display and export use that same fitted model:
 
-- **Plots** (grid and detailed views) draw the model evaluated on a dense grid, so the selected peak appears as a smooth curve rather than straight segments joining the acquisition scans. The faint raw EIC is drawn underneath, unchanged.
+- **Plots** with Natural Abundance Correction preview off draw the model on a dense grid, with the faint raw EIC underneath. With preview on, plots draw the corrected selected model at the acquisition scan times and keep the faint raw EIC for context. Neighbour peaks remain visible but do not enter correction or integration. The y-axis includes both the corrected trace and the raw context.
 - **Integration** and export integrate that same densely-evaluated model from the first scan inside the loffset/roffset window to the last, rather than from the offset edges themselves or from the model sampled only at the acquisition scans.
 
-In that all-fitted case the displayed peak is identical to the integrated peak. Dense evaluation changes the exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks), in the direction of higher accuracy. Legacy (unit-spacing) integration is unaffected and remains scan-point based. The raw trace itself is never smoothed.
+Both views come from the same selected fit, but corrected preview is scan-sampled while time-based export uses the denser grid for a more accurate area. Dense evaluation changes exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks). Legacy (unit-spacing) integration remains scan-point based. The raw trace itself is never smoothed.
 
-If any ion of a labelled compound in that sample failed to fit, plots and export both use the raw in-window scan traces. No fitted curve is drawn. Unlabelled tiles draw a curve for each ion that fitted and leave failed ions on the raw trace; export still uses the raw window unless every ion fitted. See [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans).
+If any ion of a labelled compound in that sample has real intensity and failed to fit, plots and export both use the raw in-window scan traces for non-empty ions. Empty ions stay zero. No fitted curve is drawn. An empty higher ion does not trigger that fallback. Unlabelled tiles draw a curve for each ion that fitted and leave failed ions on the raw trace; export still uses the raw window unless every non-empty ion fitted. See [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans).
 
 If baseline correction is enabled, MANIC keeps the usual edge-based baseline correction but applies it to the selected deconvolved signal. Excluded components are removed before the baseline is estimated.
 
@@ -37,7 +37,7 @@ MANIC deconvolves one extracted-ion trace at a time. Each isotopologue, or each 
 
 A mess on M+1 cannot change the M+0 area. Channels do not share an elution shape.
 
-For a labeled compound the preferred centre for every channel is the compound retention time. Each channel then selects the component nearest that time on its own trace.
+For a labeled compound the preferred centre for every channel is the compound retention time. Each channel then selects the in-window component nearest that time on its own trace.
 
 `deconvolve_eic` fits one channel. A multi-channel matrix goes through `deconvolve_channel_matrix`, which calls `deconvolve_eic` once per row and returns a `ChannelDeconvolutionBundle`.
 
@@ -45,11 +45,11 @@ For a labeled compound the preferred centre for every channel is the compound re
 
 Unlabelled mode uses this same per-channel fitter. Import defaults to level 4, matching labelled mode; the setting applies to every sample of that compound. Q and V are different EI fragments, so they are never given a shared elution shape.
 
-Amount is the Q-ion area. V/Q identity ratios use the same area list. If any ion of that compound/sample failed to fit, every ion uses the raw in-window scans.
+Amount is the Q-ion area. V/Q identity ratios use the same area list. If any non-empty ion of that compound/sample failed to fit, every non-empty ion uses the raw in-window scans. Empty ions stay at area 0.
 
 Observed RT and the detail mass spectrum stay on the raw Q apex inside the window. Areas may be modelled; the apex is not switched to the fitted centre.
 
-Imported expected V/Q ratios are almost always measured on raw-window areas. Enabling deconvolution can move observed ratios even when every ion fitted. Remeasure expected ratios and tolerances on standards with the same setting.
+Imported expected V/Q ratios are almost always measured on raw-window areas. Enabling deconvolution can move observed ratios even when every non-empty ion fitted. Remeasure expected ratios and tolerances on standards with the same setting.
 
 ## Consistency Across Raw, Corrected, and Abundance Results
 
@@ -58,7 +58,7 @@ For a labeled compound, each channel's **selected chromatographic component** fe
 - integrates the selected component to produce the **Raw Values**, and
 - applies natural isotope correction to that *same* selected component (not to the full unresolved trace) before integrating it for the **Corrected Values** (and therefore the **Isotope Ratios**, **% Label Incorporation**, and **Abundances** that derive from them).
 
-In the time-based (non-legacy) path, the selected component is integrated by the same routine for both sheets, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together. (Earlier development builds could leave corrected values tied to the unresolved full trace even when raw values changed; this is resolved.)
+In the time-based (non-legacy) path, the selected component is integrated by the same routine for both sheets, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together.
 
 Because a single deconvolution pass produces both areas, enabling deconvolution does not double the fitting work at export. Together with caching and the fit-skipping checks described below, this keeps the bulk-export cost manageable.
 
@@ -68,11 +68,12 @@ Natural-abundance correction inverts a matrix across the isotopologue envelope. 
 
 For each compound/sample:
 
-- If **every** ion has a model, plots draw the dense curve and Raw and Corrected both integrate it.
-- If **any** ion of a labelled compound failed to fit (noise-gated, too few points, empty, failed, or a collapsed overlap), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for **every** ion of that pair, including ions that did fit. No fitted overlay is drawn. Natural-abundance correction then runs on that raw envelope.
-- Unlabelled tiles draw a curve for each ion that fitted. Export still uses the raw window unless every Q/V ion fitted, so V/Q is never a model area divided by a scan trapezoid.
+- If **every non-empty** ion has a model, plots draw the dense curve and Raw and Corrected both integrate it. Empty ions contribute area 0.
+- If **any** ion of a labelled compound has real intensity and failed to fit (noise-gated, too few points, numerical failure, or poor reconstruction), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for every non-empty ion of that pair, including ions that did fit. Empty rows stay zero. No fitted overlay is drawn. Natural-abundance correction then runs on that envelope.
+- An ion is **empty** when it has no finite positive signal inside the integration window, or when a successful fit found peaks but none of their centres sit inside the nominal loffset/roffset boundaries. Signal elsewhere in the chromatogram does not make that ion active. Weak positive signal inside the window is not empty. If its fit fails, MANIC keeps its raw scans.
+- Unlabelled tiles draw a curve for each ion that fitted. Export still uses the raw window unless every non-empty Q/V ion fitted, so V/Q is never a model area divided by a scan trapezoid.
 
-The next sample of the same compound can still use model areas if every ion there fitted.
+The next sample of the same compound can still use model areas if every non-empty ion there fitted.
 
 ## Per-Compound Settings
 
@@ -179,7 +180,22 @@ Deconvolution is designed to degrade gracefully and never block integration. Two
 - **A fit succeeds but does not reproduce the data (the fit-quality net):** after fitting, MANIC retains the model (`_fit_reproduces_window`) only if it reconstructs the integration window adequately (relative residual at or below `FIT_QUALITY_MAX_REL_RESIDUAL`). Neighbours in the wider fit context can still be modelled so they can be subtracted, but leftover intensity outside loffset/roffset does not veto a fit that matches the target peak. Extra candidate seeds (shoulders or leftover maxima) do not discard a one-component model that already matches. If the reconstruction is poor, MANIC discards the model and integrates the **raw trace**.
 - **Unexpected numerical failure during fitting:** any error is caught and treated as "no usable model", routing to the same raw-trace fallback rather than propagating. This protects both interactive plotting and bulk export.
 
-In summary, when deconvolution is on, every fittable channel is offered a peak model. A channel uses the raw trace when that window cannot be fit: off, too few points, too messy, no usable model, or a poor reconstruction. If any channel of a compound/sample falls back, plots and export use the raw in-window scans for every channel of that pair (see [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)). MANIC does not zero out results, blank the plot, or abort an export.
+In summary, when deconvolution is on, every fittable channel is offered a peak model. A channel uses the raw trace when that window cannot be fit: off, too few points, too messy, no usable model, or a poor reconstruction. If any **non-empty** channel of a labelled compound/sample falls back, plots and export use the raw in-window scans for every non-empty channel of that pair (see [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)). Empty channels stay zero and do not force that fallback. MANIC does not blank the plot or abort an export.
+
+## Natural Abundance Correction preview
+
+**Settings → Preview Natural Abundance Correction** changes only what the UI draws and what the Label Incorporation bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
+
+Preview on:
+
+1. Fit the raw traces. The yes/no overlay decision stays on that raw fit.
+2. If the compound supports correction, apply natural-abundance correction to that same measurement (the selected stack if overlays are on, otherwise the raw matrix with empty rows kept at zero).
+3. When overlays are on, draw the corrected selected traces over a faint raw EIC. The raw context does not enter correction or integration. Otherwise, draw the corrected raw matrix.
+4. When both layers are present, scale the y-axis to include both.
+
+The toolbar bars and the tiles use the same raw fit. They do not re-fit stored `eic_corrected` traces. Preview draws corrected selected values at the acquisition scan times. Time-based bars and export integrate a denser evaluation of the same fitted model.
+
+If the detailed-view display pipeline fails after the canvas was cleared, the dialog draws the raw EIC. The info strip reports an error only if that fallback also fails.
 
 ## Scientific Background
 

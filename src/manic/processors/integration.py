@@ -378,10 +378,17 @@ def calculate_peak_areas(
                 fit_type=chromatographic_peak_deconvolution_fit_type,
                 noise_gate=chromatographic_peak_deconvolution_noise_gate,
             )
+            if bundle.channels and all(
+                channel.result.empty for channel in bundle.channels
+            ):
+                return [0.0] * num_channels
             if bundle.uses_model_areas() and not use_legacy:
                 td = np.asarray(time_data, dtype=np.float64)
                 areas: List[float] = []
                 for channel in bundle.channels:
+                    if channel.result.empty:
+                        areas.append(0.0)
+                        continue
                     selected = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
                     selected_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
                     areas.append(
@@ -394,6 +401,7 @@ def calculate_peak_areas(
                         )
                     )
                 return areas
+            intensity_reshaped = bundle.scan_stack(intensity_matrix)
 
         # Apply integration boundaries only after deciding deconvolution is off.
         td, intensity_reshaped = apply_integration_boundaries(
@@ -428,6 +436,93 @@ def calculate_peak_areas(
             f"Got total elements: {len(intensity_data)}. Error: {e}"
         )
         return [0.0] * num_channels
+
+
+def integrate_bundle_areas(
+    time_data: np.ndarray,
+    bundle,
+    raw_intensity: np.ndarray,
+    *,
+    correct_time_series=None,
+    baseline_correction: bool,
+    use_legacy: bool,
+    retention_time,
+    loffset,
+    roffset,
+    label_atoms: int,
+    channel_count: Optional[int] = None,
+) -> Tuple[List[float], List[float]]:
+    raw_matrix = bundle.scan_stack(raw_intensity)
+    n_channels = raw_matrix.shape[0] if raw_matrix.ndim > 1 else 1
+    zeros = [0.0] * n_channels
+    if bundle.channels and all(channel.result.empty for channel in bundle.channels):
+        return zeros, zeros
+
+    def apply_correction(matrix: np.ndarray) -> np.ndarray:
+        if correct_time_series is None:
+            return np.asarray(matrix, dtype=np.float64)
+        return np.asarray(correct_time_series(matrix), dtype=np.float64)
+
+    if not use_legacy and bundle.uses_model_areas():
+        fitted = next(
+            channel
+            for channel in bundle.channels
+            if channel.result.model is not None
+        )
+        model = fitted.result.model
+        scans_in_window = max(
+            1, int(np.count_nonzero(fitted.result.selected_mask))
+        )
+        grid = np.linspace(
+            model.integration_left,
+            model.integration_right,
+            max(65, scans_in_window * 16),
+        )
+        raw_dense = np.asarray(bundle.evaluate_selected_stack(grid), dtype=np.float64)
+        td = np.asarray(time_data, dtype=np.float64)
+        masks = [
+            np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+            for channel in bundle.channels
+        ]
+        selected_matrix = np.vstack(
+            [
+                np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                for channel in bundle.channels
+            ]
+        )
+        scan_times = [td[mask] for mask in masks]
+        raw_areas = _integrate_dense_rows(
+            grid,
+            raw_dense,
+            scan_times,
+            [selected_matrix[i, masks[i]] for i in range(len(masks))],
+            baseline_correction=baseline_correction,
+        )
+        corrected_selected = apply_correction(selected_matrix)
+        corrected_areas = _integrate_dense_rows(
+            grid,
+            apply_correction(raw_dense),
+            scan_times,
+            [corrected_selected[i, masks[i]] for i in range(len(masks))],
+            baseline_correction=baseline_correction,
+        )
+        return raw_areas, corrected_areas
+
+    def scan_areas(matrix: np.ndarray) -> List[float]:
+        return calculate_peak_areas(
+            time_data,
+            np.asarray(matrix, dtype=np.float64).ravel(),
+            label_atoms,
+            retention_time,
+            loffset,
+            roffset,
+            channel_count=channel_count or n_channels,
+            use_legacy=use_legacy,
+            baseline_correction=baseline_correction,
+            chromatographic_peak_deconvolution_stringency="off",
+        )
+
+    return scan_areas(raw_matrix), scan_areas(apply_correction(raw_matrix))
 
 
 def _integrate_model_component(

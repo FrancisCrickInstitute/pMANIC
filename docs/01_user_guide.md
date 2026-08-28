@@ -249,7 +249,7 @@ The Excel file contains five worksheets representing successive stages of analys
 | Worksheet | Description |
 | :--- | :--- |
 | **1. Raw Values** | Direct instrument signals (uncorrected peak areas). Useful for quality control and verifying raw signal strength. |
-| **2. Corrected Values** | Peak areas after mathematical removal of natural isotope abundance. This is the "clean" signal representing true experimental labeling. (If chromatographic deconvolution is enabled, this correction is applied to the same selected component used for Raw Values. If any ion of that compound/sample failed to fit, both sheets use the raw in-window scans for every ion.) |
+| **2. Corrected Values** | Peak areas after mathematical removal of natural isotope abundance. This is the "clean" signal representing true experimental labeling. (If chromatographic deconvolution is enabled, this correction is applied to the same selected component used for Raw Values. If any ion with real intensity failed to fit, both sheets use the raw in-window scans for every non-empty ion. Empty ions stay at area 0 and do not force that fallback.) |
 | **3. Isotope Ratios** | Normalized distributions where all isotopologues for a compound sum to 1.0. Used for comparing labeling patterns independent of concentration. |
 | **4. % Label Incorporation** | The percentage of the metabolite pool that has incorporated the experimental label. Includes background correction derived from standard (MM) files. |
 | **5. % Carbons Labelled** | The weighted average enrichment of the total carbon pool. Useful for distinguishing between light (M+1) and heavy (M+N) labeling patterns. |
@@ -332,7 +332,7 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 ### Chromatographic Peak Deconvolution
 **Settings → Chromatographic Peak Deconvolution**
 * **Default:** `Level 4`, `Auto` fit type
-* **Function:** Fits chromatographic peak shapes inside the integration window and selects the component nearest the expected retention time. This can separate overlapping peaks before area calculation.
+* **Function:** Fits chromatographic peak shapes around the expected retention time and selects the component nearest that time whose centre sits inside the dashed loffset/roffset window. This can separate overlapping peaks before area calculation.
 * **Scope:** This is a **per-compound** setting. Open the dialog with a compound selected; the chosen resolution level and fit type are saved for that compound and applied across all of its samples. (There is no longer a single global setting.)
 * **Resolution levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered (and cost more time). The default `Level 4` is tuned for aggressive splitting of resolved overlaps while staying fast; levels `5`-`7` additionally enable shoulder detection (separating components that ride on a flank without their own peak) for the hardest coelutions.
 * **Fit type:** Choose how the elution shape is modelled:
@@ -340,26 +340,26 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
     * `Gaussian` - symmetric peaks only.
     * `Bi-Gaussian` - asymmetric peaks with separate left/right widths.
     * `EMG` - exponentially modified Gaussian for tailing peaks.
-* **Fits every fittable ion:** When on, MANIC fits each channel independently. Overlaps are split and the component nearest the expected retention time is kept. A well-resolved single peak becomes a one-component model so that ion uses the same measurement as any sibling that needed a split. Set the level to `Off` to always integrate the raw trace.
+* **Fits every fittable ion:** When on, MANIC fits each channel independently. Overlaps are split and the in-window component nearest the expected retention time is kept. A well-resolved single peak becomes a one-component model so that ion uses the same measurement as any sibling that needed a split. Set the level to `Off` to always integrate the raw trace.
 * **Noise gate:** Controls how aggressively MANIC skips fitting on messy/noise-only peaks. When a window is skipped it simply shows and integrates the plain raw trace instead of drawing a meaningless fitted curve - which also keeps exports fast, since noise-only traces are otherwise the slowest to (pointlessly) fit. This is a per-compound setting with four presets:
     * `Balanced` - skip noise and weak peaks buried in heavy noise (recommended default).
     * `Lenient` - skip only near-pure noise.
     * `Aggressive` - only fit clearly smooth peaks.
     * `Off` - always attempt a fit (the old behaviour).
 * **Apply to all compounds:** The dialog has an **"Apply these settings to all compounds"** checkbox. Tick it to copy the chosen resolution, fit type, and noise gate to *every* compound at once (after a confirmation prompt). This is the quickest way to, for example, turn deconvolution **off everywhere** (select `Off`, tick the box, confirm) or roll one configuration out across your whole method. Note that this overwrites each compound's existing per-compound settings.
-* **Affects raw, corrected, and abundance results:** When every ion of a compound in a sample fitted, the *same* selected component is used for the Raw Values, the natural-abundance Corrected Values, and the Abundances. Turning deconvolution on or off for a compound therefore moves all of its result sheets together (not just the raw areas).
-* **One failed ion puts the whole envelope on scans:** If any isotopologue of that compound in that sample cannot be fitted, plots show the raw scan traces and export integrates those same raw in-window scans for **every** ion of that pair on both Raw and Corrected. That keeps the envelope commensurate for natural-abundance correction, and what you see matches the exported area. Everyday compounds where every ion fitted stay on the model-area path.
+* **Affects raw, corrected, and abundance results:** When every non-empty ion of a compound in a sample fitted, the *same* selected component is used for the Raw Values, the natural-abundance Corrected Values, and the Abundances. Turning deconvolution on or off for a compound therefore moves all of its result sheets together (not just the raw areas).
+* **One noisy failed ion puts the whole envelope on scans:** If any isotopologue with real intensity cannot be fitted, plots show the raw scan traces and export integrates those same raw in-window scans for every non-empty ion of that pair on both Raw and Corrected. An ion with no positive signal inside the dashed boundaries is empty, not a failed fit. Signal elsewhere in the chromatogram does not change that. A successful fit with no peak centre inside the boundaries is also empty. Empty ions stay at area 0. Weak positive ions use their raw scans if fitting fails.
 * **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto · Gate Balanced (compound_name)`, or `Deconvolution: Off`.
 * **Logging:** The per-compound resolution, fit type, and noise gate are recorded in the export changelog so processed results are reproducible.
 * **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction
-**Settings → Natural Abundance Correction** (Toggle)
-* **Function:** Controls the visualization mode of the main chromatogram plots.
-    * **On (Checked):** Displays the **Corrected EIC**. This shows the signal *after* the mathematical removal of natural heavy isotopes. Use this to see the "pure" labeling signal.
-    * **Off (Unchecked):** Displays the **Raw EIC**. This shows the total signal extracted from the file before any correction.
-* **Usage:** Toggle this off and on to visually verify that the correction algorithm is working correctly (e.g., ensuring it hasn't over-corrected a peak into the negative range).
-* **Note:** This setting only affects the *display*; it does **not** turn off the background calculation.
+**Settings → Preview Natural Abundance Correction** (Toggle)
+* **Function:** Controls what the main chromatogram plots and the Label Incorporation bars show.
+    * **On:** Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
+    * **Off:** Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
+* **Usage:** Toggle this to check how correction redistributes the isotopologue signals.
+* **Note:** This setting only affects the *display* and the on-screen bars. Export still writes both Raw and Corrected sheets from the raw fit, then correction of that selected component. Time-based export uses a denser evaluation of the fit for a more accurate area.
 * **Deep Dive:** 📖 [Natural Isotope Correction Algorithm](Reference_Natural_Isotope_Correction.md)
 
 ---

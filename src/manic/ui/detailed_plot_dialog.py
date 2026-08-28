@@ -45,10 +45,7 @@ from manic.constants import (
 from manic.io.cdf_data_extractor import ensure_ms_data_for_time
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.tic_reader import read_tic
-from manic.processors.chromatographic_peak_deconvolution import (
-    chromatographic_peak_deconvolution_enabled,
-    deconvolve_channel_matrix,
-)
+from manic.processors.display_deconvolution import PlotDisplay, plot_display
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
@@ -355,10 +352,10 @@ class DetailedPlotDialog(QDialog):
         """Load EIC data for the compound-sample combination."""
         try:
             eics = get_eics_for_compound(
-                self.compound_name, [self.sample_name], use_corrected=self.use_corrected
+                self.compound_name, [self.sample_name], use_corrected=False
             )
             if eics:
-                self.eic_data = eics[0]  # Get the first (and only) EIC
+                self.eic_data = eics[0]
                 logger.debug(f"Loaded EIC data: {len(self.eic_data.time)} points")
             else:
                 logger.warning(
@@ -424,11 +421,31 @@ class DetailedPlotDialog(QDialog):
 
         self._eic_plot_error = None
         try:
-            # Reset plot area before rendering
             self.eic_plot.clear_plot()
-            self._plot_eic_traces()
+            prepared = None
+            try:
+                prepared = plot_display(
+                    self.eic_data.time,
+                    self.eic_data.intensity,
+                    self.compound_info,
+                    use_corrected=self.use_corrected,
+                )
+                self._plot_eic_traces(prepared)
+            except Exception as display_error:
+                logger.error(f"Display deconvolution failed: {display_error}")
+                prepared = PlotDisplay(
+                    display=None,
+                    intensity=np.asarray(self.eic_data.intensity, dtype=np.float64),
+                    includes_raw_underlay=False,
+                )
+                self._plot_trace_matrix(prepared.intensity, selected=True)
+                if not self.eic_plot.data_lines:
+                    self._eic_plot_error = str(display_error)
+            if not self.eic_plot.data_lines:
+                self._plot_trace_matrix(self.eic_data.intensity, selected=True)
+            if self.eic_plot.data_lines:
+                self._eic_plot_error = None
 
-            # Calculate and display integration boundaries
             rt = self.compound_info.retention_time
             left_bound = rt - self.compound_info.loffset
             right_bound = rt + self.compound_info.roffset
@@ -453,8 +470,10 @@ class DetailedPlotDialog(QDialog):
                 style="dotted",
             )
 
-            # Add baseline lines if baseline correction is enabled
-            self._add_baseline_lines(left_bound, right_bound)
+            try:
+                self._add_baseline_lines(left_bound, right_bound, prepared)
+            except Exception as baseline_error:
+                logger.error(f"Failed to draw baseline lines: {baseline_error}")
 
             self.eic_plot.show_legend(loc="upper right")
 
@@ -473,8 +492,7 @@ class DetailedPlotDialog(QDialog):
                 "Enhanced Extracted Ion Chromatogram (plot failed)"
             )
 
-    def _add_baseline_lines(self, left_bound: float, right_bound: float):
-        """Add dashed baseline lines when baseline correction is enabled."""
+    def _add_baseline_lines(self, left_bound: float, right_bound: float, prepared):
         if not self.compound_info or not self.eic_data:
             return
 
@@ -482,60 +500,57 @@ class DetailedPlotDialog(QDialog):
         if not baseline_flag:
             return
 
-        if chromatographic_peak_deconvolution_enabled(getattr(self.compound_info, "deconvolution_level", "off")):
-            bundle = deconvolve_channel_matrix(
-                self.eic_data.time,
-                self.eic_data.intensity,
-                retention_time=self.compound_info.retention_time,
-                loffset=self.compound_info.loffset,
-                roffset=self.compound_info.roffset,
-                stringency=getattr(self.compound_info, "deconvolution_level", "off"),
-                fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
-                noise_gate=getattr(self.compound_info, "deconvolution_noise_gate", "balanced"),
+        display = prepared.display
+        if display is not None and display.bundle.shows_model_overlays(
+            independent_channels=getattr(self.compound_info, "is_unlabelled_target", False)
+        ):
+            drew_baseline = False
+            baseline_intensity = prepared.baseline_intensity()
+            draw_matrix = (
+                baseline_intensity
+                if baseline_intensity.ndim > 1
+                else baseline_intensity.reshape(1, -1)
             )
-            if bundle.shows_model_overlays(
-                independent_channels=getattr(self.compound_info, "is_unlabelled_target", False)
-            ):
-                drew_baseline = False
-                for channel in bundle.channels:
-                    if channel.result.model is None:
-                        continue
-                    selected_trace = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
-                    trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
-                    if not np.any(trace_mask):
-                        continue
-                    baseline_result = compute_linear_baseline(
-                        self.eic_data.time[trace_mask], selected_trace[trace_mask]
-                    )
-                    if baseline_result is None:
-                        continue
-                    td_base, baseline_y = baseline_result
-                    qcolor = label_colors[channel.index % len(label_colors)]
-                    color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
-                    baseline_x = np.array([td_base[0], td_base[-1]])
-                    baseline_y_vals = np.array([baseline_y[0], baseline_y[-1]])
-                    self.eic_plot.plot_line(
-                        baseline_x,
-                        baseline_y_vals,
-                        color=color,
-                        width=1.2,
-                        name="",
-                        style="dashed",
-                    )
-                    drew_baseline = True
-                if drew_baseline:
-                    return
+            for channel in display.bundle.channels:
+                if channel.result.model is None:
+                    continue
+                selected_trace = np.asarray(
+                    draw_matrix[channel.index], dtype=np.float64
+                ).reshape(-1)
+                trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                if not np.any(trace_mask):
+                    continue
+                baseline_result = compute_linear_baseline(
+                    self.eic_data.time[trace_mask], selected_trace[trace_mask]
+                )
+                if baseline_result is None:
+                    continue
+                td_base, baseline_y = baseline_result
+                qcolor = label_colors[channel.index % len(label_colors)]
+                color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
+                baseline_x = np.array([td_base[0], td_base[-1]])
+                baseline_y_vals = np.array([baseline_y[0], baseline_y[-1]])
+                self.eic_plot.plot_line(
+                    baseline_x,
+                    baseline_y_vals,
+                    color=color,
+                    width=1.2,
+                    name="",
+                    style="dashed",
+                )
+                drew_baseline = True
+            if drew_baseline:
+                return
 
-        # Create window mask (strict boundaries like integration)
         mask = (self.eic_data.time > left_bound) & (self.eic_data.time < right_bound)
         if not np.any(mask):
             return
 
         td_win = self.eic_data.time[mask]
+        draw_intensity = prepared.intensity
 
-        if self.eic_data.intensity.ndim == 1:
-            # Single trace - use dark red color
-            idata_win = self.eic_data.intensity[mask]
+        if draw_intensity.ndim == 1:
+            idata_win = draw_intensity[mask]
             baseline_result = compute_linear_baseline(td_win, idata_win)
             if baseline_result is not None:
                 td_base, baseline_y = baseline_result
@@ -550,9 +565,8 @@ class DetailedPlotDialog(QDialog):
                     style="dashed",
                 )
         else:
-            # Multi-trace - draw baseline for each isotopologue with matching color
-            for i in range(self.eic_data.intensity.shape[0]):
-                idata_win = self.eic_data.intensity[i, mask]
+            for i in range(draw_intensity.shape[0]):
+                idata_win = draw_intensity[i, mask]
                 baseline_result = compute_linear_baseline(td_win, idata_win)
                 if baseline_result is not None:
                     td_base, baseline_y = baseline_result
@@ -614,33 +628,28 @@ class DetailedPlotDialog(QDialog):
                     grid, row, color=color, width=1.2, name="", style="dotted"
                 )
 
-    def _plot_eic_traces(self):
-        """Draw the EIC, with a fit overlay on each channel that has a model."""
-        bundle = None
-        if chromatographic_peak_deconvolution_enabled(getattr(self.compound_info, "deconvolution_level", "off")):
-            bundle = deconvolve_channel_matrix(
-                self.eic_data.time,
-                self.eic_data.intensity,
-                retention_time=self.compound_info.retention_time,
-                loffset=self.compound_info.loffset,
-                roffset=self.compound_info.roffset,
-                stringency=getattr(self.compound_info, "deconvolution_level", "off"),
-                fit_type=getattr(self.compound_info, "deconvolution_fit_type", "auto"),
-                noise_gate=getattr(self.compound_info, "deconvolution_noise_gate", "balanced"),
-            )
+    def _plot_eic_traces(self, prepared):
+        display = prepared.display
+        bundle = None if display is None else display.bundle
+        draw_intensity = prepared.intensity
 
         if bundle is None or not bundle.shows_model_overlays(
             independent_channels=getattr(self.compound_info, "is_unlabelled_target", False)
         ):
-            self._plot_trace_matrix(self.eic_data.intensity, selected=True)
+            self._plot_trace_matrix(draw_intensity, selected=True)
             return
 
         self._plot_trace_matrix(self.eic_data.intensity, selected=False, alpha=0.32)
+        if not prepared.includes_raw_underlay:
+            self._plot_trace_matrix(draw_intensity, selected=True)
+            return
+
         unfitted_indices: list[int] = []
         for channel in bundle.channels:
             model = channel.result.model
             if model is None:
-                unfitted_indices.append(channel.index)
+                if not channel.result.empty:
+                    unfitted_indices.append(channel.index)
                 continue
             self._plot_model_component(
                 model, model.selected_index, selected=True, color_index=channel.index

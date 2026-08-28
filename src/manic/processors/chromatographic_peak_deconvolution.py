@@ -135,6 +135,7 @@ class EICChromatographicPeakDeconvolutionResult:
     selected_center: float | None
     component_centers: list[float]
     model: DeconvolutionModel | None = None
+    empty: bool = False
 
 
 @dataclass(frozen=True)
@@ -148,10 +149,41 @@ class ChannelDeconvolutionBundle:
     time: np.ndarray
     channels: tuple[ChannelDeconvolution, ...]
 
+    def scan_stack(self, intensity: np.ndarray) -> np.ndarray:
+        matrix, _ = _as_trace_matrix(
+            np.asarray(intensity, dtype=np.float64)
+        )
+        if matrix.shape != (len(self.channels), len(self.time)):
+            raise ValueError(
+                "Intensity shape does not match the deconvolution bundle. "
+                f"Expected {(len(self.channels), len(self.time))}, got {matrix.shape}."
+            )
+        scans = matrix.copy()
+        for channel in self.channels:
+            if channel.result.empty:
+                scans[channel.index] = 0.0
+        return scans
+
+    def selected_scan_stack(self) -> np.ndarray:
+        if not self.channels:
+            return np.empty((0, len(self.time)), dtype=np.float64)
+        return self.scan_stack(
+            np.vstack(
+                [
+                    np.asarray(
+                        channel.result.selected, dtype=np.float64
+                    ).reshape(-1)
+                    for channel in self.channels
+                ]
+            )
+        )
+
     def uses_model_areas(self) -> bool:
-        """True when every channel fitted, so plots and export may use the curve."""
-        return bool(self.channels) and all(
-            channel.result.model is not None for channel in self.channels
+        active = tuple(
+            channel for channel in self.channels if not channel.result.empty
+        )
+        return bool(active) and all(
+            channel.result.model is not None for channel in active
         )
 
     def has_any_model(self) -> bool:
@@ -168,6 +200,9 @@ class ChannelDeconvolutionBundle:
         time = np.asarray(self.time, dtype=np.float64)
         rows: list[np.ndarray] = []
         for channel in self.channels:
+            if channel.result.empty:
+                rows.append(np.zeros(grid.size, dtype=np.float64))
+                continue
             model = channel.result.model
             if model is not None:
                 values = np.asarray(model.evaluate_selected(grid), dtype=np.float64)
@@ -244,6 +279,14 @@ DEFAULT_NOISE_GATE = "balanced"
 FIT_QUALITY_MAX_REL_RESIDUAL = 0.15
 
 
+def _trace_is_empty(row: np.ndarray) -> bool:
+    if row.size == 0:
+        return True
+    finite = np.asarray(row, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    return finite.size == 0 or float(np.max(finite)) <= 0.0
+
+
 def normalize_noise_gate(value: str | None) -> str:
     value = (value or DEFAULT_NOISE_GATE).lower().strip()
     return value if value in NOISE_GATE_PRESETS else DEFAULT_NOISE_GATE
@@ -275,27 +318,30 @@ def deconvolve_channel_matrix(
     fit_type: str | None = "auto",
     noise_gate: str | None = DEFAULT_NOISE_GATE,
 ) -> ChannelDeconvolutionBundle:
-    """Deconvolve each channel of a matrix independently."""
     time = np.asarray(time_data, dtype=np.float64)
     intensity = np.asarray(intensity_data, dtype=np.float64)
     matrix, _ = _as_trace_matrix(intensity)
-    channels = tuple(
-        ChannelDeconvolution(
-            index=index,
-            result=deconvolve_eic(
-                time,
-                matrix[index],
-                retention_time=retention_time,
-                loffset=loffset,
-                roffset=roffset,
-                stringency=stringency,
-                fit_type=fit_type,
-                noise_gate=noise_gate,
-            ),
+    channels = []
+    for index in range(matrix.shape[0]):
+        result = deconvolve_eic(
+            time,
+            matrix[index],
+            retention_time=retention_time,
+            loffset=loffset,
+            roffset=roffset,
+            stringency=stringency,
+            fit_type=fit_type,
+            noise_gate=noise_gate,
         )
-        for index in range(matrix.shape[0])
-    )
-    return ChannelDeconvolutionBundle(time=time, channels=channels)
+        integration_mask = np.asarray(
+            result.selected_mask, dtype=bool
+        ).reshape(-1)
+        if result.model is None and _trace_is_empty(
+            matrix[index, integration_mask]
+        ):
+            result = dataclasses.replace(result, empty=True)
+        channels.append(ChannelDeconvolution(index=index, result=result))
+    return ChannelDeconvolutionBundle(time=time, channels=tuple(channels))
 
 
 def deconvolve_eic(
@@ -346,6 +392,16 @@ def deconvolve_eic(
     if np.count_nonzero(fit_mask) < 5:
         return _masked_result(time, intensity, integration_mask)
 
+    nominal_bounds = (
+        (
+            float(retention_time - loffset),
+            float(retention_time + roffset),
+        )
+        if retention_time is not None
+        and loffset is not None
+        and roffset is not None
+        else None
+    )
     selected, selected_mask, excluded, excluded_masks, centers, model = (
         _deconvolve_matrix(
             time,
@@ -355,6 +411,7 @@ def deconvolve_eic(
             retention_time,
             params,
             min_smoothness,
+            nominal_bounds,
         )
     )
     if model is not None and was_1d:
@@ -365,11 +422,15 @@ def deconvolve_eic(
         if retention_time is not None
         else float(time[np.argmax(np.sum(matrix, axis=0))])
     )
-    selected_center = (
-        min(centers, key=lambda center: abs(center - target_rt))
-        if centers
-        else float(target_rt)
-    )
+    no_in_window_peak = model is None and bool(centers)
+    if model is not None:
+        selected_center = float(
+            model.x0 + model.shape_params[model.selected_index, 0]
+        )
+    elif no_in_window_peak:
+        selected_center = None
+    else:
+        selected_center = float(target_rt)
     return EICChromatographicPeakDeconvolutionResult(
         selected=_restore_shape(selected, was_1d),
         selected_mask=_restore_shape(selected_mask, was_1d),
@@ -380,6 +441,7 @@ def deconvolve_eic(
         selected_center=selected_center,
         component_centers=sorted(set(centers)) if centers else [selected_center],
         model=model,
+        empty=no_in_window_peak,
     )
 
 
@@ -391,6 +453,7 @@ def _deconvolve_matrix(
     retention_time: float | None,
     params: ChromatographicPeakDeconvolutionParameters,
     min_smoothness: float | None,
+    nominal_bounds: tuple[float, float] | None,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -445,9 +508,48 @@ def _deconvolve_matrix(
         if retention_time is not None
         else float(window_time[np.argmax(np.sum(window_matrix, axis=0))])
     )
-    selected_index = int(
-        np.argmin([abs(float(center) - float(target_rt)) for center in fitted.centers])
+    integration_left = float(time[integration_indices[0]])
+    integration_right = float(time[integration_indices[-1]])
+    selection_left, selection_right = nominal_bounds or (
+        integration_left,
+        integration_right,
     )
+    in_window = [
+        index
+        for index, center in enumerate(fitted.centers)
+        if selection_left < float(center) < selection_right
+    ]
+    if not in_window:
+        selected = np.zeros_like(matrix, dtype=np.float64)
+        selected_mask = np.zeros_like(matrix, dtype=bool)
+        selected_mask[:, integration_indices] = True
+        excluded = []
+        excluded_masks = []
+        for component_index in range(fitted.components.shape[0]):
+            component_matrix = np.zeros_like(matrix, dtype=np.float64)
+            component_matrix[:, fit_indices] = (
+                fitted.baseline + fitted.components[component_index]
+            )
+            component_mask = np.zeros_like(matrix, dtype=bool)
+            component_mask[:, fit_indices] = True
+            excluded.append(component_matrix)
+            excluded_masks.append(component_mask)
+        return (
+            selected,
+            selected_mask,
+            excluded,
+            excluded_masks,
+            [float(center) for center in fitted.centers],
+            None,
+        )
+
+    selected_index = in_window[
+        int(
+            np.argmin(
+                [abs(float(fitted.centers[index]) - float(target_rt)) for index in in_window]
+            )
+        )
+    ]
 
     selected = np.zeros_like(matrix, dtype=np.float64)
     selected_mask = np.zeros_like(matrix, dtype=bool)

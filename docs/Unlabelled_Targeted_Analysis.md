@@ -105,18 +105,19 @@ identity QC needs independent areas.
 
 When deconvolution is on for a compound:
 
-- If every Q and V ion in that sample fitted, amount and V/Q both use the
+- If every non-empty Q and V ion in that sample fitted, amount and V/Q both use the
   model areas. Amount is still the Q-ion area alone.
-- If any Q or V ion failed to fit, every ion of that compound/sample still
-  uses the raw in-window scans for amount and V/Q. That keeps V/Q as one kind
-  of measurement (never a model area divided by a scan trapezoid). The tile
-  still draws a curve for each ion that fitted.
+- If any non-empty Q or V ion failed to fit, every non-empty ion of that
+  compound/sample uses the raw in-window scans for amount and V/Q. Empty ions
+  stay at area 0. That keeps V/Q as one kind of measurement (never a model area
+  divided by a scan trapezoid). The tile still draws a curve for each ion that
+  fitted.
 - Observed RT and the detail-dialog mass spectrum stay on the **raw Q apex**
   inside the window. Areas may be modelled; the apex is not switched to the
   fitted centre.
 
 Imported expected V/Q ratios are almost always measured on raw-window areas.
-Enabling deconvolution can move observed ratios even when every ion fitted,
+Enabling deconvolution can move observed ratios even when every non-empty ion fitted,
 because an isolated-component integral is not the same number as the
 full-window trapezoid. Remeasure expected ratios and tolerances on standards
 with the same deconvolution setting before relying on automated identity QC.
@@ -374,9 +375,9 @@ A session changelog is also written. For unlabelled mode it records Q/V ion
 definitions, tR window, Amount in StdMix, MM Files, and baseline, and it
 states how to read the sheets: Raw Values and Abundances are Q-only
 (Peak Area / nmol / Relative), V-ion raw areas sit on Qualifier QC,
-observed RT is the raw Q apex, a
-failed ion fit forces raw-window areas for every ion of that
-compound/sample, and composite identity status stays in the Identity chart.
+observed RT is the raw Q apex, a failed non-empty ion fit forces raw-window
+areas for every non-empty ion of that compound/sample, empty ions stay at
+area 0, and composite identity status stays in the Identity chart.
 
 ---
 
@@ -397,8 +398,9 @@ export; it is not drawn on the tiles.
 
 If deconvolution is on, each Q or V ion that fitted is drawn as a smooth
 curve over a faint raw EIC. Ions that failed to fit stay as raw scan traces
-on that tile. Labelled mode still waits until every ion of the sample fitted
-before drawing curves.
+on that tile. Empty ions remain only in the faint raw context. Labelled mode
+still waits until every non-empty ion of the sample fitted before drawing
+curves.
 
 The channel legend above the grid names each Q/V *m/z*.
 
@@ -459,7 +461,7 @@ old MANIC did not perform.
 - Co-elution that affects Q and V proportionally can still pass ratio checks —
   visual review of shapes remains important.
 - Imported expected V/Q ratios are usually raw-window values. Turning
-  deconvolution on can move observed ratios even when every ion fitted;
+  deconvolution on can move observed ratios even when every non-empty ion fitted;
   remeasure expected ratios and tolerances on standards with the same setting.
 - Semi-quantitative amounts use a single-point response factor (or an assumed
   factor of 1.0). They are estimates unless independently validated.

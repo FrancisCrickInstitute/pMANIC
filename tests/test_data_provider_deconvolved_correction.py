@@ -521,3 +521,65 @@ def test_mixed_bundle_correction_and_baseline_use_raw_window():
     )
     assert raw_areas == pytest.approx(expected_raw)
     assert corrected_areas == pytest.approx(expected_corrected)
+
+
+def test_empty_ions_keep_export_on_the_model_path():
+    time = np.linspace(0.0, 10.0, 201)
+    fitted = _gaussian(time, 7.0, 0.25, 10.0)
+    intensity = np.vstack(
+        [np.zeros_like(time), fitted, np.zeros_like(time)]
+    )
+    bundle = deconvolve_channel_matrix(
+        time,
+        intensity,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        stringency="4",
+        fit_type="auto",
+        noise_gate="balanced",
+    )
+    assert bundle.channels[0].result.empty
+    assert bundle.channels[0].result.model is None
+    assert bundle.channels[1].result.model is not None
+    assert bundle.channels[2].result.empty
+    assert bundle.uses_model_areas()
+
+    provider = DataProvider()
+    provider._correct_time_series = lambda matrix, r: np.asarray(matrix, dtype=np.float64)
+    raw_areas, corrected_areas = provider._areas_from_deconvolved(
+        time,
+        bundle,
+        {
+            "label_atoms": 2,
+            "retention_time": 7.0,
+            "loffset": 4.0,
+            "roffset": 4.0,
+            "formula": "C1",
+            "label_type": "C",
+            "tbdms": 0,
+            "meox": 0,
+            "me": 0,
+        },
+        intensity,
+        use_legacy=False,
+        baseline_correction=False,
+    )
+    direct = calculate_peak_areas(
+        time,
+        intensity.ravel(),
+        2,
+        7.0,
+        4.0,
+        4.0,
+        use_legacy=False,
+        baseline_correction=False,
+        chromatographic_peak_deconvolution_stringency="4",
+        chromatographic_peak_deconvolution_fit_type="auto",
+        chromatographic_peak_deconvolution_noise_gate="balanced",
+    )
+    assert raw_areas == pytest.approx(direct)
+    assert raw_areas[0] == pytest.approx(0.0)
+    assert raw_areas[1] > 0
+    assert raw_areas[2] == pytest.approx(0.0)
+    assert corrected_areas == pytest.approx(raw_areas)

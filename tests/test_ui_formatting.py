@@ -164,6 +164,7 @@ def test_refresh_mode_charts_shares_one_provider(monkeypatch):
             provider
         ),
     )
+    host._assess_identities = MainWindow._assess_identities.__get__(host)
 
     MainWindow._refresh_mode_charts(host, "Target", ["S1"])
 

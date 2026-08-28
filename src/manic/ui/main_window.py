@@ -988,11 +988,20 @@ class MainWindow(QMainWindow):
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
             return None, None
         provider = DataProvider(use_legacy_integration=self.use_legacy_integration)
+        return provider, self._assess_identities(provider, compound_name, sample_names)
+
+    def _assess_identities(self, provider, compound_name, sample_names):
         if not compound_name or not sample_names:
-            return provider, None
-        return provider, provider.assess_unlabelled_identities(
-            compound_name, sample_names
-        )
+            return None
+        try:
+            return provider.assess_unlabelled_identities(compound_name, sample_names)
+        except (LookupError, ValueError):
+            # A compound without Q/V channels (or missing entirely) must not
+            # block plotting; the identity chart simply stays empty.
+            logger.warning(
+                "Identity assessment unavailable for %r", compound_name, exc_info=True
+            )
+            return None
 
     def _refresh_mode_charts(
         self,
@@ -1010,9 +1019,9 @@ class MainWindow(QMainWindow):
                 )
             if not skip_qc:
                 samples = qc_samples or self.graph_view.get_current_samples()
-                if identity is None and compound_name and samples:
-                    identity = provider.assess_unlabelled_identities(
-                        compound_name, samples
+                if identity is None:
+                    identity = self._assess_identities(
+                        provider, compound_name, samples
                     )
                 self._update_targeted_qc(identity)
         self._update_total_abundance(compound_name, provider)

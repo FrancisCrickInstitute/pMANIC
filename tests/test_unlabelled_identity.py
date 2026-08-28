@@ -339,3 +339,35 @@ def test_assess_unlabelled_identities_raises_when_compound_is_missing(monkeypatc
     )
     with pytest.raises(LookupError, match="Missing"):
         DataProvider().assess_unlabelled_identities("Missing", ["S1"])
+
+
+@pytest.mark.parametrize("failure", [ValueError("no channels"), LookupError("gone")])
+def test_main_window_tolerates_compound_level_identity_failures(failure):
+    from manic.ui.main_window import MainWindow
+
+    class Provider:
+        def assess_unlabelled_identities(self, compound_name, sample_names):
+            raise failure
+
+    window = SimpleNamespace()
+    assert (
+        MainWindow._assess_identities(window, Provider(), "Target", ["S1"]) is None
+    )
+
+
+def test_main_window_assess_identities_returns_snapshot():
+    from manic.ui.main_window import MainWindow
+
+    sentinel = object()
+
+    class Provider:
+        def assess_unlabelled_identities(self, compound_name, sample_names):
+            return sentinel
+
+    window = SimpleNamespace()
+    assert (
+        MainWindow._assess_identities(window, Provider(), "Target", ["S1"])
+        is sentinel
+    )
+    assert MainWindow._assess_identities(window, Provider(), "", ["S1"]) is None
+    assert MainWindow._assess_identities(window, Provider(), "Target", []) is None

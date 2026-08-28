@@ -30,7 +30,6 @@ from manic.processors.display_deconvolution import (
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
-# Import shared colors
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentitySampleAssessment,

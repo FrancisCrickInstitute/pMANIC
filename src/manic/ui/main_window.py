@@ -996,8 +996,6 @@ class MainWindow(QMainWindow):
         try:
             return provider.assess_unlabelled_identities(compound_name, sample_names)
         except (LookupError, ValueError):
-            # A compound without Q/V channels (or missing entirely) must not
-            # block plotting; the identity chart simply stays empty.
             logger.warning(
                 "Identity assessment unavailable for %r", compound_name, exc_info=True
             )

@@ -5,12 +5,65 @@ from dataclasses import dataclass
 import numpy as np
 
 from manic.processors.chromatographic_peak_deconvolution import (
-    DisplayDeconvolution,
+    ChannelDeconvolutionBundle,
+    DEFAULT_NOISE_GATE,
+    _as_trace_matrix,
+    _restore_shape,
     chromatographic_peak_deconvolution_enabled,
-    deconvolve_for_display,
+    deconvolve_channel_matrix,
 )
 from manic.processors.eic_correction_manager import make_time_series_corrector
 from manic.processors.integration import calculate_peak_areas, integrate_bundle_areas
+
+
+@dataclass(frozen=True)
+class DisplayDeconvolution:
+    bundle: ChannelDeconvolutionBundle
+    intensity: np.ndarray
+
+
+def deconvolve_for_display(
+    time_data: np.ndarray,
+    raw_intensity: np.ndarray,
+    *,
+    retention_time: float | None,
+    loffset: float | None = None,
+    roffset: float | None = None,
+    stringency: str | None = "off",
+    fit_type: str | None = "auto",
+    noise_gate: str | None = DEFAULT_NOISE_GATE,
+    apply_correction=None,
+    independent_channels: bool = False,
+) -> DisplayDeconvolution:
+    raw = np.asarray(raw_intensity, dtype=np.float64)
+    bundle = deconvolve_channel_matrix(
+        time_data,
+        raw,
+        retention_time=retention_time,
+        loffset=loffset,
+        roffset=roffset,
+        stringency=stringency,
+        fit_type=fit_type,
+        noise_gate=noise_gate,
+    )
+    if apply_correction is None:
+        return DisplayDeconvolution(bundle=bundle, intensity=raw)
+
+    matrix, was_1d = _as_trace_matrix(raw)
+    if bundle.shows_model_overlays(independent_channels=independent_channels):
+        source = np.vstack(
+            [
+                np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                for channel in bundle.channels
+            ]
+        )
+    else:
+        source = matrix
+    corrected = np.asarray(apply_correction(source), dtype=np.float64)
+    return DisplayDeconvolution(
+        bundle=bundle,
+        intensity=_restore_shape(corrected, was_1d),
+    )
 
 
 @dataclass(frozen=True)

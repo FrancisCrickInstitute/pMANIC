@@ -5,9 +5,9 @@ import pytest
 
 from manic.processors.chromatographic_peak_deconvolution import (
     deconvolve_channel_matrix,
-    deconvolve_for_display,
 )
 from manic.processors.display_deconvolution import (
+    deconvolve_for_display,
     display_y_max,
     integrated_display_areas,
     plot_display,

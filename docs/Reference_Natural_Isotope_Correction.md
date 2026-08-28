@@ -73,7 +73,7 @@ This provides higher accuracy because it prevents baseline noise or interfering 
 
 The envelope that enters this correction must be the same kind of measurement on every ion. If chromatographic peak deconvolution fitted every non-empty ion of a compound in a sample, correction runs on the dense selected curves. Empty ions contribute zeros. If any ion with real intensity failed to fit, correction runs on the raw in-window scans for every ion of that pair. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
 
-**Settings → Preview Natural Abundance Correction** uses that same order on screen. It fits the raw traces, then corrects that measurement for the tiles. The Label Incorporation bars and the Corrected Values sheet share `integrate_bundle_areas`, so the spreadsheet number is the bar number. It does not re-fit the stored full-trace `eic_corrected` series.
+**Settings → Preview Natural Abundance Correction** uses that same order on screen. It fits the raw traces, then corrects that measurement for the tiles. The Label Incorporation bars and the Corrected Values sheet share `integrate_bundle_areas`, so the spreadsheet number is the bar number. The toggle does not write `eic_corrected`. Export still fills that table when you export.
 
 When the dense-curve path is used with baseline correction on, the curve and the baseline ends are corrected separately: the area from the dense grid, the straight-line ends from the isolated component at the real scan times. See [One curve for display and integration](Reference_Chromatographic_Peak_Deconvolution.md#one-curve-for-display-and-integration).   
 

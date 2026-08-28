@@ -2573,104 +2573,22 @@ class MainWindow(QMainWindow):
                 msg_box.exec()
 
     def toggle_natural_abundance_correction(self):
-        """
-        Toggle natural abundance correction visualization on/off.
-
-        IMPORTANT: This toggle controls ONLY what data is displayed in the UI graphs:
-        - When ON: Graphs show corrected data (natural isotope abundance removed)
-        - When OFF: Graphs show raw uncorrected data
-
-        This toggle does NOT affect data export. Exported data always contains properly
-        corrected values in the Corrected Values sheet, regardless of this toggle state.
-        See export_data() for details on how corrections are ensured during export.
-        """
+        """Redraw graphs and Label Incorporation with or without live NIC."""
         is_enabled = self.nat_abundance_toggle.isChecked()
         logger.info(
             f"Natural abundance correction visualization toggled: {'ON' if is_enabled else 'OFF'}"
         )
 
-        # Update menu text
         self.nat_abundance_toggle.setText(
             f"Natural Abundance Correction: {'On' if is_enabled else 'Off'}"
         )
-
-        # Update the isotopologue ratio widget
         self.toolbar.isotopologue_ratios.set_use_corrected(is_enabled)
-
-        # Also update the graph view to use corrected/uncorrected data
         self.graph_view.set_use_corrected(is_enabled)
 
-        # If enabling correction, check if corrections need to be applied
-        if is_enabled:
-            try:
-                from manic.models.database import get_connection
-                from manic.processors.eic_correction_manager import (
-                    process_all_corrections,
-                )
-
-                # Check if there are raw EICs that don't have corresponding corrected data
-                with get_connection() as conn:
-                    missing_corrections_count = conn.execute("""
-                        SELECT COUNT(*)
-                        FROM eic e
-                        JOIN compounds c ON e.compound_name = c.compound_name
-                        LEFT JOIN eic_corrected ec
-                           ON ec.sample_name = e.sample_name
-                          AND ec.compound_name = e.compound_name
-                        WHERE e.deleted = 0
-                          AND c.deleted = 0
-                          AND c.label_atoms > 0
-                          AND (ec.id IS NULL OR ec.deleted = 1)
-                    """).fetchone()[0]
-
-                # If we have raw EICs without corrected data, apply corrections
-                if missing_corrections_count > 0:
-                    logger.info(
-                        f"Applying natural abundance corrections for {missing_corrections_count} EICs..."
-                    )
-
-                    # Show progress dialog (no cancel button)
-                    from PySide6.QtCore import Qt
-                    from PySide6.QtWidgets import QProgressDialog
-
-                    progress_dialog = QProgressDialog(
-                        "Applying natural abundance corrections...", "", 0, 100, self
-                    )
-                    progress_dialog.setWindowTitle("Natural Abundance Correction")
-                    progress_dialog.setWindowModality(Qt.WindowModal)
-                    progress_dialog.setCancelButton(None)
-                    progress_dialog.show()
-
-                    def correction_progress(current, total):
-                        if total > 0:
-                            progress_value = int((current / total) * 100)
-                            progress_dialog.setValue(progress_value)
-
-                    try:
-                        corrections_count = process_all_corrections(
-                            progress_cb=correction_progress
-                        )
-                        logger.info(
-                            f"Applied {corrections_count} natural abundance corrections"
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to apply natural abundance corrections: {e}"
-                        )
-                    finally:
-                        progress_dialog.close()
-
-            except Exception as e:
-                logger.error(
-                    f"Error checking/applying natural abundance corrections: {e}"
-                )
-
-        # If we have data displayed, refresh everything
         selected_compound = self.toolbar.get_selected_compound()
         selected_samples = self.toolbar.get_selected_samples()
 
         if selected_compound and selected_samples:
-            # Trigger a full replot of the main graphs
             self.on_plot_button(selected_compound, selected_samples)
 
     def toggle_legacy_integration_mode(self):

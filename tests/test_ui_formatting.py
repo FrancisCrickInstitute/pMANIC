@@ -11,10 +11,9 @@ from PySide6.QtCharts import (
     QBarCategoryAxis,
     QCategoryAxis,
     QChart,
-    QScatterSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QLabel
 import sys
@@ -376,26 +375,67 @@ def test_identity_chart_popup_shows_sample_names(qapp):
     )
     dialog = ChartPopupDialog.for_identity(identity)
     try:
-        assert dialog.chart.title() == "Identity"
-        assert dialog.chart.legend().isVisible()
+        assert dialog.windowTitle() == "MANIC - Identity"
+        assert dialog.chart.title() == ""
+        assert not dialog.chart.legend().isVisible()
         assert "Target" in dialog.ion_legend.text()
         assert "●" not in dialog.ion_legend.text()
-        y_labels = dialog.chart.axes(Qt.Vertical)[0].categoriesLabels()
-        x_labels = dialog.chart.axes(Qt.Horizontal)[0].categoriesLabels()
-        assert set(y_labels) == {"S1", "S2"}
-        assert x_labels == ["V1", "V2"]
+        y_axis = dialog.chart.axes(Qt.Vertical)[0]
+        assert isinstance(y_axis, QBarCategoryAxis)
+        assert list(y_axis.categories()) == ["S2", "S1"]
+        assert y_axis.labelsFont().family() == "Arial"
+        assert y_axis.labelsFont().pointSize() == 12
+        value_axes, category_axes = _horizontal_axes(dialog.chart)
+        assert category_axes[0].categoriesLabels() == ["V1", "V2"]
         assert dialog._identity_binding is not None
-        s1_v1 = dialog._identity_binding.cell_at(QPointF(1, 2))
-        s2_v2 = dialog._identity_binding.cell_at(QPointF(2, 1))
+        bar_sets = dialog._identity_binding.bar_sets
+        assert len(bar_sets) == 4
+        s2_v2 = dialog._identity_binding.cell_for(bar_sets[1])
+        s1_v1 = dialog._identity_binding.cell_for(bar_sets[2])
         assert s1_v1.sample_name == "S1"
         assert s1_v1.qualifier.status is QualifierStatus.VALIDATED
         assert s2_v2.sample_name == "S2"
         assert s2_v2.qualifier.status is QualifierStatus.FAILED
-        labels = [series.name() for series in dialog.chart.series()]
-        assert "Validated" in labels
-        assert "Failed" in labels
-        assert "No verdict" in labels
-        assert all(isinstance(series, QScatterSeries) for series in dialog.chart.series())
+        assert not dialog.status_legend.isHidden()
+        legend = dialog.status_legend.text()
+        assert legend.count("Validated") == 1
+        assert legend.count("Failed") == 1
+        assert legend.count("No verdict") == 1
+        assert QUALIFIER_GREEN.name() in legend
+        assert QUALIFIER_RED.name() in legend
+        assert QUALIFIER_GREY.name() in legend
+    finally:
+        dialog.deleteLater()
+
+
+def test_identity_chart_popup_hover_maps_live_cell(qapp, monkeypatch):
+    channels = (_qion(), _v1())
+    identity = _identity_snapshot(
+        channels, ("S1", _supported_qc(channels, True), None)
+    )
+    shown = []
+    hidden = []
+    monkeypatch.setattr(
+        "manic.ui.chart_popup_dialog.show_identity_tooltip",
+        lambda _widget, text: shown.append(text),
+    )
+    monkeypatch.setattr(
+        "manic.ui.chart_popup_dialog.QToolTip.hideText",
+        lambda: hidden.append(True),
+    )
+    dialog = ChartPopupDialog.for_identity(identity)
+    try:
+        v1_set = dialog._identity_binding.bar_sets[0]
+        assert dialog._identity_binding.cell_for(v1_set).sample_name == "S1"
+        v1_set.hovered.emit(True, 0)
+        assert len(shown) == 1
+        assert "S1" in shown[0]
+        assert "Validated" in shown[0]
+        shown.clear()
+        hidden.clear()
+        v1_set.hovered.emit(True, 1)
+        assert shown == []
+        assert hidden == [True]
     finally:
         dialog.deleteLater()
 

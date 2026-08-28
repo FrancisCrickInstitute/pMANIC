@@ -10,7 +10,7 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QCursor, QFont, QPainter
 from PySide6.QtWidgets import (
     QDialog,
@@ -22,10 +22,15 @@ from PySide6.QtWidgets import (
 )
 
 from manic.ui.channel_labels import channel_legend_text
-from manic.ui.colors import label_colors
+from manic.ui.colors import (
+    QUALIFIER_GREEN,
+    QUALIFIER_GREY,
+    QUALIFIER_RED,
+    label_colors,
+)
 from manic.ui.identity_chart import (
-    IdentityChartBinding,
-    add_identity_series,
+    IdentityGridBinding,
+    add_identity_grid,
     identity_cell_tooltip,
     show_identity_tooltip,
 )
@@ -55,7 +60,7 @@ class ChartPopupDialog(QDialog):
 
         self._hover_categories: list[str] | None = None
         self._hover_notes: list[str] | None = None
-        self._identity_binding: IdentityChartBinding | None = None
+        self._identity_binding: IdentityGridBinding | None = None
         self._total_abundance_scale_factor: float = 1.0
         
         self.setWindowTitle(f"MANIC - {title}")
@@ -122,8 +127,16 @@ class ChartPopupDialog(QDialog):
             "color: #333; font-size: 12px; background: transparent;"
         )
         self.ion_legend.hide()
+        self.status_legend = QLabel("")
+        self.status_legend.setTextFormat(Qt.RichText)
+        self.status_legend.setAlignment(Qt.AlignHCenter)
+        self.status_legend.setStyleSheet(
+            "color: #333; font-size: 12px; background: transparent;"
+        )
+        self.status_legend.hide()
         layout.addWidget(self.ion_legend)
         layout.addWidget(self.chart_view)
+        layout.addWidget(self.status_legend)
         
         # Add close button
         button_layout = QHBoxLayout()
@@ -261,20 +274,40 @@ class ChartPopupDialog(QDialog):
             )
         )
         self.ion_legend.show()
-        self._identity_binding = add_identity_series(
-            self.chart, self._identity.samples, show_names=True
+        self._identity_binding = add_identity_grid(
+            self.chart, self._identity.samples, label_font_size=12
         )
-        self.chart.legend().setVisible(True)
-        self.chart.legend().setAlignment(Qt.AlignBottom)
-        self.chart.legend().setFont(QFont("Arial", 10))
-        for series in self._identity_binding.series:
-            series.hovered.connect(self._on_identity_cell_hover)
+        self.status_legend.setText(
+            "&nbsp;&nbsp;".join(
+                f'<span style="color:{color.name()};">&#9632;</span> {name}'
+                for color, name in (
+                    (QUALIFIER_GREEN, "Validated"),
+                    (QUALIFIER_RED, "Failed"),
+                    (QUALIFIER_GREY, "No verdict"),
+                )
+            )
+        )
+        self.status_legend.show()
+        for bar_set in self._identity_binding.bar_sets:
+            bar_set.hovered.connect(
+                lambda status, index, bound=bar_set: self._on_identity_cell_hover(
+                    bound, status, index
+                )
+            )
 
-    def _on_identity_cell_hover(self, point: QPointF, entered: bool) -> None:
-        if not entered or self._identity_binding is None:
+    def _on_identity_cell_hover(
+        self, bar_set: QBarSet, status: bool, index: int
+    ) -> None:
+        if (
+            not status
+            or self._identity_binding is None
+            or index < 0
+            or index >= bar_set.count()
+            or bar_set.at(index) <= 0
+        ):
             QToolTip.hideText()
             return
-        cell = self._identity_binding.cell_at(point)
+        cell = self._identity_binding.cell_for(bar_set)
         if cell is None:
             QToolTip.hideText()
             return

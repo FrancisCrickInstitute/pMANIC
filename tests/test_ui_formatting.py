@@ -7,8 +7,15 @@ and other UI components.
 
 from dataclasses import replace
 import pytest
-from PySide6.QtCharts import QChart, QScatterSeries, QValueAxis
+from PySide6.QtCharts import (
+    QBarCategoryAxis,
+    QCategoryAxis,
+    QChart,
+    QScatterSeries,
+    QValueAxis,
+)
 from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QLabel
 import sys
 import numpy as np
@@ -23,7 +30,9 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.processors.display_deconvolution import plot_display
 from manic.ui.colors import (
     QUALIFIER_GREEN,
+    QUALIFIER_GREY,
     QUALIFIER_RED,
+    QUALIFIER_STATUS_COLORS,
     channel_trace_styles,
     label_colors,
 )
@@ -227,25 +236,57 @@ def _supported_qc(channels, *passed: bool) -> IdentityQcResult:
     )
 
 
-def test_targeted_qc_identity_chart_renders_two_cells(qapp):
+def _horizontal_axes(chart):
+    value_axes = [
+        axis for axis in chart.axes(Qt.Horizontal) if type(axis) is QValueAxis
+    ]
+    category_axes = [
+        axis for axis in chart.axes(Qt.Horizontal) if isinstance(axis, QCategoryAxis)
+    ]
+    return value_axes, category_axes
+
+
+def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
     channels = (_qion(), _v1())
     identity = _identity_snapshot(
-        channels, ("S1", _supported_qc(channels, True), None)
+        channels,
+        ("S1", _supported_qc(channels, True), None),
+        ("S2", _supported_qc(channels, False), None),
     )
     widget = TargetedQcWidget()
     try:
         widget.update_results(identity)
         assert widget.ion_legend.text() == "Target  Q ion m/z 217  V ion 1 m/z 147"
         assert "●" not in widget.ion_legend.text()
-        assert widget.chart.title() == "Identity"
-        assert widget.chart.legend().isVisible()
+        assert widget.chart.title() == ""
+        assert not widget.chart.legend().isVisible()
         assert widget._binding is not None
-        assert widget._binding.cell_at(QPointF(1, 1)).qualifier.status is QualifierStatus.VALIDATED
-        assert widget._binding.cell_at(QPointF(2, 1)).qualifier.status is QualifierStatus.ABSENT
-        x_labels = widget.chart.axes(Qt.Horizontal)[0].categoriesLabels()
-        y_labels = widget.chart.axes(Qt.Vertical)[0].categoriesLabels()
-        assert x_labels == ["V1", "V2"]
-        assert y_labels == ["S1"]
+        bar_sets = widget._binding.bar_sets
+        assert len(bar_sets) == 4
+        expected = (
+            ("S2", QualifierStatus.FAILED, QUALIFIER_RED),
+            ("S2", QualifierStatus.ABSENT, QUALIFIER_GREY),
+            ("S1", QualifierStatus.VALIDATED, QUALIFIER_GREEN),
+            ("S1", QualifierStatus.ABSENT, QUALIFIER_GREY),
+        )
+        for bar_set, (sample_name, status, color) in zip(bar_sets, expected):
+            cell = widget._binding.cell_for(bar_set)
+            assert cell.sample_name == sample_name
+            assert cell.qualifier.status is status
+            assert bar_set.color() == color
+            assert bar_set.color() == QUALIFIER_STATUS_COLORS[status]
+            assert bar_set.borderColor() == QColor("white")
+        assert [set_.at(0) for set_ in bar_sets] == [1.0, 1.0, 0.0, 0.0]
+        assert [set_.at(1) for set_ in bar_sets] == [0.0, 0.0, 1.0, 1.0]
+        value_axes, category_axes = _horizontal_axes(widget.chart)
+        assert len(value_axes) == 1
+        assert value_axes[0].min() == 0
+        assert value_axes[0].max() == 2
+        assert not value_axes[0].labelsVisible()
+        assert category_axes[0].categoriesLabels() == ["V1", "V2"]
+        y_axis = widget.chart.axes(Qt.Vertical)[0]
+        assert isinstance(y_axis, QBarCategoryAxis)
+        assert list(y_axis.categories()) == ["S2", "S1"]
         widget.clear()
         assert widget._identity is None
         assert widget.chart.series() == []
@@ -264,8 +305,49 @@ def test_identity_chart_click_emits_sample_name(qapp):
     widget.sample_activated.connect(activated.append)
     try:
         widget.update_results(identity)
-        widget._on_cell_clicked(QPointF(2, 1))
+        v2_set = widget._binding.bar_sets[1]
+        assert widget._binding.cell_for(v2_set).qualifier.status is QualifierStatus.ABSENT
+        v2_set.clicked.emit(0)
         assert activated == ["S1"]
+    finally:
+        widget.deleteLater()
+
+
+def test_identity_chart_hover_maps_live_cell(qapp, monkeypatch):
+    channels = (_qion(), _v1())
+    identity = _identity_snapshot(
+        channels,
+        ("S1", _supported_qc(channels, True), None),
+        ("S2", _supported_qc(channels, False), None),
+    )
+    shown = []
+    hidden = []
+    monkeypatch.setattr(
+        "manic.ui.targeted_qc_widget.show_identity_tooltip",
+        lambda _widget, text: shown.append(text),
+    )
+    monkeypatch.setattr(
+        "manic.ui.targeted_qc_widget.QToolTip.hideText",
+        lambda: hidden.append(True),
+    )
+    widget = TargetedQcWidget()
+    try:
+        widget.update_results(identity)
+        s1_v1 = widget._binding.bar_sets[2]
+        assert widget._binding.cell_for(s1_v1).sample_name == "S1"
+        s1_v1.hovered.emit(True, 1)
+        assert len(shown) == 1
+        assert "S1" in shown[0]
+        assert "Validated" in shown[0]
+        shown.clear()
+        hidden.clear()
+        s1_v1.hovered.emit(True, 0)
+        assert shown == []
+        assert hidden == [True]
+        hidden.clear()
+        s1_v1.hovered.emit(False, 1)
+        assert shown == []
+        assert hidden == [True]
     finally:
         widget.deleteLater()
 

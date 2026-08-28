@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from PySide6.QtCharts import QChart, QChartView
-from PySide6.QtCore import QMargins, QPointF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter
+from PySide6.QtCharts import QBarSet, QChart, QChartView
+from PySide6.QtCore import QMargins, Qt, Signal
+from PySide6.QtGui import QColor, QMouseEvent, QPainter
 from PySide6.QtWidgets import QLabel, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
 from manic.ui.channel_labels import channel_legend_text
 from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.identity_chart import (
-    IdentityChartBinding,
-    add_identity_series,
+    IdentityGridBinding,
+    add_identity_grid,
     identity_cell_tooltip,
     show_identity_tooltip,
 )
@@ -40,13 +40,9 @@ class TargetedQcWidget(QWidget):
         self.chart.setBackgroundVisible(False)
         self.chart.setPlotAreaBackgroundVisible(True)
         self.chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
-        self.chart.setTitle("Identity")
-        self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
-        self.chart.setTitleBrush(QColor("black"))
-        self.chart.setMargins(QMargins(2, 1, 5, 1))
-        self.chart.legend().setVisible(True)
-        self.chart.legend().setAlignment(Qt.AlignBottom)
-        self.chart.legend().setFont(QFont("Arial", 8))
+        self.chart.setTitle("")
+        self.chart.setMargins(QMargins(0, 0, 0, 0))
+        self.chart.legend().setVisible(False)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -57,7 +53,7 @@ class TargetedQcWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self._identity: IdentityAssessmentSet | None = None
-        self._binding: IdentityChartBinding | None = None
+        self._binding: IdentityGridBinding | None = None
 
     def update_results(self, identity: IdentityAssessmentSet) -> None:
         if not identity.samples:
@@ -69,11 +65,7 @@ class TargetedQcWidget(QWidget):
             channel_legend_text(identity.compound_name, identity.channels)
         )
         self.ion_legend.show()
-        self._binding = add_identity_series(
-            self.chart,
-            identity.samples,
-            show_names=True,
-        )
+        self._binding = add_identity_grid(self.chart, identity.samples)
         self._connect_cell_signals()
 
     def clear(self) -> None:
@@ -88,23 +80,35 @@ class TargetedQcWidget(QWidget):
     def _connect_cell_signals(self) -> None:
         if self._binding is None:
             return
-        for series in self._binding.series:
-            series.clicked.connect(self._on_cell_clicked)
-            series.hovered.connect(self._on_cell_hovered)
+        for bar_set in self._binding.bar_sets:
+            bar_set.hovered.connect(
+                lambda status, index, bound=bar_set: self._on_grid_hovered(
+                    bound, status, index
+                )
+            )
+            bar_set.clicked.connect(
+                lambda index, bound=bar_set: self._on_grid_clicked(bound, index)
+            )
 
-    def _on_cell_clicked(self, point: QPointF) -> None:
+    def _on_grid_clicked(self, bar_set: QBarSet, _index: int) -> None:
         if self._binding is None:
             return
-        cell = self._binding.cell_at(point)
+        cell = self._binding.cell_for(bar_set)
         if cell is None:
             return
         self.sample_activated.emit(cell.sample_name)
 
-    def _on_cell_hovered(self, point: QPointF, entered: bool) -> None:
-        if not entered or self._binding is None:
+    def _on_grid_hovered(self, bar_set: QBarSet, status: bool, index: int) -> None:
+        if (
+            not status
+            or self._binding is None
+            or index < 0
+            or index >= bar_set.count()
+            or bar_set.at(index) <= 0
+        ):
             QToolTip.hideText()
             return
-        cell = self._binding.cell_at(point)
+        cell = self._binding.cell_for(bar_set)
         if cell is None:
             QToolTip.hideText()
             return

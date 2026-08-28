@@ -10,6 +10,8 @@ and "Amount in StdMix".
 
 import logging
 import re
+import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -501,3 +503,128 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
 
     logger.info("Imported %d unlabelled compound(s) from %s", len(compounds), path.name)
     return len(compounds)
+
+
+@dataclass(frozen=True)
+class UnlabelledCompoundRecord:
+    compound_name: str
+    retention_time: float
+    loffset: float
+    roffset: float
+    rt_window: Optional[float]
+    amount_in_std_mix: Optional[float]
+    int_std_amount: Optional[float]
+    mm_files: Optional[str]
+    channels: tuple[IonChannel, ...]
+
+
+def _duplicate_name_error(name: str) -> ValueError:
+    return ValueError(
+        f"A compound named '{name}' already exists. "
+        "Soft-deleted compounds also occupy that name; "
+        "recover deleted compounds or choose a different name."
+    )
+
+
+def insert_compound(row: CompoundRow) -> None:
+    sql = """
+    INSERT INTO compounds
+        (compound_name, retention_time, mass0, loffset, roffset, label_atoms,
+         formula, label_type, tbdms, meox, me, amount_in_std_mix, int_std_amount, mm_files, deleted)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                sql,
+                (
+                    row.compound_name,
+                    row.retention_time,
+                    row.mass0,
+                    row.loffset,
+                    row.roffset,
+                    row.label_atoms,
+                    row.formula,
+                    row.label_type,
+                    row.tbdms,
+                    row.meox,
+                    row.me,
+                    row.amount_in_std_mix,
+                    row.int_std_amount,
+                    row.mm_files,
+                    row.deleted,
+                ),
+            )
+    except sqlite3.IntegrityError as exc:
+        raise _duplicate_name_error(row.compound_name) from exc
+
+
+def insert_unlabelled_compound(record: UnlabelledCompoundRecord) -> None:
+    name = record.compound_name.strip()
+    if not name:
+        raise ValueError("compound_name is blank")
+
+    channels = validate_unlabelled_channels(record.channels)
+    quantifier = next(c for c in channels if c.role is IonRole.QUANTIFIER)
+
+    rt_tolerance = record.rt_window
+    if rt_tolerance is None:
+        rt_tolerance = max(record.loffset, record.roffset)
+    if rt_tolerance < 0:
+        raise ValueError("tR window cannot be negative")
+
+    compound_sql = """
+        INSERT INTO compounds
+            (compound_name, retention_time, mass0, loffset, roffset, label_atoms,
+             formula, label_type, tbdms, meox, me, amount_in_std_mix,
+             int_std_amount, mm_files, deleted, deconvolution_level)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    ion_sql = """
+        INSERT INTO compound_ions
+            (compound_name, role, ordinal, mz, expected_ratio, ratio_tolerance)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                compound_sql,
+                (
+                    name,
+                    record.retention_time,
+                    float(quantifier.mz),
+                    record.loffset,
+                    record.roffset,
+                    0,
+                    None,
+                    "C",
+                    0,
+                    0,
+                    0,
+                    record.amount_in_std_mix,
+                    record.int_std_amount,
+                    record.mm_files,
+                    0,
+                    DEFAULT_DECONVOLUTION_LEVEL,
+                ),
+            )
+            conn.execute(
+                "UPDATE compounds SET rt_tolerance = ? WHERE compound_name = ?",
+                (rt_tolerance, name),
+            )
+            conn.executemany(
+                ion_sql,
+                [
+                    (
+                        name,
+                        channel.role.value,
+                        channel.ordinal,
+                        channel.mz,
+                        channel.expected_ratio,
+                        channel.ratio_tolerance,
+                    )
+                    for channel in channels
+                ],
+            )
+    except sqlite3.IntegrityError as exc:
+        raise _duplicate_name_error(name) from exc

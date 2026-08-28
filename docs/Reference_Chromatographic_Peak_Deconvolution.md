@@ -20,7 +20,7 @@ Export is stricter still. If any ion with real intensity failed to fit, every no
 
 When deconvolution is on and every non-empty ion of the compound in that sample has a usable model, the selected peak is a continuous analytic model (Gaussian, Bi-Gaussian, or EMG). Display and export use that same fitted model:
 
-- **Plots** with Natural Abundance Correction preview off draw the model on a dense grid, with the faint raw EIC underneath. With preview on, plots correct the selected model at the acquisition scan times and join those points. Neighbour peaks outside that component are hidden, and the y-axis scales to what is drawn.
+- **Plots** with Natural Abundance Correction preview off draw the model on a dense grid, with the faint raw EIC underneath. With preview on, plots draw the corrected selected model at the acquisition scan times and keep the faint raw EIC for context. Neighbour peaks remain visible but do not enter correction or integration. The y-axis includes both the corrected trace and the raw context.
 - **Integration** and export integrate that same densely-evaluated model from the first scan inside the loffset/roffset window to the last, rather than from the offset edges themselves or from the model sampled only at the acquisition scans.
 
 Both views come from the same selected fit, but corrected preview is scan-sampled while time-based export uses the denser grid for a more accurate area. Dense evaluation changes exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks). Legacy (unit-spacing) integration remains scan-point based. The raw trace itself is never smoothed.
@@ -190,8 +190,8 @@ Preview on:
 
 1. Fit the raw traces. The yes/no overlay decision stays on that raw fit.
 2. If the compound supports correction, apply natural-abundance correction to that same measurement (the selected stack if overlays are on, otherwise the raw matrix with empty rows kept at zero).
-3. Draw only the corrected traces. Do not leave the pre-correction raw underlay.
-4. Scale the y-axis to the drawn traces, not the unresolved raw max.
+3. When overlays are on, draw the corrected selected traces over a faint raw EIC. The raw context does not enter correction or integration. Otherwise, draw the corrected raw matrix.
+4. When both layers are present, scale the y-axis to include both.
 
 The toolbar bars and the tiles use the same raw fit. They do not re-fit stored `eic_corrected` traces. Preview draws corrected selected values at the acquisition scan times. Time-based bars and export integrate a denser evaluation of the same fitted model.
 

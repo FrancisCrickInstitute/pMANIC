@@ -356,7 +356,7 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 ### Natural Abundance Correction
 **Settings → Preview Natural Abundance Correction** (Toggle)
 * **Function:** Controls what the main chromatogram plots and the Label Incorporation bars show.
-    * **On:** Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. Neighbour peaks outside the selected component are hidden, and the y-axis rescales to the drawn traces.
+    * **On:** Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * **Off:** Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
 * **Usage:** Toggle this to check how correction redistributes the isotopologue signals.
 * **Note:** This setting only affects the *display* and the on-screen bars. Export still writes both Raw and Corrected sheets from the raw fit, then correction of that selected component. Time-based export uses a denser evaluation of the fit for a more accurate area.

@@ -563,7 +563,8 @@ def test_detailed_eic_plot_failure_updates_info_strip(qapp, monkeypatch):
         dialog._plot_eic()
         dialog._update_info_label()
         text = dialog.info_label.text()
-        assert text.startswith("EIC plot failed: guide draw failed")
+        assert not text.startswith("EIC plot failed")
+        assert dialog._eic_plot_error is None
         assert dialog.eic_plot.data_lines
         assert "plot failed" not in dialog.eic_plot.ax.get_title()
     finally:
@@ -819,8 +820,40 @@ def test_detailed_eic_stays_visible_when_display_pipeline_fails(qapp, monkeypatc
         dialog.compound_info = _labelled_detail_compound()
         dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
         dialog._plot_eic()
+        dialog._update_info_label()
         assert dialog.eic_plot.data_lines
+        assert dialog._eic_plot_error is None
+        assert not dialog.info_label.text().startswith("EIC plot failed")
         assert max(float(np.max(y)) for _x, y in dialog.eic_plot.data_lines) > 1.0
+    finally:
+        dialog.deleteLater()
+
+
+def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(qapp, monkeypatch):
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    dialog = DetailedPlotDialog("alanine", "S1")
+    try:
+        dialog.compound_info = SimpleNamespace(
+            retention_time=5.0,
+            loffset=0.1,
+            roffset=0.1,
+            is_unlabelled_target=False,
+            mass0=116.0,
+            label_atoms=0,
+        )
+        dialog.eic_data = SimpleNamespace(
+            time=np.array([4.9, 5.0, 5.1]),
+            intensity=np.array([1.0, 2.0, 1.0]),
+        )
+        dialog.eic_plot.finalize_plot = lambda: (_ for _ in ()).throw(
+            RuntimeError("finalize failed")
+        )
+        dialog._plot_eic()
+        dialog._update_info_label()
+        assert dialog.info_label.text().startswith("EIC plot failed: finalize failed")
+        assert "plot failed" in dialog.eic_plot.ax.get_title()
     finally:
         dialog.deleteLater()
 

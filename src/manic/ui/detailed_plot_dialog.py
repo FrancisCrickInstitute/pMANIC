@@ -433,10 +433,13 @@ class DetailedPlotDialog(QDialog):
                 self._plot_eic_traces(prepared)
             except Exception as display_error:
                 logger.error(f"Display deconvolution failed: {display_error}")
-                self._eic_plot_error = str(display_error)
                 self._plot_trace_matrix(self.eic_data.intensity, selected=True)
+                if not self.eic_plot.data_lines:
+                    self._eic_plot_error = str(display_error)
             if not self.eic_plot.data_lines:
                 self._plot_trace_matrix(self.eic_data.intensity, selected=True)
+            if self.eic_plot.data_lines:
+                self._eic_plot_error = None
 
             rt = self.compound_info.retention_time
             left_bound = rt - self.compound_info.loffset

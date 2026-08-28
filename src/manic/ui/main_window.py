@@ -2614,9 +2614,6 @@ class MainWindow(QMainWindow):
         )
         msg.exec()
 
-        # Also update the graph view to use corrected/uncorrected data
-        self.graph_view.set_use_corrected(is_enabled)
-
         # If we have data displayed, refresh everything
         selected_compound = self.toolbar.get_selected_compound()
         selected_samples = self.toolbar.get_selected_samples()

@@ -45,7 +45,7 @@ from manic.constants import (
 from manic.io.cdf_data_extractor import ensure_ms_data_for_time
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.tic_reader import read_tic
-from manic.processors.display_deconvolution import plot_display
+from manic.processors.display_deconvolution import PlotDisplay, plot_display
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
@@ -433,7 +433,12 @@ class DetailedPlotDialog(QDialog):
                 self._plot_eic_traces(prepared)
             except Exception as display_error:
                 logger.error(f"Display deconvolution failed: {display_error}")
-                self._plot_trace_matrix(self.eic_data.intensity, selected=True)
+                prepared = PlotDisplay(
+                    display=None,
+                    intensity=np.asarray(self.eic_data.intensity, dtype=np.float64),
+                    includes_raw_underlay=False,
+                )
+                self._plot_trace_matrix(prepared.intensity, selected=True)
                 if not self.eic_plot.data_lines:
                     self._eic_plot_error = str(display_error)
             if not self.eic_plot.data_lines:
@@ -466,8 +471,7 @@ class DetailedPlotDialog(QDialog):
             )
 
             try:
-                if prepared is not None:
-                    self._add_baseline_lines(left_bound, right_bound, prepared)
+                self._add_baseline_lines(left_bound, right_bound, prepared)
             except Exception as baseline_error:
                 logger.error(f"Failed to draw baseline lines: {baseline_error}")
 
@@ -489,7 +493,7 @@ class DetailedPlotDialog(QDialog):
             )
 
     def _add_baseline_lines(self, left_bound: float, right_bound: float, prepared):
-        if prepared is None or not self.compound_info or not self.eic_data:
+        if not self.compound_info or not self.eic_data:
             return
 
         baseline_flag = getattr(self.compound_info, "baseline_correction", 0)
@@ -501,10 +505,11 @@ class DetailedPlotDialog(QDialog):
             independent_channels=getattr(self.compound_info, "is_unlabelled_target", False)
         ):
             drew_baseline = False
+            baseline_intensity = prepared.baseline_intensity()
             draw_matrix = (
-                prepared.intensity
-                if prepared.intensity.ndim > 1
-                else prepared.intensity.reshape(1, -1)
+                baseline_intensity
+                if baseline_intensity.ndim > 1
+                else baseline_intensity.reshape(1, -1)
             )
             for channel in display.bundle.channels:
                 if channel.result.model is None:
@@ -623,25 +628,14 @@ class DetailedPlotDialog(QDialog):
                     grid, row, color=color, width=1.2, name="", style="dotted"
                 )
 
-    def _plot_eic_traces(self, prepared=None):
-        if prepared is None:
-            prepared = plot_display(
-                self.eic_data.time,
-                self.eic_data.intensity,
-                self.compound_info,
-                use_corrected=self.use_corrected,
-            )
+    def _plot_eic_traces(self, prepared):
         display = prepared.display
         bundle = None if display is None else display.bundle
         draw_intensity = prepared.intensity
 
         if bundle is None or not bundle.shows_model_overlays(
             independent_channels=getattr(self.compound_info, "is_unlabelled_target", False)
-        ):
-            self._plot_trace_matrix(draw_intensity, selected=True)
-            return
-
-        if not prepared.includes_raw_underlay:
+        ) or not prepared.includes_raw_underlay:
             self._plot_trace_matrix(draw_intensity, selected=True)
             return
 
@@ -650,7 +644,8 @@ class DetailedPlotDialog(QDialog):
         for channel in bundle.channels:
             model = channel.result.model
             if model is None:
-                unfitted_indices.append(channel.index)
+                if not channel.result.empty:
+                    unfitted_indices.append(channel.index)
                 continue
             self._plot_model_component(
                 model, model.selected_index, selected=True, color_index=channel.index

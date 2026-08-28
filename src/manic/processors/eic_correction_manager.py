@@ -140,45 +140,6 @@ def store_corrected_eic(
         )
 
 
-def read_corrected_eic(sample_name: str, compound_name: str) -> Optional[np.ndarray]:
-    """
-    Read corrected EIC data from database.
-
-    Args:
-        sample_name: Sample name
-        compound_name: Compound name
-
-    Returns:
-        Corrected intensity array or None if not found
-    """
-    sql = """
-        SELECT y_axis_corrected
-        FROM eic_corrected
-        WHERE sample_name = ? AND compound_name = ? AND deleted = 0
-        LIMIT 1
-    """
-
-    with get_connection() as conn:
-        row = conn.execute(sql, (sample_name, compound_name)).fetchone()
-
-        if not row or not row["y_axis_corrected"]:
-            return None
-
-        # Decompress and reshape
-        intensity_bytes = zlib.decompress(row["y_axis_corrected"])
-        intensity_array = np.frombuffer(intensity_bytes, dtype=np.float64)
-
-        # Need to know the shape - get from original EIC (raw data)
-        compound = read_compound(compound_name)
-        eic = read_eic(sample_name, compound, use_corrected=False)
-        if eic.intensity.ndim == 2:
-            n_isotopologues = eic.intensity.shape[0]
-            n_timepoints = len(eic.time)
-            intensity_array = intensity_array.reshape(n_isotopologues, n_timepoints)
-
-        return intensity_array
-
-
 def process_all_corrections(progress_cb=None) -> int:
     """
     PHASE A OPTIMIZED: Process natural abundance corrections with batch operations.

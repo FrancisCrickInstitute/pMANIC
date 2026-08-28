@@ -39,7 +39,7 @@ class IsotopologueRatioWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("isotopologueRatioWidget")
 
-        self.use_corrected = True
+        self.use_corrected = False
 
         # Create chart and chart view
         self.chart = QChart()

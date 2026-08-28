@@ -1320,7 +1320,7 @@ class GraphView(QWidget):
         eic_intensity: np.ndarray,
         compound,
         scale_factor: float,
-        prepared=None,
+        prepared,
     ):
         baseline_flag = getattr(compound, "baseline_correction", 0)
         if not baseline_flag:
@@ -1328,22 +1328,16 @@ class GraphView(QWidget):
 
         logger.debug(f"Drawing baseline lines for {compound.compound_name}")
 
-        if prepared is None:
-            prepared = plot_display(
-                eic_time,
-                eic_intensity,
-                compound,
-                use_corrected=self.use_corrected,
-            )
         display = prepared.display
         if display is not None and display.bundle.shows_model_overlays(
             independent_channels=getattr(compound, "is_unlabelled_target", False)
         ):
             drew_baseline = False
+            baseline_intensity = prepared.baseline_intensity()
             draw_matrix = (
-                prepared.intensity
-                if prepared.intensity.ndim > 1
-                else prepared.intensity.reshape(1, -1)
+                baseline_intensity
+                if baseline_intensity.ndim > 1
+                else baseline_intensity.reshape(1, -1)
             )
             for channel in display.bundle.channels:
                 if channel.result.model is None:
@@ -1508,15 +1502,8 @@ class GraphView(QWidget):
         eic_intensity: np.ndarray,
         compound,
         scale_factor: float,
-        prepared=None,
+        prepared,
     ):
-        if prepared is None:
-            prepared = plot_display(
-                eic_time,
-                eic_intensity,
-                compound,
-                use_corrected=self.use_corrected,
-            )
         display = prepared.display
         bundle = None if display is None else display.bundle
         draw_intensity = prepared.intensity
@@ -1567,7 +1554,8 @@ class GraphView(QWidget):
         for channel in bundle.channels:
             model = channel.result.model
             if model is None:
-                unfitted_indices.append(channel.index)
+                if not channel.result.empty:
+                    unfitted_indices.append(channel.index)
                 continue
             self._add_model_component_series(
                 chart,

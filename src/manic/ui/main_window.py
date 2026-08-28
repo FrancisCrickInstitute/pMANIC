@@ -2573,14 +2573,13 @@ class MainWindow(QMainWindow):
                 msg_box.exec()
 
     def toggle_natural_abundance_correction(self):
-        """Redraw graphs and Label Incorporation with or without live NIC."""
         is_enabled = self.nat_abundance_toggle.isChecked()
         logger.info(
             f"Natural abundance correction visualization toggled: {'ON' if is_enabled else 'OFF'}"
         )
 
         self.nat_abundance_toggle.setText(
-            f"Natural Abundance Correction: {'On' if is_enabled else 'Off'}"
+            f"Preview Natural Abundance Correction: {'On' if is_enabled else 'Off'}"
         )
         self.toolbar.isotopologue_ratios.set_use_corrected(is_enabled)
         self.graph_view.set_use_corrected(is_enabled)

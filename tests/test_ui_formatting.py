@@ -5,6 +5,7 @@ Tests formatting logic used to display values in the integration window
 and other UI components.
 """
 
+from dataclasses import replace
 import pytest
 from PySide6.QtCharts import QChart, QValueAxis
 from PySide6.QtCore import Qt
@@ -19,6 +20,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
     EICChromatographicPeakDeconvolutionResult,
     deconvolve_eic,
 )
+from manic.processors.display_deconvolution import plot_display
 from manic.ui.colors import label_colors
 
 from manic.ui.integration_window_widget import IntegrationWindow
@@ -42,6 +44,32 @@ def qapp():
     if app is None:
         app = QApplication(sys.argv)
     yield app
+
+
+def test_nic_toggle_updates_preview_state_without_processing_data():
+    labels = []
+    ratio_states = []
+    graph_states = []
+    window = SimpleNamespace(
+        nat_abundance_toggle=SimpleNamespace(
+            isChecked=lambda: True,
+            setText=labels.append,
+        ),
+        toolbar=SimpleNamespace(
+            isotopologue_ratios=SimpleNamespace(
+                set_use_corrected=ratio_states.append
+            ),
+            get_selected_compound=lambda: None,
+            get_selected_samples=lambda: [],
+        ),
+        graph_view=SimpleNamespace(set_use_corrected=graph_states.append),
+    )
+
+    MainWindow.toggle_natural_abundance_correction(window)
+
+    assert labels == ["Preview Natural Abundance Correction: On"]
+    assert ratio_states == [True]
+    assert graph_states == [True]
 
 
 @pytest.fixture
@@ -539,38 +567,6 @@ def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
         view.deleteLater()
 
 
-def test_detailed_eic_plot_failure_updates_info_strip(qapp, monkeypatch):
-    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
-
-    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
-    dialog = DetailedPlotDialog("alanine", "S1")
-    try:
-        dialog.compound_info = SimpleNamespace(
-            retention_time=5.0,
-            loffset=0.1,
-            roffset=0.1,
-            is_unlabelled_target=False,
-            mass0=116.0,
-            label_atoms=0,
-        )
-        dialog.eic_data = SimpleNamespace(
-            time=np.array([4.9, 5.0, 5.1]),
-            intensity=np.array([1.0, 2.0, 1.0]),
-        )
-        dialog._plot_eic_traces = lambda *_args: (_ for _ in ()).throw(
-            RuntimeError("guide draw failed")
-        )
-        dialog._plot_eic()
-        dialog._update_info_label()
-        text = dialog.info_label.text()
-        assert not text.startswith("EIC plot failed")
-        assert dialog._eic_plot_error is None
-        assert dialog.eic_plot.data_lines
-        assert "plot failed" not in dialog.eic_plot.ax.get_title()
-    finally:
-        dialog.deleteLater()
-
-
 def test_one_d_model_overlay_uses_qualifier_color(qapp):
     time = np.linspace(0.0, 10.0, 201)
     peak = 10.0 * np.exp(-0.5 * ((time - 5.0) / 0.3) ** 2)
@@ -655,6 +651,23 @@ def _mixed_deconvolution_bundle(time):
     )
 
 
+def _empty_second_channel_bundle(time):
+    bundle = _mixed_deconvolution_bundle(time)
+    empty = replace(
+        bundle.channels[1].result,
+        selected=np.zeros(time.size),
+        selected_center=None,
+        empty=True,
+    )
+    return replace(
+        bundle,
+        channels=(
+            bundle.channels[0],
+            replace(bundle.channels[1], result=empty),
+        ),
+    )
+
+
 def test_labelled_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
     time = np.linspace(4.0, 6.0, 81)
     intensity = np.vstack(
@@ -664,11 +677,13 @@ def test_labelled_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
         ]
     )
     monkeypatch.setattr(
-        "manic.processors.chromatographic_peak_deconvolution.deconvolve_channel_matrix",
+        "manic.processors.display_deconvolution.deconvolve_channel_matrix",
         lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
     )
     view = GraphView()
     try:
+        compound = _deconvolution_plot_compound(is_unlabelled_target=False)
+        prepared = plot_display(time, intensity, compound, use_corrected=False)
         chart = QChart()
         x_axis = QValueAxis()
         y_axis = QValueAxis()
@@ -680,8 +695,9 @@ def test_labelled_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
             y_axis,
             time,
             intensity,
-            _deconvolution_plot_compound(is_unlabelled_target=False),
+            compound,
             1.0,
+            prepared,
         )
         widths = {series.pen().widthF() for series in chart.series()}
         assert 2.2 not in widths
@@ -699,11 +715,13 @@ def test_unlabelled_mixed_bundle_draws_fitted_ion_overlay(qapp, monkeypatch):
         ]
     )
     monkeypatch.setattr(
-        "manic.processors.chromatographic_peak_deconvolution.deconvolve_channel_matrix",
+        "manic.processors.display_deconvolution.deconvolve_channel_matrix",
         lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
     )
     view = GraphView()
     try:
+        compound = _deconvolution_plot_compound(is_unlabelled_target=True)
+        prepared = plot_display(time, intensity, compound, use_corrected=False)
         chart = QChart()
         x_axis = QValueAxis()
         y_axis = QValueAxis()
@@ -715,11 +733,52 @@ def test_unlabelled_mixed_bundle_draws_fitted_ion_overlay(qapp, monkeypatch):
             y_axis,
             time,
             intensity,
-            _deconvolution_plot_compound(is_unlabelled_target=True),
+            compound,
             1.0,
+            prepared,
         )
         widths = {series.pen().widthF() for series in chart.series()}
         assert 2.2 in widths
+    finally:
+        view.deleteLater()
+
+
+def test_unlabelled_empty_channel_is_not_redrawn_as_a_failed_trace(qapp, monkeypatch):
+    time = np.linspace(4.0, 6.0, 81)
+    intensity = np.vstack(
+        [
+            12.0 * np.exp(-0.5 * ((time - 5.0) / 0.08) ** 2),
+            np.full(time.size, 3.0),
+        ]
+    )
+    monkeypatch.setattr(
+        "manic.processors.display_deconvolution.deconvolve_channel_matrix",
+        lambda *args, **kwargs: _empty_second_channel_bundle(time),
+    )
+    view = GraphView()
+    try:
+        compound = _deconvolution_plot_compound(is_unlabelled_target=True)
+        prepared = plot_display(time, intensity, compound, use_corrected=False)
+        chart = QChart()
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        view._add_eic_series(
+            chart,
+            x_axis,
+            y_axis,
+            time,
+            intensity,
+            compound,
+            1.0,
+            prepared,
+        )
+
+        selected_series = [
+            series for series in chart.series() if series.pen().widthF() == 2.2
+        ]
+        assert len(selected_series) == 1
     finally:
         view.deleteLater()
 
@@ -736,7 +795,7 @@ def test_unlabelled_mixed_bundle_detailed_plot_draws_fitted_ion(qapp, monkeypatc
     )
     monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
     monkeypatch.setattr(
-        "manic.processors.chromatographic_peak_deconvolution.deconvolve_channel_matrix",
+        "manic.processors.display_deconvolution.deconvolve_channel_matrix",
         lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
     )
     dialog = DetailedPlotDialog("Target", "S1")
@@ -744,8 +803,11 @@ def test_unlabelled_mixed_bundle_detailed_plot_draws_fitted_ion(qapp, monkeypatc
     try:
         dialog.compound_info = _deconvolution_plot_compound(is_unlabelled_target=True)
         dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
+        prepared = plot_display(
+            time, intensity, dialog.compound_info, use_corrected=False
+        )
         dialog._plot_model_component = lambda *args, **kwargs: drew_model.append(True)
-        dialog._plot_eic_traces()
+        dialog._plot_eic_traces(prepared)
         assert drew_model == [True]
     finally:
         dialog.deleteLater()
@@ -788,7 +850,7 @@ def test_detailed_eic_draws_when_higher_mn_are_empty(qapp, monkeypatch):
         [
             10.0 * np.exp(-0.5 * ((time - 7.0) / 0.25) ** 2),
             np.zeros(time.size),
-            np.full(time.size, 1e-12),
+            np.zeros(time.size),
         ]
     )
     monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
@@ -816,15 +878,22 @@ def test_detailed_eic_stays_visible_when_display_pipeline_fails(qapp, monkeypatc
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("display failed")),
     )
     dialog = DetailedPlotDialog("glucose", "S1")
+    baseline_displays = []
     try:
         dialog.compound_info = _labelled_detail_compound()
         dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
+        dialog._add_baseline_lines = (
+            lambda _left, _right, prepared: baseline_displays.append(prepared)
+        )
         dialog._plot_eic()
         dialog._update_info_label()
         assert dialog.eic_plot.data_lines
         assert dialog._eic_plot_error is None
         assert not dialog.info_label.text().startswith("EIC plot failed")
         assert max(float(np.max(y)) for _x, y in dialog.eic_plot.data_lines) > 1.0
+        assert len(baseline_displays) == 1
+        assert baseline_displays[0].display is None
+        assert baseline_displays[0].intensity == pytest.approx(intensity)
     finally:
         dialog.deleteLater()
 

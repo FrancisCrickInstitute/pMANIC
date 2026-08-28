@@ -356,7 +356,8 @@ class GraphView(QWidget):
                 )
             )
         self._prepared_displays = {
-            id(eic): prepared for eic, prepared in zip(eics, prepared_displays)
+            (eic.sample_name, eic.compound_name): prepared
+            for eic, prepared in zip(eics, prepared_displays)
         }
         if self._shared_y_scale:
             global_max = max(
@@ -1486,7 +1487,9 @@ class GraphView(QWidget):
             series.attachAxis(y_axis)
 
     def _plot_display_for(self, eic, compound):
-        prepared = self._prepared_displays.pop(id(eic), None)
+        prepared = self._prepared_displays.pop(
+            (eic.sample_name, eic.compound_name), None
+        )
         if prepared is not None:
             return prepared
         return plot_display(

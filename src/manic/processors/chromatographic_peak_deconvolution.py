@@ -135,6 +135,7 @@ class EICChromatographicPeakDeconvolutionResult:
     selected_center: float | None
     component_centers: list[float]
     model: DeconvolutionModel | None = None
+    empty: bool = False
 
 
 @dataclass(frozen=True)
@@ -149,9 +150,11 @@ class ChannelDeconvolutionBundle:
     channels: tuple[ChannelDeconvolution, ...]
 
     def uses_model_areas(self) -> bool:
-        """True when every channel fitted, so plots and export may use the curve."""
-        return bool(self.channels) and all(
-            channel.result.model is not None for channel in self.channels
+        active = tuple(
+            channel for channel in self.channels if not channel.result.empty
+        )
+        return bool(active) and all(
+            channel.result.model is not None for channel in active
         )
 
     def has_any_model(self) -> bool:
@@ -168,6 +171,9 @@ class ChannelDeconvolutionBundle:
         time = np.asarray(self.time, dtype=np.float64)
         rows: list[np.ndarray] = []
         for channel in self.channels:
+            if channel.result.empty:
+                rows.append(np.zeros(grid.size, dtype=np.float64))
+                continue
             model = channel.result.model
             if model is not None:
                 values = np.asarray(model.evaluate_selected(grid), dtype=np.float64)
@@ -242,6 +248,18 @@ DEFAULT_NOISE_GATE = "balanced"
 # squares of raw) for a joint fit to be trusted over the raw trace. Above this
 # the model reproduces the data poorly and we fall back to raw integration.
 FIT_QUALITY_MAX_REL_RESIDUAL = 0.15
+EMPTY_ION_FRACTION_OF_TALLEST = 1e-4
+
+
+def _trace_is_empty(row: np.ndarray, reference_max: float) -> bool:
+    if row.size == 0:
+        return True
+    peak = float(np.max(np.asarray(row, dtype=np.float64)))
+    if not np.isfinite(peak) or peak <= 0.0:
+        return True
+    return bool(
+        reference_max > 0.0 and peak < reference_max * EMPTY_ION_FRACTION_OF_TALLEST
+    )
 
 
 def normalize_noise_gate(value: str | None) -> str:
@@ -275,27 +293,76 @@ def deconvolve_channel_matrix(
     fit_type: str | None = "auto",
     noise_gate: str | None = DEFAULT_NOISE_GATE,
 ) -> ChannelDeconvolutionBundle:
-    """Deconvolve each channel of a matrix independently."""
     time = np.asarray(time_data, dtype=np.float64)
     intensity = np.asarray(intensity_data, dtype=np.float64)
     matrix, _ = _as_trace_matrix(intensity)
-    channels = tuple(
-        ChannelDeconvolution(
-            index=index,
-            result=deconvolve_eic(
-                time,
-                matrix[index],
-                retention_time=retention_time,
-                loffset=loffset,
-                roffset=roffset,
-                stringency=stringency,
-                fit_type=fit_type,
-                noise_gate=noise_gate,
-            ),
+    reference_max = float(np.max(matrix)) if matrix.size else 0.0
+    channels = []
+    for index in range(matrix.shape[0]):
+        result = deconvolve_eic(
+            time,
+            matrix[index],
+            retention_time=retention_time,
+            loffset=loffset,
+            roffset=roffset,
+            stringency=stringency,
+            fit_type=fit_type,
+            noise_gate=noise_gate,
         )
-        for index in range(matrix.shape[0])
+        if result.model is None and _trace_is_empty(matrix[index], reference_max):
+            result = dataclasses.replace(result, empty=True)
+        channels.append(ChannelDeconvolution(index=index, result=result))
+    return ChannelDeconvolutionBundle(time=time, channels=tuple(channels))
+
+
+@dataclass(frozen=True)
+class DisplayDeconvolution:
+    bundle: ChannelDeconvolutionBundle
+    intensity: np.ndarray
+
+
+def deconvolve_for_display(
+    time_data: np.ndarray,
+    raw_intensity: np.ndarray,
+    *,
+    retention_time: float | None,
+    loffset: float | None = None,
+    roffset: float | None = None,
+    stringency: str | None = "off",
+    fit_type: str | None = "auto",
+    noise_gate: str | None = DEFAULT_NOISE_GATE,
+    apply_correction=None,
+    independent_channels: bool = False,
+) -> DisplayDeconvolution:
+    raw = np.asarray(raw_intensity, dtype=np.float64)
+    bundle = deconvolve_channel_matrix(
+        time_data,
+        raw,
+        retention_time=retention_time,
+        loffset=loffset,
+        roffset=roffset,
+        stringency=stringency,
+        fit_type=fit_type,
+        noise_gate=noise_gate,
     )
-    return ChannelDeconvolutionBundle(time=time, channels=channels)
+    if apply_correction is None:
+        return DisplayDeconvolution(bundle=bundle, intensity=raw)
+
+    matrix, was_1d = _as_trace_matrix(raw)
+    if bundle.shows_model_overlays(independent_channels=independent_channels):
+        source = np.vstack(
+            [
+                np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
+                for channel in bundle.channels
+            ]
+        )
+    else:
+        source = matrix
+    corrected = np.asarray(apply_correction(source), dtype=np.float64)
+    return DisplayDeconvolution(
+        bundle=bundle,
+        intensity=_restore_shape(corrected, was_1d),
+    )
 
 
 def deconvolve_eic(

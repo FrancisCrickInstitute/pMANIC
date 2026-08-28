@@ -1186,3 +1186,70 @@ def test_bundle_uses_model_areas_only_when_every_channel_fitted():
     assert not mixed.shows_model_overlays(independent_channels=False)
     assert all_fitted.uses_model_areas()
     assert all_fitted.shows_model_overlays(independent_channels=False)
+
+
+def test_near_zero_mn_does_not_block_labelled_overlays():
+    time = np.linspace(0.0, 10.0, 201)
+    m0 = _gaussian(time, 7.0, 0.25, 10.0)
+    raw = np.vstack([m0, np.zeros_like(time), np.full(time.size, 1e-12)])
+    bundle = deconvolve_channel_matrix(
+        time,
+        raw,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        stringency="4",
+        fit_type="auto",
+        noise_gate="balanced",
+    )
+    assert bundle.channels[0].result.model is not None
+    assert bundle.channels[1].result.empty
+    assert bundle.channels[2].result.empty
+    assert bundle.channels[1].result.model is None
+    assert bundle.uses_model_areas()
+    assert bundle.shows_model_overlays(independent_channels=False)
+
+
+def test_noisy_mn_still_blocks_labelled_overlays():
+    time = np.linspace(0.0, 10.0, 201)
+    m0 = _gaussian(time, 7.0, 0.25, 10.0)
+    rng = np.random.default_rng(0)
+    noisy = np.clip(rng.normal(20.0, 8.0, time.size), 0.0, None)
+    raw = np.vstack([m0, noisy])
+    bundle = deconvolve_channel_matrix(
+        time,
+        raw,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        stringency="4",
+        fit_type="auto",
+        noise_gate="balanced",
+    )
+    assert bundle.channels[0].result.model is not None
+    assert not bundle.channels[1].result.empty
+    assert bundle.channels[1].result.model is None
+    assert not bundle.uses_model_areas()
+    assert not bundle.shows_model_overlays(independent_channels=False)
+
+
+def test_calculate_peak_areas_treats_empty_mn_as_zero():
+    time = np.linspace(0.0, 10.0, 201)
+    m0 = _gaussian(time, 7.0, 0.25, 10.0)
+    raw = np.vstack([m0, np.zeros_like(time), np.full(time.size, 1e-12)])
+    areas = calculate_peak_areas(
+        time,
+        raw.ravel(),
+        label_atoms=2,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        channel_count=3,
+        baseline_correction=False,
+        chromatographic_peak_deconvolution_stringency="4",
+        chromatographic_peak_deconvolution_fit_type="auto",
+        chromatographic_peak_deconvolution_noise_gate="balanced",
+    )
+    assert areas[0] > 0
+    assert areas[1] == pytest.approx(0.0)
+    assert areas[2] == pytest.approx(0.0)

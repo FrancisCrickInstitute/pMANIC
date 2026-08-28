@@ -752,9 +752,14 @@ class DataProvider:
         raw_matrix = np.asarray(raw_intensity, dtype=np.float64)
 
         if not use_legacy and bundle.uses_model_areas():
-            model = bundle.channels[0].result.model
+            fitted = next(
+                channel
+                for channel in bundle.channels
+                if channel.result.model is not None
+            )
+            model = fitted.result.model
             scans_in_window = max(
-                1, int(np.count_nonzero(bundle.channels[0].result.selected_mask))
+                1, int(np.count_nonzero(fitted.result.selected_mask))
             )
             grid = np.linspace(
                 model.integration_left,

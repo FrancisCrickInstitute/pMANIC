@@ -382,6 +382,9 @@ def calculate_peak_areas(
                 td = np.asarray(time_data, dtype=np.float64)
                 areas: List[float] = []
                 for channel in bundle.channels:
+                    if channel.result.empty:
+                        areas.append(0.0)
+                        continue
                     selected = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
                     selected_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
                     areas.append(

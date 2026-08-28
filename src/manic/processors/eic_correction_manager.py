@@ -23,6 +23,25 @@ from manic.processors.natural_abundance_correction import NaturalAbundanceCorrec
 logger = logging.getLogger(__name__)
 
 
+def make_time_series_corrector(compound: Compound):
+    if not compound.formula or (compound.label_atoms or 0) <= 0:
+        return None
+    corrector = NaturalAbundanceCorrector()
+
+    def apply(matrix: np.ndarray) -> np.ndarray:
+        return corrector.correct_time_series(
+            np.asarray(matrix, dtype=np.float64),
+            compound.formula,
+            compound.label_type,
+            compound.label_atoms,
+            compound.tbdms,
+            compound.meox,
+            compound.me,
+        )
+
+    return apply
+
+
 def compute_corrected_intensity(eic: EIC, compound: Compound) -> Optional[np.ndarray]:
     if not compound.formula:
         return None

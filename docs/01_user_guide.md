@@ -249,7 +249,7 @@ The Excel file contains five worksheets representing successive stages of analys
 | Worksheet | Description |
 | :--- | :--- |
 | **1. Raw Values** | Direct instrument signals (uncorrected peak areas). Useful for quality control and verifying raw signal strength. |
-| **2. Corrected Values** | Peak areas after mathematical removal of natural isotope abundance. This is the "clean" signal representing true experimental labeling. (If chromatographic deconvolution is enabled, this correction is applied to the same selected component used for Raw Values. If any ion of that compound/sample failed to fit, both sheets use the raw in-window scans for every ion.) |
+| **2. Corrected Values** | Peak areas after mathematical removal of natural isotope abundance. This is the "clean" signal representing true experimental labeling. (If chromatographic deconvolution is enabled, this correction is applied to the same selected component used for Raw Values. If any ion with real intensity failed to fit, both sheets use the raw in-window scans for every ion. Empty ions get area 0 and do not force that fallback.) |
 | **3. Isotope Ratios** | Normalized distributions where all isotopologues for a compound sum to 1.0. Used for comparing labeling patterns independent of concentration. |
 | **4. % Label Incorporation** | The percentage of the metabolite pool that has incorporated the experimental label. Includes background correction derived from standard (MM) files. |
 | **5. % Carbons Labelled** | The weighted average enrichment of the total carbon pool. Useful for distinguishing between light (M+1) and heavy (M+N) labeling patterns. |
@@ -348,18 +348,18 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
     * `Off` - always attempt a fit (the old behaviour).
 * **Apply to all compounds:** The dialog has an **"Apply these settings to all compounds"** checkbox. Tick it to copy the chosen resolution, fit type, and noise gate to *every* compound at once (after a confirmation prompt). This is the quickest way to, for example, turn deconvolution **off everywhere** (select `Off`, tick the box, confirm) or roll one configuration out across your whole method. Note that this overwrites each compound's existing per-compound settings.
 * **Affects raw, corrected, and abundance results:** When every ion of a compound in a sample fitted, the *same* selected component is used for the Raw Values, the natural-abundance Corrected Values, and the Abundances. Turning deconvolution on or off for a compound therefore moves all of its result sheets together (not just the raw areas).
-* **One failed ion puts the whole envelope on scans:** If any isotopologue of that compound in that sample cannot be fitted, plots show the raw scan traces and export integrates those same raw in-window scans for **every** ion of that pair on both Raw and Corrected. That keeps the envelope commensurate for natural-abundance correction, and what you see matches the exported area. Everyday compounds where every ion fitted stay on the model-area path.
+* **One noisy failed ion puts the whole envelope on scans:** If any isotopologue with real intensity cannot be fitted, plots show the raw scan traces and export integrates those same raw in-window scans for **every** ion of that pair on both Raw and Corrected. A higher ion at or near zero is empty, not a failed fit. Empty ions get area 0 and do not hide the curves on ions that did fit.
 * **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto · Gate Balanced (compound_name)`, or `Deconvolution: Off`.
 * **Logging:** The per-compound resolution, fit type, and noise gate are recorded in the export changelog so processed results are reproducible.
 * **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction
-**Settings → Natural Abundance Correction** (Toggle)
-* **Function:** Controls the visualization mode of the main chromatogram plots.
-    * **On (Checked):** Displays the **Corrected EIC**. This shows the signal *after* the mathematical removal of natural heavy isotopes. Use this to see the "pure" labeling signal.
-    * **Off (Unchecked):** Displays the **Raw EIC**. This shows the total signal extracted from the file before any correction.
-* **Usage:** Toggle this off and on to visually verify that the correction algorithm is working correctly (e.g., ensuring it hasn't over-corrected a peak into the negative range).
-* **Note:** This setting only affects the *display*; it does **not** turn off the background calculation.
+**Settings → Preview Natural Abundance Correction** (Toggle)
+* **Function:** Controls what the main chromatogram plots and the Label Incorporation bars show.
+    * **On:** Fits the **raw** traces, then draws natural-abundance correction of that same measurement. If a sample has a fitted curve with preview off, it still has one with preview on. Heights can change. Neighbour peaks outside the selected component are hidden, and the y-axis rescales to the drawn traces.
+    * **Off:** Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
+* **Usage:** Toggle this to check that correction has not driven a peak negative or hidden a labelled ion you expected to see.
+* **Note:** This setting only affects the *display* and the on-screen bars. Export still writes both Raw and Corrected sheets from the raw fit, then correction of that selected component.
 * **Deep Dive:** 📖 [Natural Isotope Correction Algorithm](Reference_Natural_Isotope_Correction.md)
 
 ---

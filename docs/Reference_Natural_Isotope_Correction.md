@@ -71,7 +71,9 @@ A key feature of MANIC (compared to the legacy v3.3.0 tool) is that this correct
 
 This provides higher accuracy because it prevents baseline noise or interfering peaks at specific timepoints from skewing the global correction.
 
-The envelope that enters this correction must be the same kind of measurement on every ion. If chromatographic peak deconvolution fitted every ion of a compound in a sample, correction runs on the dense selected curves. If any ion failed to fit, correction runs on the raw in-window scans for every ion of that pair. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
+The envelope that enters this correction must be the same kind of measurement on every ion. If chromatographic peak deconvolution fitted every non-empty ion of a compound in a sample, correction runs on the dense selected curves. Empty ions contribute zeros. If any ion with real intensity failed to fit, correction runs on the raw in-window scans for every ion of that pair. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
+
+**Settings → Preview Natural Abundance Correction** uses that same order on screen. It fits the raw traces, then corrects that measurement for the tiles and the Label Incorporation bars. It does not re-fit the stored full-trace `eic_corrected` series.
 
 When the dense-curve path is used with baseline correction on, the curve and the baseline ends are corrected separately: the area from the dense grid, the straight-line ends from the isolated component at the real scan times. See [One curve for display and integration](Reference_Chromatographic_Peak_Deconvolution.md#one-curve-for-display-and-integration).   
 

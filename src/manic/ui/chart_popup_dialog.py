@@ -10,16 +10,26 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QCursor, QFont, QPainter
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QToolTip, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QToolTip,
+    QVBoxLayout,
+)
 
+from manic.ui.channel_labels import channel_legend_text
 from manic.ui.colors import label_colors
 from manic.ui.identity_chart import (
-    RatioVerdict,
+    IdentityChartBinding,
     add_identity_series,
+    identity_cell_tooltip,
     show_identity_tooltip,
 )
+from manic.validation.unlabelled_identity import IdentityAssessmentSet
 
 
 class ChartPopupDialog(QDialog):
@@ -34,15 +44,18 @@ class ChartPopupDialog(QDialog):
         parent=None,
         *,
         hover_notes: list[str] | None = None,
+        identity: IdentityAssessmentSet | None = None,
     ):
         super().__init__(parent)
         self.chart_type = chart_type
         self.data = data
         self.sample_names = sample_names
         self.hover_notes = hover_notes
+        self._identity = identity
 
         self._hover_categories: list[str] | None = None
         self._hover_notes: list[str] | None = None
+        self._identity_binding: IdentityChartBinding | None = None
         self._total_abundance_scale_factor: float = 1.0
         
         self.setWindowTitle(f"MANIC - {title}")
@@ -54,6 +67,22 @@ class ChartPopupDialog(QDialog):
         
         self._setup_ui(title)
         self._populate_chart()
+
+    @classmethod
+    def for_identity(
+        cls,
+        identity: IdentityAssessmentSet,
+        *,
+        parent=None,
+    ) -> "ChartPopupDialog":
+        return cls(
+            chart_type="identity",
+            title="Identity",
+            data=None,
+            sample_names=[sample.sample_name for sample in identity.samples],
+            parent=parent,
+            identity=identity,
+        )
     
     def _set_window_icon(self, parent_widget):
         """Set window icon by finding the main window."""
@@ -87,6 +116,13 @@ class ChartPopupDialog(QDialog):
         self.chart.setTitleFont(QFont("Arial", 16, QFont.Bold))
         self.chart.setTitleBrush(QColor("black"))
         
+        self.ion_legend = QLabel("")
+        self.ion_legend.setWordWrap(True)
+        self.ion_legend.setStyleSheet(
+            "color: #333; font-size: 12px; background: transparent;"
+        )
+        self.ion_legend.hide()
+        layout.addWidget(self.ion_legend)
         layout.addWidget(self.chart_view)
         
         # Add close button
@@ -216,48 +252,33 @@ class ChartPopupDialog(QDialog):
         stacked_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
 
     def _create_identity_chart(self):
-        if not self.data or not self.sample_names:
+        if self._identity is None or not self._identity.samples:
             return
 
-        samples = [
-            (name, RatioVerdict(value))
-            for name, value in zip(self.sample_names, self.data)
-        ]
-        self._hover_categories = add_identity_series(
-            self.chart, samples, show_names=True
+        self.ion_legend.setText(
+            channel_legend_text(
+                self._identity.compound_name, self._identity.channels
+            )
         )
-        if self.hover_notes:
-            self._hover_notes = list(reversed(self.hover_notes))
+        self.ion_legend.show()
+        self._identity_binding = add_identity_series(
+            self.chart, self._identity.samples, show_names=True
+        )
         self.chart.legend().setVisible(True)
         self.chart.legend().setAlignment(Qt.AlignBottom)
         self.chart.legend().setFont(QFont("Arial", 10))
+        for series in self._identity_binding.series:
+            series.hovered.connect(self._on_identity_cell_hover)
 
-        for series in self.chart.series():
-            for bar_set in series.barSets():
-                bar_set.hovered.connect(
-                    lambda status, index, bs=bar_set: self._on_identity_bar_hover(
-                        bs, status, index
-                    )
-                )
-
-    def _on_identity_bar_hover(
-        self, bar_set: QBarSet, status: bool, index: int
-    ) -> None:
-        if not status or float(bar_set.at(index)) <= 0:
+    def _on_identity_cell_hover(self, point: QPointF, entered: bool) -> None:
+        if not entered or self._identity_binding is None:
             QToolTip.hideText()
             return
-
-        sample_name = self._sample_name_for_hover_index(index)
-        if sample_name is None:
+        cell = self._identity_binding.cell_at(point)
+        if cell is None:
+            QToolTip.hideText()
             return
-
-        note = ""
-        if self._hover_notes is not None and 0 <= index < len(self._hover_notes):
-            note = self._hover_notes[index]
-        text = f"{sample_name}\n{bar_set.label()}"
-        if note:
-            text = f"{text}\n{note}"
-        show_identity_tooltip(self.chart_view, text)
+        show_identity_tooltip(self.chart_view, identity_cell_tooltip(cell))
     
     def closeEvent(self, event) -> None:
         QToolTip.hideText()

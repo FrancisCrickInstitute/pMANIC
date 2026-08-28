@@ -2,7 +2,7 @@ import logging
 import math
 import sys
 import warnings
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Sequence, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -31,8 +31,21 @@ from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
 # Import shared colors
+from manic.validation.unlabelled_identity import (
+    IdentityAssessmentSet,
+    IdentitySampleAssessment,
+    IdentityStatus,
+)
+
 from .channel_labels import channel_legend_label, has_defined_channel
-from .colors import dark_red_colour, label_colors, selection_color, steel_blue_colour
+from .colors import (
+    ChannelTraceStyle,
+    channel_trace_styles,
+    dark_red_colour,
+    label_colors,
+    selection_color,
+    steel_blue_colour,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,8 +172,7 @@ class GraphView(QWidget):
         self.use_corrected = False
         self._prepared_displays = {}
 
-        # Unlabelled identity QC status per sample (drives tile highlighting)
-        self._identity_status: Dict[str, str] = {}
+        self._identity: IdentityAssessmentSet | None = None
 
         # Shared y-axis scaling across tiles (off = per-tile autoscaling)
         self._shared_y_scale: bool = False
@@ -316,10 +328,16 @@ class GraphView(QWidget):
         compound_name: str,
         samples: List[str],
         validation_data: Dict[str, bool] = None,
+        *,
+        identity: IdentityAssessmentSet | None = None,
     ) -> None:
         """
         Build one mini-plot per active sample for the selected *compound*.
         """
+
+        if identity is not None and identity.compound_name != compound_name:
+            identity = None
+        self._identity = identity
 
         # Begin compound plotting - logging removed to reduce noise
         self._clear_layout()
@@ -439,8 +457,6 @@ class GraphView(QWidget):
         self._update_graph_sizes()
 
         self._prepared_displays.clear()
-        if self._identity_status:
-            self.set_identity_status(self._identity_status)
 
     def select_sample(self, sample_name: str) -> bool:
         """Select the plot for ``sample_name``; return False if not shown."""
@@ -449,14 +465,6 @@ class GraphView(QWidget):
                 self.select_only_plot(plot)
                 return True
         return False
-
-    def set_identity_status(self, status_by_sample: Optional[Dict[str, str]]):
-        """Update unlabelled identity QC highlighting on existing tiles."""
-        self._identity_status = dict(status_by_sample or {})
-        for plot in self._current_plots:
-            container = plot.parent()
-            if container is not None:
-                self._restyle_container(container)
 
     def set_shared_y_scale(self, enabled: bool):
         """Toggle one common y-axis scale across all tiles and re-plot."""
@@ -473,6 +481,7 @@ class GraphView(QWidget):
                 self._current_compound,
                 self._current_samples,
                 self._last_validation_data,
+                identity=self._identity,
             )
 
     def _resolve_y_scaling(self, eic_intensity) -> tuple[float, int, float]:
@@ -524,7 +533,7 @@ class GraphView(QWidget):
                 intensity.shape[0] if getattr(intensity, "ndim", 1) > 1 else 1
             )
             n_names = min(n_traces, len(compound.analysis_channels))
-            if n_names == 0:
+            if n_names == 0 or getattr(compound, "is_unlabelled_target", False):
                 self.channel_legend.hide()
                 return
 
@@ -656,6 +665,7 @@ class GraphView(QWidget):
                 sample_name=sample_name,
                 parent=self,
                 use_corrected=self.use_corrected,
+                identity=self._sample_identity(sample_name),
             )
             dialog.exec()
 
@@ -720,7 +730,7 @@ class GraphView(QWidget):
         self.clear_selection()
         self._current_compound = ""
         self._current_samples = []
-        self._identity_status = {}
+        self._identity = None
         self.channel_legend.hide()
         # Note: _current_plots will be cleared in _clear_layout
         self._clear_layout(force_destroy=force_destroy)
@@ -779,7 +789,10 @@ class GraphView(QWidget):
         return None
 
     def refresh_plots_with_session_data(
-        self, validation_data: Optional[Dict[str, bool]] = None
+        self,
+        validation_data: Optional[Dict[str, bool]] = None,
+        *,
+        identity: IdentityAssessmentSet | None = None,
     ):
         """
         Refresh the current plots using session data where available.
@@ -805,7 +818,10 @@ class GraphView(QWidget):
 
                 # Re-plot the compound with the same samples
                 self.plot_compound(
-                    self._current_compound, self._current_samples, validation_data
+                    self._current_compound,
+                    self._current_samples,
+                    validation_data,
+                    identity=identity,
                 )
 
                 # Restore selection state - need to be careful with timing
@@ -1052,6 +1068,7 @@ class GraphView(QWidget):
                     compound,
                     scale_factor,
                     prepared=prepared,
+                    channel_styles=self._channel_styles_for(compound, eic.sample_name),
                 )
 
             # Update axis ranges
@@ -1101,6 +1118,7 @@ class GraphView(QWidget):
                     compound,
                     scale_factor,
                     prepared=prepared,
+                    channel_styles=self._channel_styles_for(compound, eic.sample_name),
                 )
 
             # Add scale factor text if needed
@@ -1199,6 +1217,7 @@ class GraphView(QWidget):
         chart.addAxis(x_axis, Qt.AlignBottom)
         chart.addAxis(y_axis, Qt.AlignLeft)
 
+        channel_styles = self._channel_styles_for(compound, eic.sample_name)
         self._add_eic_series(
             chart,
             x_axis,
@@ -1208,6 +1227,7 @@ class GraphView(QWidget):
             compound,
             scale_factor,
             prepared=prepared,
+            channel_styles=channel_styles,
         )
 
         # Set up axes
@@ -1269,6 +1289,7 @@ class GraphView(QWidget):
             compound,
             scale_factor,
             prepared=prepared,
+            channel_styles=channel_styles,
         )
 
         # Create chart view first to get access to scene
@@ -1339,6 +1360,7 @@ class GraphView(QWidget):
         compound,
         scale_factor: float,
         prepared,
+        channel_styles: Sequence[ChannelTraceStyle] | None = None,
     ):
         baseline_flag = getattr(compound, "baseline_correction", 0)
         if not baseline_flag:
@@ -1375,11 +1397,12 @@ class GraphView(QWidget):
                 baseline_y_scaled = (
                     baseline_y / scale_factor if scale_factor != 0 else baseline_y
                 )
-                qcolor = (
-                    label_colors[channel.index % len(label_colors)]
-                    if eic_intensity.ndim > 1
-                    else dark_red_colour
+                style = self._style_at(
+                    channel_styles,
+                    channel.index,
+                    multi_trace=eic_intensity.ndim > 1,
                 )
+                qcolor = style.color
                 baseline_series = QLineSeries()
                 baseline_series.append(td_base[0], baseline_y_scaled[0])
                 baseline_series.append(td_base[-1], baseline_y_scaled[-1])
@@ -1418,7 +1441,8 @@ class GraphView(QWidget):
                     baseline_series.append(td_base[0], baseline_y_scaled[0])
                     baseline_series.append(td_base[-1], baseline_y_scaled[-1])
 
-                    baseline_pen = QPen(label_colors[i % len(label_colors)], 1.2)
+                    style = self._style_at(channel_styles, i, multi_trace=True)
+                    baseline_pen = QPen(style.color, 1.2)
                     baseline_pen.setStyle(Qt.DashLine)
                     baseline_series.setPen(baseline_pen)
                     chart.addSeries(baseline_series)
@@ -1456,6 +1480,7 @@ class GraphView(QWidget):
         scale_factor: float,
         selected: bool,
         color_index: int | None = None,
+        channel_styles: Sequence[ChannelTraceStyle] | None = None,
     ):
         """Draw one fitted component over the integration or fit window."""
         t_left, t_right = (
@@ -1471,13 +1496,13 @@ class GraphView(QWidget):
         matrix = values if values.ndim > 1 else values.reshape(1, -1)
         for i, row in enumerate(matrix):
             series_index = color_index if color_index is not None else i
-            qcolor = (
-                label_colors[series_index % len(label_colors)]
-                if multi_trace
-                else dark_red_colour
+            style = self._style_at(
+                channel_styles, series_index, multi_trace=multi_trace
             )
+            qcolor = style.color
             if selected:
                 pen = QPen(QColor(qcolor), 2.2)
+                pen.setStyle(style.line_style)
             else:
                 overlay_color = QColor(qcolor)
                 overlay_color.setAlpha(95)
@@ -1497,6 +1522,35 @@ class GraphView(QWidget):
             chart.addSeries(series)
             series.attachAxis(x_axis)
             series.attachAxis(y_axis)
+
+    def _sample_identity(self, sample_name: str) -> IdentitySampleAssessment | None:
+        if self._identity is None:
+            return None
+        try:
+            return self._identity.for_sample(sample_name)
+        except KeyError:
+            return None
+
+    def _channel_styles_for(self, compound, sample_name: str) -> tuple[ChannelTraceStyle, ...]:
+        return channel_trace_styles(
+            compound.analysis_channels,
+            self._sample_identity(sample_name),
+        )
+
+    def _style_at(
+        self,
+        channel_styles: Sequence[ChannelTraceStyle] | None,
+        index: int,
+        *,
+        multi_trace: bool,
+    ) -> ChannelTraceStyle:
+        if channel_styles is not None and 0 <= index < len(channel_styles):
+            return channel_styles[index]
+        if multi_trace:
+            return ChannelTraceStyle(
+                label_colors[index % len(label_colors)], Qt.SolidLine
+            )
+        return ChannelTraceStyle(dark_red_colour, Qt.SolidLine)
 
     def _plot_display_for(self, eic, compound):
         prepared = self._prepared_displays.pop(
@@ -1521,6 +1575,7 @@ class GraphView(QWidget):
         compound,
         scale_factor: float,
         prepared,
+        channel_styles: Sequence[ChannelTraceStyle] | None = None,
     ):
         display = prepared.display
         bundle = None if display is None else display.bundle
@@ -1539,6 +1594,7 @@ class GraphView(QWidget):
                 selected=False,
                 raw_context=False,
                 compound=compound,
+                channel_styles=channel_styles,
             )
             return
 
@@ -1553,6 +1609,7 @@ class GraphView(QWidget):
                 selected=False,
                 raw_context=True,
                 compound=compound,
+                channel_styles=channel_styles,
             )
             self._add_trace_series(
                 chart,
@@ -1564,6 +1621,7 @@ class GraphView(QWidget):
                 selected=True,
                 raw_context=False,
                 compound=compound,
+                channel_styles=channel_styles,
             )
             return
 
@@ -1578,6 +1636,7 @@ class GraphView(QWidget):
             selected=False,
             raw_context=True,
             compound=compound,
+            channel_styles=channel_styles,
         )
         unfitted_indices: list[int] = []
         for channel in bundle.channels:
@@ -1596,6 +1655,7 @@ class GraphView(QWidget):
                 scale_factor=scale_factor,
                 selected=True,
                 color_index=channel.index,
+                channel_styles=channel_styles,
             )
             for component_index in range(model.n_components):
                 if component_index == model.selected_index:
@@ -1610,6 +1670,7 @@ class GraphView(QWidget):
                     scale_factor=scale_factor,
                     selected=False,
                     color_index=channel.index,
+                    channel_styles=channel_styles,
                 )
         if unfitted_indices:
             self._add_trace_series(
@@ -1622,6 +1683,7 @@ class GraphView(QWidget):
                 selected=True,
                 raw_context=False,
                 compound=compound,
+                channel_styles=channel_styles,
                 channel_indices=tuple(unfitted_indices),
             )
 
@@ -1638,6 +1700,7 @@ class GraphView(QWidget):
         raw_context: bool,
         selected_mask: np.ndarray | None = None,
         compound=None,
+        channel_styles: Sequence[ChannelTraceStyle] | None = None,
         channel_indices: tuple[int, ...] | None = None,
     ):
         matrix = eic_intensity if eic_intensity.ndim > 1 else eic_intensity.reshape(1, -1)
@@ -1653,7 +1716,13 @@ class GraphView(QWidget):
         for i, trace in enumerate(matrix):
             if channel_indices is not None and i not in channel_indices:
                 continue
-            qcolor = label_colors[i % len(label_colors)] if multi_trace else dark_red_colour
+            if multi_trace:
+                style = self._style_at(channel_styles, i, multi_trace=True)
+                qcolor = style.color
+                line_style = style.line_style
+            else:
+                qcolor = dark_red_colour
+                line_style = Qt.SolidLine
             pen_color = QColor(qcolor)
             if raw_context:
                 pen_color.setAlpha(75)
@@ -1662,6 +1731,7 @@ class GraphView(QWidget):
                 width = 2.2 if selected else 2.0
 
             pen = QPen(pen_color, width)
+            pen.setStyle(line_style)
             series = QLineSeries()
             scaled_trace = trace / scale_factor if scale_factor != 0 else trace
             keep = np.isfinite(scaled_trace)
@@ -1705,9 +1775,10 @@ class GraphView(QWidget):
     def _restyle_container(self, container: QWidget):
         is_valid = getattr(container, "is_valid_peak", True)
         sample_name = getattr(container.chart_view, "sample_name", "")
-        status = self._identity_status.get(sample_name)
+        assessment = self._sample_identity(sample_name)
+        qc_status = None if assessment is None or assessment.qc is None else assessment.qc.status
 
-        if status == "not_detected":
+        if qc_status is IdentityStatus.NOT_DETECTED:
             container.setStyleSheet("""
                 QWidget {
                     background-color: rgba(236, 239, 241, 130);

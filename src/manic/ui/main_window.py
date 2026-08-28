@@ -899,8 +899,12 @@ class MainWindow(QMainWindow):
                                 compound_name, sample
                             )
 
+                    provider, identity = self._identity_snapshot(compound_name, samples)
                     self.graph_view.plot_compound(
-                        compound_name, samples, validation_data
+                        compound_name,
+                        samples,
+                        validation_data,
+                        identity=identity,
                     )
 
                 # After plotting, update integration window to show "All" state
@@ -913,7 +917,12 @@ class MainWindow(QMainWindow):
 
                 self.toolbar.integration.populate_tr_window_field(compound_name)
 
-                self._refresh_mode_charts(compound_name, samples)
+                self._refresh_mode_charts(
+                    compound_name,
+                    samples,
+                    identity=identity,
+                    provider=provider,
+                )
         except LookupError as err:
             msg_box = self._create_message_box("warning", "Missing data", str(err))
             msg_box.exec()
@@ -975,24 +984,37 @@ class MainWindow(QMainWindow):
 
         return np.asarray(abundances, dtype=float)
 
+    def _identity_snapshot(self, compound_name: str, sample_names: list[str]):
+        if self.analysis_mode is not AnalysisMode.UNLABELLED:
+            return None, None
+        provider = DataProvider(use_legacy_integration=self.use_legacy_integration)
+        if not compound_name or not sample_names:
+            return provider, None
+        return provider, provider.assess_unlabelled_identities(
+            compound_name, sample_names
+        )
+
     def _refresh_mode_charts(
         self,
         compound_name: str,
         qc_samples: list[str] | None = None,
         *,
         skip_qc: bool = False,
+        identity=None,
+        provider=None,
     ) -> None:
-        provider = None
         if self.analysis_mode is not AnalysisMode.LABELLED:
-            provider = DataProvider(
-                use_legacy_integration=self.use_legacy_integration
-            )
-            if not skip_qc:
-                self._update_targeted_qc(
-                    compound_name,
-                    qc_samples or self.graph_view.get_current_samples(),
-                    provider,
+            if provider is None:
+                provider = DataProvider(
+                    use_legacy_integration=self.use_legacy_integration
                 )
+            if not skip_qc:
+                samples = qc_samples or self.graph_view.get_current_samples()
+                if identity is None and compound_name and samples:
+                    identity = provider.assess_unlabelled_identities(
+                        compound_name, samples
+                    )
+                self._update_targeted_qc(identity)
         self._update_total_abundance(compound_name, provider)
 
     def _update_total_abundance(
@@ -1028,20 +1050,13 @@ class MainWindow(QMainWindow):
             compound_name, eics, abundances
         )
 
-    def _update_targeted_qc(
-        self,
-        compound_name: str,
-        sample_names: list[str],
-        provider: DataProvider,
-    ) -> None:
+    def _update_targeted_qc(self, identity) -> None:
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
             return
-        statuses = self.toolbar.targeted_qc.update_results(
-            compound_name,
-            sample_names,
-            provider,
-        )
-        self.graph_view.set_identity_status(statuses)
+        if identity is None:
+            self.toolbar.targeted_qc.clear()
+            return
+        self.toolbar.targeted_qc.update_results(identity)
 
     def _on_qc_sample_activated(self, sample_name: str) -> None:
         """Highlight the plot for a sample clicked on the Identity chart."""
@@ -1224,17 +1239,18 @@ class MainWindow(QMainWindow):
             if self._validation_provider is not None:
                 self._validation_provider.invalidate_cache()
 
-            # Re-validate with new session data
+            current_samples = self.graph_view.get_current_samples()
             validation_data = {}
             if self.min_peak_height_ratio > 0:
-                current_samples = self.graph_view.get_current_samples()
                 for sample in current_samples:
                     validation_data[sample] = self._validate_peak_area(
                         compound_name, sample
                     )
 
-            # Refresh plots with session data and updated validation
-            self.graph_view.refresh_plots_with_session_data(validation_data)
+            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            self.graph_view.refresh_plots_with_session_data(
+                validation_data, identity=identity
+            )
 
             # After refreshing plots, update the integration window to show the new values
             # Add a small delay to ensure the plot refresh is fully complete
@@ -1272,8 +1288,9 @@ class MainWindow(QMainWindow):
         logger.info(f"Session data restored for {compound_name}, refreshing plots")
 
         try:
-            # Refresh plots with default data (session data has been removed)
-            self.graph_view.refresh_plots_with_session_data()
+            current_samples = self.graph_view.get_current_samples()
+            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            self.graph_view.refresh_plots_with_session_data(identity=identity)
 
             # After refreshing plots, update the integration window to show the default values
             from PySide6.QtCore import QTimer
@@ -1316,17 +1333,18 @@ class MainWindow(QMainWindow):
             if self._validation_provider is not None:
                 self._validation_provider.invalidate_cache()
 
-            # Re-validate with new baseline correction setting
+            current_samples = self.graph_view.get_current_samples()
             validation_data = {}
             if self.min_peak_height_ratio > 0:
-                current_samples = self.graph_view.get_current_samples()
                 for sample in current_samples:
                     validation_data[sample] = self._validate_peak_area(
                         compound_name, sample
                     )
 
-            # Refresh plots to show/hide baseline lines
-            self.graph_view.refresh_plots_with_session_data(validation_data)
+            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            self.graph_view.refresh_plots_with_session_data(
+                validation_data, identity=identity
+            )
 
             from PySide6.QtCore import QTimer
 
@@ -1583,8 +1601,18 @@ class MainWindow(QMainWindow):
                         validation_data[sample] = self._validate_peak_area(
                             current_compound, sample
                         )
-                self.graph_view.refresh_plots_with_session_data(validation_data)
-                self._refresh_mode_charts(current_compound, current_samples)
+                _provider, identity = self._identity_snapshot(
+                    current_compound, current_samples
+                )
+                self.graph_view.refresh_plots_with_session_data(
+                    validation_data, identity=identity
+                )
+                self._refresh_mode_charts(
+                    current_compound,
+                    current_samples,
+                    identity=identity,
+                    provider=_provider,
+                )
             else:
                 self.graph_view.refresh_plots_with_session_data()
 

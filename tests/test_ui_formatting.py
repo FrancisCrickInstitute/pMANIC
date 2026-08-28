@@ -7,8 +7,8 @@ and other UI components.
 
 from dataclasses import replace
 import pytest
-from PySide6.QtCharts import QChart, QValueAxis
-from PySide6.QtCore import Qt
+from PySide6.QtCharts import QChart, QScatterSeries, QValueAxis
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 import sys
 import numpy as np
@@ -21,19 +21,29 @@ from manic.processors.chromatographic_peak_deconvolution import (
     deconvolve_eic,
 )
 from manic.processors.display_deconvolution import plot_display
-from manic.ui.colors import label_colors
+from manic.ui.colors import (
+    QUALIFIER_GREEN,
+    QUALIFIER_RED,
+    channel_trace_styles,
+    label_colors,
+)
+from manic.ui.identity_chart import identity_cell_tooltip
 
 from manic.ui.integration_window_widget import IntegrationWindow
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
 from manic.ui.chart_popup_dialog import ChartPopupDialog
-from manic.ui.targeted_qc_widget import RatioVerdict, TargetedQcWidget, ratio_verdict
+from manic.ui.targeted_qc_widget import TargetedQcWidget
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
+    IdentityAssessmentSet,
     IdentityQcResult,
+    IdentitySampleAssessment,
     IdentityStatus,
     QualifierRatioResult,
+    QualifierStatus,
+    qualifier_pair,
 )
 
 
@@ -138,6 +148,9 @@ def test_refresh_mode_charts_shares_one_provider(monkeypatch):
         def __init__(self, use_legacy_integration=False):
             created.append(self)
 
+        def assess_unlabelled_identities(self, compound_name, sample_names):
+            return SimpleNamespace(compound_name=compound_name, samples=tuple(sample_names))
+
     monkeypatch.setattr("manic.ui.main_window.DataProvider", CountingProvider)
 
     seen_qc = []
@@ -146,9 +159,7 @@ def test_refresh_mode_charts_shares_one_provider(monkeypatch):
         analysis_mode=AnalysisMode.UNLABELLED,
         use_legacy_integration=False,
         graph_view=SimpleNamespace(get_current_samples=lambda: ["S1"]),
-        _update_targeted_qc=lambda compound, samples, provider: seen_qc.append(
-            provider
-        ),
+        _update_targeted_qc=lambda identity: seen_qc.append(identity),
         _update_total_abundance=lambda compound, provider=None: seen_abundance.append(
             provider
         ),
@@ -157,169 +168,307 @@ def test_refresh_mode_charts_shares_one_provider(monkeypatch):
     MainWindow._refresh_mode_charts(host, "Target", ["S1"])
 
     assert len(created) == 1
-    assert seen_qc == created
+    assert seen_qc[0].compound_name == "Target"
     assert seen_abundance == created
 
 
-def test_targeted_qc_identity_chart_records_observed_rt(qapp):
-    v = IonChannel(
+def _qion() -> IonChannel:
+    return IonChannel(217.0, IonRole.QUANTIFIER)
+
+
+def _v1(*, expected: float | None = 0.4, tolerance: float | None = 0.25) -> IonChannel:
+    return IonChannel(
         147.0,
         IonRole.QUALIFIER,
         ordinal=1,
-        expected_ratio=0.4,
-        ratio_tolerance=0.2,
+        expected_ratio=expected,
+        ratio_tolerance=tolerance,
     )
-    result = IdentityQcResult(
+
+
+def _v2(*, expected: float | None = 0.2, tolerance: float | None = 0.25) -> IonChannel:
+    return IonChannel(
+        73.0,
+        IonRole.QUALIFIER,
+        ordinal=2,
+        expected_ratio=expected,
+        ratio_tolerance=tolerance,
+    )
+
+
+def _identity_snapshot(channels, *sample_rows) -> IdentityAssessmentSet:
+    samples = []
+    for sample_name, qc, error in sample_rows:
+        samples.append(
+            IdentitySampleAssessment(
+                sample_name,
+                qc,
+                qualifier_pair(channels, qc, error=error),
+                error,
+            )
+        )
+    return IdentityAssessmentSet("Target", channels, tuple(samples))
+
+
+def _supported_qc(channels, *passed: bool) -> IdentityQcResult:
+    qualifiers = [channel for channel in channels if channel.role is IonRole.QUALIFIER]
+    return IdentityQcResult(
         status=IdentityStatus.SUPPORTED,
         quantifier_area=100.0,
         observed_rt=1.23,
         rt_error=0.03,
         rt_passed=True,
-        qualifier_ratios=(QualifierRatioResult(v, 0.41, True),),
+        qualifier_ratios=tuple(
+            QualifierRatioResult(channel, 0.41 if channel.ordinal == 1 else 0.21, flag)
+            for channel, flag in zip(qualifiers, passed)
+        ),
         reasons=(),
     )
-    provider = SimpleNamespace(
-        assess_unlabelled_identity=lambda _sample, _compound: result
+
+
+def test_targeted_qc_identity_chart_renders_two_cells(qapp):
+    channels = (_qion(), _v1())
+    identity = _identity_snapshot(
+        channels, ("S1", _supported_qc(channels, True), None)
     )
     widget = TargetedQcWidget()
     try:
-        widget.update_results("Target", ["S1"], provider)
-        assert [row.sample_name for row in widget._rows] == ["S1"]
-        assert widget._rows[0].verdict is RatioVerdict.VALIDATED
+        widget.update_results(identity)
+        assert widget.ion_legend.text() == "Target  Q ion m/z 217  V ion 1 m/z 147"
+        assert "●" not in widget.ion_legend.text()
         assert widget.chart.title() == "Identity"
         assert widget.chart.legend().isVisible()
-        assert len(widget.chart.series()) == 1
-        assert widget._rows[0].note == "V1  expected 0.400  ±20%  observed 0.410"
+        assert widget._binding is not None
+        assert widget._binding.cell_at(QPointF(1, 1)).qualifier.status is QualifierStatus.VALIDATED
+        assert widget._binding.cell_at(QPointF(2, 1)).qualifier.status is QualifierStatus.ABSENT
+        x_labels = widget.chart.axes(Qt.Horizontal)[0].categoriesLabels()
+        y_labels = widget.chart.axes(Qt.Vertical)[0].categoriesLabels()
+        assert x_labels == ["V1", "V2"]
+        assert y_labels == ["S1"]
         widget.clear()
-        assert widget._rows == []
+        assert widget._identity is None
         assert widget.chart.series() == []
+        assert widget.ion_legend.isHidden()
+    finally:
+        widget.deleteLater()
+
+
+def test_identity_chart_click_emits_sample_name(qapp):
+    channels = (_qion(), _v1())
+    identity = _identity_snapshot(
+        channels, ("S1", _supported_qc(channels, True), None)
+    )
+    widget = TargetedQcWidget()
+    activated = []
+    widget.sample_activated.connect(activated.append)
+    try:
+        widget.update_results(identity)
+        widget._on_cell_clicked(QPointF(2, 1))
+        assert activated == ["S1"]
     finally:
         widget.deleteLater()
 
 
 def test_identity_chart_popup_shows_sample_names(qapp):
-    dialog = ChartPopupDialog(
-        chart_type="identity",
-        title="Identity",
-        data=["validated", "mismatch"],
-        sample_names=["S1", "S2"],
+    channels = (_qion(), _v1(), _v2())
+    fail_v2 = IonChannel(
+        73.0, IonRole.QUALIFIER, ordinal=2, expected_ratio=0.2, ratio_tolerance=0.25
     )
-    try:
-        assert dialog.chart.title() == "Identity"
-        assert dialog.chart.legend().isVisible()
-        y_axes = dialog.chart.axes(Qt.Vertical)
-        assert y_axes
-        categories = y_axes[0].categories()
-        assert "S1" in categories
-        assert "S2" in categories
-        labels = [
-            bar_set.label()
-            for series in dialog.chart.series()
-            for bar_set in series.barSets()
-        ]
-        assert "Validated" in labels
-        assert "Partial" in labels
-        assert "Fail" in labels
-    finally:
-        dialog.deleteLater()
-
-
-def test_ratio_verdict_maps_configured_v_over_q_checks():
-    v = IonChannel(
-        147.0,
-        IonRole.QUALIFIER,
-        ordinal=1,
-        expected_ratio=0.4,
-        ratio_tolerance=0.25,
-    )
-    match = IdentityQcResult(
-        status=IdentityStatus.SUPPORTED,
-        quantifier_area=100.0,
-        observed_rt=1.2,
-        rt_error=0.0,
-        rt_passed=True,
-        qualifier_ratios=(QualifierRatioResult(v, 0.41, True),),
-        reasons=(),
-    )
-    mismatch = IdentityQcResult(
+    fail_qc = IdentityQcResult(
         status=IdentityStatus.REVIEW_REQUIRED,
         quantifier_area=100.0,
         observed_rt=1.2,
         rt_error=0.0,
         rt_passed=True,
-        qualifier_ratios=(QualifierRatioResult(v, 0.70, False),),
-        reasons=("V ion 1 ratio 0.700 is outside 0.400 ±25%",),
+        qualifier_ratios=(
+            QualifierRatioResult(channels[1], 0.41, True),
+            QualifierRatioResult(fail_v2, 0.80, False),
+        ),
+        reasons=(),
     )
-    not_given = IdentityQcResult(
-        status=IdentityStatus.NOT_ASSESSED,
-        quantifier_area=100.0,
-        observed_rt=1.2,
-        rt_error=0.0,
-        rt_passed=True,
-        qualifier_ratios=(QualifierRatioResult(v, 0.41, None),),
-        reasons=("Identity references are incomplete; signal is reported without confirmation",),
+    identity = _identity_snapshot(
+        channels,
+        ("S1", _supported_qc(channels, True, True), None),
+        ("S2", fail_qc, None),
     )
+    dialog = ChartPopupDialog.for_identity(identity)
+    try:
+        assert dialog.chart.title() == "Identity"
+        assert dialog.chart.legend().isVisible()
+        assert "Target" in dialog.ion_legend.text()
+        assert "●" not in dialog.ion_legend.text()
+        y_labels = dialog.chart.axes(Qt.Vertical)[0].categoriesLabels()
+        x_labels = dialog.chart.axes(Qt.Horizontal)[0].categoriesLabels()
+        assert set(y_labels) == {"S1", "S2"}
+        assert x_labels == ["V1", "V2"]
+        assert dialog._identity_binding is not None
+        s1_v1 = dialog._identity_binding.cell_at(QPointF(1, 2))
+        s2_v2 = dialog._identity_binding.cell_at(QPointF(2, 1))
+        assert s1_v1.sample_name == "S1"
+        assert s1_v1.qualifier.status is QualifierStatus.VALIDATED
+        assert s2_v2.sample_name == "S2"
+        assert s2_v2.qualifier.status is QualifierStatus.FAILED
+        labels = [series.name() for series in dialog.chart.series()]
+        assert "Validated" in labels
+        assert "Failed" in labels
+        assert "No verdict" in labels
+        assert all(isinstance(series, QScatterSeries) for series in dialog.chart.series())
+    finally:
+        dialog.deleteLater()
+
+
+def test_identity_cell_tooltip_explains_absent_and_unassessed():
+    channels = (_qion(), _v1())
     missing_q = IdentityQcResult(
         status=IdentityStatus.NOT_DETECTED,
         quantifier_area=0.0,
         observed_rt=None,
         rt_error=None,
         rt_passed=None,
-        qualifier_ratios=(QualifierRatioResult(v, None, None),),
+        qualifier_ratios=(QualifierRatioResult(channels[1], None, None),),
         reasons=("Q ion was not detected above the assessment floor",),
     )
-    v2_pass = IonChannel(
-        73.0,
-        IonRole.QUALIFIER,
-        ordinal=2,
-        expected_ratio=0.2,
-        ratio_tolerance=0.25,
+    snapshot = _identity_snapshot(
+        channels,
+        ("S1", missing_q, None),
+        ("S2", None, "EIC file is missing"),
     )
-    v2_unchecked = IonChannel(73.0, IonRole.QUALIFIER, ordinal=2)
-    both_pass = IdentityQcResult(
-        status=IdentityStatus.SUPPORTED,
-        quantifier_area=100.0,
-        observed_rt=1.2,
-        rt_error=0.0,
-        rt_passed=True,
-        qualifier_ratios=(
-            QualifierRatioResult(v, 0.41, True),
-            QualifierRatioResult(v2_pass, 0.21, True),
-        ),
-        reasons=(),
+    absent = snapshot.for_sample("S1").qualifiers.v2
+    from manic.ui.identity_chart import IdentityCell
+
+    assert "not in the method" in identity_cell_tooltip(IdentityCell("S1", absent))
+    not_assessed = snapshot.for_sample("S1").qualifiers.v1
+    assert "Q ion was not detected" in identity_cell_tooltip(
+        IdentityCell("S1", not_assessed)
     )
-    one_of_two = IdentityQcResult(
+    unavailable = snapshot.for_sample("S2").qualifiers.v1
+    assert "EIC file is missing" in identity_cell_tooltip(
+        IdentityCell("S2", unavailable)
+    )
+
+
+def test_channel_trace_styles_keep_q_steel_blue_and_solid():
+    channels = (_qion(), _v1(), _v2())
+    identity = _identity_snapshot(
+        channels, ("S1", _supported_qc(channels, True, False), None)
+    )
+    styles = channel_trace_styles(channels, identity.for_sample("S1"))
+
+    assert styles[0].color == label_colors[0]
+    assert styles[0].line_style == Qt.SolidLine
+    assert styles[1].color == QUALIFIER_GREEN
+    assert styles[1].line_style == Qt.SolidLine
+    assert styles[2].color == QUALIFIER_RED
+    assert styles[2].line_style == Qt.DashDotLine
+
+
+def test_channel_trace_styles_colour_v2_by_ordinal():
+    channels = (_qion(), _v2())
+    qc = IdentityQcResult(
         status=IdentityStatus.REVIEW_REQUIRED,
         quantifier_area=100.0,
         observed_rt=1.2,
         rt_error=0.0,
         rt_passed=True,
-        qualifier_ratios=(
-            QualifierRatioResult(v, 0.41, True),
-            QualifierRatioResult(v2_pass, 0.80, False),
-        ),
-        reasons=("V ion 2 ratio 0.800 is outside 0.200 ±25%",),
+        qualifier_ratios=(QualifierRatioResult(channels[1], 0.80, False),),
+        reasons=(),
     )
-    one_checked = IdentityQcResult(
-        status=IdentityStatus.NOT_ASSESSED,
+    identity = _identity_snapshot(channels, ("S1", qc, None))
+    styles = channel_trace_styles(channels, identity.for_sample("S1"))
+
+    assert len(styles) == 2
+    assert styles[0].color == label_colors[0]
+    assert styles[1].color == QUALIFIER_RED
+    assert styles[1].line_style == Qt.DashDotLine
+    assert styles[1].color != label_colors[1]
+
+
+def test_channel_trace_styles_labelled_palette_unchanged():
+    channels = (
+        IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),
+        IonChannel(175.0, IonRole.ISOTOPOLOGUE, ordinal=1),
+        IonChannel(176.0, IonRole.ISOTOPOLOGUE, ordinal=2),
+    )
+    styles = channel_trace_styles(channels, None)
+    assert [style.color for style in styles] == label_colors[:3]
+    assert all(style.line_style == Qt.SolidLine for style in styles)
+
+
+def test_graph_unlabelled_traces_use_status_pens(qapp):
+    channels = (_qion(), _v2())
+    qc = IdentityQcResult(
+        status=IdentityStatus.REVIEW_REQUIRED,
         quantifier_area=100.0,
         observed_rt=1.2,
         rt_error=0.0,
         rt_passed=True,
-        qualifier_ratios=(
-            QualifierRatioResult(v, 0.41, True),
-            QualifierRatioResult(v2_unchecked, 0.21, None),
-        ),
-        reasons=("Identity references are incomplete; signal is reported without confirmation",),
+        qualifier_ratios=(QualifierRatioResult(channels[1], 0.80, False),),
+        reasons=(),
     )
-    assert ratio_verdict(match) is RatioVerdict.VALIDATED
-    assert ratio_verdict(both_pass) is RatioVerdict.VALIDATED
-    assert ratio_verdict(one_of_two) is RatioVerdict.PARTIAL
-    assert ratio_verdict(one_checked) is RatioVerdict.PARTIAL
-    assert ratio_verdict(mismatch) is RatioVerdict.MISMATCH
-    assert ratio_verdict(not_given) is RatioVerdict.NOT_GIVEN
-    assert ratio_verdict(missing_q) is RatioVerdict.NOT_GIVEN
-    assert ratio_verdict(None) is RatioVerdict.NOT_GIVEN
+    identity = _identity_snapshot(channels, ("S1", qc, None))
+    styles = channel_trace_styles(channels, identity.for_sample("S1"))
+    time = np.linspace(0.0, 1.0, 8)
+    intensity = np.vstack([np.ones(time.size), np.full(time.size, 2.0)])
+    view = GraphView()
+    try:
+        chart = QChart()
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        view._add_trace_series(
+            chart,
+            x_axis,
+            y_axis,
+            time,
+            intensity,
+            1.0,
+            selected=True,
+            raw_context=False,
+            channel_styles=styles,
+        )
+        pens = [series.pen() for series in chart.series()]
+        assert pens[0].color().getRgb()[:3] == label_colors[0].getRgb()[:3]
+        assert pens[0].style() == Qt.SolidLine
+        assert pens[1].color().getRgb()[:3] == QUALIFIER_RED.getRgb()[:3]
+        assert pens[1].style() == Qt.DashDotLine
+    finally:
+        view.deleteLater()
+
+
+def test_graph_labelled_traces_keep_label_palette(qapp):
+    channels = (
+        IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),
+        IonChannel(175.0, IonRole.ISOTOPOLOGUE, ordinal=1),
+    )
+    styles = channel_trace_styles(channels, None)
+    time = np.linspace(0.0, 1.0, 8)
+    intensity = np.vstack([np.ones(time.size), np.full(time.size, 2.0)])
+    view = GraphView()
+    try:
+        chart = QChart()
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        view._add_trace_series(
+            chart,
+            x_axis,
+            y_axis,
+            time,
+            intensity,
+            1.0,
+            selected=True,
+            raw_context=False,
+            channel_styles=styles,
+        )
+        pens = [series.pen() for series in chart.series()]
+        assert pens[0].color().getRgb()[:3] == label_colors[0].getRgb()[:3]
+        assert pens[1].color().getRgb()[:3] == label_colors[1].getRgb()[:3]
+        assert pens[0].style() == Qt.SolidLine
+        assert pens[1].style() == Qt.SolidLine
+    finally:
+        view.deleteLater()
 
 
 def test_new_session_ignores_qaction_checked_boolean(monkeypatch):
@@ -567,10 +716,11 @@ def test_channel_legend_hides_when_compound_read_fails(qapp, monkeypatch):
 
 def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
     compound = SimpleNamespace(
+        is_unlabelled_target=False,
         analysis_channels=(
-            IonChannel(217.0, IonRole.QUANTIFIER),
-            IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
-        )
+            IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),
+            IonChannel(175.0, IonRole.ISOTOPOLOGUE, ordinal=1),
+        ),
     )
     monkeypatch.setattr(
         "manic.ui.graphs.read_compound_with_session",
@@ -578,13 +728,34 @@ def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
     )
     view = GraphView()
     try:
-        view._update_channel_legend("Target", _multi_trace_eics(4))
+        view._update_channel_legend("alanine", _multi_trace_eics(4))
         text = view.channel_legend.text()
         assert not view.channel_legend.isHidden()
-        assert "Q ion m/z 217" in text
-        assert "V ion 1 m/z 147" in text
+        assert "M+0 m/z 174" in text
+        assert "M+1 m/z 175" in text
         assert text.count("●") == 2
-        assert "M+" not in text
+        assert "V ion" not in text
+    finally:
+        view.deleteLater()
+
+
+def test_channel_legend_hides_for_unlabelled_target(qapp, monkeypatch):
+    compound = SimpleNamespace(
+        is_unlabelled_target=True,
+        analysis_channels=(
+            IonChannel(217.0, IonRole.QUANTIFIER),
+            IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
+        ),
+    )
+    monkeypatch.setattr(
+        "manic.ui.graphs.read_compound_with_session",
+        lambda *_args: compound,
+    )
+    view = GraphView()
+    try:
+        view.channel_legend.show()
+        view._update_channel_legend("Target", _multi_trace_eics(2))
+        assert view.channel_legend.isHidden()
     finally:
         view.deleteLater()
 

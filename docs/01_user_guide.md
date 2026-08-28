@@ -46,6 +46,9 @@ Upon a successful import, the application provides immediate visual feedback:
 
 *If any required columns are missing from your file, the import process will be cancelled and an alert will display the specific missing headers.*
 
+**Add Compound**  
+To add one compound without a spreadsheet, choose **File → Add Compound...** or right-click the compound list and choose **Add Compound...**. The form uses the same fields as a compound-list row for this session. After you click OK, the new name is selected in the list. If CDF samples are already loaded, MANIC extracts EICs for that compound by re-reading the original CDF files from the location they were first imported from. If those files have moved, the compound is still saved but has no chromatogram data; restore the files and widen an integration boundary to trigger re-extraction, or add compounds before importing raw data. A name that already exists, including a deleted compound, is rejected. Recover the deleted compound or choose a different name.
+
 ---
 
 ## Step 2: Import Mass Spectrometry Data

@@ -1,5 +1,8 @@
+from types import SimpleNamespace
+
 import pytest
 
+from manic.io.data_provider import DataProvider
 from manic.models.analysis import IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -289,3 +292,50 @@ def test_qualifier_pair_indexes_by_ordinal_not_list_position():
     assert pair.v1.status is QualifierStatus.ABSENT
     assert pair.v2.status is QualifierStatus.VALIDATED
     assert pair.v2.channel is channels[1]
+
+
+def test_assess_unlabelled_identities_keeps_sample_failures_in_the_snapshot(
+    monkeypatch,
+):
+    channels = (_qion(), _v1())
+    compound = SimpleNamespace(
+        is_unlabelled_target=True,
+        analysis_channels=channels,
+    )
+    qc = _qc(channels, status=IdentityStatus.SUPPORTED, passed=(True,), observed=(0.41,))
+
+    def fake_read(name, sample=None):
+        if name != "Target":
+            raise LookupError(name)
+        return compound
+
+    monkeypatch.setattr(
+        "manic.io.compound_reader.read_compound_with_session", fake_read
+    )
+
+    provider = DataProvider()
+
+    def fake_assess(sample_name, compound_name):
+        if sample_name == "broken":
+            raise RuntimeError("EIC file is missing")
+        return qc
+
+    monkeypatch.setattr(provider, "assess_unlabelled_identity", fake_assess)
+
+    snapshot = provider.assess_unlabelled_identities("Target", ["S1", "broken"])
+
+    assert snapshot.compound_name == "Target"
+    assert snapshot.channels == channels
+    assert snapshot.for_sample("S1").qualifiers.v1.status is QualifierStatus.VALIDATED
+    assert snapshot.for_sample("broken").error == "EIC file is missing"
+    assert snapshot.for_sample("broken").qualifiers.v1.status is QualifierStatus.UNAVAILABLE
+    assert snapshot.for_sample("broken").qualifiers.v2.status is QualifierStatus.ABSENT
+
+
+def test_assess_unlabelled_identities_raises_when_compound_is_missing(monkeypatch):
+    monkeypatch.setattr(
+        "manic.io.compound_reader.read_compound_with_session",
+        lambda *_args: (_ for _ in ()).throw(LookupError("Missing")),
+    )
+    with pytest.raises(LookupError, match="Missing"):
+        DataProvider().assess_unlabelled_identities("Missing", ["S1"])

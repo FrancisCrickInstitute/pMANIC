@@ -9,7 +9,7 @@ import zlib
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import get_context
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -663,6 +663,48 @@ class DataProvider:
             observed_rt=observed_rt,
             rt_tolerance=compound.rt_tolerance,
         )
+
+    def assess_unlabelled_identities(
+        self,
+        compound_name: str,
+        sample_names: Sequence[str],
+    ):
+        from manic.io.compound_reader import read_compound_with_session
+        from manic.validation.unlabelled_identity import (
+            IdentityAssessmentSet,
+            IdentitySampleAssessment,
+            qualifier_pair,
+        )
+
+        compound = read_compound_with_session(compound_name, None)
+        if not compound.is_unlabelled_target:
+            raise ValueError(
+                f"{compound_name!r} does not have quantifier/qualifier channels"
+            )
+        channels = tuple(compound.analysis_channels)
+
+        samples = []
+        for sample_name in sample_names:
+            try:
+                qc = self.assess_unlabelled_identity(sample_name, compound_name)
+            except Exception as exc:
+                samples.append(
+                    IdentitySampleAssessment(
+                        sample_name=sample_name,
+                        qc=None,
+                        qualifiers=qualifier_pair(channels, None, error=str(exc)),
+                        error=str(exc),
+                    )
+                )
+                continue
+            samples.append(
+                IdentitySampleAssessment(
+                    sample_name=sample_name,
+                    qc=qc,
+                    qualifiers=qualifier_pair(channels, qc),
+                )
+            )
+        return IdentityAssessmentSet(compound_name, channels, tuple(samples))
 
     def _get_corrector(self) -> NaturalAbundanceCorrector:
         corrector = getattr(self._corrector_local, "corrector", None)

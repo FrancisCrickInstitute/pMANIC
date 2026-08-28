@@ -19,7 +19,6 @@ from manic.processors.chromatographic_peak_deconvolution import (
     EICChromatographicPeakDeconvolutionResult,
     deconvolve_eic,
 )
-from manic.ui import graphs as graphs_module
 from manic.ui.colors import label_colors
 
 from manic.ui.integration_window_widget import IntegrationWindow
@@ -558,16 +557,15 @@ def test_detailed_eic_plot_failure_updates_info_strip(qapp, monkeypatch):
             time=np.array([4.9, 5.0, 5.1]),
             intensity=np.array([1.0, 2.0, 1.0]),
         )
-        dialog._plot_eic_traces = lambda: (_ for _ in ()).throw(
+        dialog._plot_eic_traces = lambda *_args: (_ for _ in ()).throw(
             RuntimeError("guide draw failed")
         )
         dialog._plot_eic()
         dialog._update_info_label()
         text = dialog.info_label.text()
         assert text.startswith("EIC plot failed: guide draw failed")
-        assert dialog.eic_plot.ax.get_title() == (
-            "Enhanced Extracted Ion Chromatogram (plot failed)"
-        )
+        assert dialog.eic_plot.data_lines
+        assert "plot failed" not in dialog.eic_plot.ax.get_title()
     finally:
         dialog.deleteLater()
 
@@ -665,8 +663,7 @@ def test_labelled_mixed_bundle_draws_scans_not_model_overlay(qapp, monkeypatch):
         ]
     )
     monkeypatch.setattr(
-        graphs_module,
-        "deconvolve_channel_matrix",
+        "manic.processors.chromatographic_peak_deconvolution.deconvolve_channel_matrix",
         lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
     )
     view = GraphView()
@@ -701,8 +698,7 @@ def test_unlabelled_mixed_bundle_draws_fitted_ion_overlay(qapp, monkeypatch):
         ]
     )
     monkeypatch.setattr(
-        graphs_module,
-        "deconvolve_channel_matrix",
+        "manic.processors.chromatographic_peak_deconvolution.deconvolve_channel_matrix",
         lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
     )
     view = GraphView()
@@ -728,7 +724,6 @@ def test_unlabelled_mixed_bundle_draws_fitted_ion_overlay(qapp, monkeypatch):
 
 
 def test_unlabelled_mixed_bundle_detailed_plot_draws_fitted_ion(qapp, monkeypatch):
-    from manic.ui import detailed_plot_dialog as dialog_module
     from manic.ui.detailed_plot_dialog import DetailedPlotDialog
 
     time = np.linspace(4.0, 6.0, 81)
@@ -740,8 +735,7 @@ def test_unlabelled_mixed_bundle_detailed_plot_draws_fitted_ion(qapp, monkeypatc
     )
     monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
     monkeypatch.setattr(
-        dialog_module,
-        "deconvolve_channel_matrix",
+        "manic.processors.chromatographic_peak_deconvolution.deconvolve_channel_matrix",
         lambda *args, **kwargs: _mixed_deconvolution_bundle(time),
     )
     dialog = DetailedPlotDialog("Target", "S1")
@@ -752,5 +746,98 @@ def test_unlabelled_mixed_bundle_detailed_plot_draws_fitted_ion(qapp, monkeypatc
         dialog._plot_model_component = lambda *args, **kwargs: drew_model.append(True)
         dialog._plot_eic_traces()
         assert drew_model == [True]
+    finally:
+        dialog.deleteLater()
+
+
+def _labelled_detail_compound(*, use_baseline=1, label_atoms=1):
+    from manic.io.compound_reader import Compound
+
+    return Compound(
+        compound_name="glucose",
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        label_atoms=label_atoms,
+        mass0=319.0,
+        formula="C6H12O6",
+        baseline_correction=use_baseline,
+        deconvolution_level="4",
+        deconvolution_fit_type="auto",
+        deconvolution_noise_gate="balanced",
+    )
+
+
+def _labelled_detail_eic():
+    time = np.linspace(0.0, 10.0, 201)
+    intensity = np.vstack(
+        [
+            10.0 * np.exp(-0.5 * ((time - 7.0) / 0.25) ** 2),
+            3.0 * np.exp(-0.5 * ((time - 7.0) / 0.25) ** 2),
+        ]
+    )
+    return time, intensity
+
+
+def test_detailed_eic_draws_when_higher_mn_are_empty(qapp, monkeypatch):
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    time = np.linspace(0.0, 10.0, 201)
+    intensity = np.vstack(
+        [
+            10.0 * np.exp(-0.5 * ((time - 7.0) / 0.25) ** 2),
+            np.zeros(time.size),
+            np.full(time.size, 1e-12),
+        ]
+    )
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    dialog = DetailedPlotDialog("glucose", "S1")
+    try:
+        dialog.compound_info = _labelled_detail_compound(label_atoms=2)
+        dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
+        dialog._plot_eic()
+        assert dialog._eic_plot_error is None, dialog._eic_plot_error
+        assert dialog.eic_plot.data_lines
+        assert max(float(np.max(y)) for _x, y in dialog.eic_plot.data_lines) > 1.0
+    finally:
+        dialog.deleteLater()
+
+
+def test_detailed_eic_stays_visible_when_display_pipeline_fails(qapp, monkeypatch):
+    from manic.ui import detailed_plot_dialog as dialog_module
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    time, intensity = _labelled_detail_eic()
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    monkeypatch.setattr(
+        dialog_module,
+        "plot_display",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("display failed")),
+    )
+    dialog = DetailedPlotDialog("glucose", "S1")
+    try:
+        dialog.compound_info = _labelled_detail_compound()
+        dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
+        dialog._plot_eic()
+        assert dialog.eic_plot.data_lines
+        assert max(float(np.max(y)) for _x, y in dialog.eic_plot.data_lines) > 1.0
+    finally:
+        dialog.deleteLater()
+
+
+@pytest.mark.parametrize("use_corrected", [False, True])
+def test_detailed_eic_draws_labelled_traces(qapp, monkeypatch, use_corrected):
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    time, intensity = _labelled_detail_eic()
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    dialog = DetailedPlotDialog("glucose", "S1", use_corrected=use_corrected)
+    try:
+        dialog.compound_info = _labelled_detail_compound()
+        dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
+        dialog._plot_eic()
+        assert dialog._eic_plot_error is None, dialog._eic_plot_error
+        assert dialog.eic_plot.data_lines
+        assert max(float(np.max(y)) for _x, y in dialog.eic_plot.data_lines) > 1.0
     finally:
         dialog.deleteLater()

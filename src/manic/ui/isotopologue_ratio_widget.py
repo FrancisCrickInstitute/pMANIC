@@ -18,8 +18,7 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.eic_reader import EIC
-from manic.processors.eic_correction_manager import read_corrected_eic
-from manic.processors.integration import calculate_peak_areas
+from manic.processors.display_deconvolution import integrated_display_areas
 
 from .colors import label_colors
 
@@ -40,7 +39,6 @@ class IsotopologueRatioWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("isotopologueRatioWidget")
 
-        # Flag to use corrected data when available
         self.use_corrected = True
 
         # Create chart and chart view
@@ -131,108 +129,36 @@ class IsotopologueRatioWidget(QWidget):
     def _calculate_integrated_data(
         self, eics: List[EIC], compound_name: str
     ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """
-        Calculate both isotopologue ratios and total abundances using unified integration.
-
-        Integrates each isotopologue trace within the integration boundaries
-        defined by retention_time ± offsets, then calculates both ratios and total abundances.
-
-        Args:
-            eics: List of EIC data
-            compound_name: Name of compound for integration parameters
-
-        Returns:
-            Tuple of (ratios_array, total_abundances_array) or (None, None) if no data
-            - ratios: Array of shape (n_samples, n_isotopologues) with ratios
-            - total_abundances: Array of shape (n_samples,) with total integrated areas
-        """
         ratios = []
         total_abundances = []
-        
-        # Track correction usage for summary logging
-        corrected_count = 0
-        uncorrected_count = 0
         multi_trace_samples = []
 
         for eic in eics:
-            # Get integration parameters (with session overrides if available)
             compound = read_compound_with_session(compound_name, eic.sample_name)
+            isotope_areas = integrated_display_areas(
+                eic.time,
+                eic.intensity,
+                compound,
+                use_corrected=self.use_corrected,
+            )
+            total_area = sum(isotope_areas)
+            total_abundances.append(total_area)
 
-            rt = compound.retention_time
-            loffset = compound.loffset
-            roffset = compound.roffset
-            baseline_correction = bool(getattr(compound, "baseline_correction", 0))
-
-            # Check if single or multi-trace
             if eic.intensity.ndim == 1:
-                # Single trace (unlabeled compound)
-                isotope_areas = calculate_peak_areas(
-                    eic.time,
-                    eic.intensity,
-                    label_atoms=0,
-                    retention_time=rt,
-                    loffset=loffset,
-                    roffset=roffset,
-                    channel_count=1,
-                    baseline_correction=baseline_correction,
-                    chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
-                    chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
-                    chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
-                )
-                total_area = sum(isotope_areas)
-                ratios.append(np.array([1.0]))  # 100% for single isotope
-                total_abundances.append(total_area)
+                ratios.append(np.array([1.0]))
             else:
-                # Multi-trace - check for corrected data if enabled
-                intensity_to_use = eic.intensity
                 multi_trace_samples.append(eic.sample_name)
-
-                if self.use_corrected:
-                    corrected = read_corrected_eic(eic.sample_name, compound_name)
-                    if corrected is not None:
-                        intensity_to_use = corrected
-                        corrected_count += 1
-                    else:
-                        uncorrected_count += 1
-                else:
-                    uncorrected_count += 1
-
-                num_isotopologues = intensity_to_use.shape[0]
-                isotope_areas = calculate_peak_areas(
-                    eic.time,
-                    intensity_to_use.flatten(),
-                    label_atoms=num_isotopologues - 1,
-                    retention_time=rt,
-                    loffset=loffset,
-                    roffset=roffset,
-                    channel_count=num_isotopologues,
-                    baseline_correction=baseline_correction,
-                    chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
-                    chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
-                    chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
-                )
-
-                # Calculate total abundance (sum of all isotopologue areas)
-                total_area = sum(isotope_areas)
-                total_abundances.append(total_area)
-
-                # Calculate ratios from same areas
                 if total_area > 0:
                     ratios.append(np.array(isotope_areas) / total_area)
                 else:
                     ratios.append(np.zeros(len(isotope_areas)))
 
-        # Log summary of correction usage for isotopologue integration
         if multi_trace_samples:
-            total_samples = len(multi_trace_samples)
-            if corrected_count > 0 or uncorrected_count > 0:
-                correction_status = "corrected" if self.use_corrected else "uncorrected"
-                available_corrections = corrected_count if self.use_corrected else 0
-                logger.info(
-                    f"Isotopologue integration for {compound_name}: "
-                    f"{total_samples} samples processed "
-                    f"({available_corrections}/{total_samples} with {correction_status} data)"
-                )
+            logger.info(
+                f"Isotopologue integration for {compound_name}: "
+                f"{len(multi_trace_samples)} samples processed "
+                f"(preview={'on' if self.use_corrected else 'off'})"
+            )
 
         if ratios:
             return np.array(ratios), np.array(total_abundances)

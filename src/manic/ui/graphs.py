@@ -23,9 +23,9 @@ from PySide6.QtWidgets import (
 from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors.eic_processing import get_eics_for_compound
-from manic.processors.chromatographic_peak_deconvolution import (
-    chromatographic_peak_deconvolution_enabled,
-    deconvolve_channel_matrix,
+from manic.processors.display_deconvolution import (
+    display_y_max,
+    plot_display,
 )
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
@@ -36,8 +36,6 @@ from .colors import dark_red_colour, label_colors, selection_color, steel_blue_c
 
 logger = logging.getLogger(__name__)
 
-# Headroom above the tallest raw sample so a smooth fitted apex (which can sit
-# slightly above the highest measured point) is not clipped by the fixed y-axis.
 PLOT_Y_AXIS_HEADROOM = 1.05
 
 
@@ -158,8 +156,8 @@ class GraphView(QWidget):
         self._current_compound: str = ""
         self._current_samples: List[str] = []
 
-        # Track whether to use corrected data
-        self.use_corrected = False  # Default to using uncorrected data
+        self.use_corrected = False
+        self._prepared_displays = {}
 
         # Unlabelled identity QC status per sample (drives tile highlighting)
         self._identity_status: Dict[str, str] = {}
@@ -333,11 +331,10 @@ class GraphView(QWidget):
         self._current_compound = compound_name
         self._current_samples = samples
 
-        # time db retreival for debugging
         with measure_time("get_eics_from_db"):
             eics = get_eics_for_compound(
-                compound_name, samples, use_corrected=self.use_corrected
-            )  # new pipeline
+                compound_name, samples, use_corrected=False
+            )
 
         num = len(eics)
         if num == 0:
@@ -346,15 +343,27 @@ class GraphView(QWidget):
 
         self._last_validation_data = validation_data
 
-        # Shared y-scale: one scale factor derived from the tallest peak across
-        # all tiles so abundances are visually comparable between samples.
         self._scale_override = None
+        prepared_displays = []
+        for eic in eics:
+            compound = read_compound_with_session(eic.compound_name, eic.sample_name)
+            prepared_displays.append(
+                plot_display(
+                    eic.time,
+                    eic.intensity,
+                    compound,
+                    use_corrected=self.use_corrected,
+                )
+            )
+        self._prepared_displays = {
+            id(eic): prepared for eic, prepared in zip(eics, prepared_displays)
+        }
         if self._shared_y_scale:
             global_max = max(
                 (
-                    float(np.max(eic.intensity))
-                    for eic in eics
-                    if getattr(eic.intensity, "size", 0)
+                    display_y_max(prepared.intensity)
+                    for prepared in prepared_displays
+                    if np.asarray(prepared.intensity).size
                 ),
                 default=0.0,
             )
@@ -429,8 +438,7 @@ class GraphView(QWidget):
         # ensure the added widgets are correctly sized with stretch factors
         self._update_graph_sizes()
 
-        # A re-plot (compound change or a display toggle) rebuilds the charts,
-        # so restore the stored QC overlays on the fresh tiles.
+        self._prepared_displays.clear()
         if self._identity_status:
             self.set_identity_status(self._identity_status)
 
@@ -476,7 +484,7 @@ class GraphView(QWidget):
         """
         if self._scale_override is not None:
             return self._scale_override
-        unscaled_y_max = float(np.max(eic_intensity.flatten()))
+        unscaled_y_max = display_y_max(eic_intensity)
         scale_exp = int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
         scale_factor = 10**scale_exp
         scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
@@ -1000,12 +1008,13 @@ class GraphView(QWidget):
 
             # Use session data if available, otherwise use default compound data
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
+            prepared = self._plot_display_for(eic, compound)
 
             eic_intensity = eic.intensity
 
             # Compute y_max and scaling (with edge case handling)
             scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(
-                eic_intensity
+                prepared.intensity
             )
 
             # Reuse existing axes
@@ -1023,6 +1032,7 @@ class GraphView(QWidget):
                     eic_intensity,
                     compound,
                     scale_factor,
+                    prepared=prepared,
                 )
 
             # Update axis ranges
@@ -1071,6 +1081,7 @@ class GraphView(QWidget):
                     eic_intensity,
                     compound,
                     scale_factor,
+                    prepared=prepared,
                 )
 
             # Add scale factor text if needed
@@ -1145,6 +1156,7 @@ class GraphView(QWidget):
         """Create a ClickableChartView with EIC data and guide lines."""
         # Use session data if available, otherwise use default compound data
         compound = read_compound_with_session(eic.compound_name, eic.sample_name)
+        prepared = self._plot_display_for(eic, compound)
 
         # Create chart
         chart = QChart()
@@ -1156,7 +1168,9 @@ class GraphView(QWidget):
         eic_intensity = eic.intensity
 
         # Compute y_max and scaling (with edge case handling)
-        scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(eic_intensity)
+        scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(
+            prepared.intensity
+        )
 
         font = create_font(8)
 
@@ -1174,6 +1188,7 @@ class GraphView(QWidget):
             eic_intensity,
             compound,
             scale_factor,
+            prepared=prepared,
         )
 
         # Set up axes
@@ -1234,6 +1249,7 @@ class GraphView(QWidget):
             eic_intensity,
             compound,
             scale_factor,
+            prepared=prepared,
         )
 
         # Create chart view first to get access to scene
@@ -1303,92 +1319,80 @@ class GraphView(QWidget):
         eic_intensity: np.ndarray,
         compound,
         scale_factor: float,
+        prepared=None,
     ):
-        """
-        Add dashed baseline lines when baseline correction is enabled.
-
-        For multi-trace (labeled) compounds, draws a baseline for each isotopologue
-        in matching colors. For single-trace compounds, uses dark red.
-
-        Args:
-            chart: The QChart to add series to
-            x_axis: X axis for attachment
-            y_axis: Y axis for attachment
-            eic_time: Full time array
-            eic_intensity: Intensity array (1D or 2D for isotopologues)
-            compound: Compound object with baseline_correction flag and offsets
-            scale_factor: Scale factor applied to intensities for display
-        """
         baseline_flag = getattr(compound, "baseline_correction", 0)
         if not baseline_flag:
             return
 
         logger.debug(f"Drawing baseline lines for {compound.compound_name}")
 
-        if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
-            bundle = deconvolve_channel_matrix(
+        if prepared is None:
+            prepared = plot_display(
                 eic_time,
                 eic_intensity,
-                retention_time=compound.retention_time,
-                loffset=compound.loffset,
-                roffset=compound.roffset,
-                stringency=getattr(compound, "deconvolution_level", "off"),
-                fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
-                noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
+                compound,
+                use_corrected=self.use_corrected,
             )
-            if bundle.shows_model_overlays(
-                independent_channels=getattr(compound, "is_unlabelled_target", False)
-            ):
-                drew_baseline = False
-                for channel in bundle.channels:
-                    if channel.result.model is None:
-                        continue
-                    selected_trace = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
-                    trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
-                    if not np.any(trace_mask):
-                        continue
-                    baseline_result = compute_linear_baseline(
-                        eic_time[trace_mask], selected_trace[trace_mask]
-                    )
-                    if baseline_result is None:
-                        continue
-                    td_base, baseline_y = baseline_result
-                    baseline_y_scaled = (
-                        baseline_y / scale_factor if scale_factor != 0 else baseline_y
-                    )
-                    qcolor = (
-                        label_colors[channel.index % len(label_colors)]
-                        if eic_intensity.ndim > 1
-                        else dark_red_colour
-                    )
-                    baseline_series = QLineSeries()
-                    baseline_series.append(td_base[0], baseline_y_scaled[0])
-                    baseline_series.append(td_base[-1], baseline_y_scaled[-1])
-                    baseline_pen = QPen(qcolor, 1.2)
-                    baseline_pen.setStyle(Qt.DashLine)
-                    baseline_series.setPen(baseline_pen)
-                    chart.addSeries(baseline_series)
-                    baseline_series.attachAxis(x_axis)
-                    baseline_series.attachAxis(y_axis)
-                    drew_baseline = True
-                if drew_baseline:
-                    return
+        display = prepared.display
+        if display is not None and display.bundle.shows_model_overlays(
+            independent_channels=getattr(compound, "is_unlabelled_target", False)
+        ):
+            drew_baseline = False
+            draw_matrix = (
+                prepared.intensity
+                if prepared.intensity.ndim > 1
+                else prepared.intensity.reshape(1, -1)
+            )
+            for channel in display.bundle.channels:
+                if channel.result.model is None:
+                    continue
+                selected_trace = np.asarray(
+                    draw_matrix[channel.index], dtype=np.float64
+                ).reshape(-1)
+                trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                if not np.any(trace_mask):
+                    continue
+                baseline_result = compute_linear_baseline(
+                    eic_time[trace_mask], selected_trace[trace_mask]
+                )
+                if baseline_result is None:
+                    continue
+                td_base, baseline_y = baseline_result
+                baseline_y_scaled = (
+                    baseline_y / scale_factor if scale_factor != 0 else baseline_y
+                )
+                qcolor = (
+                    label_colors[channel.index % len(label_colors)]
+                    if eic_intensity.ndim > 1
+                    else dark_red_colour
+                )
+                baseline_series = QLineSeries()
+                baseline_series.append(td_base[0], baseline_y_scaled[0])
+                baseline_series.append(td_base[-1], baseline_y_scaled[-1])
+                baseline_pen = QPen(qcolor, 1.2)
+                baseline_pen.setStyle(Qt.DashLine)
+                baseline_series.setPen(baseline_pen)
+                chart.addSeries(baseline_series)
+                baseline_series.attachAxis(x_axis)
+                baseline_series.attachAxis(y_axis)
+                drew_baseline = True
+            if drew_baseline:
+                return
 
-        # Calculate integration window boundaries
         l_boundary = compound.retention_time - compound.loffset
         r_boundary = compound.retention_time + compound.roffset
 
-        # Create window mask (strict boundaries like integration)
         mask = (eic_time > l_boundary) & (eic_time < r_boundary)
         if not np.any(mask):
             return
 
         td_win = eic_time[mask]
-        multi_trace = eic_intensity.ndim > 1
+        draw_intensity = prepared.intensity
+        multi_trace = draw_intensity.ndim > 1
 
         if multi_trace:
-            # Draw baseline for each isotopologue with matching color
-            for i, intensity_trace in enumerate(eic_intensity):
+            for i, intensity_trace in enumerate(draw_intensity):
                 idata_win = intensity_trace[mask]
                 baseline_result = compute_linear_baseline(td_win, idata_win)
                 if baseline_result is not None:
@@ -1401,7 +1405,6 @@ class GraphView(QWidget):
                     baseline_series.append(td_base[0], baseline_y_scaled[0])
                     baseline_series.append(td_base[-1], baseline_y_scaled[-1])
 
-                    # Use matching isotopologue color
                     baseline_pen = QPen(label_colors[i % len(label_colors)], 1.2)
                     baseline_pen.setStyle(Qt.DashLine)
                     baseline_series.setPen(baseline_pen)
@@ -1409,8 +1412,7 @@ class GraphView(QWidget):
                     baseline_series.attachAxis(x_axis)
                     baseline_series.attachAxis(y_axis)
         else:
-            # Single trace - use dark red color
-            idata_win = eic_intensity[mask]
+            idata_win = draw_intensity[mask]
             baseline_result = compute_linear_baseline(td_win, idata_win)
             if baseline_result is not None:
                 td_base, baseline_y = baseline_result
@@ -1483,6 +1485,17 @@ class GraphView(QWidget):
             series.attachAxis(x_axis)
             series.attachAxis(y_axis)
 
+    def _plot_display_for(self, eic, compound):
+        prepared = self._prepared_displays.pop(id(eic), None)
+        if prepared is not None:
+            return prepared
+        return plot_display(
+            eic.time,
+            eic.intensity,
+            compound,
+            use_corrected=self.use_corrected,
+        )
+
     def _add_eic_series(
         self,
         chart,
@@ -1492,20 +1505,18 @@ class GraphView(QWidget):
         eic_intensity: np.ndarray,
         compound,
         scale_factor: float,
+        prepared=None,
     ):
-        """Draw the EIC, with a fit overlay on each channel that has a model."""
-        bundle = None
-        if chromatographic_peak_deconvolution_enabled(getattr(compound, "deconvolution_level", "off")):
-            bundle = deconvolve_channel_matrix(
+        if prepared is None:
+            prepared = plot_display(
                 eic_time,
                 eic_intensity,
-                retention_time=compound.retention_time,
-                loffset=compound.loffset,
-                roffset=compound.roffset,
-                stringency=getattr(compound, "deconvolution_level", "off"),
-                fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
-                noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
+                compound,
+                use_corrected=self.use_corrected,
             )
+        display = prepared.display
+        bundle = None if display is None else display.bundle
+        draw_intensity = prepared.intensity
 
         if bundle is None or not bundle.shows_model_overlays(
             independent_channels=getattr(compound, "is_unlabelled_target", False)
@@ -1515,9 +1526,23 @@ class GraphView(QWidget):
                 x_axis,
                 y_axis,
                 eic_time,
-                eic_intensity,
+                draw_intensity,
                 scale_factor,
                 selected=False,
+                raw_context=False,
+                compound=compound,
+            )
+            return
+
+        if not prepared.includes_raw_underlay:
+            self._add_trace_series(
+                chart,
+                x_axis,
+                y_axis,
+                eic_time,
+                draw_intensity,
+                scale_factor,
+                selected=True,
                 raw_context=False,
                 compound=compound,
             )

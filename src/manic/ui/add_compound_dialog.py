@@ -16,7 +16,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from manic.io.compounds_import import CompoundRow, UnlabelledCompoundRecord
+from manic.io.compounds_import import (
+    CompoundRow,
+    UnlabelledCompoundRecord,
+    duplicate_name_error,
+)
 from manic.models.analysis import (
     AnalysisMode,
     IonChannel,
@@ -46,9 +50,11 @@ class AddCompoundDialog(QDialog):
         self,
         parent: QWidget | None = None,
         analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+        taken_names: frozenset[str] | set[str] = frozenset(),
     ):
         super().__init__(parent)
         self._mode = AnalysisMode.coerce(analysis_mode)
+        self._taken_names = frozenset(taken_names)
         self._record: CompoundRow | UnlabelledCompoundRecord | None = None
         unlabelled = self._mode is AnalysisMode.UNLABELLED
         self._make_record = (
@@ -112,10 +118,20 @@ class AddCompoundDialog(QDialog):
 
     def _on_ok(self) -> None:
         try:
-            self._record = self.build_record()
+            record = self.build_record()
         except (ValueError, ValidationError, TypeError) as exc:
             self._show_warning(_error_message(exc))
             return
+        if record.retention_time <= 0:
+            self._show_warning("tR (minutes) must be greater than 0.")
+            return
+        if isinstance(record, CompoundRow) and record.mass0 <= 0:
+            self._show_warning("Mass0 (m/z) must be greater than 0.")
+            return
+        if record.compound_name in self._taken_names:
+            self._show_warning(str(duplicate_name_error(record.compound_name)))
+            return
+        self._record = record
         self.accept()
 
     def _show_warning(self, message: str) -> None:
@@ -280,5 +296,7 @@ class AddCompoundDialog(QDialog):
     def _hint(text: str) -> QLabel:
         label = QLabel(text)
         label.setWordWrap(True)
-        label.setStyleSheet("color: gray; font-style: italic;")
+        # padding: 0 overrides the app-wide "QDialog QLabel { padding: 10px }",
+        # which otherwise clips wrapped hint rows inside the form layout.
+        label.setStyleSheet("color: gray; font-style: italic; padding: 0px;")
         return label

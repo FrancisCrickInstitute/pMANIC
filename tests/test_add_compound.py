@@ -15,6 +15,7 @@ from manic.io.compounds_import import (
     import_compound_excel,
     insert_compound,
     insert_unlabelled_compound,
+    taken_compound_names,
 )
 from manic.models import database
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
@@ -304,6 +305,50 @@ def test_invalid_ok_keeps_dialog_open_and_warns(qapp):
     parent.close()
 
 
+def _warning_capture(dialog: AddCompoundDialog) -> list:
+    shown = []
+    dialog._show_warning = shown.append
+    return shown
+
+
+def test_duplicate_name_keeps_dialog_open(qapp):
+    dialog = AddCompoundDialog(
+        analysis_mode=AnalysisMode.LABELLED, taken_names={"Alanine"}
+    )
+    _fill_labelled(dialog)
+    shown = _warning_capture(dialog)
+    dialog._on_ok()
+    assert dialog.record is None
+    assert shown and "already exists" in shown[0]
+    assert dialog.compound_name.text() == "Alanine"
+
+
+def test_zero_retention_time_rejected(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
+    _fill_labelled(dialog)
+    dialog.retention_time.setValue(0.0)
+    shown = _warning_capture(dialog)
+    dialog._on_ok()
+    assert dialog.record is None
+    assert shown and "tR" in shown[0]
+
+
+def test_zero_mass0_rejected(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
+    _fill_labelled(dialog)
+    dialog.mass0.setValue(0.0)
+    shown = _warning_capture(dialog)
+    dialog._on_ok()
+    assert dialog.record is None
+    assert shown and "Mass0" in shown[0]
+
+
+def test_taken_compound_names_includes_soft_deleted(compound_db):
+    insert_compound(_labelled_row())
+    assert soft_delete_compound("Pyruvate")
+    assert "Pyruvate" in taken_compound_names()
+
+
 def test_update_compounds_selects_by_name(qapp):
     widget = CompoundListWidget()
     widget.update_compounds(["A", "B", "C"], selected_name="B")
@@ -317,10 +362,6 @@ def test_main_window_selects_new_compound_after_insert(monkeypatch):
     monkeypatch.setattr(
         "manic.ui.main_window.list_compound_names",
         lambda: ["Existing", "NewOne"],
-    )
-    monkeypatch.setattr(
-        "manic.ui.main_window.DataProvider",
-        lambda: SimpleNamespace(invalidate_cache=lambda: invalidated.append("data")),
     )
 
     window = SimpleNamespace(
@@ -341,7 +382,7 @@ def test_main_window_selects_new_compound_after_insert(monkeypatch):
     MainWindow._after_compound_added(window, "NewOne")
 
     assert updated == [(["Existing", "NewOne"], "NewOne")]
-    assert invalidated == ["data", "validation"]
+    assert invalidated == ["validation"]
 
 
 def test_first_added_compound_marks_list_loaded(monkeypatch):
@@ -349,10 +390,6 @@ def test_first_added_compound_marks_list_loaded(monkeypatch):
     menu_calls = []
     monkeypatch.setattr(
         "manic.ui.main_window.list_compound_names", lambda: ["Only"]
-    )
-    monkeypatch.setattr(
-        "manic.ui.main_window.DataProvider",
-        lambda: SimpleNamespace(invalidate_cache=lambda: None),
     )
     window = SimpleNamespace(
         compound_data_loaded=False,
@@ -388,10 +425,6 @@ def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
             rt_tolerance=None,
             retention_time=5.5,
         ),
-    )
-    monkeypatch.setattr(
-        "manic.ui.main_window.DataProvider",
-        lambda: SimpleNamespace(invalidate_cache=lambda: None),
     )
     window = SimpleNamespace(
         compound_data_loaded=True,

@@ -518,12 +518,19 @@ class UnlabelledCompoundRecord:
     channels: tuple[IonChannel, ...]
 
 
-def _duplicate_name_error(name: str) -> ValueError:
+def duplicate_name_error(name: str) -> ValueError:
     return ValueError(
         f"A compound named '{name}' already exists. "
         "Soft-deleted compounds also occupy that name; "
         "recover deleted compounds or choose a different name."
     )
+
+
+def taken_compound_names() -> set[str]:
+    """Every compound name in the database, including soft-deleted rows."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT compound_name FROM compounds").fetchall()
+    return {row["compound_name"] for row in rows}
 
 
 def insert_compound(row: CompoundRow) -> None:
@@ -556,7 +563,7 @@ def insert_compound(row: CompoundRow) -> None:
                 ),
             )
     except sqlite3.IntegrityError as exc:
-        raise _duplicate_name_error(row.compound_name) from exc
+        raise duplicate_name_error(row.compound_name) from exc
 
 
 def insert_unlabelled_compound(record: UnlabelledCompoundRecord) -> None:
@@ -627,4 +634,4 @@ def insert_unlabelled_compound(record: UnlabelledCompoundRecord) -> None:
                 ],
             )
     except sqlite3.IntegrityError as exc:
-        raise _duplicate_name_error(name) from exc
+        raise duplicate_name_error(name) from exc

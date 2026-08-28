@@ -41,6 +41,7 @@ from manic.io.compounds_import import (
     import_compound_excel,
     insert_compound,
     insert_unlabelled_compound,
+    taken_compound_names,
 )
 from manic.io.data_exporter import DataExporter, validate_internal_standard_metadata
 from manic.io.data_provider import DataProvider
@@ -704,7 +705,9 @@ class MainWindow(QMainWindow):
     def show_add_compound_dialog(self) -> None:
         from manic.ui.add_compound_dialog import AddCompoundDialog
 
-        dialog = AddCompoundDialog(self, self.analysis_mode)
+        dialog = AddCompoundDialog(
+            self, self.analysis_mode, taken_names=taken_compound_names()
+        )
         if dialog.exec() != QDialog.Accepted:
             return
         record = dialog.record
@@ -730,8 +733,8 @@ class MainWindow(QMainWindow):
             self.toolbar.update_label_colours(False, True)
             self._update_menu_states()
 
-        data_provider = DataProvider()
-        data_provider.invalidate_cache()
+        # DataProvider caches are per-instance and no long-lived instance
+        # exists; only the validation provider outlives a compound change.
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
 

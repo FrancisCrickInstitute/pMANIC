@@ -6,9 +6,9 @@ Chromatographic peak deconvolution separates partially overlapping extracted ion
 
 When enabled, MANIC fits peak shapes to the signal around the expected retention time on every fittable channel of every sample. Export then uses one measurement method for that compound in that sample: dense model areas if every non-empty ion fitted, or the raw in-window scan traces if any ion with real intensity did not. An ion that is absent (flat or a tiny fraction of the tallest ion) is empty. It does not count as a failed fit.
 
-If the window contains two or more overlapping peaks and the fit is acceptable, the component nearest the expected retention time is selected and the others are excluded. A well-resolved single peak becomes a one-component model. Empty, too-short, or too-messy windows, and fits that fail or collapse an overlap to one component, still use the raw trace.
+If the window contains two or more overlapping peaks and the fit is acceptable, the component nearest the expected retention time **whose centre sits inside the loffset/roffset window** is selected and the others are excluded. A neighbour whose centre is outside those dashes is never the selected peak. If no centre falls inside the window, that ion is empty and its area is 0. A well-resolved single peak becomes a one-component model. Empty, too-short, or too-messy windows, and fits that fail or collapse an overlap to one component, still use the raw trace.
 
-The integration offsets (loffset/roffset) do not alter the shape of the fitted curve. They only determine which portion of the selected peak contributes to the final area. Moving an integration boundary therefore changes how much of the peak is integrated, not its fitted shape.
+The integration offsets (loffset/roffset) do not alter the shape of the fitted curve. They decide which component may be selected, and which portion of that peak contributes to the final area. Moving an integration boundary therefore changes both which lump counts as the peak and how much of it is integrated.
 
 ## Consistency across samples and isotopologues
 
@@ -70,7 +70,7 @@ For each compound/sample:
 
 - If **every non-empty** ion has a model, plots draw the dense curve and Raw and Corrected both integrate it. Empty ions contribute area 0.
 - If **any** ion of a labelled compound has real intensity and failed to fit (noise-gated, too few points, failed, or a collapsed overlap), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for **every** ion of that pair, including ions that did fit. No fitted overlay is drawn. Natural-abundance correction then runs on that raw envelope.
-- An ion is **empty** when its maximum is `<= 0` or below `EMPTY_ION_FRACTION_OF_TALLEST` (`1e-4`) of the tallest ion in that sample. That is absence, not noise. Natural 13C M+1 is about 1% per carbon, so a real isotopologue stays active.
+- An ion is **empty** when its maximum is `<= 0` or below `EMPTY_ION_FRACTION_OF_TALLEST` (`1e-4`) of the tallest ion in that sample, or when the fitter found peaks but none of their centres sit inside the integration window. That is absence, not noise. Natural 13C M+1 is about 1% per carbon, so a real isotopologue stays active.
 - Unlabelled tiles draw a curve for each ion that fitted. Export still uses the raw window unless every non-empty Q/V ion fitted, so V/Q is never a model area divided by a scan trapezoid.
 
 The next sample of the same compound can still use model areas if every ion there fitted.

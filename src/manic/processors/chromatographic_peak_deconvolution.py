@@ -432,11 +432,15 @@ def deconvolve_eic(
         if retention_time is not None
         else float(time[np.argmax(np.sum(matrix, axis=0))])
     )
-    selected_center = (
-        min(centers, key=lambda center: abs(center - target_rt))
-        if centers
-        else float(target_rt)
-    )
+    no_in_window_peak = model is None and bool(centers)
+    if model is not None:
+        selected_center = float(
+            model.x0 + model.shape_params[model.selected_index, 0]
+        )
+    elif no_in_window_peak:
+        selected_center = None
+    else:
+        selected_center = float(target_rt)
     return EICChromatographicPeakDeconvolutionResult(
         selected=_restore_shape(selected, was_1d),
         selected_mask=_restore_shape(selected_mask, was_1d),
@@ -447,6 +451,7 @@ def deconvolve_eic(
         selected_center=selected_center,
         component_centers=sorted(set(centers)) if centers else [selected_center],
         model=model,
+        empty=no_in_window_peak,
     )
 
 
@@ -512,9 +517,44 @@ def _deconvolve_matrix(
         if retention_time is not None
         else float(window_time[np.argmax(np.sum(window_matrix, axis=0))])
     )
-    selected_index = int(
-        np.argmin([abs(float(center) - float(target_rt)) for center in fitted.centers])
-    )
+    integration_left = float(time[integration_indices[0]])
+    integration_right = float(time[integration_indices[-1]])
+    in_window = [
+        index
+        for index, center in enumerate(fitted.centers)
+        if integration_left <= float(center) <= integration_right
+    ]
+    if not in_window:
+        selected = np.zeros_like(matrix, dtype=np.float64)
+        selected_mask = np.zeros_like(matrix, dtype=bool)
+        selected_mask[:, integration_indices] = True
+        excluded = []
+        excluded_masks = []
+        for component_index in range(fitted.components.shape[0]):
+            component_matrix = np.zeros_like(matrix, dtype=np.float64)
+            component_matrix[:, fit_indices] = (
+                fitted.baseline + fitted.components[component_index]
+            )
+            component_mask = np.zeros_like(matrix, dtype=bool)
+            component_mask[:, fit_indices] = True
+            excluded.append(component_matrix)
+            excluded_masks.append(component_mask)
+        return (
+            selected,
+            selected_mask,
+            excluded,
+            excluded_masks,
+            [float(center) for center in fitted.centers],
+            None,
+        )
+
+    selected_index = in_window[
+        int(
+            np.argmin(
+                [abs(float(fitted.centers[index]) - float(target_rt)) for index in in_window]
+            )
+        )
+    ]
 
     selected = np.zeros_like(matrix, dtype=np.float64)
     selected_mask = np.zeros_like(matrix, dtype=bool)

@@ -10,7 +10,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
     deconvolve_for_display,
 )
 from manic.processors.eic_correction_manager import make_time_series_corrector
-from manic.processors.integration import calculate_peak_areas
+from manic.processors.integration import calculate_peak_areas, integrate_bundle_areas
 
 
 @dataclass(frozen=True)
@@ -111,8 +111,26 @@ def integrated_display_areas(
             compound, "deconvolution_noise_gate", "balanced"
         ),
     )
+    prepared = plot_display(time, raw, compound, use_corrected=use_corrected)
+    if prepared.display is not None:
+        apply_correction = make_time_series_corrector(compound)
+        _raw_areas, corrected_areas = integrate_bundle_areas(
+            time,
+            prepared.display.bundle,
+            raw,
+            correct_time_series=apply_correction,
+            baseline_correction=bool(getattr(compound, "baseline_correction", 0)),
+            use_legacy=use_legacy,
+            retention_time=compound.retention_time,
+            loffset=compound.loffset,
+            roffset=compound.roffset,
+            label_atoms=label_atoms,
+            channel_count=channel_count,
+        )
+        if use_corrected and apply_correction is not None:
+            return corrected_areas
+        return _raw_areas
     if use_corrected and make_time_series_corrector(compound) is not None:
-        prepared = plot_display(time, raw, compound, use_corrected=True)
         return calculate_peak_areas(
             time,
             np.asarray(prepared.intensity, dtype=np.float64).ravel(),

@@ -20,8 +20,8 @@ from manic.processors.chromatographic_peak_deconvolution import (
     get_deconvolution_fit_cache_info,
 )
 from manic.processors.integration import (
-    _integrate_dense_rows,
     calculate_peak_areas,
+    integrate_bundle_areas,
 )
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
 
@@ -748,70 +748,18 @@ class DataProvider:
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
         """Integrate raw and corrected areas from one measurement per compound/sample."""
-        label_atoms = row["label_atoms"] or 0
-        raw_matrix = np.asarray(raw_intensity, dtype=np.float64)
-
-        if not use_legacy and bundle.uses_model_areas():
-            fitted = next(
-                channel
-                for channel in bundle.channels
-                if channel.result.model is not None
-            )
-            model = fitted.result.model
-            scans_in_window = max(
-                1, int(np.count_nonzero(fitted.result.selected_mask))
-            )
-            grid = np.linspace(
-                model.integration_left,
-                model.integration_right,
-                max(65, scans_in_window * 16),
-            )
-            raw_dense = np.asarray(bundle.evaluate_selected_stack(grid), dtype=np.float64)
-            td = np.asarray(time_data, dtype=np.float64)
-            masks = [
-                np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
-                for channel in bundle.channels
-            ]
-            selected_matrix = np.vstack(
-                [
-                    np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
-                    for channel in bundle.channels
-                ]
-            )
-            scan_times = [td[mask] for mask in masks]
-            raw_areas = _integrate_dense_rows(
-                grid,
-                raw_dense,
-                scan_times,
-                [selected_matrix[i, masks[i]] for i in range(len(masks))],
-                baseline_correction=baseline_correction,
-            )
-            corrected_selected = self._correct_time_series(selected_matrix, row)
-            corrected_areas = _integrate_dense_rows(
-                grid,
-                self._correct_time_series(raw_dense, row),
-                scan_times,
-                [corrected_selected[i, masks[i]] for i in range(len(masks))],
-                baseline_correction=baseline_correction,
-            )
-            return raw_areas, corrected_areas
-
-        def scan_areas(matrix: np.ndarray) -> List[float]:
-            return calculate_peak_areas(
-                time_data,
-                np.asarray(matrix, dtype=np.float64).ravel(),
-                label_atoms,
-                row["retention_time"],
-                row["loffset"],
-                row["roffset"],
-                channel_count=_row_channel_count(row),
-                use_legacy=use_legacy,
-                baseline_correction=baseline_correction,
-                chromatographic_peak_deconvolution_stringency="off",
-            )
-
-        return scan_areas(raw_matrix), scan_areas(
-            self._correct_time_series(raw_matrix, row)
+        return integrate_bundle_areas(
+            time_data,
+            bundle,
+            raw_intensity,
+            correct_time_series=lambda matrix: self._correct_time_series(matrix, row),
+            baseline_correction=baseline_correction,
+            use_legacy=use_legacy,
+            retention_time=row["retention_time"],
+            loffset=row["loffset"],
+            roffset=row["roffset"],
+            label_atoms=row["label_atoms"] or 0,
+            channel_count=_row_channel_count(row),
         )
 
     def _calculate_corrected_areas_from_raw_component(

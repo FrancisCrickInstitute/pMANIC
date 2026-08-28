@@ -12,7 +12,7 @@ from manic.processors.display_deconvolution import (
     integrated_display_areas,
     plot_display,
 )
-from manic.processors.integration import calculate_peak_areas
+from manic.processors.integration import calculate_peak_areas, integrate_bundle_areas
 
 FIT = dict(
     retention_time=7.0,
@@ -189,16 +189,18 @@ def test_preview_areas_do_not_refit_a_corrected_matrix(monkeypatch):
         time, raw, compound, use_corrected=True
     )
     preview = deconvolve_for_display(time, raw, apply_correction=scale_m1, **FIT)
-    expected = calculate_peak_areas(
+    _, expected = integrate_bundle_areas(
         time,
-        preview.intensity.ravel(),
-        label_atoms=1,
+        preview.bundle,
+        raw,
+        correct_time_series=scale_m1,
+        baseline_correction=False,
+        use_legacy=False,
         retention_time=7.0,
         loffset=4.0,
         roffset=4.0,
+        label_atoms=1,
         channel_count=2,
-        baseline_correction=False,
-        chromatographic_peak_deconvolution_stringency="off",
     )
     old_path = calculate_peak_areas(
         time,

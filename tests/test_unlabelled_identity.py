@@ -1,7 +1,16 @@
 import pytest
 
 from manic.models.analysis import IonChannel, IonRole
-from manic.validation.unlabelled_identity import IdentityStatus, assess_identity
+from manic.validation.unlabelled_identity import (
+    IdentityAssessmentSet,
+    IdentityQcResult,
+    IdentitySampleAssessment,
+    IdentityStatus,
+    QualifierRatioResult,
+    QualifierStatus,
+    assess_identity,
+    qualifier_pair,
+)
 
 
 @pytest.fixture
@@ -87,3 +96,196 @@ def test_identity_is_not_detected_when_quantifier_is_zero(channels):
 
     assert result.status is IdentityStatus.NOT_DETECTED
     assert all(ratio.observed_ratio is None for ratio in result.qualifier_ratios)
+
+
+def _qion() -> IonChannel:
+    return IonChannel(217.0, IonRole.QUANTIFIER)
+
+
+def _v1(*, expected: float | None = 0.4, tolerance: float | None = 0.25) -> IonChannel:
+    return IonChannel(
+        147.0,
+        IonRole.QUALIFIER,
+        ordinal=1,
+        expected_ratio=expected,
+        ratio_tolerance=tolerance,
+    )
+
+
+def _v2(*, expected: float | None = 0.2, tolerance: float | None = 0.25) -> IonChannel:
+    return IonChannel(
+        73.0,
+        IonRole.QUALIFIER,
+        ordinal=2,
+        expected_ratio=expected,
+        ratio_tolerance=tolerance,
+    )
+
+
+def _qc(
+    channels: tuple[IonChannel, ...],
+    *,
+    status: IdentityStatus,
+    passed: tuple[bool | None, ...],
+    observed: tuple[float | None, ...] | None = None,
+) -> IdentityQcResult:
+    qualifiers = [channel for channel in channels if channel.role is IonRole.QUALIFIER]
+    ratios = tuple(
+        QualifierRatioResult(
+            channel,
+            None if observed is None else observed[index],
+            passed[index],
+        )
+        for index, channel in enumerate(qualifiers)
+    )
+    return IdentityQcResult(
+        status=status,
+        quantifier_area=0.0 if status is IdentityStatus.NOT_DETECTED else 100.0,
+        observed_rt=None if status is IdentityStatus.NOT_DETECTED else 12.0,
+        rt_error=None,
+        rt_passed=None if status is IdentityStatus.NOT_DETECTED else True,
+        qualifier_ratios=ratios,
+        reasons=(),
+    )
+
+
+def test_qualifier_pair_q_v1_pass_leaves_v2_absent():
+    channels = (_qion(), _v1())
+    pair = qualifier_pair(
+        channels,
+        _qc(channels, status=IdentityStatus.SUPPORTED, passed=(True,), observed=(0.41,)),
+    )
+
+    assert pair.v1.status is QualifierStatus.VALIDATED
+    assert pair.v1.channel is channels[1]
+    assert pair.v1.ratio is not None
+    assert pair.v1.ratio.passed is True
+    assert "observed 0.410" in pair.v1.detail
+    assert pair.v2.status is QualifierStatus.ABSENT
+    assert pair.v2.channel is None
+    assert pair.v2.detail == "not in the method"
+
+
+def test_qualifier_pair_q_v2_fail_leaves_v1_absent():
+    channels = (_qion(), _v2())
+    pair = qualifier_pair(
+        channels,
+        _qc(
+            channels,
+            status=IdentityStatus.REVIEW_REQUIRED,
+            passed=(False,),
+            observed=(0.80,),
+        ),
+    )
+
+    assert pair.v1.status is QualifierStatus.ABSENT
+    assert pair.v1.detail == "not in the method"
+    assert pair.v2.status is QualifierStatus.FAILED
+    assert pair.v2.channel is channels[1]
+    assert pair.v2.channel.ordinal == 2
+    assert "observed 0.800" in pair.v2.detail
+
+
+def test_qualifier_pair_q_v1_v2_mixed_pass_and_fail():
+    channels = (_qion(), _v1(), _v2())
+    pair = qualifier_pair(
+        channels,
+        _qc(
+            channels,
+            status=IdentityStatus.REVIEW_REQUIRED,
+            passed=(True, False),
+            observed=(0.41, 0.80),
+        ),
+    )
+
+    assert pair.v1.status is QualifierStatus.VALIDATED
+    assert pair.v2.status is QualifierStatus.FAILED
+    assert [item.ordinal for item in pair] == [1, 2]
+    assert pair.for_ordinal(1) is pair.v1
+    assert pair.for_ordinal(2) is pair.v2
+
+
+def test_qualifier_pair_missing_expected_ratio_is_not_assessed():
+    channels = (_qion(), _v1(expected=None, tolerance=None))
+    pair = qualifier_pair(
+        channels,
+        _qc(
+            channels,
+            status=IdentityStatus.NOT_ASSESSED,
+            passed=(None,),
+            observed=(0.40,),
+        ),
+    )
+
+    assert pair.v1.status is QualifierStatus.NOT_ASSESSED
+    assert pair.v1.detail == "expected ratio or tolerance is missing"
+    assert pair.v2.status is QualifierStatus.ABSENT
+
+
+def test_qualifier_pair_q_not_detected_is_not_assessed():
+    channels = (_qion(), _v1(), _v2())
+    pair = qualifier_pair(
+        channels,
+        _qc(
+            channels,
+            status=IdentityStatus.NOT_DETECTED,
+            passed=(None, None),
+            observed=(None, None),
+        ),
+    )
+
+    assert pair.v1.status is QualifierStatus.NOT_ASSESSED
+    assert pair.v2.status is QualifierStatus.NOT_ASSESSED
+    assert pair.v1.detail == "Q ion was not detected; ratio was not assessed"
+    assert pair.v2.detail == "Q ion was not detected; ratio was not assessed"
+
+
+def test_qualifier_pair_provider_exception_is_unavailable():
+    channels = (_qion(), _v1())
+    pair = qualifier_pair(channels, None, error="EIC file is missing")
+
+    assert pair.v1.status is QualifierStatus.UNAVAILABLE
+    assert pair.v1.channel is channels[1]
+    assert pair.v1.ratio is None
+    assert pair.v1.detail == "EIC file is missing"
+    assert pair.v2.status is QualifierStatus.ABSENT
+    assert pair.v2.detail == "not in the method"
+
+
+def test_identity_assessment_set_indexes_samples_and_rejects_duplicates():
+    channels = (_qion(), _v1())
+    qc = _qc(channels, status=IdentityStatus.SUPPORTED, passed=(True,), observed=(0.41,))
+    snapshot = IdentityAssessmentSet(
+        "Target",
+        channels,
+        (
+            IdentitySampleAssessment("S1", qc, qualifier_pair(channels, qc)),
+            IdentitySampleAssessment("S2", None, qualifier_pair(channels, None, error="boom"), "boom"),
+        ),
+    )
+
+    assert snapshot.for_sample("S1").qualifiers.v1.status is QualifierStatus.VALIDATED
+    assert snapshot.for_sample("S2").qualifiers.v1.status is QualifierStatus.UNAVAILABLE
+    with pytest.raises(KeyError, match="S3"):
+        snapshot.for_sample("S3")
+    with pytest.raises(ValueError, match="duplicate"):
+        IdentityAssessmentSet(
+            "Target",
+            channels,
+            (
+                IdentitySampleAssessment("S1", qc, qualifier_pair(channels, qc)),
+                IdentitySampleAssessment("S1", qc, qualifier_pair(channels, qc)),
+            ),
+        )
+
+
+def test_qualifier_pair_indexes_by_ordinal_not_list_position():
+    channels = (_qion(), _v2())
+    pair = qualifier_pair(
+        channels,
+        _qc(channels, status=IdentityStatus.SUPPORTED, passed=(True,), observed=(0.21,)),
+    )
+
+    assert pair.v1.status is QualifierStatus.ABSENT
+    assert pair.v2.status is QualifierStatus.VALIDATED
+    assert pair.v2.channel is channels[1]

@@ -65,7 +65,9 @@ class TargetedQcWidget(QWidget):
             channel_legend_text(identity.compound_name, identity.channels)
         )
         self.ion_legend.show()
-        self._binding = add_identity_grid(self.chart, identity.samples)
+        self._binding = add_identity_grid(
+            self.chart, identity.samples, show_sample_names=False
+        )
         self._connect_cell_signals()
 
     def clear(self) -> None:

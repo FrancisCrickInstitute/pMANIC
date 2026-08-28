@@ -286,6 +286,7 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         y_axis = widget.chart.axes(Qt.Vertical)[0]
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
+        assert not y_axis.labelsVisible()
         widget.clear()
         assert widget._identity is None
         assert widget.chart.series() == []
@@ -383,6 +384,7 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         y_axis = dialog.chart.axes(Qt.Vertical)[0]
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
+        assert y_axis.labelsVisible()
         assert y_axis.labelsFont().family() == "Arial"
         assert y_axis.labelsFont().pointSize() == 12
         value_axes, category_axes = _horizontal_axes(dialog.chart)

@@ -75,6 +75,7 @@ def add_identity_grid(
     samples: Sequence[IdentitySampleAssessment],
     *,
     label_font_size: int = 8,
+    show_sample_names: bool = True,
 ) -> IdentityGridBinding:
     chart.removeAllSeries()
     for axis in list(chart.axes()):
@@ -116,7 +117,7 @@ def add_identity_grid(
     y_axis.setLabelsFont(QFont("Arial", label_font_size))
     y_axis.setGridLineVisible(False)
     y_axis.setLineVisible(False)
-    y_axis.setLabelsVisible(True)
+    y_axis.setLabelsVisible(show_sample_names)
 
     top_axis = QCategoryAxis()
     top_axis.setLabelsPosition(QCategoryAxis.AxisLabelsPositionOnValue)

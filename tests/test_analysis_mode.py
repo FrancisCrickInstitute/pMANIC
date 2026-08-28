@@ -8,7 +8,11 @@ from manic.models.analysis import (
     labelled_channels,
     validate_unlabelled_channels,
 )
-from manic.ui.channel_labels import channel_legend_label, has_defined_channel
+from manic.ui.channel_labels import (
+    channel_legend_label,
+    channel_legend_text,
+    has_defined_channel,
+)
 
 
 def test_analysis_context_defaults_to_labelled_and_is_immutable():
@@ -92,6 +96,11 @@ def test_detailed_plot_uses_diagnostic_ion_labels_in_unlabelled_mode():
 
     assert channel_legend_label(Target(), 0) == "Q ion m/z 217"
     assert channel_legend_label(Target(), 1) == "V ion 1 m/z 147"
+    assert (
+        channel_legend_text("Target", Target.analysis_channels)
+        == "Target  Q ion m/z 217  V ion 1 m/z 147"
+    )
+    assert "●" not in channel_legend_text("Target", Target.analysis_channels)
 
 
 def test_detailed_plot_preserves_isotopologue_labels_in_labelled_mode():

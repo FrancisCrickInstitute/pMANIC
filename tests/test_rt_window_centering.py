@@ -865,7 +865,7 @@ class TestRegenerationCompletion:
             get_current_compound=lambda: "Glucose",
             get_selected_samples=lambda: ["s1"],
             get_current_samples=lambda: ["s1"],
-            refresh_plots_with_session_data=lambda *_args: calls.append("plots"),
+            refresh_plots_with_session_data=lambda *_args, **_kwargs: calls.append("plots"),
         )
         message = SimpleNamespace(exec=lambda: None)
         window = SimpleNamespace(
@@ -873,7 +873,8 @@ class TestRegenerationCompletion:
             graph_view=graph_view,
             _validation_provider=ValidationProvider(),
             min_peak_height_ratio=0,
-            _refresh_mode_charts=lambda *_args: calls.append("charts"),
+            _identity_snapshot=lambda *_args: (None, None),
+            _refresh_mode_charts=lambda *_args, **_kwargs: calls.append("charts"),
             _create_message_box=lambda *_args: message,
         )
 
@@ -900,7 +901,7 @@ class TestRegenerationCompletion:
             get_current_compound=lambda: "Glucose",
             get_selected_samples=lambda: ["s1"],
             get_current_samples=lambda: ["s1"],
-            refresh_plots_with_session_data=lambda *_args: calls.append("plots"),
+            refresh_plots_with_session_data=lambda *_args, **_kwargs: calls.append("plots"),
         )
         messages = []
         window = SimpleNamespace(
@@ -908,7 +909,8 @@ class TestRegenerationCompletion:
             graph_view=graph_view,
             _validation_provider=None,
             min_peak_height_ratio=0,
-            _refresh_mode_charts=lambda *_args: calls.append("charts"),
+            _identity_snapshot=lambda *_args: (None, None),
+            _refresh_mode_charts=lambda *_args, **_kwargs: calls.append("charts"),
             _create_message_box=lambda *args: messages.append(args)
             or SimpleNamespace(exec=lambda: None),
         )

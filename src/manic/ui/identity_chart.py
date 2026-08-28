@@ -1,41 +1,39 @@
 from __future__ import annotations
 
-from enum import StrEnum
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping, Sequence
 
 from PySide6.QtCharts import (
     QBarCategoryAxis,
     QBarSet,
+    QCategoryAxis,
     QChart,
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QMargins, Qt
 from PySide6.QtGui import QColor, QCursor, QFont
 from PySide6.QtWidgets import QToolTip, QWidget
 
-
-class RatioVerdict(StrEnum):
-    VALIDATED = "validated"
-    PARTIAL = "partial"
-    MISMATCH = "mismatch"
-    NOT_GIVEN = "not_given"
-
-
-VERDICT_LABELS = {
-    RatioVerdict.VALIDATED: "Validated",
-    RatioVerdict.PARTIAL: "Partial",
-    RatioVerdict.MISMATCH: "Fail",
-    RatioVerdict.NOT_GIVEN: "No ratio",
-}
-
-VERDICT_COLORS = {
-    RatioVerdict.VALIDATED: QColor("#2F9E44"),
-    RatioVerdict.PARTIAL: QColor("#E8590C"),
-    RatioVerdict.MISMATCH: QColor("#C92A2A"),
-    RatioVerdict.NOT_GIVEN: QColor("#868E96"),
-}
+from manic.ui.colors import QUALIFIER_STATUS_COLORS
+from manic.validation.unlabelled_identity import (
+    IdentitySampleAssessment,
+    QualifierAssessment,
+    QualifierStatus,
+)
 
 _TOOLTIP_HOLD_MS = 86_400_000
+
+_CELL_SEPARATOR_COLOR = QColor("white")
+
+_STATUS_LABELS = {
+    QualifierStatus.VALIDATED: "Validated",
+    QualifierStatus.FAILED: "Failed",
+    QualifierStatus.ABSENT: "Absent",
+    QualifierStatus.NOT_ASSESSED: "Not assessed",
+    QualifierStatus.UNAVAILABLE: "Unavailable",
+}
 
 
 def show_identity_tooltip(widget: QWidget, text: str) -> None:
@@ -48,48 +46,92 @@ def show_identity_tooltip(widget: QWidget, text: str) -> None:
     )
 
 
-def add_identity_series(
+def identity_cell_tooltip(cell: "IdentityCell") -> str:
+    qualifier = cell.qualifier
+    return (
+        f"{cell.sample_name}\n"
+        f"V{qualifier.ordinal}  {_STATUS_LABELS[qualifier.status]}\n"
+        f"{qualifier.detail}"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityCell:
+    sample_name: str
+    qualifier: QualifierAssessment
+
+
+@dataclass(slots=True)
+class IdentityGridBinding:
+    bar_sets: tuple[QBarSet, ...]
+    cells_by_set: Mapping[QBarSet, IdentityCell]
+
+    def cell_for(self, bar_set: QBarSet) -> IdentityCell | None:
+        return self.cells_by_set.get(bar_set)
+
+
+def add_identity_grid(
     chart: QChart,
-    samples: list[tuple[str, RatioVerdict]],
+    samples: Sequence[IdentitySampleAssessment],
     *,
-    show_names: bool,
-) -> list[str]:
+    label_font_size: int = 8,
+    show_sample_names: bool = True,
+) -> IdentityGridBinding:
     chart.removeAllSeries()
     for axis in list(chart.axes()):
         chart.removeAxis(axis)
+    chart.setTitle("")
+    chart.legend().setVisible(False)
+    chart.setMargins(QMargins(0, 0, 0, 0))
+    chart.layout().setContentsMargins(0, 0, 0, 0)
+    chart.setBackgroundRoundness(0)
     if not samples:
-        return []
+        return IdentityGridBinding((), MappingProxyType({}))
 
+    display = tuple(reversed(samples))
+    count = len(display)
     series = QHorizontalStackedBarSeries()
-    series.setBarWidth(0.8)
-    display = list(reversed(samples))
-    names = [name for name, _verdict in display]
-
-    for verdict in RatioVerdict:
-        bar_set = QBarSet(VERDICT_LABELS[verdict])
-        bar_set.setColor(VERDICT_COLORS[verdict])
-        for _name, sample_verdict in display:
-            bar_set.append(1.0 if sample_verdict is verdict else 0.0)
-        series.append(bar_set)
-
+    series.setBarWidth(0.92)
+    bar_sets: list[QBarSet] = []
+    cells: dict[QBarSet, IdentityCell] = {}
+    for row, sample in enumerate(display):
+        for qualifier in sample.qualifiers:
+            bar_set = QBarSet("")
+            bar_set.setColor(QUALIFIER_STATUS_COLORS[qualifier.status])
+            bar_set.setBorderColor(_CELL_SEPARATOR_COLOR)
+            for other_row in range(count):
+                bar_set.append(1.0 if other_row == row else 0.0)
+            series.append(bar_set)
+            bar_sets.append(bar_set)
+            cells[bar_set] = IdentityCell(sample.sample_name, qualifier)
     chart.addSeries(series)
 
     x_axis = QValueAxis()
-    x_axis.setRange(0, 1)
+    x_axis.setRange(0, 2)
     x_axis.setLabelsVisible(False)
     x_axis.setGridLineVisible(False)
     x_axis.setLineVisible(False)
-    x_axis.setTickCount(2)
 
     y_axis = QBarCategoryAxis()
-    y_axis.append(names)
-    y_axis.setLabelsFont(QFont("Arial", 10 if show_names else 8))
+    y_axis.append([sample.sample_name for sample in display])
+    y_axis.setLabelsFont(QFont("Arial", label_font_size))
     y_axis.setGridLineVisible(False)
     y_axis.setLineVisible(False)
-    y_axis.setLabelsVisible(show_names)
+    y_axis.setLabelsVisible(show_sample_names)
+
+    top_axis = QCategoryAxis()
+    top_axis.setLabelsPosition(QCategoryAxis.AxisLabelsPositionOnValue)
+    top_axis.append("V1", 0.5)
+    top_axis.append("V2", 1.5)
+    top_axis.setRange(0, 2)
+    top_axis.setLabelsFont(QFont("Arial", label_font_size))
+    top_axis.setGridLineVisible(False)
+    top_axis.setLineVisible(False)
+    top_axis.setLabelsVisible(True)
 
     chart.addAxis(x_axis, Qt.AlignBottom)
     chart.addAxis(y_axis, Qt.AlignLeft)
+    chart.addAxis(top_axis, Qt.AlignTop)
     series.attachAxis(x_axis)
     series.attachAxis(y_axis)
-    return names
+    return IdentityGridBinding(tuple(bar_sets), MappingProxyType(cells))

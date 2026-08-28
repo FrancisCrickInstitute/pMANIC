@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Sequence
+from types import MappingProxyType
+from typing import Iterator, Literal, Mapping, Sequence
 
 import numpy as np
 
@@ -32,6 +33,193 @@ class IdentityQcResult:
     rt_passed: bool | None
     qualifier_ratios: tuple[QualifierRatioResult, ...]
     reasons: tuple[str, ...]
+
+
+class QualifierStatus(StrEnum):
+    ABSENT = "absent"
+    VALIDATED = "validated"
+    FAILED = "failed"
+    NOT_ASSESSED = "not_assessed"
+    UNAVAILABLE = "unavailable"
+
+
+QualifierOrdinal = Literal[1, 2]
+
+
+def _format_ratio(value: float | None) -> str:
+    if value is None:
+        return "—"
+    return f"{value:.3f}"
+
+
+def _format_tolerance(tolerance: float | None, expected: float | None) -> str:
+    if tolerance is None:
+        return "—"
+    if expected in (None, 0):
+        return f"±{tolerance:g}"
+    return f"±{tolerance:.0%}"
+
+
+def _ratio_detail(ratio: QualifierRatioResult) -> str:
+    channel = ratio.channel
+    expected = channel.expected_ratio
+    label = f"V{channel.ordinal}" if channel.ordinal else "V"
+    return (
+        f"{label}  expected {_format_ratio(expected)}  "
+        f"{_format_tolerance(channel.ratio_tolerance, expected)}  "
+        f"observed {_format_ratio(ratio.observed_ratio)}"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class QualifierAssessment:
+    ordinal: QualifierOrdinal
+    status: QualifierStatus
+    channel: IonChannel | None
+    ratio: QualifierRatioResult | None
+    detail: str
+
+    @classmethod
+    def absent(cls, ordinal: QualifierOrdinal) -> QualifierAssessment:
+        return cls(
+            ordinal=ordinal,
+            status=QualifierStatus.ABSENT,
+            channel=None,
+            ratio=None,
+            detail="not in the method",
+        )
+
+    @classmethod
+    def unavailable(
+        cls,
+        ordinal: QualifierOrdinal,
+        channel: IonChannel,
+        error: str,
+    ) -> QualifierAssessment:
+        return cls(
+            ordinal=ordinal,
+            status=QualifierStatus.UNAVAILABLE,
+            channel=channel,
+            ratio=None,
+            detail=error or "Could not compute identity",
+        )
+
+    @classmethod
+    def from_ratio(
+        cls,
+        ordinal: QualifierOrdinal,
+        ratio: QualifierRatioResult,
+        qc: IdentityQcResult,
+    ) -> QualifierAssessment:
+        if ratio.passed is True:
+            status = QualifierStatus.VALIDATED
+            detail = _ratio_detail(ratio)
+        elif ratio.passed is False:
+            status = QualifierStatus.FAILED
+            detail = _ratio_detail(ratio)
+        elif qc.status is IdentityStatus.NOT_DETECTED:
+            status = QualifierStatus.NOT_ASSESSED
+            detail = "Q ion was not detected; ratio was not assessed"
+        else:
+            status = QualifierStatus.NOT_ASSESSED
+            detail = "expected ratio or tolerance is missing"
+        return cls(
+            ordinal=ordinal,
+            status=status,
+            channel=ratio.channel,
+            ratio=ratio,
+            detail=detail,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class QualifierPair:
+    v1: QualifierAssessment
+    v2: QualifierAssessment
+
+    def __iter__(self) -> Iterator[QualifierAssessment]:
+        yield self.v1
+        yield self.v2
+
+    def for_ordinal(self, ordinal: QualifierOrdinal) -> QualifierAssessment:
+        if ordinal == 1:
+            return self.v1
+        if ordinal == 2:
+            return self.v2
+        raise ValueError(f"Qualifier ordinal must be 1 or 2, got {ordinal!r}")
+
+
+@dataclass(frozen=True, slots=True)
+class IdentitySampleAssessment:
+    sample_name: str
+    qc: IdentityQcResult | None
+    qualifiers: QualifierPair
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityAssessmentSet:
+    compound_name: str
+    channels: tuple[IonChannel, ...]
+    samples: tuple[IdentitySampleAssessment, ...]
+    _by_sample: Mapping[str, IdentitySampleAssessment] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        names = [sample.sample_name for sample in self.samples]
+        if len(names) != len(set(names)):
+            raise ValueError("Identity snapshot contains duplicate sample names")
+        object.__setattr__(
+            self,
+            "_by_sample",
+            MappingProxyType({sample.sample_name: sample for sample in self.samples}),
+        )
+
+    def for_sample(self, sample_name: str) -> IdentitySampleAssessment:
+        try:
+            return self._by_sample[sample_name]
+        except KeyError as exc:
+            raise KeyError(
+                f"{sample_name!r} is not in the identity snapshot for "
+                f"{self.compound_name!r}"
+            ) from exc
+
+
+def qualifier_pair(
+    channels: Sequence[IonChannel],
+    qc: IdentityQcResult | None,
+    *,
+    error: str | None = None,
+) -> QualifierPair:
+    channels_by_ordinal = {
+        channel.ordinal: channel
+        for channel in channels
+        if channel.role is IonRole.QUALIFIER
+    }
+    ratios_by_ordinal = {
+        ratio.channel.ordinal: ratio
+        for ratio in (qc.qualifier_ratios if qc is not None else ())
+    }
+
+    def _slot(ordinal: QualifierOrdinal) -> QualifierAssessment:
+        channel = channels_by_ordinal.get(ordinal)
+        if channel is None:
+            return QualifierAssessment.absent(ordinal)
+        if error is not None:
+            return QualifierAssessment.unavailable(ordinal, channel, error)
+        ratio = ratios_by_ordinal.get(ordinal)
+        if ratio is None:
+            return QualifierAssessment.unavailable(
+                ordinal,
+                channel,
+                "Identity result did not include this qualifier",
+            )
+        return QualifierAssessment.from_ratio(ordinal, ratio, qc)
+
+    return QualifierPair(v1=_slot(1), v2=_slot(2))
 
 
 def _ratio_passes(observed: float, expected: float, tolerance: float) -> bool:

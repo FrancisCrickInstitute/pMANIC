@@ -49,8 +49,10 @@ from manic.processors.display_deconvolution import PlotDisplay, plot_display
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
+from manic.models.analysis import IonRole
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
-from manic.ui.colors import label_colors  # Import the same colors as main window
+from manic.ui.colors import channel_trace_styles, label_colors
+from manic.validation.unlabelled_identity import IdentitySampleAssessment
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
 logger = logging.getLogger(__name__)
 
@@ -73,11 +75,15 @@ class DetailedPlotDialog(QDialog):
         sample_name: str,
         parent=None,
         use_corrected: bool = False,
+        *,
+        identity: IdentitySampleAssessment | None = None,
     ):
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
         self.use_corrected = use_corrected  # Store the isotope correction flag
+        self.identity = identity
+        self._channel_styles = ()
 
         # Initialize data containers
         self.eic_data = None
@@ -309,6 +315,11 @@ class DetailedPlotDialog(QDialog):
                 self._show_error("Failed to load compound information")
                 return
 
+            self._channel_styles = channel_trace_styles(
+                self.compound_info.analysis_channels,
+                self.identity,
+            )
+
             # Extract Extracted Ion Chromatogram data (mandatory)
             self._load_eic_data()
             if (
@@ -526,7 +537,7 @@ class DetailedPlotDialog(QDialog):
                 if baseline_result is None:
                     continue
                 td_base, baseline_y = baseline_result
-                qcolor = label_colors[channel.index % len(label_colors)]
+                qcolor = self._style_color(channel.index)
                 color = f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
                 baseline_x = np.array([td_base[0], td_base[-1]])
                 baseline_y_vals = np.array([baseline_y[0], baseline_y[-1]])
@@ -570,7 +581,7 @@ class DetailedPlotDialog(QDialog):
                 baseline_result = compute_linear_baseline(td_win, idata_win)
                 if baseline_result is not None:
                     td_base, baseline_y = baseline_result
-                    qcolor = label_colors[i % len(label_colors)]
+                    qcolor = self._style_color(i)
                     color = (
                         f"#{qcolor.red():02x}{qcolor.green():02x}{qcolor.blue():02x}"
                     )
@@ -609,9 +620,7 @@ class DetailedPlotDialog(QDialog):
         for i, row in enumerate(matrix):
             series_index = color_index if color_index is not None else i
             qcolor = (
-                label_colors[series_index % len(label_colors)]
-                if multi_trace
-                else label_colors[0]
+                self._style_color(series_index) if multi_trace else label_colors[0]
             )
             if selected:
                 color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},1.0)"
@@ -621,6 +630,7 @@ class DetailedPlotDialog(QDialog):
                     color=color,
                     width=PLOT_LINE_WIDTH,
                     name=self._channel_label(series_index) if multi_trace else "",
+                    style=self._mpl_line_style(series_index),
                 )
             else:
                 color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},0.38)"
@@ -681,7 +691,7 @@ class DetailedPlotDialog(QDialog):
         for i, trace in enumerate(matrix):
             if channel_indices is not None and i not in channel_indices:
                 continue
-            qcolor = label_colors[i % len(label_colors)] if multi_trace else label_colors[0]
+            qcolor = self._style_color(i) if multi_trace else label_colors[0]
             color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
             self.eic_plot.plot_line(
                 time,
@@ -689,12 +699,34 @@ class DetailedPlotDialog(QDialog):
                 color=color,
                 width=PLOT_LINE_WIDTH if selected else 1.0,
                 name=self._channel_label(i) if selected and multi_trace else "",
+                style=self._mpl_line_style(i) if multi_trace else "solid",
             )
+
+    def _style_color(self, index: int):
+        if 0 <= index < len(self._channel_styles):
+            return self._channel_styles[index].color
+        return label_colors[index % len(label_colors)]
+
+    def _mpl_line_style(self, index: int) -> str:
+        if 0 <= index < len(self._channel_styles):
+            if self._channel_styles[index].line_style == Qt.DashDotLine:
+                return "dashdot"
+        return "solid"
 
     def _channel_label(self, channel_index: int) -> str:
         if not has_defined_channel(self.compound_info, channel_index):
             return ""
-        return channel_legend_label(self.compound_info, channel_index)
+        label = channel_legend_label(self.compound_info, channel_index)
+        if self.identity is None:
+            return label
+        channels = self.compound_info.analysis_channels
+        if channel_index >= len(channels):
+            return label
+        channel = channels[channel_index]
+        if channel.role is not IonRole.QUALIFIER:
+            return label
+        assessment = self.identity.qualifiers.for_ordinal(channel.ordinal)
+        return f"{label} ({assessment.status.value})"
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""

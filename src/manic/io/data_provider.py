@@ -747,7 +747,6 @@ class DataProvider:
         use_legacy: bool,
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
-        """Integrate raw and corrected areas from one measurement per compound/sample."""
         return integrate_bundle_areas(
             time_data,
             bundle,

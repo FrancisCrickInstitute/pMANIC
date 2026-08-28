@@ -635,11 +635,15 @@ class DetailedPlotDialog(QDialog):
 
         if bundle is None or not bundle.shows_model_overlays(
             independent_channels=getattr(self.compound_info, "is_unlabelled_target", False)
-        ) or not prepared.includes_raw_underlay:
+        ):
             self._plot_trace_matrix(draw_intensity, selected=True)
             return
 
         self._plot_trace_matrix(self.eic_data.intensity, selected=False, alpha=0.32)
+        if not prepared.includes_raw_underlay:
+            self._plot_trace_matrix(draw_intensity, selected=True)
+            return
+
         unfitted_indices: list[int] = []
         for channel in bundle.channels:
             model = channel.result.model

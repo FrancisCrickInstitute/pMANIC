@@ -345,29 +345,28 @@ class GraphView(QWidget):
 
         self._scale_override = None
         prepared_displays = []
+        scale_maxes = []
         for eic in eics:
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
-            prepared_displays.append(
-                plot_display(
-                    eic.time,
-                    eic.intensity,
-                    compound,
-                    use_corrected=self.use_corrected,
-                )
+            prepared = plot_display(
+                eic.time,
+                eic.intensity,
+                compound,
+                use_corrected=self.use_corrected,
             )
+            prepared_displays.append(prepared)
+            if self._shared_y_scale:
+                scale_source = self._intensity_for_y_scale(
+                    prepared, eic.intensity, compound
+                )
+                if np.asarray(scale_source).size:
+                    scale_maxes.append(display_y_max(scale_source))
         self._prepared_displays = {
             (eic.sample_name, eic.compound_name): prepared
             for eic, prepared in zip(eics, prepared_displays)
         }
         if self._shared_y_scale:
-            global_max = max(
-                (
-                    display_y_max(prepared.intensity)
-                    for prepared in prepared_displays
-                    if np.asarray(prepared.intensity).size
-                ),
-                default=0.0,
-            )
+            global_max = max(scale_maxes, default=0.0)
             if global_max > 0:
                 scale_exp = int(np.floor(np.log10(global_max)))
                 scale_factor = 10**scale_exp
@@ -490,6 +489,25 @@ class GraphView(QWidget):
         scale_factor = 10**scale_exp
         scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
         return scale_factor, scale_exp, scaled_y_max
+
+    def _intensity_for_y_scale(self, prepared, raw_intensity, compound):
+        display = prepared.display
+        if (
+            display is not None
+            and not prepared.includes_raw_underlay
+            and display.bundle.shows_model_overlays(
+                independent_channels=getattr(
+                    compound, "is_unlabelled_target", False
+                )
+            )
+        ):
+            return np.concatenate(
+                (
+                    np.asarray(prepared.intensity, dtype=np.float64).ravel(),
+                    np.asarray(raw_intensity, dtype=np.float64).ravel(),
+                )
+            )
+        return prepared.intensity
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:
         """Show a colour key naming each plotted channel above the grid."""
@@ -1015,7 +1033,7 @@ class GraphView(QWidget):
 
             # Compute y_max and scaling (with edge case handling)
             scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(
-                prepared.intensity
+                self._intensity_for_y_scale(prepared, eic_intensity, compound)
             )
 
             # Reuse existing axes
@@ -1170,7 +1188,7 @@ class GraphView(QWidget):
 
         # Compute y_max and scaling (with edge case handling)
         scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(
-            prepared.intensity
+            self._intensity_for_y_scale(prepared, eic_intensity, compound)
         )
 
         font = create_font(8)
@@ -1525,6 +1543,17 @@ class GraphView(QWidget):
             return
 
         if not prepared.includes_raw_underlay:
+            self._add_trace_series(
+                chart,
+                x_axis,
+                y_axis,
+                eic_time,
+                eic_intensity,
+                scale_factor,
+                selected=False,
+                raw_context=True,
+                compound=compound,
+            )
             self._add_trace_series(
                 chart,
                 x_axis,

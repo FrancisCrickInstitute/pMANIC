@@ -140,16 +140,38 @@ def _plot_compound():
     )
 
 
-def test_preview_omits_the_raw_underlay():
-    time, raw = _raw_labelled_pair()
+def _outside_window_pair():
+    time = np.linspace(6.0, 8.5, 251)
+    selected = _gaussian(time, 7.0, 0.08, 6.0)
+    excluded = _gaussian(time, 8.0, 0.08, 40.0)
+    return time, np.vstack([selected + excluded, 0.3 * selected + 0.3 * excluded])
+
+
+def _outside_window_compound():
     compound = _plot_compound()
+    compound.loffset = 0.3
+    compound.roffset = 0.3
+    return compound
+
+
+def test_corrected_preview_keeps_the_selected_peak_at_target_rt():
+    time, raw = _outside_window_pair()
+    compound = _outside_window_compound()
     raw_view = plot_display(time, raw, compound, use_corrected=False)
     preview = plot_display(time, raw, compound, use_corrected=True)
+    rt = compound.retention_time
+    excluded_rt = 8.0
 
     assert raw_view.display.bundle.shows_model_overlays(independent_channels=False)
     assert preview.display.bundle.shows_model_overlays(independent_channels=False)
     assert raw_view.includes_raw_underlay
     assert not preview.includes_raw_underlay
+    assert display_y_max(raw) == pytest.approx(40.0, abs=1.0)
+    assert display_y_max(preview.intensity) < 15.0
+    raw_peak_time = float(time[int(np.argmax(raw[0]))])
+    selected_peak_time = float(time[int(np.argmax(preview.intensity[0]))])
+    assert raw_peak_time == pytest.approx(excluded_rt, abs=0.05)
+    assert selected_peak_time == pytest.approx(rt, abs=0.05)
 
 
 def test_preview_without_a_corrector_keeps_the_raw_model_display():

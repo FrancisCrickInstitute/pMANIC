@@ -965,3 +965,200 @@ def test_detailed_eic_draws_labelled_traces(qapp, monkeypatch, use_corrected):
         assert max(float(np.max(y)) for _x, y in dialog.eic_plot.data_lines) > 1.0
     finally:
         dialog.deleteLater()
+
+
+def _outside_window_pair():
+    time = np.linspace(6.0, 8.5, 251)
+    selected = 6.0 * np.exp(-0.5 * ((time - 7.0) / 0.08) ** 2)
+    excluded = 40.0 * np.exp(-0.5 * ((time - 8.0) / 0.08) ** 2)
+    return time, np.vstack([selected + excluded, 0.3 * selected + 0.3 * excluded])
+
+
+def _outside_window_compound():
+    from manic.io.compound_reader import Compound
+
+    return Compound(
+        compound_name="pyruvate",
+        retention_time=7.0,
+        loffset=0.3,
+        roffset=0.3,
+        label_atoms=1,
+        mass0=174.0,
+        formula="C6H12O6",
+        baseline_correction=0,
+        deconvolution_level="4",
+        deconvolution_fit_type="auto",
+        deconvolution_noise_gate="balanced",
+    )
+
+
+def _series_xy(series):
+    points = series.points()
+    return (
+        np.array([point.x() for point in points], dtype=np.float64),
+        np.array([point.y() for point in points], dtype=np.float64),
+    )
+
+
+def test_corrected_preview_keeps_raw_context_on_graph_tile(qapp, monkeypatch):
+    time, raw = _outside_window_pair()
+    compound = _outside_window_compound()
+    monkeypatch.setattr(
+        "manic.ui.graphs.read_compound_with_session",
+        lambda *args, **kwargs: compound,
+    )
+    view = GraphView()
+    view.use_corrected = True
+    try:
+        prepared = plot_display(time, raw, compound, use_corrected=True)
+        assert prepared.display.bundle.shows_model_overlays(independent_channels=False)
+        assert not prepared.includes_raw_underlay
+
+        chart = QChart()
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        view._add_eic_series(
+            chart,
+            x_axis,
+            y_axis,
+            time,
+            raw,
+            compound,
+            1.0,
+            prepared,
+        )
+
+        faint = [
+            series
+            for series in chart.series()
+            if series.pen().widthF() == 1.0 and series.pen().color().alpha() == 75
+        ]
+        solid = [series for series in chart.series() if series.pen().widthF() == 2.2]
+        dotted = [
+            series
+            for series in chart.series()
+            if series.pen().style() == Qt.DotLine
+        ]
+        assert faint
+        assert solid
+        assert not dotted
+
+        faint_peak_times = []
+        for series in faint:
+            xs, ys = _series_xy(series)
+            if ys.size:
+                faint_peak_times.append(float(xs[int(np.argmax(ys))]))
+        solid_peak_times = []
+        for series in solid:
+            xs, ys = _series_xy(series)
+            if ys.size:
+                solid_peak_times.append(float(xs[int(np.argmax(ys))]))
+        assert any(abs(peak - 8.0) < 0.08 for peak in faint_peak_times)
+        assert all(abs(peak - 7.0) < 0.08 for peak in solid_peak_times)
+
+        eic = SimpleNamespace(
+            time=time,
+            intensity=raw,
+            sample_name="sample_01",
+            compound_name="pyruvate",
+        )
+        chart_view = view._build_plot(eic)
+        plot_y = chart_view.chart().axes()[1]
+        raw_max = float(np.max(raw))
+        scale_factor = 10 ** int(np.floor(np.log10(raw_max)))
+        assert plot_y.max() >= (raw_max / scale_factor) * 1.04
+    finally:
+        view.deleteLater()
+
+
+def test_corrected_preview_keeps_raw_context_on_detailed_plot(qapp, monkeypatch):
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    time, raw = _outside_window_pair()
+    compound = _outside_window_compound()
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    dialog = DetailedPlotDialog("pyruvate", "sample_01", use_corrected=True)
+    try:
+        dialog.compound_info = compound
+        dialog.eic_data = SimpleNamespace(time=time, intensity=raw)
+        prepared = plot_display(time, raw, compound, use_corrected=True)
+        assert prepared.display.bundle.shows_model_overlays(independent_channels=False)
+        assert not prepared.includes_raw_underlay
+        dialog._plot_eic_traces(prepared)
+
+        faint = [
+            line
+            for line in dialog.eic_plot.ax.lines
+            if line.get_linewidth() == 1.0
+        ]
+        solid = [
+            line
+            for line in dialog.eic_plot.ax.lines
+            if line.get_linewidth() == 2
+        ]
+        dotted = [
+            line
+            for line in dialog.eic_plot.ax.lines
+            if line.get_linestyle() == ":"
+        ]
+        assert faint
+        assert solid
+        assert not dotted
+
+        faint_peak_times = [
+            float(line.get_xdata()[int(np.argmax(line.get_ydata()))])
+            for line in faint
+            if np.asarray(line.get_ydata()).size
+        ]
+        solid_peak_times = [
+            float(line.get_xdata()[int(np.argmax(line.get_ydata()))])
+            for line in solid
+            if np.asarray(line.get_ydata()).size
+        ]
+        assert any(abs(peak - 8.0) < 0.08 for peak in faint_peak_times)
+        assert all(abs(peak - 7.0) < 0.08 for peak in solid_peak_times)
+        assert max(float(np.max(y)) for _x, y in dialog.eic_plot.data_lines) > 30.0
+    finally:
+        dialog.deleteLater()
+
+
+def test_preview_off_graph_tile_still_draws_model_overlay(qapp):
+    time, raw = _outside_window_pair()
+    compound = _outside_window_compound()
+    view = GraphView()
+    try:
+        prepared = plot_display(time, raw, compound, use_corrected=False)
+        assert prepared.includes_raw_underlay
+        chart = QChart()
+        x_axis = QValueAxis()
+        y_axis = QValueAxis()
+        chart.addAxis(x_axis, Qt.AlignBottom)
+        chart.addAxis(y_axis, Qt.AlignLeft)
+        view._add_eic_series(
+            chart,
+            x_axis,
+            y_axis,
+            time,
+            raw,
+            compound,
+            1.0,
+            prepared,
+        )
+        solid = [series for series in chart.series() if series.pen().widthF() == 2.2]
+        faint = [
+            series
+            for series in chart.series()
+            if series.pen().widthF() == 1.0 and series.pen().color().alpha() == 75
+        ]
+        assert solid
+        assert faint
+        solid_peak_times = []
+        for series in solid:
+            xs, ys = _series_xy(series)
+            if ys.size:
+                solid_peak_times.append(float(xs[int(np.argmax(ys))]))
+        assert all(abs(peak - 7.0) < 0.08 for peak in solid_peak_times)
+    finally:
+        view.deleteLater()

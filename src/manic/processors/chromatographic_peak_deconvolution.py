@@ -149,6 +149,35 @@ class ChannelDeconvolutionBundle:
     time: np.ndarray
     channels: tuple[ChannelDeconvolution, ...]
 
+    def scan_stack(self, intensity: np.ndarray) -> np.ndarray:
+        matrix, _ = _as_trace_matrix(
+            np.asarray(intensity, dtype=np.float64)
+        )
+        if matrix.shape != (len(self.channels), len(self.time)):
+            raise ValueError(
+                "Intensity shape does not match the deconvolution bundle. "
+                f"Expected {(len(self.channels), len(self.time))}, got {matrix.shape}."
+            )
+        scans = matrix.copy()
+        for channel in self.channels:
+            if channel.result.empty:
+                scans[channel.index] = 0.0
+        return scans
+
+    def selected_scan_stack(self) -> np.ndarray:
+        if not self.channels:
+            return np.empty((0, len(self.time)), dtype=np.float64)
+        return self.scan_stack(
+            np.vstack(
+                [
+                    np.asarray(
+                        channel.result.selected, dtype=np.float64
+                    ).reshape(-1)
+                    for channel in self.channels
+                ]
+            )
+        )
+
     def uses_model_areas(self) -> bool:
         active = tuple(
             channel for channel in self.channels if not channel.result.empty
@@ -248,18 +277,14 @@ DEFAULT_NOISE_GATE = "balanced"
 # squares of raw) for a joint fit to be trusted over the raw trace. Above this
 # the model reproduces the data poorly and we fall back to raw integration.
 FIT_QUALITY_MAX_REL_RESIDUAL = 0.15
-EMPTY_ION_FRACTION_OF_TALLEST = 1e-4
 
 
-def _trace_is_empty(row: np.ndarray, reference_max: float) -> bool:
+def _trace_is_empty(row: np.ndarray) -> bool:
     if row.size == 0:
         return True
-    peak = float(np.max(np.asarray(row, dtype=np.float64)))
-    if not np.isfinite(peak) or peak <= 0.0:
-        return True
-    return bool(
-        reference_max > 0.0 and peak < reference_max * EMPTY_ION_FRACTION_OF_TALLEST
-    )
+    finite = np.asarray(row, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    return finite.size == 0 or float(np.max(finite)) <= 0.0
 
 
 def normalize_noise_gate(value: str | None) -> str:
@@ -296,7 +321,6 @@ def deconvolve_channel_matrix(
     time = np.asarray(time_data, dtype=np.float64)
     intensity = np.asarray(intensity_data, dtype=np.float64)
     matrix, _ = _as_trace_matrix(intensity)
-    reference_max = float(np.max(matrix)) if matrix.size else 0.0
     channels = []
     for index in range(matrix.shape[0]):
         result = deconvolve_eic(
@@ -309,7 +333,12 @@ def deconvolve_channel_matrix(
             fit_type=fit_type,
             noise_gate=noise_gate,
         )
-        if result.model is None and _trace_is_empty(matrix[index], reference_max):
+        integration_mask = np.asarray(
+            result.selected_mask, dtype=bool
+        ).reshape(-1)
+        if result.model is None and _trace_is_empty(
+            matrix[index, integration_mask]
+        ):
             result = dataclasses.replace(result, empty=True)
         channels.append(ChannelDeconvolution(index=index, result=result))
     return ChannelDeconvolutionBundle(time=time, channels=tuple(channels))
@@ -363,6 +392,16 @@ def deconvolve_eic(
     if np.count_nonzero(fit_mask) < 5:
         return _masked_result(time, intensity, integration_mask)
 
+    nominal_bounds = (
+        (
+            float(retention_time - loffset),
+            float(retention_time + roffset),
+        )
+        if retention_time is not None
+        and loffset is not None
+        and roffset is not None
+        else None
+    )
     selected, selected_mask, excluded, excluded_masks, centers, model = (
         _deconvolve_matrix(
             time,
@@ -372,6 +411,7 @@ def deconvolve_eic(
             retention_time,
             params,
             min_smoothness,
+            nominal_bounds,
         )
     )
     if model is not None and was_1d:
@@ -413,6 +453,7 @@ def _deconvolve_matrix(
     retention_time: float | None,
     params: ChromatographicPeakDeconvolutionParameters,
     min_smoothness: float | None,
+    nominal_bounds: tuple[float, float] | None,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -469,10 +510,14 @@ def _deconvolve_matrix(
     )
     integration_left = float(time[integration_indices[0]])
     integration_right = float(time[integration_indices[-1]])
+    selection_left, selection_right = nominal_bounds or (
+        integration_left,
+        integration_right,
+    )
     in_window = [
         index
         for index, center in enumerate(fitted.centers)
-        if integration_left <= float(center) <= integration_right
+        if selection_left < float(center) < selection_right
     ]
     if not in_window:
         selected = np.zeros_like(matrix, dtype=np.float64)

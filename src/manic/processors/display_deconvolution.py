@@ -51,14 +51,9 @@ def deconvolve_for_display(
 
     matrix, was_1d = _as_trace_matrix(raw)
     if bundle.shows_model_overlays(independent_channels=independent_channels):
-        source = np.vstack(
-            [
-                np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
-                for channel in bundle.channels
-            ]
-        )
+        source = bundle.selected_scan_stack()
     else:
-        source = matrix
+        source = bundle.scan_stack(matrix)
     corrected = np.asarray(apply_correction(source), dtype=np.float64)
     return DisplayDeconvolution(
         bundle=bundle,
@@ -72,46 +67,40 @@ class PlotDisplay:
     intensity: np.ndarray
     includes_raw_underlay: bool
 
-
-def deconvolution_for_plot(time, raw_intensity, compound, *, use_corrected: bool):
-    if not chromatographic_peak_deconvolution_enabled(
-        getattr(compound, "deconvolution_level", "off")
-    ):
-        return None
-    apply_correction = (
-        make_time_series_corrector(compound) if use_corrected else None
-    )
-    return deconvolve_for_display(
-        time,
-        raw_intensity,
-        retention_time=compound.retention_time,
-        loffset=compound.loffset,
-        roffset=compound.roffset,
-        stringency=getattr(compound, "deconvolution_level", "off"),
-        fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
-        noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
-        apply_correction=apply_correction,
-        independent_channels=getattr(compound, "is_unlabelled_target", False),
-    )
-
-
-def display_intensity_for_plot(raw_intensity, compound, display, *, use_corrected: bool):
-    if display is not None:
-        return display.intensity
-    if use_corrected:
-        apply_correction = make_time_series_corrector(compound)
-        if apply_correction is not None and np.asarray(raw_intensity).ndim > 1:
-            return apply_correction(raw_intensity)
-    return raw_intensity
+    def baseline_intensity(self) -> np.ndarray:
+        if self.display is not None and self.includes_raw_underlay:
+            return self.display.bundle.selected_scan_stack()
+        return self.intensity
 
 
 def plot_display(time, raw_intensity, compound, *, use_corrected: bool) -> PlotDisplay:
-    display = deconvolution_for_plot(
-        time, raw_intensity, compound, use_corrected=use_corrected
+    raw = np.asarray(raw_intensity, dtype=np.float64)
+    apply_correction = (
+        make_time_series_corrector(compound)
+        if use_corrected and raw.ndim > 1
+        else None
     )
-    intensity = display_intensity_for_plot(
-        raw_intensity, compound, display, use_corrected=use_corrected
-    )
+    display = None
+    if chromatographic_peak_deconvolution_enabled(
+        getattr(compound, "deconvolution_level", "off")
+    ):
+        display = deconvolve_for_display(
+            time,
+            raw,
+            retention_time=compound.retention_time,
+            loffset=compound.loffset,
+            roffset=compound.roffset,
+            stringency=getattr(compound, "deconvolution_level", "off"),
+            fit_type=getattr(compound, "deconvolution_fit_type", "auto"),
+            noise_gate=getattr(compound, "deconvolution_noise_gate", "balanced"),
+            apply_correction=apply_correction,
+            independent_channels=getattr(compound, "is_unlabelled_target", False),
+        )
+
+    intensity = display.intensity if display is not None else raw
+    if display is None and apply_correction is not None:
+        intensity = apply_correction(raw)
+
     overlays = False
     if display is not None:
         overlays = display.bundle.shows_model_overlays(
@@ -120,7 +109,7 @@ def plot_display(time, raw_intensity, compound, *, use_corrected: bool) -> PlotD
     return PlotDisplay(
         display=display,
         intensity=np.asarray(intensity, dtype=np.float64),
-        includes_raw_underlay=bool(overlays and not use_corrected),
+        includes_raw_underlay=bool(overlays and apply_correction is None),
     )
 
 

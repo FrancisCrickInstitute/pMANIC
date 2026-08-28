@@ -527,7 +527,7 @@ def test_empty_ions_keep_export_on_the_model_path():
     time = np.linspace(0.0, 10.0, 201)
     fitted = _gaussian(time, 7.0, 0.25, 10.0)
     intensity = np.vstack(
-        [np.zeros_like(time), fitted, np.full(time.size, 1e-12)]
+        [np.zeros_like(time), fitted, np.zeros_like(time)]
     )
     bundle = deconvolve_channel_matrix(
         time,

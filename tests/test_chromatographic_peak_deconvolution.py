@@ -1138,11 +1138,14 @@ def test_collapsed_overlap_falls_back_to_raw(monkeypatch):
     assert np.allclose(result.selected, intensity)
 
 
-def test_empty_bundle_evaluate_selected_stack_has_zero_rows():
+def test_empty_bundle_stacks_have_zero_rows_and_validate_shape():
     grid = np.linspace(0.0, 1.0, 11)
     bundle = ChannelDeconvolutionBundle(time=np.array([0.0, 1.0]), channels=())
     stacked = bundle.evaluate_selected_stack(grid)
     assert stacked.shape == (0, 11)
+    assert bundle.selected_scan_stack().shape == (0, 2)
+    with pytest.raises(ValueError, match="does not match"):
+        bundle.scan_stack(np.zeros(2))
 
 
 def test_bundle_uses_model_areas_only_when_every_channel_fitted():
@@ -1188,10 +1191,10 @@ def test_bundle_uses_model_areas_only_when_every_channel_fitted():
     assert all_fitted.shows_model_overlays(independent_channels=False)
 
 
-def test_near_zero_mn_does_not_block_labelled_overlays():
+def test_zero_mn_does_not_block_labelled_overlays():
     time = np.linspace(0.0, 10.0, 201)
     m0 = _gaussian(time, 7.0, 0.25, 10.0)
-    raw = np.vstack([m0, np.zeros_like(time), np.full(time.size, 1e-12)])
+    raw = np.vstack([m0, np.zeros_like(time), np.zeros_like(time)])
     bundle = deconvolve_channel_matrix(
         time,
         raw,
@@ -1208,6 +1211,65 @@ def test_near_zero_mn_does_not_block_labelled_overlays():
     assert bundle.channels[1].result.model is None
     assert bundle.uses_model_areas()
     assert bundle.shows_model_overlays(independent_channels=False)
+
+
+def test_weak_failed_mn_keeps_raw_scans():
+    time = np.linspace(0.0, 10.0, 201)
+    m0 = _gaussian(time, 7.0, 0.25, 10.0)
+    weak = np.full(time.size, 1e-12)
+    raw = np.vstack([m0, weak])
+    bundle = deconvolve_channel_matrix(
+        time,
+        raw,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        stringency="4",
+        fit_type="auto",
+        noise_gate="balanced",
+    )
+
+    assert bundle.channels[0].result.model is not None
+    assert bundle.channels[1].result.model is None
+    assert not bundle.channels[1].result.empty
+    assert not bundle.uses_model_areas()
+
+    areas = calculate_peak_areas(
+        time,
+        raw.ravel(),
+        label_atoms=1,
+        retention_time=7.0,
+        loffset=4.0,
+        roffset=4.0,
+        channel_count=2,
+        baseline_correction=False,
+        chromatographic_peak_deconvolution_stringency="4",
+        chromatographic_peak_deconvolution_fit_type="auto",
+        chromatographic_peak_deconvolution_noise_gate="balanced",
+    )
+    assert areas[1] > 0.0
+
+
+def test_signal_only_outside_the_fit_context_is_empty():
+    time = np.linspace(0.0, 10.0, 201)
+    target = _gaussian(time, 7.0, 0.25, 10.0)
+    outside = np.where(time < 2.0, _gaussian(time, 1.0, 0.2, 20.0), 0.0)
+    raw = np.vstack([target, outside])
+
+    bundle = deconvolve_channel_matrix(
+        time,
+        raw,
+        retention_time=7.0,
+        loffset=1.0,
+        roffset=1.0,
+        stringency="4",
+        fit_type="auto",
+        noise_gate="balanced",
+    )
+
+    assert bundle.channels[0].result.model is not None
+    assert bundle.channels[1].result.empty
+    assert bundle.uses_model_areas()
 
 
 def test_noisy_mn_still_blocks_labelled_overlays():
@@ -1233,10 +1295,10 @@ def test_noisy_mn_still_blocks_labelled_overlays():
     assert not bundle.shows_model_overlays(independent_channels=False)
 
 
-def test_calculate_peak_areas_treats_empty_mn_as_zero():
+def test_calculate_peak_areas_treats_zero_mn_as_empty():
     time = np.linspace(0.0, 10.0, 201)
     m0 = _gaussian(time, 7.0, 0.25, 10.0)
-    raw = np.vstack([m0, np.zeros_like(time), np.full(time.size, 1e-12)])
+    raw = np.vstack([m0, np.zeros_like(time), np.zeros_like(time)])
     areas = calculate_peak_areas(
         time,
         raw.ravel(),
@@ -1253,3 +1315,63 @@ def test_calculate_peak_areas_treats_empty_mn_as_zero():
     assert areas[0] > 0
     assert areas[1] == pytest.approx(0.0)
     assert areas[2] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("edge", ["left", "right"])
+def test_peak_center_between_nominal_boundary_and_nearest_scan_is_in_window(edge):
+    time = np.arange(14.4, 14.901, 0.005)
+    retention_time = 14.661
+    loffset = 0.05
+    roffset = 0.02
+    left = retention_time - loffset
+    right = retention_time + roffset
+    scans = time[(time > left) & (time < right)]
+    center = (
+        (left + scans[0]) / 2.0
+        if edge == "left"
+        else (right + scans[-1]) / 2.0
+    )
+
+    result = deconvolve_eic(
+        time,
+        _gaussian(time, center, 0.01, 1000.0),
+        retention_time=retention_time,
+        loffset=loffset,
+        roffset=roffset,
+        stringency="4",
+        noise_gate="off",
+    )
+
+    assert left < center < right
+    assert result.model is not None
+    assert not result.empty
+    assert result.selected_center == pytest.approx(center, abs=1e-6)
+
+
+@pytest.mark.parametrize("use_legacy", [False, True])
+def test_raw_fallback_keeps_outside_channel_zero(use_legacy):
+    time = np.linspace(14.40, 14.90, 251)
+    raw = np.vstack(
+        [
+            np.full_like(time, 3.0),
+            _gaussian(time, 14.73, 0.02, 1000.0),
+        ]
+    )
+
+    areas = calculate_peak_areas(
+        time,
+        raw.ravel(),
+        label_atoms=1,
+        retention_time=14.661,
+        loffset=0.05,
+        roffset=0.02,
+        channel_count=2,
+        use_legacy=use_legacy,
+        baseline_correction=False,
+        chromatographic_peak_deconvolution_stringency="4",
+        chromatographic_peak_deconvolution_fit_type="auto",
+        chromatographic_peak_deconvolution_noise_gate="balanced",
+    )
+
+    assert areas[0] > 0.0
+    assert areas[1] == pytest.approx(0.0)

@@ -40,15 +40,6 @@ def _noise_row(time, seed=0):
     return np.clip(rng.normal(20.0, 8.0, time.size), 0.0, None)
 
 
-def _selected_stack(bundle):
-    return np.vstack(
-        [
-            np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
-            for channel in bundle.channels
-        ]
-    )
-
-
 def test_nic_preview_keeps_overlay_decision_from_the_raw_fit():
     time, raw = _raw_labelled_pair()
     noisy_m1 = np.vstack([raw[0], _noise_row(time)])
@@ -99,7 +90,7 @@ def test_nic_preview_heights_are_correction_of_the_raw_selected_component():
         return out
 
     preview = deconvolve_for_display(time, raw, apply_correction=scale_m1, **FIT)
-    expected = scale_m1(_selected_stack(preview.bundle))
+    expected = scale_m1(preview.bundle.selected_scan_stack())
 
     assert preview.bundle.shows_model_overlays(independent_channels=False)
     assert preview.intensity == pytest.approx(expected)
@@ -161,6 +152,54 @@ def test_preview_omits_the_raw_underlay():
     assert not preview.includes_raw_underlay
 
 
+def test_preview_without_a_corrector_keeps_the_raw_model_display():
+    time, raw = _raw_labelled_pair()
+    compound = _plot_compound()
+    compound.formula = None
+
+    prepared = plot_display(time, raw, compound, use_corrected=True)
+    selected = prepared.display.bundle.selected_scan_stack()
+
+    assert prepared.display.bundle.shows_model_overlays(
+        independent_channels=False
+    )
+    assert prepared.includes_raw_underlay
+    assert prepared.intensity == pytest.approx(raw)
+    assert prepared.baseline_intensity() == pytest.approx(selected)
+    assert not np.allclose(prepared.baseline_intensity(), raw)
+
+
+def test_corrected_preview_uses_corrected_selected_values_for_the_baseline():
+    time, raw = _raw_labelled_pair()
+    compound = _plot_compound()
+
+    prepared = plot_display(time, raw, compound, use_corrected=True)
+
+    assert not prepared.includes_raw_underlay
+    assert prepared.baseline_intensity() == pytest.approx(prepared.intensity)
+
+
+def test_real_nic_keeps_empty_ion_zero_with_baseline_correction():
+    time = np.linspace(0.0, 10.0, 201)
+    raw = np.vstack(
+        [
+            5.0 + _gaussian(time, 7.0, 0.25, 10.0),
+            np.zeros(time.size),
+        ]
+    )
+    compound = _plot_compound()
+    compound.baseline_correction = 1
+
+    prepared = plot_display(time, raw, compound, use_corrected=True)
+    areas = integrated_display_areas(
+        time, raw, compound, use_corrected=True
+    )
+
+    assert np.all(prepared.intensity[1] == 0.0)
+    assert areas[0] > 0.0
+    assert areas[1] == pytest.approx(0.0)
+
+
 def test_y_max_follows_the_displayed_trace_not_the_raw_neighbour():
     time, raw = _raw_labelled_pair()
     preview = deconvolve_for_display(time, raw, apply_correction=lambda matrix: matrix, **FIT)
@@ -218,3 +257,81 @@ def test_preview_areas_do_not_refit_a_corrected_matrix(monkeypatch):
 
     assert areas == pytest.approx(expected)
     assert areas != pytest.approx(old_path)
+
+
+@pytest.mark.parametrize("use_legacy", [False, True])
+def test_mixed_fallback_keeps_outside_peak_zero(use_legacy):
+    time = np.linspace(14.40, 14.90, 251)
+    retention_time = 14.661
+    loffset = 0.05
+    roffset = 0.02
+    raw = np.vstack(
+        [
+            np.full_like(time, 3.0),
+            np.zeros_like(time),
+            np.zeros_like(time),
+            np.zeros_like(time),
+            _gaussian(time, 14.73, 0.02, 1000.0),
+        ]
+    )
+    fit = dict(
+        retention_time=retention_time,
+        loffset=loffset,
+        roffset=roffset,
+        stringency="4",
+        fit_type="auto",
+        noise_gate="balanced",
+    )
+    bundle = deconvolve_channel_matrix(time, raw, **fit)
+
+    assert not bundle.channels[0].result.empty
+    assert bundle.channels[0].result.model is None
+    assert bundle.channels[4].result.empty
+    assert bundle.channels[4].result.model is None
+    assert not bundle.uses_model_areas()
+
+    raw_areas, corrected_areas = integrate_bundle_areas(
+        time,
+        bundle,
+        raw,
+        correct_time_series=lambda matrix: matrix,
+        baseline_correction=False,
+        use_legacy=use_legacy,
+        retention_time=retention_time,
+        loffset=loffset,
+        roffset=roffset,
+        label_atoms=4,
+        channel_count=5,
+    )
+
+    assert raw_areas[0] > 0.0
+    assert raw_areas[4] == pytest.approx(0.0)
+    assert corrected_areas == pytest.approx(raw_areas)
+
+
+def test_nic_preview_hides_outside_peak_during_mixed_fallback():
+    time = np.linspace(14.40, 14.90, 251)
+    raw = np.vstack(
+        [
+            np.full_like(time, 3.0),
+            np.zeros_like(time),
+            np.zeros_like(time),
+            np.zeros_like(time),
+            _gaussian(time, 14.73, 0.02, 1000.0),
+        ]
+    )
+    preview = deconvolve_for_display(
+        time,
+        raw,
+        retention_time=14.661,
+        loffset=0.05,
+        roffset=0.02,
+        stringency="4",
+        fit_type="auto",
+        noise_gate="balanced",
+        apply_correction=lambda matrix: matrix,
+    )
+
+    assert not preview.bundle.shows_model_overlays(independent_channels=False)
+    assert np.all(preview.intensity[4] == 0.0)
+    assert np.all(preview.intensity[0] == raw[0])

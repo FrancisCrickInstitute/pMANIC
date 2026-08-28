@@ -401,6 +401,7 @@ def calculate_peak_areas(
                         )
                     )
                 return areas
+            intensity_reshaped = bundle.scan_stack(intensity_matrix)
 
         # Apply integration boundaries only after deciding deconvolution is off.
         td, intensity_reshaped = apply_integration_boundaries(
@@ -451,7 +452,7 @@ def integrate_bundle_areas(
     label_atoms: int,
     channel_count: Optional[int] = None,
 ) -> Tuple[List[float], List[float]]:
-    raw_matrix = np.asarray(raw_intensity, dtype=np.float64)
+    raw_matrix = bundle.scan_stack(raw_intensity)
     n_channels = raw_matrix.shape[0] if raw_matrix.ndim > 1 else 1
     zeros = [0.0] * n_channels
     if bundle.channels and all(channel.result.empty for channel in bundle.channels):

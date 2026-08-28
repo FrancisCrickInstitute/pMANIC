@@ -40,6 +40,8 @@ class Toolbar(QWidget):
     # Signal for when compounds are restored
     compounds_restored = Signal(list)
 
+    add_compound_requested = Signal()
+
     # Signal for when samples are deleted
     samples_deleted = Signal(list)
 
@@ -265,6 +267,9 @@ class Toolbar(QWidget):
         )
         self.compound_list.compounds_deleted.connect(self.compounds_deleted.emit)
         self.compound_list.compounds_restored.connect(self.compounds_restored.emit)
+        self.compound_list.add_compound_requested.connect(
+            self.add_compound_requested.emit
+        )
         self.compound_list.internal_standard_cleared.connect(
             self.on_internal_standard_cleared
         )
@@ -317,9 +322,11 @@ class Toolbar(QWidget):
         """Update the status indicators via the LoadedDataWidget"""
         self.loaded_data.update_status(raw_data_loaded, compound_list_loaded)
 
-    def update_compound_list(self, compounds: List[str]):
+    def update_compound_list(
+        self, compounds: List[str], selected_name: str | None = None
+    ):
         """Update the compounds list widget"""
-        self.compound_list.update_compounds(compounds)
+        self.compound_list.update_compounds(compounds, selected_name)
         self._set_mz_indicator_from_compound(self.get_selected_compound())
 
     def update_sample_list(self, samples: List[str]):

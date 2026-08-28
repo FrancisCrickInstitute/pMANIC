@@ -19,6 +19,7 @@ class CompoundListWidget(QListWidget):
     internal_standard_selected = Signal(str)
     compounds_deleted = Signal(list)  # Emits list of deleted compound names
     compounds_restored = Signal(list)  # Emits list of restored compound names
+    add_compound_requested = Signal()
     internal_standard_cleared = Signal()
 
     def __init__(self, parent=None):
@@ -67,7 +68,9 @@ class CompoundListWidget(QListWidget):
             return
         self.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
 
-    def update_compounds(self, compounds: List[str]):
+    def update_compounds(
+        self, compounds: List[str], selected_name: str | None = None
+    ):
         # Block signals during update to prevent multiple selection events
         self.blockSignals(True)
 
@@ -77,8 +80,10 @@ class CompoundListWidget(QListWidget):
         else:
             for c in compounds:
                 self.addItem(QListWidgetItem(c))
-            # Select appropriate row (pending selection from deletion, or first by default)
-            if self._pending_selection_index is not None:
+            if selected_name and selected_name in compounds:
+                self.setCurrentRow(compounds.index(selected_name))
+                self._pending_selection_index = None
+            elif self._pending_selection_index is not None:
                 row_to_select = min(self._pending_selection_index, len(compounds) - 1)
                 self.setCurrentRow(row_to_select)
                 self._pending_selection_index = None
@@ -132,6 +137,10 @@ class CompoundListWidget(QListWidget):
                 margin: 4px 10px;
             }
         """)
+
+        add_action = menu.addAction("Add Compound...")
+        add_action.triggered.connect(self.add_compound_requested.emit)
+        menu.addSeparator()
 
         # Check if we clicked on a valid compound
         valid_item = item and not item.text().startswith("- No")

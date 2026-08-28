@@ -23,6 +23,8 @@ from manic.processors.chromatographic_peak_deconvolution import (
     DEFAULT_DECONVOLUTION_LEVEL,
 )
 from manic.ui.add_compound_dialog import AddCompoundDialog
+from manic.ui.compound_list_widget import CompoundListWidget
+from manic.ui.main_window import MainWindow
 
 
 SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
@@ -300,3 +302,108 @@ def test_invalid_ok_keeps_dialog_open_and_warns(qapp):
     assert shown[0][0] == "warning"
     dialog.close()
     parent.close()
+
+
+def test_update_compounds_selects_by_name(qapp):
+    widget = CompoundListWidget()
+    widget.update_compounds(["A", "B", "C"], selected_name="B")
+    assert widget.currentItem().text() == "B"
+
+
+def test_main_window_selects_new_compound_after_insert(monkeypatch):
+    updated = []
+    invalidated = []
+
+    monkeypatch.setattr(
+        "manic.ui.main_window.list_compound_names",
+        lambda: ["Existing", "NewOne"],
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.DataProvider",
+        lambda: SimpleNamespace(invalidate_cache=lambda: invalidated.append("data")),
+    )
+
+    window = SimpleNamespace(
+        compound_data_loaded=True,
+        cdf_data_loaded=False,
+        _validation_provider=SimpleNamespace(
+            invalidate_cache=lambda: invalidated.append("validation")
+        ),
+        toolbar=SimpleNamespace(
+            update_compound_list=lambda names, selected_name=None: updated.append(
+                (list(names), selected_name)
+            ),
+            update_label_colours=lambda *args: None,
+        ),
+        _update_menu_states=lambda: None,
+    )
+
+    MainWindow._after_compound_added(window, "NewOne")
+
+    assert updated == [(["Existing", "NewOne"], "NewOne")]
+    assert invalidated == ["data", "validation"]
+
+
+def test_first_added_compound_marks_list_loaded(monkeypatch):
+    colours = []
+    menu_calls = []
+    monkeypatch.setattr(
+        "manic.ui.main_window.list_compound_names", lambda: ["Only"]
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.DataProvider",
+        lambda: SimpleNamespace(invalidate_cache=lambda: None),
+    )
+    window = SimpleNamespace(
+        compound_data_loaded=False,
+        cdf_data_loaded=False,
+        _validation_provider=None,
+        toolbar=SimpleNamespace(
+            update_compound_list=lambda *args, **kwargs: None,
+            update_label_colours=lambda *args: colours.append(args),
+        ),
+        _update_menu_states=lambda: menu_calls.append(True),
+    )
+
+    MainWindow._after_compound_added(window, "Only")
+
+    assert window.compound_data_loaded is True
+    assert colours == [(False, True)]
+    assert menu_calls == [True]
+
+
+def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
+    regen = []
+    monkeypatch.setattr(
+        "manic.ui.main_window.list_compound_names", lambda: ["New"]
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.list_active_samples", lambda: ["S1"]
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.read_compound",
+        lambda name: SimpleNamespace(
+            loffset=0.1,
+            roffset=0.2,
+            rt_tolerance=None,
+            retention_time=5.5,
+        ),
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.DataProvider",
+        lambda: SimpleNamespace(invalidate_cache=lambda: None),
+    )
+    window = SimpleNamespace(
+        compound_data_loaded=True,
+        cdf_data_loaded=True,
+        _validation_provider=None,
+        toolbar=SimpleNamespace(update_compound_list=lambda *args, **kwargs: None),
+        on_data_regeneration_requested=lambda *args: regen.append(args),
+        _show_message=lambda *args: None,
+    )
+
+    MainWindow._after_compound_added(window, "New")
+
+    assert regen[0][0] == "New"
+    assert regen[0][2] == ["S1"]
+    assert regen[0][3] == 5.5

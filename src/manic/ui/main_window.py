@@ -35,8 +35,13 @@ from PySide6.QtWidgets import (
 )
 
 from manic.__version__ import APP_NAME, __version__
-from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
-from manic.io.compounds_import import import_compound_excel
+from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO, DEFAULT_RT_WINDOW
+from manic.io.compounds_import import (
+    UnlabelledCompoundRecord,
+    import_compound_excel,
+    insert_compound,
+    insert_unlabelled_compound,
+)
 from manic.io.data_exporter import DataExporter, validate_internal_standard_metadata
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
@@ -146,6 +151,7 @@ class MainWindow(QMainWindow):
         )
         self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
         self.toolbar.compounds_restored.connect(self.on_compounds_restored)
+        self.toolbar.add_compound_requested.connect(self.show_add_compound_dialog)
         self.toolbar.samples_deleted.connect(self.on_samples_deleted)
         self.toolbar.samples_restored.connect(self.on_samples_restored)
 
@@ -268,6 +274,10 @@ class MainWindow(QMainWindow):
         self.load_compound_action.triggered.connect(self.load_compound_list_data)
         # Add the load compound action/logic to the file menu
         file_menu.addAction(self.load_compound_action)
+
+        self.add_compound_action = QAction("Add Compound...", self)
+        self.add_compound_action.triggered.connect(self.show_add_compound_dialog)
+        file_menu.addAction(self.add_compound_action)
 
         # Create the actions/logic for loading CDF files
         self.load_cdf_action = QAction("Load Raw Data (CDF)", self)
@@ -690,6 +700,62 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             self._show_message("warning", "Error", str(e))
+
+    def show_add_compound_dialog(self) -> None:
+        from manic.ui.add_compound_dialog import AddCompoundDialog
+
+        dialog = AddCompoundDialog(self, self.analysis_mode)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        record = dialog.record
+        if record is None:
+            return
+        try:
+            if isinstance(record, UnlabelledCompoundRecord):
+                insert_unlabelled_compound(record)
+            else:
+                insert_compound(record)
+        except ValueError as exc:
+            self._show_message("warning", "Add Compound", str(exc))
+            return
+        self._after_compound_added(record.compound_name)
+
+    def _after_compound_added(self, compound_name: str) -> None:
+        first_compound = not self.compound_data_loaded
+        self.toolbar.update_compound_list(
+            list_compound_names(), selected_name=compound_name
+        )
+        if first_compound:
+            self.compound_data_loaded = True
+            self.toolbar.update_label_colours(False, True)
+            self._update_menu_states()
+
+        data_provider = DataProvider()
+        data_provider.invalidate_cache()
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+
+        if self.cdf_data_loaded:
+            from manic.constants import DEFAULT_RT_WINDOW_BUFFER
+
+            samples = list_active_samples()
+            if not samples:
+                return
+            try:
+                compound = read_compound(compound_name)
+            except Exception as exc:
+                self._show_message("warning", "Add Compound", str(exc))
+                return
+            required = max(compound.loffset, compound.roffset) + DEFAULT_RT_WINDOW_BUFFER
+            tr_window = max(DEFAULT_RT_WINDOW, required)
+            if compound.rt_tolerance is not None:
+                tr_window = max(tr_window, float(compound.rt_tolerance))
+            self.on_data_regeneration_requested(
+                compound_name,
+                tr_window,
+                samples,
+                compound.retention_time,
+            )
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(

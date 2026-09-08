@@ -1395,13 +1395,10 @@ def test_component_shapes_match_single_component_evaluation(shape_model):
             [rng.uniform(0.0, 24.0, count)]
             + [rng.uniform(0.05, 6.0, count) for _ in range(params - 1)]
         )
-        expected = np.asarray(
-            [
-                deconv._component_shape_raw(x_rel, shape_model, row)
-                / np.max(deconv._component_shape_raw(x_rel, shape_model, row))
-                for row in values
-            ]
-        )
+        raw = [
+            deconv._component_shape_raw(x_rel, shape_model, row) for row in values
+        ]
+        expected = np.asarray([shape / np.max(shape) for shape in raw])
         np.testing.assert_array_equal(
             deconv._component_shapes(x_rel, shape_model, values), expected
         )

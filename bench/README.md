@@ -104,12 +104,12 @@ uv run pytest bench --bench-full --benchmark-compare=0004
 The bench asserts only cheap invariants, so a faster deconvolution that lands on different peak areas still passes. When touching the fitter, also diff the answers. `bench/areas.py snapshot` fits every compound × sample cell in both cached datasets at levels 4 and 7 (about 6 minutes) and `diff` reports how many cells moved and by how much:
 
 ```bash
-uv run python bench/areas.py snapshot /tmp/before.npz     # on main
-uv run python bench/areas.py snapshot /tmp/after.npz      # on the branch
-uv run python bench/areas.py diff /tmp/before.npz /tmp/after.npz
+uv run python bench/areas.py snapshot .benchmarks/areas-before.npz  # on main
+uv run python bench/areas.py snapshot .benchmarks/areas-after.npz   # on the branch
+uv run python bench/areas.py diff .benchmarks/areas-before.npz .benchmarks/areas-after.npz
 ```
 
-A pure overhead change should report every cell identical. A change to the optimiser's path will move a handful of ill-determined cells; the diff prints the largest so they can be judged against `testdata/bench/*/manifest.json` truths.
+A pure overhead change should report every cell identical. A change to the optimiser's path will move a handful of ill-determined cells; the diff checks every channel independently and prints the largest changes so they can be judged against `testdata/bench/*/manifest.json` truths. Snapshots record the exact source databases and refuse comparisons across different corpora. Existing snapshot files are never overwritten.
 
 ## Maintenance
 

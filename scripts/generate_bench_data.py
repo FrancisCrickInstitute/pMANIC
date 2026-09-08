@@ -1252,7 +1252,7 @@ def main() -> None:
         required=True,
         help="Which dataset to write.",
     )
-    parser.add_argument("--n-samples", type=int, default=100, help="Samples per dataset.")
+    parser.add_argument("--n-samples", type=int, default=30, help="Samples per dataset (default 30).")
     parser.add_argument("--seed", type=int, default=1, help="Root SeedSequence seed.")
     parser.add_argument(
         "--scan-dt-s",

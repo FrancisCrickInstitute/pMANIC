@@ -21,7 +21,23 @@ Every run produces three things.
 2. **A JSON file** in `.benchmarks/<platform>/`, named `<id>_<git sha>_<timestamp>.json`, holding every timing plus machine and commit info. This is the run history; `--benchmark-compare` reads the latest one by default.
 3. **A box plot per stage** in `.benchmarks/plots/run-<stage>.svg`. With `--benchmark-compare` the previous run sits beside the current one, so a change is visible at a glance and the whisker shows the worst compound in `plot_next`. Open them in a browser or the editor. They are overwritten each run; copy them if you want to keep one.
 
-`.benchmarks/` is gitignored. Delete it to start the history fresh.
+## Performance history
+
+Runs made on a clean working tree are committed; runs made with uncommitted changes get `_uncommitted-changes` in their filename and are gitignored, as are the plots. So the tracked history is exactly the commits someone measured. To add a point, run the bench on a clean tree and commit the new JSON:
+
+```bash
+uv run pytest bench
+git add .benchmarks && git commit -m "Bench: <what changed>"
+```
+
+To see the whole history as a table, or as plots:
+
+```bash
+uv run pytest-benchmark compare                       # every saved run, one table per stage
+uv run pytest-benchmark compare --histogram=.benchmarks/plots/history
+```
+
+Timings are only comparable on the same machine. Each JSON records the hostname and CPU. When the latest saved run is from another machine, pick your own baseline with `--benchmark-compare=<id>`.
 
 The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
 

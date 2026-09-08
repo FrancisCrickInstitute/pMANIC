@@ -791,12 +791,11 @@ def _fit_shape_candidate(
     def solve_linear(
         shape_matrix: np.ndarray, enforce_nonneg: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        design = np.column_stack([ones, shape_matrix.T])
         # Cheap unconstrained solve via the tiny (1+K)x(1+K) normal equations.
         # During optimization this runs on every residual evaluation, so it must
         # be fast; non-negativity is only enforced once on the final fit, where a
         # per-channel NNLS cleans up any channel with a negative coefficient.
-        gram = design.T @ design + ridge
+        design, gram = _normal_equations(shape_matrix, ones, ridge)
         coef = np.linalg.solve(gram, design.T @ y.T)
         if enforce_nonneg:
             for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
@@ -1130,39 +1129,7 @@ def _component_shape_raw(
     return np.asarray(shape, dtype=np.float64)
 
 
-def _component_shape(
-    x_rel: np.ndarray, shape_model: PeakShapeModel, values: np.ndarray
-) -> np.ndarray:
-    shape = _component_shape_raw(x_rel, shape_model, values)
-    max_shape = float(np.max(shape)) if shape.size else 0.0
-    if max_shape <= 0 or not np.isfinite(max_shape):
-        return np.zeros_like(x_rel, dtype=np.float64)
-    return np.asarray(shape / max_shape, dtype=np.float64)
-
-
-def _component_shapes(
-    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
-) -> np.ndarray:
-    if x_rel.size == 0:
-        return np.zeros((values_matrix.shape[0], 0), dtype=np.float64)
-    if shape_model == "gaussian":
-        center = values_matrix[:, 0, None]
-        sigma = values_matrix[:, 1, None]
-        shapes = np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
-    elif shape_model == "bi_gaussian":
-        center = values_matrix[:, 0, None]
-        sigma_left = values_matrix[:, 1, None]
-        sigma_right = values_matrix[:, 2, None]
-        sigma = np.where(x_rel[None, :] < center, sigma_left, sigma_right)
-        shapes = np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
-    else:
-        shapes = np.asarray(
-            [
-                _component_shape_raw(x_rel, shape_model, values)
-                for values in values_matrix
-            ],
-            dtype=np.float64,
-        )
+def _normalize_rows(shapes: np.ndarray) -> np.ndarray:
     max_shapes = np.max(shapes, axis=1)
     normalized = np.zeros_like(shapes, dtype=np.float64)
     valid = (max_shapes > 0) & np.isfinite(max_shapes)
@@ -1170,56 +1137,71 @@ def _component_shapes(
     return normalized
 
 
+def _raw_component_shapes(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
+) -> np.ndarray:
+    if shape_model == "gaussian":
+        center = values_matrix[:, 0, None]
+        sigma = values_matrix[:, 1, None]
+        return np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
+    if shape_model == "bi_gaussian":
+        center = values_matrix[:, 0, None]
+        sigma = np.where(
+            x_rel[None, :] < center,
+            values_matrix[:, 1, None],
+            values_matrix[:, 2, None],
+        )
+        return np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
+    return np.asarray(
+        [_component_shape_raw(x_rel, shape_model, values) for values in values_matrix],
+        dtype=np.float64,
+    )
+
+
+def _component_shapes(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
+) -> np.ndarray:
+    """Max-normalised shape of every component, one row per component."""
+    return _normalize_rows(_raw_component_shapes(x_rel, shape_model, values_matrix))
+
+
 def _component_shape_gradients(
     x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    if shape_model not in ("gaussian", "bi_gaussian"):
-        raise ValueError(f"Unsupported shape model for analytic gradients: {shape_model}")
-
-    shapes = _component_shapes(x_rel, shape_model, values_matrix)
-    component_count = values_matrix.shape[0]
-    if x_rel.size == 0:
-        return shapes, np.zeros(
-            (component_count, values_matrix.shape[1], 0), dtype=np.float64
-        )
-
+    """Normalised shapes (K, n) and their derivatives (K, p, n) for gaussian models."""
+    raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
     center = values_matrix[:, 0, None]
     if shape_model == "gaussian":
         sigma = values_matrix[:, 1, None]
         u = (x_rel[None, :] - center) / sigma
-        raw_shapes = np.exp(-0.5 * u**2)
-        raw_gradients = np.stack(
-            (raw_shapes * u / sigma, raw_shapes * u**2 / sigma), axis=1
-        )
+        raw_gradients = np.stack((raw * u / sigma, raw * u**2 / sigma), axis=1)
     else:
-        sigma_left = values_matrix[:, 1, None]
-        sigma_right = values_matrix[:, 2, None]
         left = x_rel[None, :] < center
-        sigma = np.where(left, sigma_left, sigma_right)
+        sigma = np.where(left, values_matrix[:, 1, None], values_matrix[:, 2, None])
         u = (x_rel[None, :] - center) / sigma
-        raw_shapes = np.exp(-0.5 * u**2)
-        sigma_gradient = raw_shapes * u**2 / sigma
+        sigma_gradient = raw * u**2 / sigma
         raw_gradients = np.stack(
-            (
-                raw_shapes * u / sigma,
-                sigma_gradient * left,
-                sigma_gradient * ~left,
-            ),
-            axis=1,
+            (raw * u / sigma, sigma_gradient * left, sigma_gradient * ~left), axis=1
         )
 
-    max_shapes = np.max(raw_shapes, axis=1)
+    shapes = _normalize_rows(raw)
+    max_shapes = np.max(raw, axis=1)
     valid = (max_shapes > 0) & np.isfinite(max_shapes)
-    gradients = np.zeros_like(raw_gradients, dtype=np.float64)
-    max_indices = np.argmax(raw_shapes, axis=1)
     max_gradients = np.take_along_axis(
-        raw_gradients, max_indices[:, None, None], axis=2
+        raw_gradients, np.argmax(raw, axis=1)[:, None, None], axis=2
     ).squeeze(axis=2)
+    gradients = np.zeros_like(raw_gradients)
     gradients[valid] = (
-        raw_gradients[valid]
-        - shapes[valid, None, :] * max_gradients[valid, :, None]
+        raw_gradients[valid] - shapes[valid, None, :] * max_gradients[valid, :, None]
     ) / max_shapes[valid, None, None]
     return shapes, gradients
+
+
+def _normal_equations(
+    shape_matrix: np.ndarray, ones: np.ndarray, ridge: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    design = np.column_stack([ones, shape_matrix.T])
+    return design, design.T @ design + ridge
 
 
 def _variable_projection_jacobian(
@@ -1231,21 +1213,16 @@ def _variable_projection_jacobian(
     ridge: np.ndarray,
     channel_scale: np.ndarray,
 ) -> np.ndarray:
-    """Exact derivative of the variable-projection residual (Golub-Pereyra).
+    """Golub-Pereyra derivative of the variable-projection residual.
 
-    The residual re-solves the per-channel intercept and weights at every trial
-    shape, so its derivative is not just ``weights * dS/dtheta``. With
-    ``D = [1, S^T]``, ``G = D^T D + ridge`` and ``r = y - D coef`` the derivative
-    of the model with respect to one shape parameter is
-    ``(I - D G^-1 D^T) D_q coef + D G^-1 D_q^T r``; the first term projects out
-    the part of the change the re-solved coefficients would absorb and the
-    second is the coefficients' own response to the residual.
+    The intercept and weights are re-solved at every trial shape, so the
+    derivative is ``(I - D G^-1 D^T) D_q coef + D G^-1 D_q^T r`` rather than
+    ``weights * dS/dtheta``. Must stay consistent with ``solve_linear``.
     """
     component_count, param_count = values_matrix.shape
     channels, points = y.shape
     shapes, gradients = _component_shape_gradients(x_rel, shape_model, values_matrix)
-    design = np.column_stack([ones, shapes.T])
-    gram = design.T @ design + ridge
+    design, gram = _normal_equations(shapes, ones, ridge)
     gram_inv_design_t = np.linalg.solve(gram, design.T)
     coef = gram_inv_design_t @ y.T
     residual = y.T - design @ coef

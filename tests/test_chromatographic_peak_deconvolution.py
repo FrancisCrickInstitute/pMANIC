@@ -1375,3 +1375,80 @@ def test_raw_fallback_keeps_outside_channel_zero(use_legacy):
 
     assert areas[0] > 0.0
     assert areas[1] == pytest.approx(0.0)
+
+
+def _projected_residual(x_rel, shape_model, values_matrix, y, ridge, scale):
+    shapes = deconv._component_shapes(x_rel, shape_model, values_matrix)
+    design = np.column_stack([np.ones(x_rel.size), shapes.T])
+    coef = np.linalg.solve(design.T @ design + ridge, design.T @ y.T)
+    return (((design @ coef).T - y) / scale[:, None]).ravel()
+
+
+@pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian"])
+def test_component_shapes_match_single_component_evaluation(shape_model):
+    rng = np.random.default_rng(0)
+    x_rel = np.arange(0.0, 24.0, 0.5)
+    for _ in range(50):
+        count = int(rng.integers(1, 4))
+        params = 2 if shape_model == "gaussian" else 3
+        values = np.column_stack(
+            [rng.uniform(0.0, 24.0, count)]
+            + [rng.uniform(0.05, 6.0, count) for _ in range(params - 1)]
+        )
+        expected = np.asarray(
+            [
+                deconv._component_shape_raw(x_rel, shape_model, row)
+                / np.max(deconv._component_shape_raw(x_rel, shape_model, row))
+                for row in values
+            ]
+        )
+        np.testing.assert_array_equal(
+            deconv._component_shapes(x_rel, shape_model, values), expected
+        )
+
+
+@pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian"])
+def test_variable_projection_jacobian_matches_finite_differences(shape_model):
+    rng = np.random.default_rng(1)
+    x_rel = np.arange(0.0, 24.0, 0.5)
+    ones = np.ones(x_rel.size)
+    params = 2 if shape_model == "gaussian" else 3
+    for _ in range(40):
+        count = int(rng.integers(1, 4))
+        channels = int(rng.integers(1, 6))
+        truth = np.column_stack(
+            [rng.uniform(4.0, 20.0, count)]
+            + [rng.uniform(0.3, 3.0, count) for _ in range(params - 1)]
+        )
+        y = rng.uniform(1e2, 1e5, (channels, count)) @ deconv._component_shapes(
+            x_rel, shape_model, truth
+        )
+        y += rng.normal(0.0, y.max() * 0.02, y.shape) + rng.uniform(0.0, 300.0)
+        scale = np.maximum(
+            np.percentile(y, 95, axis=1) - np.percentile(y, 10, axis=1), 1e-3
+        )
+        ridge = 1e-12 * np.eye(count + 1)
+        trial = truth * rng.uniform(0.9, 1.1, truth.shape)
+
+        analytic = deconv._variable_projection_jacobian(
+            x_rel, shape_model, trial, y, ones, ridge, scale
+        )
+
+        flat = trial.ravel()
+        step = 1e-6
+        numeric = np.empty_like(analytic)
+        for column in range(flat.size):
+            bump = np.zeros_like(flat)
+            bump[column] = step
+            plus = _projected_residual(
+                x_rel, shape_model, (flat + bump).reshape(trial.shape), y, ridge, scale
+            )
+            minus = _projected_residual(
+                x_rel, shape_model, (flat - bump).reshape(trial.shape), y, ridge, scale
+            )
+            numeric[:, column] = (plus - minus) / (2 * step)
+
+        assert analytic.shape == (channels * x_rel.size, count * params)
+        np.testing.assert_allclose(
+            analytic, numeric, rtol=1e-5, atol=1e-6 * np.max(np.abs(numeric))
+        )

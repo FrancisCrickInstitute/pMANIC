@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
-import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -39,23 +37,15 @@ from manic.processors.integration import integrate_bundle_areas
 
 CACHE = Path(__file__).resolve().parent / "cache"
 BENCH_DATA = Path(__file__).resolve().parents[1] / "testdata" / "bench"
+MODES = ("labelled", "unlabelled")
 LEVELS = {"4": ("auto", "balanced"), "7": ("auto", "off")}
 TOLERANCES = (1e-9, 1e-6, 1e-4, 1e-3, 1e-2)
-EXPECTED_MODES = ("labelled", "unlabelled")
-METADATA_KEY = "__manic_area_snapshot_v1__"
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+PROVENANCE_KEY = "manifest_sha256"
 
 
 def _discover_databases(cache: Path = CACHE) -> dict[str, Path]:
     databases = {}
-    for mode in EXPECTED_MODES:
+    for mode in MODES:
         matches = sorted(cache.glob(f"{mode}-*.db"))
         if len(matches) != 1:
             sys.exit(
@@ -67,16 +57,17 @@ def _discover_databases(cache: Path = CACHE) -> dict[str, Path]:
     return databases
 
 
-def _dataset_provenance(data: Path = BENCH_DATA) -> dict[str, str]:
+def _dataset_provenance(data: Path = BENCH_DATA) -> str:
     """Identity of the generated data, not of the database built from it.
 
     The cached database is rebuilt (under a new name) whenever the importer or
     schema changes, but the fitter only sees the EIC data, so snapshots taken
     on either side of such a change are still comparable.
     """
-    return {
-        mode: _file_sha256(data / mode / "manifest.json") for mode in EXPECTED_MODES
-    }
+    return " ".join(
+        hashlib.sha256((data / mode / "manifest.json").read_bytes()).hexdigest()
+        for mode in MODES
+    )
 
 
 def _cell_areas(job: tuple[str, str, str, list[str], str]) -> dict[str, np.ndarray]:
@@ -109,35 +100,8 @@ def _cell_areas(job: tuple[str, str, str, list[str], str]) -> dict[str, np.ndarr
             label_atoms=compound.label_atoms,
             channel_count=matrix.shape[0] if matrix.ndim > 1 else 1,
         )
-        values = np.asarray(areas, dtype=np.float64)
-        rows[f"{mode}|{level}|{name}|{eic.sample_name}"] = values
+        rows[f"{mode}|{level}|{name}|{eic.sample_name}"] = np.asarray(areas, dtype=np.float64)
     return rows
-
-
-def _snapshot_path(out: Path) -> Path:
-    return out if out.suffix == ".npz" else out.with_name(f"{out.name}.npz")
-
-
-def _save_snapshot(
-    out: Path, table: dict[str, np.ndarray], provenance: dict[str, str]
-) -> Path:
-    out = _snapshot_path(out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    temporary = out.with_name(f".{out.name}.{os.getpid()}.tmp")
-    payload = {
-        METADATA_KEY: np.asarray(json.dumps(provenance, sort_keys=True)),
-        **table,
-    }
-    try:
-        with temporary.open("xb") as handle:
-            np.savez(handle, **payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, out)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
-    return out
 
 
 def snapshot(out: Path) -> None:
@@ -148,18 +112,19 @@ def snapshot(out: Path) -> None:
         database.DB_FILE = db
         names = list_compound_names()
         samples = list_active_samples()
-        jobs += [
-            (str(db), mode, name, samples, level)
-            for level in LEVELS
-            for name in names
-        ]
+        jobs += [(str(db), mode, name, samples, level) for level in LEVELS for name in names]
     started = time.perf_counter()
     table: dict[str, np.ndarray] = {}
     with ProcessPoolExecutor() as pool:
         for rows in pool.map(_cell_areas, jobs, chunksize=4):
             table.update(rows)
-    saved = _save_snapshot(out, table, provenance)
-    print(f"{len(table)} cells in {time.perf_counter() - started:.0f}s -> {saved}")
+    _save_snapshot(out, table, provenance)
+    print(f"{len(table)} cells in {time.perf_counter() - started:.0f}s -> {out}")
+
+
+def _save_snapshot(out: Path, table: dict[str, np.ndarray], provenance: str) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(out, **{PROVENANCE_KEY: np.asarray(provenance)}, **table)
 
 
 def _relative_difference(before: np.ndarray, after: np.ndarray) -> float:
@@ -174,28 +139,16 @@ def _relative_difference(before: np.ndarray, after: np.ndarray) -> float:
     return float(np.max(np.abs(before - after) / scale))
 
 
-def _load_snapshot(path: Path) -> tuple[dict[str, str], dict[str, np.ndarray]]:
-    with np.load(path, allow_pickle=False) as archive:
-        if METADATA_KEY not in archive.files:
-            sys.exit(f"{path} has no provenance metadata; regenerate it")
-        metadata = json.loads(str(archive[METADATA_KEY].item()))
-        table = {
-            key: np.array(archive[key], copy=True)
-            for key in archive.files
-            if key != METADATA_KEY
-        }
-    if not isinstance(metadata, dict) or not all(
-        isinstance(key, str) and isinstance(value, str)
-        for key, value in metadata.items()
-    ):
-        sys.exit(f"invalid database provenance in {path}")
-    return metadata, table
+def _load_snapshot(path: Path) -> tuple[str, dict[str, np.ndarray]]:
+    archive = np.load(path)
+    table = {key: archive[key] for key in archive.files if key != PROVENANCE_KEY}
+    return str(archive[PROVENANCE_KEY]), table
 
 
 def diff(before_path: Path, after_path: Path, show: int) -> None:
-    before_metadata, before = _load_snapshot(before_path)
-    after_metadata, after = _load_snapshot(after_path)
-    if before_metadata != after_metadata:
+    before_provenance, before = _load_snapshot(before_path)
+    after_provenance, after = _load_snapshot(after_path)
+    if before_provenance != after_provenance:
         sys.exit(
             "snapshots were fitted from different generated datasets; "
             "regenerate both against the same testdata/bench"
@@ -203,25 +156,18 @@ def diff(before_path: Path, after_path: Path, show: int) -> None:
     if set(before) != set(after):
         sys.exit("snapshots cover different cells; regenerate both on the same bench data")
     scored = {key: _relative_difference(before[key], after[key]) for key in before}
-    unusable = sorted(key for key, rel in scored.items() if np.isnan(rel))
-    for key in unusable:
+    for key in sorted(key for key, rel in scored.items() if np.isnan(rel)):
         print(f"not comparable  {key}: before {before[key]} after {after[key]}")
     rows = sorted(
         ((rel, key) for key, rel in scored.items() if not np.isnan(rel)), reverse=True
     )
     by_level: dict[str, list[float]] = {}
     for rel, key in rows:
-        by_level.setdefault(key.split("|", 3)[1], []).append(rel)
+        by_level.setdefault(key.split("|")[1], []).append(rel)
     for level, values in sorted(by_level.items()):
         rel = np.asarray(values)
-        counts = "  ".join(
-            f">{tol:g}: {int(np.sum(rel > tol))}" for tol in TOLERANCES
-        )
-        identical = int(np.sum(rel == 0))
-        print(
-            f"level {level}: {rel.size} cells  "
-            f"identical: {identical}  {counts}"
-        )
+        counts = "  ".join(f">{tol:g}: {int(np.sum(rel > tol))}" for tol in TOLERANCES)
+        print(f"level {level}: {rel.size} cells  identical: {int(np.sum(rel == 0))}  {counts}")
     for rel, key in rows[:show]:
         if rel == 0:
             break
@@ -232,8 +178,7 @@ def diff(before_path: Path, after_path: Path, show: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     commands = parser.add_subparsers(dest="command", required=True)
     snap = commands.add_parser("snapshot", help="fit every cell and write an .npz table")
@@ -241,9 +186,7 @@ def main() -> None:
     compare = commands.add_parser("diff", help="compare two snapshot tables")
     compare.add_argument("before", type=Path)
     compare.add_argument("after", type=Path)
-    compare.add_argument(
-        "--show", type=int, default=10, help="largest differences to print"
-    )
+    compare.add_argument("--show", type=int, default=10, help="largest differences to print")
     args = parser.parse_args()
     if args.command == "snapshot":
         snapshot(args.out)

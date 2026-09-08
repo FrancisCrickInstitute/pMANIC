@@ -756,6 +756,8 @@ def _fit_shape_candidate(
         np.percentile(y, 95, axis=1) - np.percentile(y, 10, axis=1),
         max(max_y * 1e-6, np.finfo(float).eps),
     )
+    ridge = 1e-12 * np.eye(1 + component_count)
+    ones = np.ones(points)
 
     # Only the shape parameters are optimized nonlinearly; the per-channel
     # baseline and component weights are linear, so they are recovered with a
@@ -772,14 +774,11 @@ def _fit_shape_candidate(
     def shapes_from(
         values: np.ndarray, sort: bool = True
     ) -> tuple[np.ndarray, np.ndarray]:
-        shapes: list[np.ndarray] = []
-        centers: list[float] = []
-        for index in range(component_count):
-            shape_params = values[index * param_count : (index + 1) * param_count]
-            centers.append(float(shape_params[0]))
-            shapes.append(_component_shape(x_rel, shape_model, shape_params))
-        center_array = np.asarray(centers, dtype=np.float64)
-        shape_matrix = np.asarray(shapes, dtype=np.float64)
+        values_matrix = np.asarray(values, dtype=np.float64).reshape(
+            component_count, param_count
+        )
+        center_array = values_matrix[:, 0]
+        shape_matrix = _component_shapes(x_rel, shape_model, values_matrix)
         # Component order does not affect the objective (the model is a sum over
         # components), so the sort is skipped on the optimizer's hot path and
         # applied only when the ordered result is needed.
@@ -792,13 +791,12 @@ def _fit_shape_candidate(
     def solve_linear(
         shape_matrix: np.ndarray, enforce_nonneg: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        design = np.column_stack([np.ones(points), shape_matrix.T])
+        design = np.column_stack([ones, shape_matrix.T])
         # Cheap unconstrained solve via the tiny (1+K)x(1+K) normal equations.
         # During optimization this runs on every residual evaluation, so it must
         # be fast; non-negativity is only enforced once on the final fit, where a
         # per-channel NNLS cleans up any channel with a negative coefficient.
-        gram = design.T @ design
-        gram[np.diag_indices_from(gram)] += 1e-12
+        gram = design.T @ design + ridge
         coef = np.linalg.solve(gram, design.T @ y.T)
         if enforce_nonneg:
             for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
@@ -1131,6 +1129,36 @@ def _component_shape(
     if max_shape <= 0 or not np.isfinite(max_shape):
         return np.zeros_like(x_rel, dtype=np.float64)
     return np.asarray(shape / max_shape, dtype=np.float64)
+
+
+def _component_shapes(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
+) -> np.ndarray:
+    if x_rel.size == 0:
+        return np.zeros((values_matrix.shape[0], 0), dtype=np.float64)
+    if shape_model == "gaussian":
+        center = values_matrix[:, 0, None]
+        sigma = values_matrix[:, 1, None]
+        shapes = np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
+    elif shape_model == "bi_gaussian":
+        center = values_matrix[:, 0, None]
+        sigma_left = values_matrix[:, 1, None]
+        sigma_right = values_matrix[:, 2, None]
+        sigma = np.where(x_rel[None, :] < center, sigma_left, sigma_right)
+        shapes = np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
+    else:
+        shapes = np.asarray(
+            [
+                _component_shape_raw(x_rel, shape_model, values)
+                for values in values_matrix
+            ],
+            dtype=np.float64,
+        )
+    max_shapes = np.max(shapes, axis=1)
+    normalized = np.zeros_like(shapes, dtype=np.float64)
+    valid = (max_shapes > 0) & np.isfinite(max_shapes)
+    normalized[valid] = shapes[valid] / max_shapes[valid, None]
+    return normalized
 
 
 def _masked_result(

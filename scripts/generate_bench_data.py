@@ -24,7 +24,6 @@ import json
 import math
 import re
 import time
-from collections.abc import Callable
 from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -184,88 +183,28 @@ class ScenarioDelta:
     ratio_mul: float = 1.0
 
 
-def _delta_clean() -> ScenarioDelta:
-    return ScenarioDelta()
-
-
-def _delta_noisy() -> ScenarioDelta:
-    return ScenarioDelta(shot_noise_mul=3.0, baseline_noise_mul=2.0)
-
-
-def _delta_drifting() -> ScenarioDelta:
-    return ScenarioDelta(baseline_level_mul=4.0, drift_mul=4.0)
-
-
-def _delta_rt_shift() -> ScenarioDelta:
-    return ScenarioDelta(rt_shift_min=0.05, rt_shift_max=0.12)
-
-
-def _delta_low_is() -> ScenarioDelta:
-    return ScenarioDelta(is_height_mul=0.02)
-
-
-def _delta_saturated() -> ScenarioDelta:
-    return ScenarioDelta(clip=SATURATION_CLIP)
-
-
-def _delta_overlap() -> ScenarioDelta:
-    return ScenarioDelta(
+SCENARIO_EFFECTS: dict[Scenario, ScenarioDelta] = {
+    Scenario.CLEAN: ScenarioDelta(),
+    Scenario.NOISY: ScenarioDelta(shot_noise_mul=3.0, baseline_noise_mul=2.0),
+    Scenario.DRIFTING_BASELINE: ScenarioDelta(baseline_level_mul=4.0, drift_mul=4.0),
+    Scenario.RT_SHIFT: ScenarioDelta(rt_shift_min=0.05, rt_shift_max=0.12),
+    Scenario.LOW_IS: ScenarioDelta(is_height_mul=0.02),
+    Scenario.SATURATED_DETECTOR: ScenarioDelta(clip=SATURATION_CLIP),
+    Scenario.OVERLAP_NEIGHBOUR: ScenarioDelta(
         overlap=True,
         overlap_dt_min=0.08,
         overlap_dt_max=0.14,
         overlap_height_min=0.6,
         overlap_height_max=1.2,
-    )
-
-
-def _delta_shoulder() -> ScenarioDelta:
-    return ScenarioDelta(shoulder=True, shoulder_dt=0.04, shoulder_height_mul=0.35)
-
-
-def _delta_broad() -> ScenarioDelta:
-    return ScenarioDelta(sigma_mul=2.2, tau_mul=3.0)
-
-
-def _delta_trace() -> ScenarioDelta:
-    return ScenarioDelta(height_mul=0.004)
-
-
-def _delta_near() -> ScenarioDelta:
-    return ScenarioDelta()
-
-
-def _delta_missing() -> ScenarioDelta:
-    return ScenarioDelta(present=False)
-
-
-def _delta_heavy() -> ScenarioDelta:
-    return ScenarioDelta(enrichment_min=0.85, enrichment_max=0.98)
-
-
-def _delta_unlabelled_control() -> ScenarioDelta:
-    return ScenarioDelta(enrichment_fixed=0.0)
-
-
-def _delta_ratio_fail() -> ScenarioDelta:
-    return ScenarioDelta(ratio_mul=2.0)
-
-
-SCENARIO_EFFECTS: dict[Scenario, Callable[[], ScenarioDelta]] = {
-    Scenario.CLEAN: _delta_clean,
-    Scenario.NOISY: _delta_noisy,
-    Scenario.DRIFTING_BASELINE: _delta_drifting,
-    Scenario.RT_SHIFT: _delta_rt_shift,
-    Scenario.LOW_IS: _delta_low_is,
-    Scenario.SATURATED_DETECTOR: _delta_saturated,
-    Scenario.OVERLAP_NEIGHBOUR: _delta_overlap,
-    Scenario.SHOULDER: _delta_shoulder,
-    Scenario.BROAD_TAILING: _delta_broad,
-    Scenario.TRACE_LEVEL: _delta_trace,
-    Scenario.NEAR_COELUTION: _delta_near,
-    Scenario.MISSING: _delta_missing,
-    Scenario.HEAVY_LABEL: _delta_heavy,
-    Scenario.UNLABELLED_CONTROL: _delta_unlabelled_control,
-    Scenario.RATIO_FAIL: _delta_ratio_fail,
+    ),
+    Scenario.SHOULDER: ScenarioDelta(shoulder=True, shoulder_dt=0.04, shoulder_height_mul=0.35),
+    Scenario.BROAD_TAILING: ScenarioDelta(sigma_mul=2.2, tau_mul=3.0),
+    Scenario.TRACE_LEVEL: ScenarioDelta(height_mul=0.004),
+    Scenario.NEAR_COELUTION: ScenarioDelta(),
+    Scenario.MISSING: ScenarioDelta(present=False),
+    Scenario.HEAVY_LABEL: ScenarioDelta(enrichment_min=0.85, enrichment_max=0.98),
+    Scenario.UNLABELLED_CONTROL: ScenarioDelta(enrichment_fixed=0.0),
+    Scenario.RATIO_FAIL: ScenarioDelta(ratio_mul=2.0),
 }
 
 
@@ -359,7 +298,7 @@ def _compose(deltas: list[ScenarioDelta]) -> ScenarioDelta:
 
 
 def _effects_for(scenarios: frozenset[Scenario]) -> ScenarioDelta:
-    return _compose([SCENARIO_EFFECTS[s]() for s in sorted(scenarios, key=lambda s: s.name)])
+    return _compose([SCENARIO_EFFECTS[s] for s in sorted(scenarios, key=lambda s: s.name)])
 
 
 def _peak_shape(loffset: float, roffset: float) -> PeakShape:

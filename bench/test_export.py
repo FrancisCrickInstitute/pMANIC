@@ -17,7 +17,18 @@ def test_export(case, db, benchmark, repeat, tmp_path):
 
     path = benchmark.pedantic(export, rounds=repeat)
     wb = load_workbook(path, read_only=True)
-    assert {"Raw Values", "Abundances"} <= set(wb.sheetnames)
-    column_b = {r[0] for r in wb["Abundances"].iter_rows(min_col=2, max_col=2, values_only=True)}
-    assert set(list_active_samples()) <= column_b
-    wb.close()
+    try:
+        assert {"Raw Values", "Abundances"} <= set(wb.sheetnames)
+        expected_samples = set(list_active_samples())
+        exported = {}
+        for row in wb["Abundances"].iter_rows(values_only=True):
+            if len(row) > 1 and row[1] in expected_samples:
+                exported[row[1]] = row[2:]
+        assert set(exported) == expected_samples
+        for sample, values in exported.items():
+            numeric = [
+                float(value) for value in values if isinstance(value, (int, float))
+            ]
+            assert numeric and any(value > 0 for value in numeric), sample
+    finally:
+        wb.close()

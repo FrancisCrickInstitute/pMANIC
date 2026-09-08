@@ -6,27 +6,34 @@ The `bench/` suite answers one question: did a code change make MANIC faster or 
 
 ```bash
 uv sync                                                # once per machine
-uv run pytest bench                                    # baseline, ~90 s (~3 min the first time)
+uv run pytest bench --benchmark-autosave               # baseline; note its 4-digit id
 # ...change code...
-uv run pytest bench --benchmark-compare --benchmark-compare-fail=median:10%
+uv run pytest bench --benchmark-compare=0001 --benchmark-compare-fail=median:10%
 ```
 
-The first run generates `testdata/bench/` (two datasets, ~36 s) and builds one populated database per dataset under `bench/cache/` (~20 s). Both are gitignored and reused afterwards. `--benchmark-compare` adds the previous run alongside, and `--benchmark-compare-fail=median:10%` fails the run when any stage's median is more than 10 % slower.
+Replace `0001` with the id printed by the baseline run. The candidate is not
+autosaved, so repeated candidate runs keep comparing with that fixed baseline.
+The first run generates `testdata/bench/` (two datasets, ~36 s) and builds one
+populated database per dataset under `bench/cache/` (~20 s). Both are
+gitignored and reused only while their complete inputs remain unchanged.
+`--benchmark-compare-fail=median:10%` fails when any stage is more than 10 %
+slower.
 
 ## Outputs
 
-Every run produces three things.
+Every run produces a terminal table and plots. Saved runs produce a third
+artifact:
 
-1. **A table in the terminal**, one section per stage, one row per dataset. With `--benchmark-compare` each row appears twice, the saved run tagged with its 4-digit id and the current run tagged `NOW`.
-2. **A JSON file** in `.benchmarks/<platform>/`, named `<id>_<git sha>_<timestamp>.json`, holding every timing plus machine and commit info. This is the run history; `--benchmark-compare` reads the latest one by default.
-3. **A box plot per stage** in `.benchmarks/plots/run-<stage>.svg`. With `--benchmark-compare` the previous run sits beside the current one, so a change is visible at a glance and the whisker shows the worst compound in `plot_next`. Open them in a browser or the editor. They are overwritten each run; copy them if you want to keep one.
+1. **A table in the terminal**, one section per stage and dataset. Navigation has one row per target compound. With `--benchmark-compare` each row appears twice, the saved run tagged with its 4-digit id and the current run tagged `NOW`.
+2. **A JSON file when `--benchmark-autosave` is passed** in `.benchmarks/<platform>/`, named `<id>_<git sha>_<timestamp>.json`, holding every timing plus machine, workload, and commit info. This is the run history. Always select its id explicitly when comparing.
+3. **A plot per stage** in `.benchmarks/plots/run-<stage>.svg`. With `--benchmark-compare` the baseline sits beside the current run; `plot_next` labels every target separately. Open them in a browser or the editor. They are overwritten each run; copy them if you want to keep one.
 
 ## Performance history
 
 Runs made on a clean working tree are committed; runs made with uncommitted changes get `_uncommitted-changes` in their filename and are gitignored, as are the plots. So the tracked history is exactly the commits someone measured. To add a point, run the bench on a clean tree and commit the new JSON:
 
 ```bash
-uv run pytest bench
+uv run pytest bench --benchmark-autosave
 git add .benchmarks && git commit -m "Bench: <what changed>"
 ```
 
@@ -37,7 +44,11 @@ uv run pytest-benchmark compare                       # every saved run, one tab
 uv run pytest-benchmark compare --histogram=.benchmarks/plots/history
 ```
 
-Timings are only comparable on the same machine. Each JSON records the hostname and CPU. When the latest saved run is from another machine, pick your own baseline with `--benchmark-compare=<id>`.
+Timings are only comparable on the same machine and workload. Each benchmark
+identity includes the corpus parameters, generator fingerprint, and whether the
+default or full workload ran; navigation identities also include the compound.
+Each JSON records the hostname and CPU. Use your own matching baseline with
+`--benchmark-compare=<id>`.
 
 The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
 
@@ -50,14 +61,14 @@ The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no wi
 | `deconvolve_hard_windows[*-4]` | Deconvolution plus integration at the shipped default (level 4, balanced gate) | 12 hard windows | one finite area per channel |
 | `deconvolve_hard_windows[*-7]` | Same at level 7 with the noise gate off | `--bench-full` only, 60 windows | as above |
 | `plot_first` | First plot after opening: a fresh window, cold caches, full tile grid | 30 tiles | grid and sidebar populated |
-| `plot_next` | Next-compound navigation; one round per move | 9 moves spread over the list | grid populated after each move |
+| `plot_next` | Next-compound navigation; one identified benchmark per target | 9 targets spread over the list | grid populated after each move |
 | `export` | Full Excel export, non-legacy integration | 30 samples | expected sheets and sample rows |
 
 Each test runs once per dataset. Labelled compounds carry M+0..M+n channels and go through correction; unlabelled compounds are single-channel. The two are separate rows in the table.
 
 ### The datasets
 
-`scripts/generate_bench_data.py` writes `testdata/bench/labelled` and `testdata/bench/unlabelled` deterministically (seed 1). Each has 30 samples (28 biological, 2 mixed standards) and ~100 compounds. Every sample × compound cell is assigned scenarios that mimic difficult real data: overlapping neighbours, near co-elution, shoulders, broad tailing peaks, noise, drifting baselines, retention time shift, trace-level peaks, saturated detector, heavy labelling, unlabelled controls, low internal standard, missing peaks. `manifest.json` records the scenario and true areas of every cell.
+`scripts/generate_bench_data.py` writes `testdata/bench/labelled` and `testdata/bench/unlabelled` deterministically (seed 1). Each has 30 samples (28 biological, 2 mixed standards) and ~100 compounds. Every sample × compound cell is assigned scenarios that mimic difficult real data: overlapping neighbours, near co-elution, shoulders, broad tailing peaks, noise, drifting baselines, retention time shift, trace-level peaks, saturated detector, heavy labelling, unlabelled controls, low internal standard, missing peaks. `manifest.json` records the scenario and true areas of every cell. The harness validates the parameters, generator fingerprint, manifest checksum, and every artifact hash before reuse, and generation replaces a corpus only after all new artifacts are complete.
 
 Import, export and the tile grid scale linearly with samples, so 30 is enough to measure per-item cost. The deconvolution corpus is drawn from cells the generator planted as hard (`HARD_SCENARIOS` in `bench/conftest.py`), interleaved so any prefix is a mix.
 
@@ -65,10 +76,12 @@ Import, export and the tile grid scale linearly with samples, so 30 is enough to
 
 | Flag | Effect |
 | --- | --- |
-| `--bench-full` | 60 deconvolution windows at levels 4 and 7, and every compound navigated in `plot_next`. Adds about a minute. Use it to confirm a result before merging. |
+| `--bench-full` | 60 deconvolution windows at levels 4 and 7, and every compound navigated in separately identified `plot_next` rows. This is a distinct workload and requires a matching full baseline. |
 | `--bench-repeat N` | N rounds per stage (default 1). Use 3 when a change looks like it moved something by less than 10 %. |
+| `--bench-scan-dt-s 0.1` | Generate and use dense-axis data. The scan interval is part of the workload identity and corpus validation. |
 | `-k import` | Only the stages whose test name matches. Names: `import`, `corrections`, `deconvolve`, `plot_first`, `plot_next`, `export`, `labelled`, `unlabelled`. |
 | `--benchmark-compare=0003` | Compare against a specific saved run by its 4-digit prefix instead of the latest. |
+| `--benchmark-autosave` | Save this run to the JSON history. Use for baselines and clean committed history, not iterative candidate runs. |
 | `--benchmark-histogram=PATH` | Change where the plots are written (default `.benchmarks/plots/run`). |
 | `--benchmark-disable` | Run the assertions once with no timing or saving. |
 
@@ -76,7 +89,10 @@ All `--benchmark-*` flags are from [pytest-benchmark](https://pytest-benchmark.r
 
 ## Reading the table
 
-`Median` is the number to compare. `Max` matters for `plot_next`, where one slow compound is what a user feels even when the median is fine. `Rounds` is 1 unless you passed `--bench-repeat`, except `plot_next`, where each move is a round.
+`Median` is the number to compare. Each `plot_next` target has its own row and
+records the compound name in the saved metadata, so one slow compound cannot be
+hidden by the median of the rest. `Rounds` is 1 unless you passed
+`--bench-repeat`.
 
 Run-to-run noise on a quiet machine is 1 to 3 % for most stages and up to 7 % for labelled export. Treat anything inside 10 % as noise unless `--bench-repeat 3` agrees.
 
@@ -84,16 +100,22 @@ Run-to-run noise on a quiet machine is 1 to 3 % for most stages and up to 7 % fo
 
 ```bash
 git switch -c faster-import
-uv run pytest bench -k import                          # baseline for the stage you are changing
+uv run pytest bench -k import --benchmark-autosave     # note the printed baseline id
 # edit src/manic/io/eic_importer.py
-uv run pytest bench -k import --benchmark-compare --benchmark-compare-fail=median:10%
-uv run pytest bench --bench-full --benchmark-compare   # everything, before opening the PR
+uv run pytest bench -k import --benchmark-compare=0003 --benchmark-compare-fail=median:10%
+# For a full comparison, save a full baseline before editing and select its id:
+uv run pytest bench --bench-full --benchmark-compare=0004
 ./scripts/tests.sh                                     # correctness
 ```
 
 ## Maintenance
 
-- Regenerate data after changing the generator: `rm -rf testdata/bench bench/cache && uv run pytest bench`.
-- The cached databases are keyed on the manifest and `schema.sql`; a schema change rebuilds them automatically.
+- Generator, helper, source-XLS, corpus-parameter, or artifact changes trigger
+  automatic corpus/database rebuilds.
+- Cached databases are keyed on every CDF, the compound list, manifest, schema,
+  dependency lock, benchmark import configuration, and all application Python
+  sources.
 
-- Dense-axis data (closer to instrument scan rates) is available with `uv run python scripts/generate_bench_data.py --mode both --scan-dt-s 0.1`; import and export slow roughly fivefold.
+- Dense-axis data (closer to instrument scan rates) is available with
+  `uv run pytest bench --bench-scan-dt-s 0.1`; import and export slow roughly
+  fivefold.

@@ -62,3 +62,4 @@ def test_deconvolve_hard_windows(case, corpus, full, level, benchmark, repeat):
         channels = eic.intensity.shape[0] if eic.intensity.ndim > 1 else 1
         assert len(cell) == channels, compound.name
         assert all(np.isfinite(cell)) and all(a >= 0 for a in cell), compound.name
+        assert any(a > 0 for a in cell), compound.name

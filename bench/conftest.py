@@ -184,11 +184,20 @@ def import_dataset(case: Case, db_path: Path) -> int:
     return import_eics(case.cdf_dir, mass_tol=0.2, rt_window=0.2)
 
 
+CACHE_INPUTS = (
+    "src/manic/models/schema.sql",
+    "src/manic/io/eic_importer.py",
+    "src/manic/io/compounds_import.py",
+    "src/manic/processors/eic_correction_manager.py",
+)
+
+
 def cached_db(case: Case) -> Path:
-    """Rebuilt only when the dataset or schema changes."""
+    """Rebuilt when the dataset, the schema, or the code that fills the database changes."""
     digest = hashlib.sha256()
     digest.update((case.cdf_dir / "manifest.json").read_bytes())
-    digest.update((ROOT / "src" / "manic" / "models" / "schema.sql").read_bytes())
+    for rel in CACHE_INPUTS:
+        digest.update((ROOT / rel).read_bytes())
     path = CACHE_DIR / f"{case.name}-{digest.hexdigest()[:12]}.db"
     if not path.exists():
         for stale in CACHE_DIR.glob(f"{case.name}-*.db"):

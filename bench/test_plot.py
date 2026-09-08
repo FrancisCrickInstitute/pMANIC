@@ -45,11 +45,14 @@ def test_plot_first(case, db, qapp, benchmark, repeat):
         window.on_plot_button(name, samples)
         qapp.processEvents()
 
-    benchmark.pedantic(plot, setup=setup, rounds=repeat)
-    for window, names in windows:
-        _assert_grid(window, case, names[0])
-        window.close()
-    qapp.processEvents()
+    try:
+        benchmark.pedantic(plot, setup=setup, rounds=repeat)
+        for window, names in windows:
+            _assert_grid(window, case, names[0])
+    finally:
+        for window, _names in windows:
+            window.close()
+        qapp.processEvents()
 
 
 def test_plot_next(case, db, qapp, navigation, benchmark):
@@ -70,7 +73,9 @@ def test_plot_next(case, db, qapp, navigation, benchmark):
         window.toolbar.compound_list.setCurrentRow(index)
         qapp.processEvents()
 
-    benchmark.pedantic(navigate, setup=setup, rounds=len(navigation))
-    _assert_grid(window, case, names[shown[-1]])
-    window.close()
-    qapp.processEvents()
+    try:
+        benchmark.pedantic(navigate, setup=setup, rounds=len(navigation))
+        _assert_grid(window, case, names[shown[-1]])
+    finally:
+        window.close()
+        qapp.processEvents()

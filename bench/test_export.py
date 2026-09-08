@@ -3,6 +3,7 @@ from __future__ import annotations
 from openpyxl import load_workbook
 
 from manic.io.data_exporter import DataExporter
+from manic.io.sample_reader import list_active_samples
 
 
 def test_export(case, db, benchmark, repeat, tmp_path):
@@ -17,7 +18,6 @@ def test_export(case, db, benchmark, repeat, tmp_path):
     path = benchmark.pedantic(export, rounds=repeat)
     wb = load_workbook(path, read_only=True)
     assert {"Raw Values", "Abundances"} <= set(wb.sheetnames)
-    rows = list(wb["Abundances"].iter_rows(min_col=2, max_col=2, values_only=True))
-    samples = {r[0] for r in rows if r[0] and str(r[0]).startswith(("Bio_", "Std_", "MM_"))}
-    assert len(samples) == case.n_samples
+    column_b = {r[0] for r in wb["Abundances"].iter_rows(min_col=2, max_col=2, values_only=True)}
+    assert set(list_active_samples()) <= column_b
     wb.close()

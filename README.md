@@ -141,6 +141,9 @@ The project maintains a test suite covering:
 ./scripts/tests.sh
 ```
 
+### Performance Benchmarks
+The performance suite in `bench/` times import, natural abundance correction, deconvolution, plotting, next-compound navigation, and export on synthetic datasets. It is not collected by the commands above. Save a baseline with `uv run pytest bench --benchmark-autosave` (about 90 s; the first run generates data and takes about 3 min), note its id, and compare with `uv run pytest bench --benchmark-compare=<id> --benchmark-compare-fail=median:10%`. See [docs/Benchmarking.md](docs/Benchmarking.md).
+
 ### Building Executables
 
 To compile the application into a standalone Windows executable (.exe) and installer:

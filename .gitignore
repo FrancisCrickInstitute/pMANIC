@@ -12,3 +12,5 @@ agents.md
 *temp/
 OLD_MANIC/
 testdata/
+bench/cache/
+.benchmarks/

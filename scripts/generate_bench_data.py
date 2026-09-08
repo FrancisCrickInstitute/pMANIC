@@ -20,9 +20,13 @@ Run from the repository root:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import os
 import re
+import shutil
+import tempfile
 import time
 from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
@@ -31,30 +35,35 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from synthetic_gcms import (
-    BLEED_IONS,
-    _baseline_trace,
-    _emg_trace,
-    _write_cdf,
-    assemble_scan_arrays,
-    channel_points,
-)
+if __package__:
+    from . import synthetic_gcms
+else:
+    import synthetic_gcms
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / "testdata" / "bench"
 LABELLED_XLS = ROOT / "example_compounds_list.xls"
+
+BLEED_IONS = synthetic_gcms.BLEED_IONS
+_baseline_trace = synthetic_gcms._baseline_trace
+_emg_trace = synthetic_gcms._emg_trace
+_write_cdf = synthetic_gcms._write_cdf
+assemble_scan_arrays = synthetic_gcms.assemble_scan_arrays
+channel_points = synthetic_gcms.channel_points
 
 START_S = 60.0
 END_S = 1500.0
 N_BACKGROUND_PEAKS = 36
 BASE_HEIGHT = 1.5e5
 SATURATION_CLIP = 2.5e6
+LABEL_PURITY = 0.99
 TRUTH_GRID = 480
 WRITE_LEFT_MIN = 1.0
 WRITE_RIGHT_MIN = 2.5
 
 _FORMULA_TOKEN = re.compile(r"^([A-Z][a-z]?)(\d+)$")
 _TRAPZ = getattr(np, "trapezoid", np.trapz)
+_GENERATOR_INPUTS = (Path(__file__), Path(synthetic_gcms.__file__), LABELLED_XLS)
 
 # Natural-abundance extra-neutron probabilities used for MID convolution.
 _ISOTOPE: dict[str, tuple[tuple[int, float], ...]] = {
@@ -364,10 +373,16 @@ def labelled_channel_fractions(
     n_label = max(0, int(label_atoms))
     counts = _parse_formula(formula)
     leftover = dict(counts)
-    # Labelled carbons are the binomial tracer term. Counting them again in NA would double-count.
+    # Labelable carbons belong in the tracer term rather than the remaining
+    # natural-abundance term. At zero experimental enrichment they still have
+    # carbon's natural 13C probability.
     leftover["C"] = max(0, leftover.get("C", 0) - n_label)
     natural = _natural_abundance(leftover, n_label + 20)
-    tracer = _binomial_pmf(n_label, enrichment)
+    natural_13c = dict(_ISOTOPE["C"])[1]
+    tracer_probability = natural_13c + (
+        LABEL_PURITY - natural_13c
+    ) * float(enrichment)
+    tracer = _binomial_pmf(n_label, tracer_probability)
     conv = np.convolve(tracer, natural)
     fracs = np.asarray(conv[: n_label + 1], dtype=np.float64)
     total = float(fracs.sum())
@@ -1114,6 +1129,31 @@ def _json_ready(obj):
     return obj
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _generator_fingerprint() -> str:
+    digest = hashlib.sha256()
+    for path in _GENERATOR_INPUTS:
+        digest.update(path.name.encode("utf-8"))
+        digest.update(bytes.fromhex(_file_sha256(path)))
+    return digest.hexdigest()
+
+
+def _manifest_fingerprint(payload: dict) -> str:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _write_manifest(
     path: Path,
     *,
@@ -1133,6 +1173,7 @@ def _write_manifest(
         "scan_dt_s": scan_dt_s,
         "start_s": START_S,
         "end_s": END_S,
+        "generator_fingerprint": _generator_fingerprint(),
         "n_samples": n_samples,
         "n_compounds": n_compounds,
         "internal_standard": internal_standard,
@@ -1140,13 +1181,18 @@ def _write_manifest(
         "compounds": _json_ready(compounds),
         "truths": _json_ready(truths),
     }
+    artifacts = [path.parent / "compounds.csv", *sorted(path.parent.glob("*.cdf"))]
+    payload["artifact_hashes"] = {
+        artifact.name: _file_sha256(artifact) for artifact in artifacts
+    }
+    payload["manifest_fingerprint"] = _manifest_fingerprint(payload)
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
 
-def generate_dataset(
+def _generate_dataset_contents(
     mode: str,
     *,
     n_samples: int,
@@ -1237,6 +1283,43 @@ def generate_dataset(
         f"{mb:.1f} MB, {elapsed:.1f}s"
     )
     return len(samples), len(targets), mb, elapsed
+
+
+def generate_dataset(
+    mode: str,
+    *,
+    n_samples: int,
+    seed: int,
+    scan_dt_s: float,
+    out_dir: Path,
+) -> tuple[int, int, float, float]:
+    """Generate into a staging directory and replace the corpus only on success."""
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    transaction_dir = Path(
+        tempfile.mkdtemp(prefix=f".{out_dir.name}-generation-", dir=out_dir.parent)
+    )
+    staging_dir = transaction_dir / "new"
+    backup_dir = transaction_dir / "old"
+    try:
+        result = _generate_dataset_contents(
+            mode,
+            n_samples=n_samples,
+            seed=seed,
+            scan_dt_s=scan_dt_s,
+            out_dir=staging_dir,
+        )
+        had_previous = out_dir.exists()
+        try:
+            if had_previous:
+                os.replace(out_dir, backup_dir)
+            os.replace(staging_dir, out_dir)
+        except BaseException:
+            if had_previous and backup_dir.exists() and not out_dir.exists():
+                os.replace(backup_dir, out_dir)
+            raise
+        return result
+    finally:
+        shutil.rmtree(transaction_dir, ignore_errors=True)
 
 
 def main() -> None:

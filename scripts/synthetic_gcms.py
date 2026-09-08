@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,20 @@ BLEED_IONS = {73.0: 260.0, 147.0: 420.0, 207.0: 350.0, 281.0: 520.0}
 
 _EMPTY_I32 = np.zeros(0, dtype=np.int32)
 _EMPTY_F64 = np.zeros(0, dtype=np.float64)
+
+
+@lru_cache(maxsize=256)
+def _emg_normalization(sigma: float, tau: float) -> tuple[float, float, float]:
+    """Return shape, mode offset, and apex density independent of sample grid."""
+    shape = max(tau / sigma, 1e-3)
+    standard_time = np.linspace(-8.0, max(8.0, shape + 8.0), 32769)
+    standard_density = exponnorm.pdf(standard_time, shape)
+    mode_index = int(np.argmax(standard_density))
+    return (
+        shape,
+        float(standard_time[mode_index] * sigma),
+        float(standard_density[mode_index] / sigma),
+    )
 
 
 def _emg_trace(
@@ -28,17 +43,16 @@ def _emg_trace(
     """
     if amplitude <= 0 or sigma <= 0:
         return np.zeros_like(time_min)
-    shape = max(tau / sigma, 1e-3)
-    raw = exponnorm.pdf(time_min, shape, loc=center, scale=sigma)
-    mode_t = float(time_min[int(np.argmax(raw))])
-    # One correction pass so the apex (not the Gaussian mean) sits on center.
+    shape, mode_offset, apex_density = _emg_normalization(float(sigma), float(tau))
     raw = exponnorm.pdf(
-        time_min, shape, loc=center + (center - mode_t), scale=sigma
+        time_min,
+        shape,
+        loc=center - mode_offset,
+        scale=sigma,
     )
-    peak = float(raw.max())
-    if peak <= 0:
+    if apex_density <= 0:
         return np.zeros_like(time_min)
-    return amplitude * raw / peak
+    return amplitude * raw / apex_density
 
 
 def _baseline_trace(

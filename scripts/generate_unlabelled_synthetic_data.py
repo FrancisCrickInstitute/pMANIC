@@ -22,8 +22,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from netCDF4 import Dataset
-from scipy.stats import exponnorm
+
+from synthetic_gcms import (
+    BLEED_IONS,
+    _add_channel,
+    _baseline_trace,
+    _emg_trace,
+    _write_cdf,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "testdata" / "unlabelled_synthetic"
@@ -212,105 +218,8 @@ SAMPLES = [
     SampleSpec("MM_02", "standard mixture replicate 2", rt_shift=0.01, quant_scale=1.05),
 ]
 
-# Silicone column bleed ions (nominal m/z → base amplitude in counts).
-BLEED_IONS = {73.0: 260.0, 147.0: 420.0, 207.0: 350.0, 281.0: 520.0}
-
 # Number of untargeted background peaks that make the TIC look like a real run.
 N_BACKGROUND_PEAKS = 22
-
-
-def _emg_trace(
-    time_min: np.ndarray,
-    center: float,
-    amplitude: float,
-    sigma: float,
-    tau: float,
-) -> np.ndarray:
-    """Tailed chromatographic peak (exponentially modified Gaussian).
-
-    Scaled so the apex lands on ``center`` with height ``amplitude``.
-    """
-    if amplitude <= 0 or sigma <= 0:
-        return np.zeros_like(time_min)
-    shape = max(tau / sigma, 1e-3)
-    raw = exponnorm.pdf(time_min, shape, loc=center, scale=sigma)
-    mode_t = float(time_min[int(np.argmax(raw))])
-    # One correction pass so the apex (not the Gaussian mean) sits on center.
-    raw = exponnorm.pdf(
-        time_min, shape, loc=center + (center - mode_t), scale=sigma
-    )
-    peak = float(raw.max())
-    if peak <= 0:
-        return np.zeros_like(time_min)
-    return amplitude * raw / peak
-
-
-def _baseline_trace(
-    time_min: np.ndarray, rng: np.random.Generator, level: float
-) -> np.ndarray:
-    """Low wavy chemical baseline: sine wander + upward drift + noise."""
-    duration = float(time_min[-1] - time_min[0])
-    phase = rng.uniform(0.0, 2.0 * np.pi)
-    wander = 0.55 * level * np.sin(
-        2.0 * np.pi * time_min / rng.uniform(4.0, 9.0) + phase
-    )
-    drift = 0.5 * level * (time_min - time_min[0]) / duration
-    noise = rng.normal(0.0, 0.12 * level, size=time_min.size)
-    return np.clip(level + wander + drift + noise, 1.0, None)
-
-
-def _write_cdf(
-    path: Path,
-    *,
-    scan_time_s: np.ndarray,
-    mass: np.ndarray,
-    intensity: np.ndarray,
-    scan_index: np.ndarray,
-    point_count: np.ndarray,
-    total_intensity: np.ndarray,
-) -> None:
-    with Dataset(path, "w", format="NETCDF3_CLASSIC") as cdf:
-        n_scans = len(scan_time_s)
-        n_points = len(mass)
-        cdf.createDimension("scan_number", n_scans)
-        cdf.createDimension("point_number", n_points)
-
-        v_time = cdf.createVariable("scan_acquisition_time", "f8", ("scan_number",))
-        v_mass = cdf.createVariable("mass_values", "f8", ("point_number",))
-        v_inten = cdf.createVariable("intensity_values", "f8", ("point_number",))
-        v_index = cdf.createVariable("scan_index", "i4", ("scan_number",))
-        v_count = cdf.createVariable("point_count", "i4", ("scan_number",))
-        v_tic = cdf.createVariable("total_intensity", "f8", ("scan_number",))
-
-        v_time[:] = scan_time_s
-        v_mass[:] = mass
-        v_inten[:] = intensity
-        v_index[:] = scan_index
-        v_count[:] = point_count
-        v_tic[:] = total_intensity
-
-
-def _add_channel(
-    masses_by_scan: list[list[float]],
-    intens_by_scan: list[list[float]],
-    time_min: np.ndarray,
-    mz: float,
-    trace: np.ndarray,
-    rng: np.random.Generator,
-    *,
-    active_fraction: float = 1e-4,
-) -> None:
-    """Materialise a trace as jittered mass/intensity points per scan."""
-    amplitude = float(trace.max()) if trace.size else 0.0
-    if amplitude <= 0:
-        return
-    active = np.where(trace > amplitude * active_fraction)[0]
-    for idx in active:
-        signal = float(trace[idx])
-        noise = float(rng.normal(0.0, 1.5 + 0.012 * signal))
-        mass_jitter = float(np.clip(rng.normal(0.0, 0.02), -0.05, 0.05))
-        masses_by_scan[idx].append(mz + mass_jitter)
-        intens_by_scan[idx].append(max(1.0, signal + noise))
 
 
 def _background_peaks(

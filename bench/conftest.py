@@ -1,4 +1,4 @@
-"""Fixtures for the performance bench. See docs/Benchmarking.md.
+"""Fixtures for the performance bench. See bench/README.md.
 
 The first run on a machine generates testdata/bench (gitignored) and builds one
 populated database per dataset under bench/cache. Later runs reuse both.

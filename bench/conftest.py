@@ -379,18 +379,22 @@ def _update_digest(digest, path: Path) -> None:
             digest.update(chunk)
 
 
+# The code that writes the database. Other application code reads it, so
+# editing (say) the deconvolver must not throw the cache away.
+DB_WRITERS = (
+    "src/manic/models/schema.sql",
+    "src/manic/io/eic_importer.py",
+    "src/manic/io/compounds_import.py",
+    "src/manic/processors/eic_correction_manager.py",
+)
+
+
 @lru_cache(maxsize=None)
 def _database_cache_digest(case: Case) -> str:
     digest = hashlib.sha256()
     for path in (
         case.cdf_dir / "manifest.json",
-        case.compounds_csv,
-        *sorted(case.cdf_dir.glob("*.cdf")),
-        *sorted((ROOT / "src" / "manic").rglob("*.py")),
-        ROOT / "src" / "manic" / "models" / "schema.sql",
-        ROOT / "pyproject.toml",
-        ROOT / "uv.lock",
-        Path(__file__),
+        *(ROOT / rel for rel in DB_WRITERS),
     ):
         _update_digest(digest, path)
     return digest.hexdigest()

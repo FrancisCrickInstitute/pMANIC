@@ -11,7 +11,17 @@ uv run pytest bench                                    # baseline, ~90 s (~3 min
 uv run pytest bench --benchmark-compare --benchmark-compare-fail=median:10%
 ```
 
-The first run generates `testdata/bench/` (two datasets, ~36 s) and builds one populated database per dataset under `bench/cache/` (~20 s). Both are gitignored and reused afterwards. Every run saves its numbers to `.benchmarks/` and prints a table. `--benchmark-compare` adds the previous run alongside, and `--benchmark-compare-fail=median:10%` fails the run when any stage's median is more than 10 % slower.
+The first run generates `testdata/bench/` (two datasets, ~36 s) and builds one populated database per dataset under `bench/cache/` (~20 s). Both are gitignored and reused afterwards. `--benchmark-compare` adds the previous run alongside, and `--benchmark-compare-fail=median:10%` fails the run when any stage's median is more than 10 % slower.
+
+## Outputs
+
+Every run produces three things.
+
+1. **A table in the terminal**, one section per stage, one row per dataset. With `--benchmark-compare` each row appears twice, the saved run tagged with its 4-digit id and the current run tagged `NOW`.
+2. **A JSON file** in `.benchmarks/<platform>/`, named `<id>_<git sha>_<timestamp>.json`, holding every timing plus machine and commit info. This is the run history; `--benchmark-compare` reads the latest one by default.
+3. **A box plot per stage** in `.benchmarks/plots/run-<stage>.svg`. With `--benchmark-compare` the previous run sits beside the current one, so a change is visible at a glance and the whisker shows the worst compound in `plot_next`. Open them in a browser or the editor. They are overwritten each run; copy them if you want to keep one.
+
+`.benchmarks/` is gitignored. Delete it to start the history fresh.
 
 The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
 
@@ -43,7 +53,7 @@ Import, export and the tile grid scale linearly with samples, so 30 is enough to
 | `--bench-repeat N` | N rounds per stage (default 1). Use 3 when a change looks like it moved something by less than 10 %. |
 | `-k import` | Only the stages whose test name matches. Names: `import`, `corrections`, `deconvolve`, `plot_first`, `plot_next`, `export`, `labelled`, `unlabelled`. |
 | `--benchmark-compare=0003` | Compare against a specific saved run by its 4-digit prefix instead of the latest. |
-| `--benchmark-histogram` | Write SVG histograms per test (needs `pygal`). |
+| `--benchmark-histogram=PATH` | Change where the plots are written (default `.benchmarks/plots/run`). |
 | `--benchmark-disable` | Run the assertions once with no timing or saving. |
 
 All `--benchmark-*` flags are from [pytest-benchmark](https://pytest-benchmark.readthedocs.io/); `uv run pytest bench --help` lists them.
@@ -69,5 +79,5 @@ uv run pytest bench --bench-full --benchmark-compare   # everything, before open
 
 - Regenerate data after changing the generator: `rm -rf testdata/bench bench/cache && uv run pytest bench`.
 - The cached databases are keyed on the manifest and `schema.sql`; a schema change rebuilds them automatically.
-- Saved runs in `.benchmarks/` are local. Delete the directory to start the history fresh.
+
 - Dense-axis data (closer to instrument scan rates) is available with `uv run python scripts/generate_bench_data.py --mode both --scan-dt-s 0.1`; import and export slow roughly fivefold.

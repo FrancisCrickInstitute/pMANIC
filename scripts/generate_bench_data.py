@@ -35,21 +35,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-if __package__:
-    from . import synthetic_gcms
-else:
-    import synthetic_gcms
+import synthetic_gcms
+from synthetic_gcms import (
+    BLEED_IONS,
+    _baseline_trace,
+    _emg_trace,
+    _write_cdf,
+    assemble_scan_arrays,
+    channel_points,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / "testdata" / "bench"
 LABELLED_XLS = ROOT / "example_compounds_list.xls"
-
-BLEED_IONS = synthetic_gcms.BLEED_IONS
-_baseline_trace = synthetic_gcms._baseline_trace
-_emg_trace = synthetic_gcms._emg_trace
-_write_cdf = synthetic_gcms._write_cdf
-assemble_scan_arrays = synthetic_gcms.assemble_scan_arrays
-channel_points = synthetic_gcms.channel_points
 
 START_S = 60.0
 END_S = 1500.0

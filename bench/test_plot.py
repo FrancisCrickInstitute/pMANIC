@@ -93,9 +93,11 @@ def test_plot_next(
     """Time one identified compound so isolated navigation regressions fail."""
     window, names = navigation_window
     target_name = names[navigation_index]
+    # Compound names come from the DB, which may not exist at collection time,
+    # so the row label is set here rather than via a parametrize id.
     target_id = re.sub(r"[^a-z0-9]+", "-", target_name.lower()).strip("-")
-    benchmark.name = f"{benchmark.name}-compound-{target_id}"
-    benchmark.fullname = f"{benchmark.fullname}-compound-{target_id}"
+    benchmark.name = f"{benchmark.name}-{target_id}"
+    benchmark.fullname = f"{benchmark.fullname}-{target_id}"
     benchmark.extra_info["compound"] = target_name
     benchmark.extra_info["compound_index"] = navigation_index
 

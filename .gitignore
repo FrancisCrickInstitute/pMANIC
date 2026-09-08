@@ -13,5 +13,4 @@ agents.md
 OLD_MANIC/
 testdata/
 bench/cache/
-.benchmarks/plots/
-.benchmarks/**/*_uncommitted-changes.json
+.benchmarks/

@@ -66,12 +66,9 @@ class BenchConfig:
 
     @property
     def id(self) -> str:
+        """Workload identity used in test ids. Generator changes gate regeneration, not the name."""
         size = "full" if self.full else "default"
-        generator = _source_fingerprint()[:12]
-        return (
-            f"{size}-seed{self.seed}-n{self.n_samples}-"
-            f"dt{self.scan_dt_s:g}-g{generator}"
-        )
+        return f"{size}-seed{self.seed}-n{self.n_samples}-dt{self.scan_dt_s:g}"
 
     @property
     def n_windows(self) -> int:

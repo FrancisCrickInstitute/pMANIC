@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import subprocess
 import sys
 from pathlib import Path
 
@@ -50,22 +49,6 @@ def test_enrichment_round_trips_through_correction_purity():
     corrected = corrected / corrected.sum()
 
     assert np.allclose(corrected, (0.02, 0.98), atol=5e-4)
-
-
-def test_generators_support_module_execution():
-    root = SCRIPTS.parent
-    for module in (
-        "scripts.generate_bench_data",
-        "scripts.generate_unlabelled_synthetic_data",
-    ):
-        result = subprocess.run(
-            [sys.executable, "-m", module, "--help"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
 
 
 def test_generation_failure_preserves_existing_corpus(tmp_path, monkeypatch):

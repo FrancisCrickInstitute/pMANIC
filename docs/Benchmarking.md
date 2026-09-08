@@ -28,27 +28,20 @@ artifact:
 2. **A JSON file when `--benchmark-autosave` is passed** in `.benchmarks/<platform>/`, named `<id>_<git sha>_<timestamp>.json`, holding every timing plus machine, workload, and commit info. This is the run history. Always select its id explicitly when comparing.
 3. **A plot per stage** in `.benchmarks/plots/run-<stage>.svg`. With `--benchmark-compare` the baseline sits beside the current run; `plot_next` labels every target separately. Open them in a browser or the editor. They are overwritten each run; copy them if you want to keep one.
 
-## Performance history
+## Saved runs
 
-Runs made on a clean working tree are committed; runs made with uncommitted changes get `_uncommitted-changes` in their filename and are gitignored, as are the plots. So the tracked history is exactly the commits someone measured. To add a point, run the bench on a clean tree and commit the new JSON:
+Saved runs stay local. `.benchmarks/` is gitignored because timings from different machines are not comparable, and a fresh baseline costs 90 s, so there is nothing worth sharing. Save a baseline before you start, compare against it while you work, and delete the directory whenever you like.
 
-```bash
-uv run pytest bench --benchmark-autosave
-git add .benchmarks && git commit -m "Bench: <what changed>"
-```
-
-To see the whole history as a table, or as plots:
+To see every saved run on this machine as a table, or as plots:
 
 ```bash
 uv run pytest-benchmark compare                       # every saved run, one table per stage
 uv run pytest-benchmark compare --histogram=.benchmarks/plots/history
 ```
 
-Timings are only comparable on the same machine and workload. Each benchmark
-identity includes the corpus parameters, generator fingerprint, and whether the
-default or full workload ran; navigation identities also include the compound.
-Each JSON records the hostname and CPU. Use your own matching baseline with
-`--benchmark-compare=<id>`.
+Compare only runs with the same workload. Each benchmark id carries the workload
+(default or full, seed, sample count, scan interval), and `plot_next` rows carry
+the compound name. Each JSON also records the hostname and CPU.
 
 The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
 
@@ -81,7 +74,7 @@ Import, export and the tile grid scale linearly with samples, so 30 is enough to
 | `--bench-scan-dt-s 0.1` | Generate and use dense-axis data. The scan interval is part of the workload identity and corpus validation. |
 | `-k import` | Only the stages whose test name matches. Names: `import`, `corrections`, `deconvolve`, `plot_first`, `plot_next`, `export`, `labelled`, `unlabelled`. |
 | `--benchmark-compare=0003` | Compare against a specific saved run by its 4-digit prefix instead of the latest. |
-| `--benchmark-autosave` | Save this run to the JSON history. Use for baselines and clean committed history, not iterative candidate runs. |
+| `--benchmark-autosave` | Save this run as a baseline. Leave it off for candidate runs so repeated compares keep pointing at the same baseline. |
 | `--benchmark-histogram=PATH` | Change where the plots are written (default `.benchmarks/plots/run`). |
 | `--benchmark-disable` | Run the assertions once with no timing or saving. |
 

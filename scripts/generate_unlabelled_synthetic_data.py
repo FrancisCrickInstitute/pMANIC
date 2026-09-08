@@ -23,16 +23,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-if __package__:
-    from . import synthetic_gcms
-else:
-    import synthetic_gcms
-
-BLEED_IONS = synthetic_gcms.BLEED_IONS
-_add_channel = synthetic_gcms._add_channel
-_baseline_trace = synthetic_gcms._baseline_trace
-_emg_trace = synthetic_gcms._emg_trace
-_write_cdf = synthetic_gcms._write_cdf
+from synthetic_gcms import (
+    BLEED_IONS,
+    _add_channel,
+    _baseline_trace,
+    _emg_trace,
+    _write_cdf,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "testdata" / "unlabelled_synthetic"

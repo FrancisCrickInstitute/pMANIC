@@ -109,7 +109,7 @@ uv run python bench/areas.py snapshot .benchmarks/areas-after.npz   # on the bra
 uv run python bench/areas.py diff .benchmarks/areas-before.npz .benchmarks/areas-after.npz
 ```
 
-A pure overhead change should report every cell identical. A change to the optimiser's path will move a handful of ill-determined cells; the diff checks every channel independently and prints the largest changes so they can be judged against `testdata/bench/*/manifest.json` truths. Snapshots record the exact source databases and refuse comparisons across different corpora. Existing snapshot files are never overwritten.
+A pure overhead change should report every cell identical. A change to the optimiser's path will move a handful of ill-determined cells; the diff scores every channel against its own size (floored at one area unit) so a small isotopologue that moves is not hidden behind M+0, and prints the largest changes so they can be judged against `testdata/bench/*/manifest.json` truths. Snapshots record the manifests they were fitted from and compare only across the same generated data, so a branch that rebuilds the cached database (importer or schema change) still diffs cleanly against `main`. Re-running `snapshot` to the same path replaces the file atomically.
 
 ## Maintenance
 

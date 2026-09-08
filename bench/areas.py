@@ -11,7 +11,9 @@ answers. This does. Run it once per commit and diff the two tables:
 Snapshot reads the cached bench databases under bench/cache/ (run the bench once
 to create them) and fits every cell in both datasets at level 4 (the shipped
 default) and level 7 (the most expensive), about 6 minutes on 8 cores. Each
-snapshot records the exact source databases and is written atomically.
+snapshot records the dataset manifests it was fitted from, so two snapshots
+compare only when they describe the same generated data, whichever commit
+built the databases.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from manic.processors.chromatographic_peak_deconvolution import deconvolve_chann
 from manic.processors.integration import integrate_bundle_areas
 
 CACHE = Path(__file__).resolve().parent / "cache"
+BENCH_DATA = Path(__file__).resolve().parents[1] / "testdata" / "bench"
 LEVELS = {"4": ("auto", "balanced"), "7": ("auto", "off")}
 TOLERANCES = (1e-9, 1e-6, 1e-4, 1e-3, 1e-2)
 EXPECTED_MODES = ("labelled", "unlabelled")
@@ -56,17 +59,23 @@ def _discover_databases(cache: Path = CACHE) -> dict[str, Path]:
         matches = sorted(cache.glob(f"{mode}-*.db"))
         if len(matches) != 1:
             sys.exit(
-                f"invalid bench cache under {cache}: {mode} has {len(matches)} "
-                "databases; run `uv run pytest bench` to rebuild it"
+                f"expected one {mode} database under {cache}, found {len(matches)}; "
+                "the bench keeps one per workload, so run `uv run pytest bench` "
+                "with the options for the workload you want to snapshot"
             )
         databases[mode] = matches[0]
     return databases
 
 
-def _database_provenance(databases: dict[str, Path]) -> dict[str, str]:
+def _dataset_provenance(data: Path = BENCH_DATA) -> dict[str, str]:
+    """Identity of the generated data, not of the database built from it.
+
+    The cached database is rebuilt (under a new name) whenever the importer or
+    schema changes, but the fitter only sees the EIC data, so snapshots taken
+    on either side of such a change are still comparable.
+    """
     return {
-        mode: f"{path.name}:{_file_sha256(path)}"
-        for mode, path in sorted(databases.items())
+        mode: _file_sha256(data / mode / "manifest.json") for mode in EXPECTED_MODES
     }
 
 
@@ -114,9 +123,6 @@ def _save_snapshot(
 ) -> Path:
     out = _snapshot_path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    if out.exists():
-        sys.exit(f"refusing to overwrite existing snapshot: {out}")
-
     temporary = out.with_name(f".{out.name}.{os.getpid()}.tmp")
     payload = {
         METADATA_KEY: np.asarray(json.dumps(provenance, sort_keys=True)),
@@ -136,7 +142,7 @@ def _save_snapshot(
 
 def snapshot(out: Path) -> None:
     databases = _discover_databases()
-    provenance = _database_provenance(databases)
+    provenance = _dataset_provenance()
     jobs = []
     for mode, db in databases.items():
         database.DB_FILE = db
@@ -157,14 +163,13 @@ def snapshot(out: Path) -> None:
 
 
 def _relative_difference(before: np.ndarray, after: np.ndarray) -> float:
-    if before.shape != after.shape:
-        raise ValueError(f"area shapes differ: {before.shape} != {after.shape}")
-    if (
-        before.size == 0
-        or not np.all(np.isfinite(before))
-        or not np.all(np.isfinite(after))
-    ):
-        raise ValueError("areas must be non-empty and finite")
+    """Largest per-channel change relative to that channel, floored at 1 unit.
+
+    Per channel rather than per cell so a minor isotopologue moving from 1 to
+    1000 next to an M+0 of 1e6 is reported. Non-finite input yields nan.
+    """
+    if before.shape != after.shape or before.size == 0:
+        return np.nan
     scale = np.maximum(np.abs(before), 1.0)
     return float(np.max(np.abs(before - after) / scale))
 
@@ -192,18 +197,18 @@ def diff(before_path: Path, after_path: Path, show: int) -> None:
     after_metadata, after = _load_snapshot(after_path)
     if before_metadata != after_metadata:
         sys.exit(
-            "snapshots use different bench databases; "
-            "regenerate them from the same cache"
+            "snapshots were fitted from different generated datasets; "
+            "regenerate both against the same testdata/bench"
         )
     if set(before) != set(after):
         sys.exit("snapshots cover different cells; regenerate both on the same bench data")
-    rows: list[tuple[float, str]] = []
-    for key in before:
-        try:
-            rows.append((_relative_difference(before[key], after[key]), key))
-        except ValueError as error:
-            raise SystemExit(f"cannot compare {key}: {error}") from error
-    rows.sort(reverse=True)
+    scored = {key: _relative_difference(before[key], after[key]) for key in before}
+    unusable = sorted(key for key, rel in scored.items() if np.isnan(rel))
+    for key in unusable:
+        print(f"not comparable  {key}: before {before[key]} after {after[key]}")
+    rows = sorted(
+        ((rel, key) for key, rel in scored.items() if not np.isnan(rel)), reverse=True
+    )
     by_level: dict[str, list[float]] = {}
     for rel, key in rows:
         by_level.setdefault(key.split("|", 3)[1], []).append(rel)

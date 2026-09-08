@@ -809,11 +809,20 @@ def _fit_shape_candidate(
         total = intercept[:, None] + weights @ shape_matrix
         return ((total - y) / channel_scale[:, None]).ravel()
 
+    def jacobian(values: np.ndarray) -> np.ndarray:
+        values_matrix = np.asarray(values, dtype=np.float64).reshape(
+            component_count, param_count
+        )
+        return _variable_projection_jacobian(
+            x_rel, shape_model, values_matrix, y, ones, ridge, channel_scale
+        )
+
     try:
         result = least_squares(
             residual,
             x0=np.asarray(initial, dtype=np.float64),
             bounds=(np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)),
+            jac=jacobian if shape_model in ("gaussian", "bi_gaussian") else "2-point",
             x_scale="jac",
             max_nfev=params.max_nfev,
         )
@@ -1159,6 +1168,104 @@ def _component_shapes(
     valid = (max_shapes > 0) & np.isfinite(max_shapes)
     normalized[valid] = shapes[valid] / max_shapes[valid, None]
     return normalized
+
+
+def _component_shape_gradients(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    if shape_model not in ("gaussian", "bi_gaussian"):
+        raise ValueError(f"Unsupported shape model for analytic gradients: {shape_model}")
+
+    shapes = _component_shapes(x_rel, shape_model, values_matrix)
+    component_count = values_matrix.shape[0]
+    if x_rel.size == 0:
+        return shapes, np.zeros(
+            (component_count, values_matrix.shape[1], 0), dtype=np.float64
+        )
+
+    center = values_matrix[:, 0, None]
+    if shape_model == "gaussian":
+        sigma = values_matrix[:, 1, None]
+        u = (x_rel[None, :] - center) / sigma
+        raw_shapes = np.exp(-0.5 * u**2)
+        raw_gradients = np.stack(
+            (raw_shapes * u / sigma, raw_shapes * u**2 / sigma), axis=1
+        )
+    else:
+        sigma_left = values_matrix[:, 1, None]
+        sigma_right = values_matrix[:, 2, None]
+        left = x_rel[None, :] < center
+        sigma = np.where(left, sigma_left, sigma_right)
+        u = (x_rel[None, :] - center) / sigma
+        raw_shapes = np.exp(-0.5 * u**2)
+        sigma_gradient = raw_shapes * u**2 / sigma
+        raw_gradients = np.stack(
+            (
+                raw_shapes * u / sigma,
+                sigma_gradient * left,
+                sigma_gradient * ~left,
+            ),
+            axis=1,
+        )
+
+    max_shapes = np.max(raw_shapes, axis=1)
+    valid = (max_shapes > 0) & np.isfinite(max_shapes)
+    gradients = np.zeros_like(raw_gradients, dtype=np.float64)
+    max_indices = np.argmax(raw_shapes, axis=1)
+    max_gradients = np.take_along_axis(
+        raw_gradients, max_indices[:, None, None], axis=2
+    ).squeeze(axis=2)
+    gradients[valid] = (
+        raw_gradients[valid]
+        - shapes[valid, None, :] * max_gradients[valid, :, None]
+    ) / max_shapes[valid, None, None]
+    return shapes, gradients
+
+
+def _variable_projection_jacobian(
+    x_rel: np.ndarray,
+    shape_model: PeakShapeModel,
+    values_matrix: np.ndarray,
+    y: np.ndarray,
+    ones: np.ndarray,
+    ridge: np.ndarray,
+    channel_scale: np.ndarray,
+) -> np.ndarray:
+    """Exact derivative of the variable-projection residual (Golub-Pereyra).
+
+    The residual re-solves the per-channel intercept and weights at every trial
+    shape, so its derivative is not just ``weights * dS/dtheta``. With
+    ``D = [1, S^T]``, ``G = D^T D + ridge`` and ``r = y - D coef`` the derivative
+    of the model with respect to one shape parameter is
+    ``(I - D G^-1 D^T) D_q coef + D G^-1 D_q^T r``; the first term projects out
+    the part of the change the re-solved coefficients would absorb and the
+    second is the coefficients' own response to the residual.
+    """
+    component_count, param_count = values_matrix.shape
+    channels, points = y.shape
+    shapes, gradients = _component_shape_gradients(x_rel, shape_model, values_matrix)
+    design = np.column_stack([ones, shapes.T])
+    gram = design.T @ design + ridge
+    gram_inv_design_t = np.linalg.solve(gram, design.T)
+    coef = gram_inv_design_t @ y.T
+    residual = y.T - design @ coef
+    weights = coef[1:]
+
+    column_count = component_count * param_count
+    grads = gradients.reshape(column_count, points)
+    component_of_column = np.repeat(np.arange(component_count), param_count)
+    naive = grads.T[:, None, :] * weights[component_of_column].T[None, :, :]
+    flat = naive.reshape(points, channels * column_count)
+    projected = flat - design @ (gram_inv_design_t @ flat)
+    projected = projected.reshape(points, channels, column_count)
+
+    design_gram_inv = gram_inv_design_t.T
+    feedback = (
+        design_gram_inv[:, component_of_column + 1][:, None, :]
+        * (grads @ residual).T[None, :, :]
+    )
+    jac = (projected + feedback) / channel_scale[None, :, None]
+    return np.transpose(jac, (1, 0, 2)).reshape(channels * points, column_count)
 
 
 def _masked_result(

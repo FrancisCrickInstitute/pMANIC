@@ -1462,3 +1462,28 @@ def test_variable_projection_jacobian_matches_finite_differences(shape_model):
         np.testing.assert_allclose(
             analytic, numeric, rtol=1e-5, atol=1e-6 * np.max(np.abs(numeric))
         )
+
+
+@pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian", "emg"])
+def test_fit_shape_candidate_hands_least_squares_the_analytic_jacobian(
+    monkeypatch, shape_model
+):
+    seen = {}
+    real = deconv.least_squares
+
+    def spy(fun, x0, **kwargs):
+        seen["jac"] = kwargs["jac"]
+        return real(fun, x0, **kwargs)
+
+    monkeypatch.setattr(deconv, "least_squares", spy)
+    x_rel = np.arange(0.0, 24.0, 0.5)
+    y = 1e4 * deconv._component_shapes(x_rel, "gaussian", np.array([[12.0, 1.5]]))
+    deconv._fit_shape_candidate(
+        x_rel, y, [11.5], shape_model, 0.5, 6.0, 1.0, 1e4, deconv.STRINGENCY_PRESETS["7"]
+    )
+
+    assert callable(seen["jac"])
+    x0 = np.array([11.5, 1.0] if shape_model == "gaussian" else [11.5, 1.0, 1.0])
+    jac = seen["jac"](x0)
+    assert jac.shape == (x_rel.size, x0.size)
+    assert np.all(np.isfinite(jac))

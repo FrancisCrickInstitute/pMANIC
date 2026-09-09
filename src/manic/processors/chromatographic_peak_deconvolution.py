@@ -35,6 +35,8 @@ PEAK_SHAPE_FIT_TYPES: tuple[PeakShapeFitType, ...] = (
 DEFAULT_DECONVOLUTION_LEVEL = "4"
 DEFAULT_DECONVOLUTION_FIT_TYPE = "auto"
 MIN_DECONVOLUTION_CONTEXT_MINUTES = 0.25
+# erfcx(-26) is finite (7.7e293); erfcx(-27) overflows.
+EMG_Z_FLOOR = -26.0
 
 
 @dataclass(frozen=True)
@@ -1123,29 +1125,39 @@ def _raw_component_shapes(
             values_matrix[:, 2, None],
         )
         return np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
-    center = values_matrix[:, 0, None]
+    u, z_unclipped, _, _ = _emg_terms(x_rel, values_matrix)
+    return np.exp(-0.5 * u**2) * erfcx(np.clip(z_unclipped, EMG_Z_FLOOR, None))
+
+
+def _emg_terms(
+    x_rel: np.ndarray, values_matrix: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """EMG reduced variables u and z, plus the floored sigma and tau.
+
+    Stable EMG via the scaled complementary error function; the leading
+    1/(2*tau) constant is dropped because the shape is max-normalized later.
+    Callers clip z at EMG_Z_FLOOR to keep erfcx finite far out in the
+    (negligible) tail.
+    """
     eps = np.finfo(np.float64).eps
+    center = values_matrix[:, 0, None]
     sigma = np.maximum(values_matrix[:, 1, None], eps)
     tau = np.maximum(values_matrix[:, 2, None], eps)
-    offset = x_rel[None, :] - center
-    # Stable EMG via the scaled complementary error function; the leading
-    # 1/(2*tau) constant is dropped because the shape is max-normalized later.
-    # z is clipped to keep erfcx finite far out in the (negligible) tail.
-    z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
-    return np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
+    u = (x_rel[None, :] - center) / sigma
+    return u, (sigma / tau - u) / np.sqrt(2.0), sigma, tau
 
 
 def _component_shapes(
     x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
 ) -> np.ndarray:
-    """Max-normalised shape of every component, one row per component."""
+    """Max-normalized shape of every component, one row per component."""
     return _normalize_rows(_raw_component_shapes(x_rel, shape_model, values_matrix))
 
 
 def _component_shape_gradients(
     x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Normalised shapes (K, n) and their derivatives (K, p, n)."""
+    """Normalized shapes (K, n) and their derivatives (K, p, n)."""
     raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
     center = values_matrix[:, 0, None]
     if shape_model == "gaussian":
@@ -1161,38 +1173,19 @@ def _component_shape_gradients(
             (raw * u / sigma, sigma_gradient * left, sigma_gradient * ~left), axis=1
         )
     else:
-        eps = np.finfo(np.float64).eps
-        sigma = np.maximum(values_matrix[:, 1, None], eps)
-        tau = np.maximum(values_matrix[:, 2, None], eps)
-        u = (x_rel[None, :] - center) / sigma
-        z_unclipped = (sigma / tau - u) / np.sqrt(2.0)
-        z = np.clip(z_unclipped, -26.0, None)
-        exponential = np.exp(-0.5 * u**2)
-        scaled_erfc = erfcx(z)
-        scaled_erfc_gradient = np.where(
-            z_unclipped < -26.0,
-            0.0,
-            2.0 * z * scaled_erfc - 2.0 / np.sqrt(np.pi),
-        )
-        center_gradient = (
-            raw * u / sigma
-            + exponential * scaled_erfc_gradient / (sigma * np.sqrt(2.0))
-        )
-        sigma_gradient = (
-            raw * u**2 / sigma
-            + exponential
-            * scaled_erfc_gradient
-            * (1.0 / tau + u / sigma)
-            / np.sqrt(2.0)
-        )
-        tau_gradient = (
-            -exponential
-            * scaled_erfc_gradient
-            * sigma
-            / (tau**2 * np.sqrt(2.0))
+        u, z_unclipped, sigma, tau = _emg_terms(x_rel, values_matrix)
+        z = np.clip(z_unclipped, EMG_Z_FLOOR, None)
+        # d erfcx(z)/dz = 2 z erfcx(z) - 2/sqrt(pi); zero where z is clipped.
+        through_z = np.exp(-0.5 * u**2) * np.where(
+            z_unclipped < EMG_Z_FLOOR, 0.0, 2.0 * z * erfcx(z) - 2.0 / np.sqrt(np.pi)
         )
         raw_gradients = np.stack(
-            (center_gradient, sigma_gradient, tau_gradient), axis=1
+            (
+                raw * u / sigma + through_z / (sigma * np.sqrt(2.0)),
+                raw * u**2 / sigma + through_z * (1.0 / tau + u / sigma) / np.sqrt(2.0),
+                -through_z * sigma / (tau**2 * np.sqrt(2.0)),
+            ),
+            axis=1,
         )
 
     shapes = _normalize_rows(raw)

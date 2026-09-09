@@ -69,6 +69,29 @@ def _qualifier_line_style(ordinal: int) -> Qt.PenStyle:
     return Qt.SolidLine
 
 
+def legend_trace_styles(
+    channels: Sequence, *, unlabelled: bool, multi_trace: bool
+) -> tuple[ChannelTraceStyle, ...]:
+    """One representative style per channel for a colour key.
+
+    Unlabelled qualifier traces take their colour from each sample's QC
+    status, so the key shows them grey and lets the line style tell them
+    apart. A single trace is drawn dark red regardless of channel.
+    """
+    if not multi_trace:
+        return tuple(
+            ChannelTraceStyle(dark_red_colour, Qt.SolidLine) for _channel in channels
+        )
+    if not unlabelled:
+        return channel_trace_styles(channels, None)
+    return tuple(
+        ChannelTraceStyle(label_colors[0], Qt.SolidLine)
+        if channel.role is IonRole.QUANTIFIER or int(channel.ordinal) == 0
+        else ChannelTraceStyle(QUALIFIER_GREY, _qualifier_line_style(channel.ordinal))
+        for channel in channels
+    )
+
+
 def channel_trace_styles(
     channels: Sequence,
     identity: IdentitySampleAssessment | None,

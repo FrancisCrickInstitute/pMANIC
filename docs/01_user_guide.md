@@ -104,8 +104,10 @@ The selected compound must meet specific criteria in your compound definition fi
 3.  Select **"Set as Internal Standard"** from the context menu.
 4.  To remove a selection, right-click anywhere in the list and select **"Clear Internal Standard"**.
 
-**Verification** * **Standard Selected:** Indicator turns **green** and shows the compound name.
-* **No Standard:** Indicator turns **red** and shows `-- No Standard Selected --`.
+**Verification** * **Standard Selected:** The `Int Std` pill turns **green** and shows the compound name.
+* **No Standard:** The `Int Std` pill turns **red** and shows `Int Std: none`.
+
+The blue `Compound` pill beneath it always names the compound currently selected in the list.
 
 ---
 

@@ -4,7 +4,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
-    QLabel,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -19,7 +18,7 @@ from .integration_window_widget import IntegrationWindow
 from .isotopologue_ratio_widget import IsotopologueRatioWidget
 from .loaded_data_widget import LoadedDataWidget
 from .sample_list_widget import SampleListWidget
-from .standard_indicator_widget import StandardIndicator
+from .standard_indicator_widget import CompoundIndicator, StandardIndicator
 from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
 
@@ -127,9 +126,7 @@ class Toolbar(QWidget):
         indicators_layout = QVBoxLayout(indicators_container)
         indicators_layout.setContentsMargins(2, 2, 2, 2)  # Minimal padding
         indicators_layout.setSpacing(4)  # Reduced spacing between indicators
-        indicators_layout.setAlignment(
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter
-        )
+        indicators_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.loaded_data = LoadedDataWidget()
         indicators_layout.addWidget(
@@ -140,26 +137,16 @@ class Toolbar(QWidget):
         indicators_layout.addSpacing(8)  # Additional spacing
 
         self.standard = StandardIndicator()
-        indicators_layout.addWidget(
-            self.standard, alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        indicators_layout.addWidget(self.standard)
 
-        self.mz_indicator = QLabel("m/z - --")
-        self.mz_indicator.setFont(self.standard.font())
-        self.mz_indicator.setAlignment(Qt.AlignCenter)
-        self.mz_indicator.setFixedSize(self.standard.size())
-        self.mz_indicator.setStyleSheet(
-            "background-color: #e9ecef; color: black; border-radius: 10px; padding: 2px;"
-        )
-        indicators_layout.addWidget(
-            self.mz_indicator, alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        self.compound_indicator = CompoundIndicator()
+        indicators_layout.addWidget(self.compound_indicator)
 
         # Compact the container to fit content size
         indicators_container.setMaximumHeight(
             self.loaded_data.sizeHint().height()
             + self.standard.sizeHint().height()
-            + self.mz_indicator.sizeHint().height()
+            + self.compound_indicator.sizeHint().height()
             + 24  # Account for margins, spacing, and extra vertical gap
         )
 
@@ -298,15 +285,14 @@ class Toolbar(QWidget):
         if selected_items:
             selected_text = selected_items[0].text()
             self.compound_selected.emit(selected_text)
-            self._set_mz_indicator_from_compound(selected_text)
+            self.compound_indicator.set_compound(selected_text)
             # Initial fill - will be updated by plot selection logic after plotting
             self.fill_integration_window(selected_text)
             # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
         else:
             self.compound_selected.emit("")
-            self.mz_indicator.setText("m/z - --")
-
+            self.compound_indicator.set_compound("")
 
 
     def on_internal_standard_selected(self, compound_name: str):
@@ -327,7 +313,7 @@ class Toolbar(QWidget):
     ):
         """Update the compounds list widget"""
         self.compound_list.update_compounds(compounds, selected_name)
-        self._set_mz_indicator_from_compound(self.get_selected_compound())
+        self.compound_indicator.set_compound(self.get_selected_compound())
 
     def update_sample_list(self, samples: List[str]):
         """Update the samples list widget"""
@@ -373,13 +359,6 @@ class Toolbar(QWidget):
         populated fields with base compound data, overwriting session values.
         """
         pass
-
-    def _set_mz_indicator_from_compound(self, compound_name: str) -> None:
-        try:
-            comp = read_compound(compound_name)
-            self.mz_indicator.setText(f"m/z - {comp.mass0}")
-        except Exception:
-            self.mz_indicator.setText("m/z - --")
 
     def _set_baseline_checkbox_from_compound(self, compound_name: str):
         """Set baseline correction checkbox state from compound data."""

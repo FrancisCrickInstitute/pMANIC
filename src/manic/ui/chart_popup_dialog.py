@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from manic.ui.channel_labels import channel_legend_text
+from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
 from manic.ui.colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
@@ -121,12 +121,13 @@ class ChartPopupDialog(QDialog):
         self.chart.setTitleFont(QFont("Arial", 16, QFont.Bold))
         self.chart.setTitleBrush(QColor("black"))
         
-        self.ion_legend = QLabel("")
-        self.ion_legend.setWordWrap(True)
-        self.ion_legend.setStyleSheet(
-            "color: #333; font-size: 12px; background: transparent;"
+        self.compound_title = QLabel("")
+        self.compound_title.setAlignment(Qt.AlignHCenter)
+        self.compound_title.setStyleSheet(
+            "color: #222; font-size: 14px; font-weight: bold; background: transparent;"
         )
-        self.ion_legend.hide()
+        self.compound_title.hide()
+        self.ion_legend = ChannelChipRow()
         self.status_legend = QLabel("")
         self.status_legend.setTextFormat(Qt.RichText)
         self.status_legend.setAlignment(Qt.AlignHCenter)
@@ -134,6 +135,7 @@ class ChartPopupDialog(QDialog):
             "color: #333; font-size: 12px; background: transparent;"
         )
         self.status_legend.hide()
+        layout.addWidget(self.compound_title)
         layout.addWidget(self.ion_legend)
         layout.addWidget(self.chart_view)
         layout.addWidget(self.status_legend)
@@ -268,12 +270,10 @@ class ChartPopupDialog(QDialog):
         if self._identity is None or not self._identity.samples:
             return
 
-        self.ion_legend.setText(
-            channel_legend_text(
-                self._identity.compound_name, self._identity.channels
-            )
-        )
-        self.ion_legend.show()
+        self.compound_title.setText(self._identity.compound_name)
+        self.compound_title.show()
+        labels, styles = identity_key_chips(self._identity.channels)
+        self.ion_legend.set_channels(labels, styles)
         self._identity_binding = add_identity_grid(
             self.chart, self._identity.samples, label_font_size=12
         )

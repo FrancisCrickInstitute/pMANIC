@@ -1,52 +1,71 @@
 import sys
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel
+from PySide6.QtGui import QColor, QFont, QFontMetrics
+from PySide6.QtWidgets import QLabel, QSizePolicy
 
-from manic.constants import GREEN, RED, create_font
+from manic.constants import BLUE, GREEN, GREY, RED, create_font
 
 
-class StandardIndicator(QLabel):
-    def __init__(self, parent=None):
-        super().__init__("-- No Standard Selected --", parent)
+class TitledPill(QLabel):
+    """A full-width status pill reading ``Title: value``, elided to fit."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self._title = title
+        self._value = ""
         self.setFont(create_font(10))
+        self.setTextFormat(Qt.RichText)
         self.setAlignment(Qt.AlignCenter)
+        # Ignored: the text must never widen the toolbar, it elides to fit instead
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.setFixedHeight(22 if sys.platform == "win32" else 20)
 
-        # Platform-specific sizing to match LoadedDataWidget indicators
-        if sys.platform == "win32":
-            # Windows: Match wider labels (85 + 85 + 4px spacing)
-            self.setFixedSize(174, 22)
-        else:
-            # macOS and Linux: Match original labels (75 + 75 + 4px spacing)
-            self.setFixedSize(154, 20)
+    def set_value(self, value: str, color: QColor) -> None:
+        self._value = value
+        self.setToolTip(f"{self._title}: {value}")
+        self.setStyleSheet(
+            f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
+            f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
+        )
+        self._elide()
+
+    def resizeEvent(self, event):
+        self._elide()
+        super().resizeEvent(event)
+
+    def _elide(self) -> None:
+        metrics = QFontMetrics(self.font())
+        title = f"{self._title}: "
+        bold = QFont(self.font())
+        bold.setBold(True)
+        available = self.width() - 12 - metrics.horizontalAdvance(title)
+        value = QFontMetrics(bold).elidedText(self._value, Qt.ElideRight, available)
+        self.setText(f"{title}<b>{value}</b>")
+
+
+class StandardIndicator(TitledPill):
+    def __init__(self, parent=None):
+        super().__init__("Int Std", parent)
         self.internal_standard = None
-        self._update_appearance()
+        self.set_value("none", RED)
 
     def set_internal_standard(self, compound_name: str):
-        """Set the internal standard compound"""
         self.internal_standard = compound_name
-        self.setText(f"-- {compound_name} --")
-        self._update_appearance()
+        self.set_value(compound_name, GREEN)
 
     def clear_internal_standard(self):
-        """Clear the internal standard selection"""
         self.internal_standard = None
-        self.setText("- No Standard Selected -")
-        self._update_appearance()
+        self.set_value("none", RED)
 
-    def _update_appearance(self):
-        """Update the widget appearance based on whether a standard is selected"""
-        if self.internal_standard:
-            # Green when selected - matching LoadedDataWidget style
-            color = GREEN
-            self.setStyleSheet(
-                f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-                f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
-            )
+
+class CompoundIndicator(TitledPill):
+    def __init__(self, parent=None):
+        super().__init__("Compound", parent)
+        self.set_compound("")
+
+    def set_compound(self, compound_name: str):
+        if compound_name:
+            self.set_value(compound_name, BLUE)
         else:
-            # Red when not selected - matching LoadedDataWidget style
-            color = RED
-            self.setStyleSheet(
-                f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-                f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
-            )
+            self.set_value("--", GREY)

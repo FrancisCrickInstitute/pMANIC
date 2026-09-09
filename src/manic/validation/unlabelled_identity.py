@@ -94,13 +94,19 @@ def _format_tolerance(tolerance: float | None, expected: float | None) -> str:
     return f"±{tolerance:.0%}"
 
 
+def qualifier_expectation(channel: IonChannel) -> str:
+    """'expected 0.400 ±10%' for a qualifier channel, as shown in tooltips and keys."""
+    expected = channel.expected_ratio
+    return (
+        f"expected {_format_ratio(expected)}  "
+        f"{_format_tolerance(channel.ratio_tolerance, expected)}"
+    )
+
+
 def _ratio_detail(ratio: QualifierRatioResult) -> str:
     channel = ratio.channel
-    expected = channel.expected_ratio
-    label = f"V{channel.ordinal}" if channel.ordinal else "V"
     return (
-        f"{label}  expected {_format_ratio(expected)}  "
-        f"{_format_tolerance(channel.ratio_tolerance, expected)}  "
+        f"Qualifier {channel.ordinal}  {qualifier_expectation(channel)}  "
         f"observed {_format_ratio(ratio.observed_ratio)}"
     )
 

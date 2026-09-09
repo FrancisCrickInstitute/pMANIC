@@ -30,8 +30,5 @@ def channel_legend_label(compound, channel_index: int) -> str:
     return channels[channel_index].label
 
 
-def channel_legend_text(compound_name: str, channels: Sequence[IonChannel]) -> str:
-    labels = "  ".join(channel.label for channel in channels)
-    if not labels:
-        return compound_name
-    return f"{compound_name}  {labels}"
+def channel_legend_text(channels: Sequence[IonChannel]) -> str:
+    return "  ".join(channel.label for channel in channels)

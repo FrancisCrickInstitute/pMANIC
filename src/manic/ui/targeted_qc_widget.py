@@ -3,9 +3,8 @@ from __future__ import annotations
 from PySide6.QtCharts import QBarSet, QChart, QChartView
 from PySide6.QtCore import QMargins, Qt, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter
-from PySide6.QtWidgets import QLabel, QSizePolicy, QToolTip, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
-from manic.ui.channel_labels import channel_legend_text
 from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.identity_chart import (
     IdentityGridBinding,
@@ -23,14 +22,6 @@ class TargetedQcWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("targetedQc")
 
-        self.ion_legend = QLabel("")
-        self.ion_legend.setWordWrap(True)
-        self.ion_legend.setContentsMargins(4, 2, 4, 2)
-        self.ion_legend.setStyleSheet(
-            "color: #333; font-size: 11px; background: transparent;"
-        )
-        self.ion_legend.hide()
-
         self.chart = QChart()
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
@@ -46,7 +37,6 @@ class TargetedQcWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.ion_legend)
         layout.addWidget(self.chart_view)
         self.setMinimumHeight(200)
         self.setMaximumHeight(330)
@@ -61,10 +51,6 @@ class TargetedQcWidget(QWidget):
             return
 
         self._identity = identity
-        self.ion_legend.setText(
-            channel_legend_text(identity.compound_name, identity.channels)
-        )
-        self.ion_legend.show()
         self._binding = add_identity_grid(
             self.chart, identity.samples, show_sample_names=False
         )
@@ -73,8 +59,6 @@ class TargetedQcWidget(QWidget):
     def clear(self) -> None:
         self._identity = None
         self._binding = None
-        self.ion_legend.clear()
-        self.ion_legend.hide()
         self.chart.removeAllSeries()
         for axis in list(self.chart.axes()):
             self.chart.removeAxis(axis)

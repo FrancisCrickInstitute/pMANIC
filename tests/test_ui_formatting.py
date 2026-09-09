@@ -32,9 +32,12 @@ from manic.ui.colors import (
     QUALIFIER_GREY,
     QUALIFIER_RED,
     QUALIFIER_STATUS_COLORS,
+    ChannelTraceStyle,
     channel_trace_styles,
+    dark_red_colour,
     label_colors,
 )
+from manic.ui.channel_chips import identity_key_chips
 from manic.ui.identity_chart import identity_cell_tooltip
 
 from manic.ui.integration_window_widget import (
@@ -258,8 +261,6 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
     widget = TargetedQcWidget()
     try:
         widget.update_results(identity)
-        assert widget.ion_legend.text() == "Target  Q ion m/z 217  Qualifier ion 1 m/z 147"
-        assert "●" not in widget.ion_legend.text()
         assert widget.chart.title() == ""
         assert not widget.chart.legend().isVisible()
         assert widget._binding is not None
@@ -285,7 +286,7 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert value_axes[0].min() == 0
         assert value_axes[0].max() == 2
         assert not value_axes[0].labelsVisible()
-        assert category_axes[0].categoriesLabels() == ["V1", "V2"]
+        assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
         y_axis = widget.chart.axes(Qt.Vertical)[0]
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
@@ -293,7 +294,6 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         widget.clear()
         assert widget._identity is None
         assert widget.chart.series() == []
-        assert widget.ion_legend.isHidden()
     finally:
         widget.deleteLater()
 
@@ -382,8 +382,12 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         assert dialog.windowTitle() == "MANIC - Identity"
         assert dialog.chart.title() == ""
         assert not dialog.chart.legend().isVisible()
-        assert "Target" in dialog.ion_legend.text()
-        assert "●" not in dialog.ion_legend.text()
+        assert dialog.compound_title.text() == "Target"
+        assert dialog.ion_legend.labels() == [
+            "Q ion m/z 217",
+            "Qualifier ion 1 m/z 147   expected 0.400  ±25%",
+            "Qualifier ion 2 m/z 73   expected 0.200  ±25%",
+        ]
         y_axis = dialog.chart.axes(Qt.Vertical)[0]
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
@@ -391,7 +395,7 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         assert y_axis.labelsFont().family() == "Arial"
         assert y_axis.labelsFont().pointSize() == 12
         value_axes, category_axes = _horizontal_axes(dialog.chart)
-        assert category_axes[0].categoriesLabels() == ["V1", "V2"]
+        assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
         assert dialog._identity_binding is not None
         bar_sets = dialog._identity_binding.bar_sets
         assert len(bar_sets) == 4
@@ -861,22 +865,25 @@ def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
     view = GraphView()
     try:
         view._update_channel_legend("alanine", _multi_trace_eics(4))
-        text = view.channel_legend.text()
         assert not view.channel_legend.isHidden()
-        assert "M+0 m/z 174" in text
-        assert "M+1 m/z 175" in text
-        assert text.count("●") == 2
-        assert "Qualifier ion" not in text
+        assert view.channel_legend.labels() == ["M+0 m/z 174", "M+1 m/z 175"]
+        assert [chip.style.color for chip in view.channel_legend.chips()] == [
+            label_colors[0],
+            label_colors[1],
+        ]
     finally:
         view.deleteLater()
 
 
-def test_channel_legend_hides_for_unlabelled_target(qapp, monkeypatch):
+def test_channel_legend_unlabelled_chips_show_line_style_not_status_colour(
+    qapp, monkeypatch
+):
     compound = SimpleNamespace(
         is_unlabelled_target=True,
         analysis_channels=(
             IonChannel(217.0, IonRole.QUANTIFIER),
             IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
+            IonChannel(73.0, IonRole.QUALIFIER, ordinal=2),
         ),
     )
     monkeypatch.setattr(
@@ -885,9 +892,38 @@ def test_channel_legend_hides_for_unlabelled_target(qapp, monkeypatch):
     )
     view = GraphView()
     try:
-        view.channel_legend.show()
-        view._update_channel_legend("Target", _multi_trace_eics(2))
-        assert view.channel_legend.isHidden()
+        view._update_channel_legend("Target", _multi_trace_eics(3))
+        assert not view.channel_legend.isHidden()
+        assert view.channel_legend.labels() == [
+            "Q ion m/z 217",
+            "Qualifier ion 1 m/z 147",
+            "Qualifier ion 2 m/z 73",
+        ]
+        styles = [chip.style for chip in view.channel_legend.chips()]
+        assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
+        assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
+        assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DashDotLine)
+    finally:
+        view.deleteLater()
+
+
+def test_channel_legend_shows_a_single_trace_in_dark_red(qapp, monkeypatch):
+    compound = SimpleNamespace(
+        is_unlabelled_target=False,
+        analysis_channels=(IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),),
+    )
+    monkeypatch.setattr(
+        "manic.ui.graphs.read_compound_with_session",
+        lambda *_args: compound,
+    )
+    view = GraphView()
+    try:
+        view._update_channel_legend(
+            "alanine", [SimpleNamespace(intensity=np.ones(3, dtype=float))]
+        )
+        assert not view.channel_legend.isHidden()
+        assert view.channel_legend.labels() == ["M+0 m/z 174"]
+        assert view.channel_legend.chips()[0].style.color == dark_red_colour
     finally:
         view.deleteLater()
 
@@ -1465,3 +1501,15 @@ def test_preview_off_graph_tile_still_draws_model_overlay(qapp):
         assert all(abs(peak - 7.0) < 0.08 for peak in solid_peak_times)
     finally:
         view.deleteLater()
+
+
+def test_identity_key_marks_a_qualifier_slot_the_method_left_empty():
+    labels, styles = identity_key_chips((_qion(), _v1()))
+    assert labels == [
+        "Q ion m/z 217",
+        "Qualifier ion 1 m/z 147   expected 0.400  ±25%",
+        "Qualifier ion 2   not in the method",
+    ]
+    assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
+    assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
+    assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DotLine)

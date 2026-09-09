@@ -47,6 +47,7 @@ class QualifierOutcome(StrEnum):
     PASS = "Pass"
     PARTIAL = "Partial"
     FAIL = "Fail"
+    NOT_DETECTED = "Not detected"
     NO_QUALIFIERS = "No qualifiers"
 
 
@@ -55,6 +56,7 @@ QUALIFIER_OUTCOME_FILL: Mapping[QualifierOutcome, str] = MappingProxyType(
         QualifierOutcome.PASS: "#2F9E44",
         QualifierOutcome.PARTIAL: "#F08C00",
         QualifierOutcome.FAIL: "#C92A2A",
+        QualifierOutcome.NOT_DETECTED: "#495057",
         QualifierOutcome.NO_QUALIFIERS: "#868E96",
     }
 )
@@ -63,6 +65,8 @@ QUALIFIER_OUTCOME_FILL: Mapping[QualifierOutcome, str] = MappingProxyType(
 def qualifier_outcome(qc: IdentityQcResult | None) -> QualifierOutcome:
     if qc is None:
         return QualifierOutcome.NO_QUALIFIERS
+    if qc.status is IdentityStatus.NOT_DETECTED:
+        return QualifierOutcome.NOT_DETECTED
     verdicts = [ratio.passed for ratio in qc.qualifier_ratios]
     if not any(passed is not None for passed in verdicts):
         return QualifierOutcome.NO_QUALIFIERS

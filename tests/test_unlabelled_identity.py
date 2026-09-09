@@ -375,10 +375,12 @@ def test_main_window_assess_identities_returns_snapshot():
     assert MainWindow._assess_identities(window, Provider(), "Target", []) is None
 
 
-def _hand_built_qc(*passed: bool | None) -> IdentityQcResult:
+def _hand_built_qc(
+    *passed: bool | None, status: IdentityStatus = IdentityStatus.NOT_ASSESSED
+) -> IdentityQcResult:
     channel = IonChannel(147.0, IonRole.QUALIFIER, ordinal=1)
     return IdentityQcResult(
-        status=IdentityStatus.NOT_ASSESSED,
+        status=status,
         quantifier_area=10.0,
         observed_rt=1.0,
         rt_error=0.0,
@@ -402,6 +404,15 @@ def test_qualifier_outcome_partial():
 def test_qualifier_outcome_fail():
     assert qualifier_outcome(_hand_built_qc(False)) is QualifierOutcome.FAIL
     assert qualifier_outcome(_hand_built_qc(False, None)) is QualifierOutcome.FAIL
+
+
+def test_qualifier_outcome_not_detected():
+    assert (
+        qualifier_outcome(
+            _hand_built_qc(None, None, status=IdentityStatus.NOT_DETECTED)
+        )
+        is QualifierOutcome.NOT_DETECTED
+    )
 
 
 def test_qualifier_outcome_no_qualifiers():

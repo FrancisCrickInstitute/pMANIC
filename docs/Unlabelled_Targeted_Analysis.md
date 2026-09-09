@@ -382,6 +382,7 @@ per sample × compound and written on every qualifier row of that group:
 | **Pass** | Every qualifier ratio check passed | Green |
 | **Partial** | At least one qualifier passed and at least one did not | Orange |
 | **Fail** | Qualifier ratios were scored and none passed | Red |
+| **Not detected** | Q ion was not found, so no ratio could be assessed | Dark grey |
 | **No qualifiers** | No scored qualifier ratio (missing ratio/tolerance, or no qualifier ions) | Grey |
 
 Identity status stays in the app chart, not the workbook.

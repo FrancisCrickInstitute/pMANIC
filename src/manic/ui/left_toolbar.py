@@ -234,6 +234,7 @@ class Toolbar(QWidget):
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)
 
+
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)

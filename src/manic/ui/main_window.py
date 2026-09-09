@@ -9,18 +9,16 @@ from PySide6.QtGui import (
     QAction,
     QDesktopServices,  # Add this for opening URLs
     QIcon,
+    QKeySequence,
 )
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFileDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
-    QLayout,
     QMainWindow,
     QMenuBar,
     QMessageBox,
@@ -30,8 +28,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QVBoxLayout,
     QWidget,
-    QComboBox,
-    QFormLayout,
 )
 
 from manic.__version__ import APP_NAME, __version__
@@ -66,6 +62,7 @@ from manic.models.session_export import (
     validate_method_file,
 )
 from manic.processors.chromatographic_peak_deconvolution import (
+    DEFAULT_DECONVOLUTION_LEVEL,
     normalize_fit_type,
     normalize_noise_gate,
     normalize_stringency,
@@ -74,12 +71,13 @@ from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.validation.peak_verdict import PeakVerdict
-from manic.ui.documentation_viewer import show_documentation_file
+from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
+from manic.ui.settings_window import SettingsWindow
 from manic.ui.toast_notification import ToastNotification
 from manic.ui.total_abundance_widget import abundances_from_provider
-from manic.utils.paths import docs_path, resource_path
+from manic.utils.paths import resource_path
 from manic.utils.workers import (
     CdfImportWorker,
     EicRegenerationWorker,
@@ -139,6 +137,10 @@ class MainWindow(QMainWindow):
 
         # Integration method setting
         self.use_legacy_integration = False  # Time-based by default
+        self.preview_nat_abundance = False
+        self.settings_window = None
+        self.documentation_window = None
+        self._update_worker = None
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -151,6 +153,8 @@ class MainWindow(QMainWindow):
         self.toolbar.internal_standard_selected.connect(
             self.on_internal_standard_selected
         )
+        self.graph_view.settings_requested.connect(self.open_settings_window)
+        self.graph_view.documentation_requested.connect(self.open_documentation_window)
         self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
         self.toolbar.compounds_restored.connect(self.on_compounds_restored)
         self.toolbar.add_compound_requested.connect(self.show_add_compound_dialog)
@@ -161,10 +165,11 @@ class MainWindow(QMainWindow):
         self._check_for_updates()
 
     def _check_for_updates(self):
-        """Start the background update checker."""
+        """Start the background update checker unless one is already running."""
+        if self._update_worker is not None and self._update_worker.isRunning():
+            return
         self._update_worker = UpdateCheckWorker()
         self._update_worker.result.connect(self._on_update_check_finished)
-        self._update_worker.finished.connect(self._update_worker.deleteLater)
         self._update_worker.start()
 
     def _on_update_check_finished(
@@ -323,70 +328,35 @@ class MainWindow(QMainWindow):
         self.update_old_data_action.triggered.connect(self.update_old_data)
         file_menu.addAction(self.update_old_data_action)
 
-        """ Create Settings Menu """
+        # One "MANIC" menu. On macOS the roles move every entry into the native
+        # application menu and Qt hides the emptied menu, which is that platform's
+        # convention; elsewhere the menu shows as-is.
+        manic_menu = menu_bar.addMenu("MANIC")
 
-        settings_menu = menu_bar.addMenu("Settings")
-
-        self.mass_tolerance_action = QAction("Mass Tolerance...", self)
-        self.mass_tolerance_action.triggered.connect(self.show_mass_tolerance_dialog)
-        settings_menu.addAction(self.mass_tolerance_action)
-
-        self.min_peak_height_action = QAction("Minimum Peak Area...", self)
-        self.min_peak_height_action.triggered.connect(self.show_min_peak_height_dialog)
-        settings_menu.addAction(self.min_peak_height_action)
-
-        self.labelled_internal_standard_action = QAction(
-            "Labelled Internal Standard...", self
+        self.settings_action = QAction("Settings...", self)
+        self.settings_action.setMenuRole(QAction.PreferencesRole)
+        self.settings_action.setShortcuts(
+            [QKeySequence.Preferences, QKeySequence("Ctrl+,")]
         )
-        self.labelled_internal_standard_action.triggered.connect(
-            self.show_labelled_internal_standard_dialog
-        )
-        settings_menu.addAction(self.labelled_internal_standard_action)
+        self.settings_action.triggered.connect(self.open_settings_window)
+        manic_menu.addAction(self.settings_action)
 
-        self.chromatographic_peak_deconvolution_action = QAction(
-            "Chromatographic Peak Deconvolution", self
-        )
-        self.chromatographic_peak_deconvolution_action.triggered.connect(
-            self.show_chromatographic_peak_deconvolution_dialog
-        )
-        settings_menu.addAction(self.chromatographic_peak_deconvolution_action)
+        self.documentation_action = QAction("Documentation", self)
+        self.documentation_action.setMenuRole(QAction.ApplicationSpecificRole)
+        self.documentation_action.setShortcut(QKeySequence.HelpContents)
+        self.documentation_action.triggered.connect(self.open_documentation_window)
+        manic_menu.addAction(self.documentation_action)
 
-        # Natural abundance correction toggle action
-        self.nat_abundance_toggle = QAction(
-            "Preview Natural Abundance Correction: Off", self
-        )
-        self.nat_abundance_toggle.setCheckable(True)
-        self.nat_abundance_toggle.setChecked(False)  # Off by default
-        self.nat_abundance_toggle.triggered.connect(
-            self.toggle_natural_abundance_correction
-        )
-        settings_menu.addAction(self.nat_abundance_toggle)
+        self.check_updates_action = QAction("Check for Updates...", self)
+        self.check_updates_action.setMenuRole(QAction.ApplicationSpecificRole)
+        self.check_updates_action.triggered.connect(self._check_for_updates)
+        manic_menu.addAction(self.check_updates_action)
 
-        if self.analysis_mode is not AnalysisMode.LABELLED:
-            self.labelled_internal_standard_action.setVisible(False)
-            self.nat_abundance_toggle.setVisible(False)
-
-        # Legacy integration mode toggle action
-        self.legacy_integration_toggle = QAction("Legacy Integration Mode: Off", self)
-        self.legacy_integration_toggle.setCheckable(True)
-        self.legacy_integration_toggle.setChecked(False)  # Off by default
-        self.legacy_integration_toggle.triggered.connect(
-            self.toggle_legacy_integration_mode
-        )
-        settings_menu.addAction(self.legacy_integration_toggle)
-
-        """ Create Documentation Menu """
-
-        docs_menu = menu_bar.addMenu("Documentation")
-        self._create_documentation_menu(docs_menu)
-
-        """ Create Help Menu """
-
-        help_menu = menu_bar.addMenu("Help")
-
+        manic_menu.addSeparator()
         self.about_action = QAction("About MANIC...", self)
+        self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        help_menu.addAction(self.about_action)
+        manic_menu.addAction(self.about_action)
 
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
@@ -555,6 +525,9 @@ class MainWindow(QMainWindow):
             self.import_session_action.setToolTip(
                 "Import session-specific integration overrides"
             )
+
+        if self.settings_window is not None:
+            self.settings_window.refresh()
 
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
@@ -1063,6 +1036,8 @@ class MainWindow(QMainWindow):
         samples = self.toolbar.get_selected_samples()
         self.update_deconvolution_indicator(compound_selected)
         self.on_plot_button(compound_selected, samples)
+        if self.settings_window is not None:
+            self.settings_window.refresh()
 
     def on_compounds_deleted(self, compound_names: list):
         """
@@ -1202,6 +1177,8 @@ class MainWindow(QMainWindow):
 
         # Update menu states to enable/disable Export Data based on internal standard selection
         self._update_menu_states()
+        if self.settings_window is not None:
+            self.settings_window.refresh()
 
     def on_plot_selection_changed(self, selected_samples):
         """Handle when plots are selected/deselected"""
@@ -1958,130 +1935,167 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")
 
-    def show_mass_tolerance_dialog(self):
-        """Show dialog to edit mass tolerance setting."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Mass Tolerance Settings")
-        dialog.setModal(True)
-        dialog.resize(400, 150)
+    def open_settings_window(self) -> None:
+        if self.settings_window is None:
+            self.settings_window = SettingsWindow(self, host=self)
+        self.settings_window.open()
 
-        layout = QVBoxLayout(dialog)
+    def open_documentation_window(self) -> None:
+        if self.documentation_window is None:
+            self.documentation_window = DocumentationViewer(self)
+        self.documentation_window.open()
 
-        # Info label
-        info_label = QLabel("Set the mass tolerance (±Da) for EIC extraction:")
-        layout.addWidget(info_label)
+    def selected_compound_name(self) -> str | None:
+        name = self.toolbar.get_selected_compound()
+        if not name or name.startswith("- No"):
+            return None
+        return name
 
-        # Mass tolerance input
-        mass_tol_layout = QHBoxLayout()
-        mass_tol_label = QLabel("Mass Tolerance (Da):")
-        mass_tol_layout.addWidget(mass_tol_label)
+    def internal_standard_name(self) -> str | None:
+        return self.toolbar.get_internal_standard()
 
-        mass_tol_spinbox = QDoubleSpinBox()
-        mass_tol_spinbox.setRange(0.01, 1.0)
-        mass_tol_spinbox.setSingleStep(0.01)
-        mass_tol_spinbox.setDecimals(3)
-        mass_tol_spinbox.setValue(self.mass_tolerance)
-        # Remove suffix and set button symbols to nothing (removes spin buttons)
-        mass_tol_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
-        # Set white background with white text
-        mass_tol_spinbox.setStyleSheet(
-            "QDoubleSpinBox { background-color: white; color: black; }"
+    def internal_standard_label_atoms(self) -> int:
+        internal_standard = self.toolbar.get_internal_standard()
+        if not internal_standard:
+            return 0
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT label_atoms FROM compounds WHERE compound_name = ? AND deleted = 0",
+                (internal_standard,),
+            ).fetchone()
+        if row is None or row["label_atoms"] is None:
+            return 0
+        return max(int(row["label_atoms"]), 0)
+
+    def deconvolution_settings(
+        self, compound_name: str | None
+    ) -> tuple[str, str, str]:
+        if not compound_name:
+            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
+        try:
+            compound = read_compound_with_session(compound_name)
+        except LookupError:
+            # The toolbar can still name a compound that was just deleted.
+            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
+        return (
+            normalize_stringency(compound.deconvolution_level),
+            normalize_fit_type(compound.deconvolution_fit_type),
+            normalize_noise_gate(compound.deconvolution_noise_gate),
         )
-        mass_tol_layout.addWidget(mass_tol_spinbox)
-        mass_tol_layout.addStretch()
 
-        layout.addLayout(mass_tol_layout)
+    def _replot_current_selection(self) -> None:
+        if not (self.cdf_data_loaded and self.compound_data_loaded):
+            return
+        compound = self.toolbar.get_selected_compound()
+        samples = self.toolbar.get_selected_samples()
+        if compound and samples:
+            self.on_plot_button(compound, samples)
 
-        # Buttons
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
+    def apply_mass_tolerance(self, new_value: float) -> None:
+        if new_value == self.mass_tolerance:
+            return
+        logger.info(f"Mass tolerance changed from {self.mass_tolerance} to {new_value} Da")
+        self.mass_tolerance = new_value
+        if self.cdf_data_loaded:
+            self._on_mass_tolerance_changed(new_value)
+
+    def apply_min_peak_area_ratio(self, new_value: float) -> None:
+        if new_value == self.min_peak_height_ratio:
+            return
+        logger.info(
+            f"Minimum peak area ratio changed from {self.min_peak_height_ratio:.3f} to {new_value:.3f}"
         )
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        self.min_peak_height_ratio = new_value
+        self._replot_current_selection()
 
-        # Show dialog and handle result
-        if dialog.exec() == QDialog.Accepted:
-            old_value = self.mass_tolerance
-            new_value = mass_tol_spinbox.value()
+    def apply_use_legacy_integration(self, enabled: bool) -> None:
+        self.use_legacy_integration = enabled
+        logger.info(f"Legacy integration mode toggled: {'ON' if enabled else 'OFF'}")
+        self._replot_current_selection()
 
-            if old_value != new_value:
-                logger.info(
-                    f"Mass tolerance changed from {old_value} to {new_value} Da"
+    def apply_nat_abundance_preview(self, enabled: bool) -> None:
+        self.preview_nat_abundance = enabled
+        logger.info(
+            f"Natural abundance correction visualization toggled: {'ON' if enabled else 'OFF'}"
+        )
+        self.toolbar.isotopologue_ratios.set_use_corrected(enabled)
+        self.graph_view.set_use_corrected(enabled)
+        self._replot_current_selection()
+
+    def apply_internal_standard_reference_isotope(self, index: int) -> None:
+        if index == self.internal_standard_reference_isotope:
+            return
+        self.internal_standard_reference_isotope = index
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+        self._replot_current_selection()
+
+    def apply_deconvolution(
+        self,
+        compound_name: str | None,
+        new_level: str,
+        new_fit: str,
+        new_gate: str,
+        apply_to_all: bool,
+    ) -> None:
+        if not compound_name:
+            return
+        if apply_to_all:
+            if not self._apply_deconvolution_to_all(new_level, new_fit, new_gate):
+                return
+        else:
+            if (new_level, new_fit, new_gate) == self.deconvolution_settings(compound_name):
+                return
+            with get_connection() as conn:
+                conn.execute(
+                    "UPDATE compounds SET deconvolution_level = ?, "
+                    "deconvolution_fit_type = ?, deconvolution_noise_gate = ? "
+                    "WHERE compound_name = ? AND deleted = 0",
+                    (new_level, new_fit, new_gate, compound_name),
                 )
-                self.mass_tolerance = new_value
+            logger.info(
+                f"Deconvolution settings updated for '{compound_name}': "
+                f"level={new_level}, fit_type={new_fit}, noise_gate={new_gate}"
+            )
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+        self.update_deconvolution_indicator(compound_name)
+        self._replot_current_selection()
 
-                # If data is loaded, trigger regeneration immediately
-                if self.cdf_data_loaded:
-                    self._on_mass_tolerance_changed(new_value)
-
-    def show_min_peak_height_dialog(self):
-        """Show dialog to edit minimum peak area setting."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Minimum Peak Area Settings")
-        dialog.setModal(True)
-        dialog.resize(500, 280)
-
-        layout = QVBoxLayout(dialog)
-
-        # Info label
-        info_label = QLabel(
-            "Set the minimum peak area threshold as a fraction of the internal standard reference peak area.\n"
-            "Peaks below this threshold will be highlighted with a red background.\n"
-            "Peak validation compares compound total area vs the internal standard reference peak."
+    def _apply_deconvolution_to_all(self, new_level: str, new_fit: str, new_gate: str) -> bool:
+        """Confirm with the user, then overwrite every compound. False when nothing changed."""
+        with get_connection() as conn:
+            compound_count = conn.execute(
+                "SELECT COUNT(*) FROM compounds WHERE deleted = 0"
+            ).fetchone()[0]
+        if compound_count == 0:
+            return False
+        confirm = QMessageBox.question(
+            self,
+            "Apply to All Compounds",
+            f"This will overwrite the deconvolution settings of all "
+            f"{compound_count} compound(s) with:\n\n"
+            f"    Resolution: {new_level}\n"
+            f"    Fit type: {new_fit}\n"
+            f"    Noise gate: {new_gate}\n\n"
+            f"Existing per-compound settings will be replaced. Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-
-        # Min peak area input
-        peak_area_layout = QHBoxLayout()
-        peak_area_label = QLabel("Minimum Area Ratio:")
-        peak_area_layout.addWidget(peak_area_label)
-
-        peak_area_spinbox = QDoubleSpinBox()
-        peak_area_spinbox.setRange(0.001, 1.0)
-        peak_area_spinbox.setSingleStep(0.001)
-        peak_area_spinbox.setDecimals(3)
-        peak_area_spinbox.setValue(self.min_peak_height_ratio)
-        peak_area_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
-        peak_area_spinbox.setStyleSheet(
-            "QDoubleSpinBox { background-color: white; color: black; }"
+        if confirm != QMessageBox.Yes:
+            return False
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE compounds SET deconvolution_level = ?, "
+                "deconvolution_fit_type = ?, deconvolution_noise_gate = ? "
+                "WHERE deleted = 0",
+                (new_level, new_fit, new_gate),
+            )
+        logger.info(
+            f"Deconvolution settings applied to all {compound_count} compounds: "
+            f"level={new_level}, fit_type={new_fit}, noise_gate={new_gate}"
         )
-        peak_area_layout.addWidget(peak_area_spinbox)
-
-        # Add explanation
-        explanation_label = QLabel("(e.g., 0.005 = 0.5% of internal standard reference peak area)")
-        explanation_label.setStyleSheet("color: gray; font-style: italic;")
-        peak_area_layout.addWidget(explanation_label)
-
-        peak_area_layout.addStretch()
-        layout.addLayout(peak_area_layout)
-
-        # Buttons
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
-        )
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        # Show dialog and handle result
-        if dialog.exec() == QDialog.Accepted:
-            old_value = self.min_peak_height_ratio
-            new_value = peak_area_spinbox.value()
-            self.min_peak_height_ratio = new_value
-
-            if old_value != new_value:
-                logger.info(
-                    f"Minimum peak area ratio changed from {old_value:.3f} to {new_value:.3f}"
-                )
-
-                # Refresh plots if data is loaded to apply new validation
-                if self.cdf_data_loaded and self.compound_data_loaded:
-                    current_compound = self.toolbar.get_selected_compound()
-                    current_samples = self.toolbar.get_selected_samples()
-                    if current_compound and current_samples:
-                        self.on_plot_button(current_compound, current_samples)
+        return True
 
     def _deconvolution_indicator_text(self, compound_name: str | None) -> str:
         """Build the status-bar text describing the selected compound's settings."""
@@ -2119,365 +2133,6 @@ class MainWindow(QMainWindow):
         self.deconvolution_indicator_label.setText(
             self._deconvolution_indicator_text(compound_name)
         )
-
-    def show_chromatographic_peak_deconvolution_dialog(self):
-        """Edit chromatographic peak deconvolution settings for the selected compound."""
-        compound_name = self.toolbar.get_selected_compound()
-        if not compound_name:
-            QMessageBox.information(
-                self,
-                "No Compound Selected",
-                "Select a compound before editing its deconvolution settings.",
-            )
-            return
-
-        try:
-            compound = read_compound_with_session(compound_name)
-            current_level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
-            current_fit = normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto"))
-            current_gate = normalize_noise_gate(getattr(compound, "deconvolution_noise_gate", "balanced"))
-        except Exception as exc:
-            logger.error(f"Failed to read deconvolution settings for {compound_name}: {exc}")
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Deconvolution - {compound_name}")
-        dialog.setModal(True)
-        dialog.setMinimumWidth(640)
-
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
-        # Grow the dialog to fit its word-wrapped labels rather than clipping them.
-        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
-
-        info_label = QLabel(
-            f"Choose how MANIC fits and separates overlapping chromatographic peaks "
-            f"for <b>{compound_name}</b> before integration. These settings are saved "
-            f"per compound and apply to every sample of that compound."
-        )
-        info_label.setWordWrap(True)
-        info_label.setMinimumWidth(600)
-        layout.addWidget(info_label)
-
-        form_layout = QFormLayout()
-        form_layout.setHorizontalSpacing(16)
-        form_layout.setVerticalSpacing(10)
-        form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        level_combo = QComboBox()
-        level_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
-        level_options = [
-            ("Off - no chromatographic deconvolution", "off"),
-            ("Level 1 - coarsest, fastest, obvious overlaps only", "1"),
-            ("Level 2 - conservative splitting", "2"),
-            ("Level 3 - moderate resolution", "3"),
-            ("Level 4 - default, high-resolution overlap splitting", "4"),
-            ("Level 5 - higher resolution, EMG model + shoulder detection", "5"),
-            ("Level 6 - very high resolution, shoulder detection", "6"),
-            ("Level 7 - finest, slowest, weakest shoulders considered", "7"),
-        ]
-        for label, value in level_options:
-            level_combo.addItem(label, value)
-        level_combo.setCurrentIndex(
-            next((i for i, (_, v) in enumerate(level_options) if v == current_level), 0)
-        )
-        form_layout.addRow("Resolution:", level_combo)
-
-        fit_combo = QComboBox()
-        fit_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
-        fit_options = [
-            ("Auto - compare peak shapes and pick the best by BIC", "auto"),
-            ("Gaussian - symmetric peaks only", "gaussian"),
-            ("Bi-Gaussian - asymmetric (separate left/right widths)", "bi_gaussian"),
-            ("EMG - exponentially modified Gaussian (tailing)", "emg"),
-        ]
-        for label, value in fit_options:
-            fit_combo.addItem(label, value)
-        fit_combo.setCurrentIndex(
-            next((i for i, (_, v) in enumerate(fit_options) if v == current_fit), 0)
-        )
-        form_layout.addRow("Fit type:", fit_combo)
-
-        gate_combo = QComboBox()
-        gate_combo.setStyleSheet("QComboBox { background-color: white; color: #212529; }")
-        gate_options = [
-            ("Balanced - skip noise-only peaks (recommended)", "balanced"),
-            ("Lenient - only skip near-pure noise", "lenient"),
-            ("Aggressive - only fit clearly smooth peaks", "aggressive"),
-            ("Off - always attempt a fit", "off"),
-        ]
-        for label, value in gate_options:
-            gate_combo.addItem(label, value)
-        gate_combo.setCurrentIndex(
-            next((i for i, (_, v) in enumerate(gate_options) if v == current_gate), 0)
-        )
-        form_layout.addRow("Noise gate:", gate_combo)
-        layout.addLayout(form_layout)
-
-        def _sync_fit_enabled():
-            on = level_combo.currentData() != "off"
-            fit_combo.setEnabled(on)
-            gate_combo.setEnabled(on)
-
-        level_combo.currentIndexChanged.connect(lambda _: _sync_fit_enabled())
-        _sync_fit_enabled()
-
-        hint_label = QLabel(
-            "Lower levels are faster and less likely to split noise. Forcing a single "
-            "fit type (instead of Auto) is faster because fewer peak shapes are tried. "
-            "The noise gate skips fitting on messy/noise-only peaks (shown as the raw "
-            "trace); a stricter gate is faster but may skip weak real peaks."
-        )
-        hint_label.setWordWrap(True)
-        hint_label.setMinimumWidth(600)
-        hint_label.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(hint_label)
-
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(separator)
-
-        apply_all_checkbox = QCheckBox("Apply these settings to all compounds")
-        apply_all_checkbox.setToolTip(
-            "Overwrite the deconvolution settings of every compound with the "
-            "values chosen above (e.g. tick this with 'Off' to disable "
-            "deconvolution globally)."
-        )
-        layout.addWidget(apply_all_checkbox)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
-        )
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        dialog.adjustSize()
-
-        if dialog.exec() == QDialog.Accepted:
-            new_level = level_combo.currentData()
-            new_fit = fit_combo.currentData()
-            new_gate = gate_combo.currentData()
-            apply_to_all = apply_all_checkbox.isChecked()
-
-            if apply_to_all:
-                self._apply_deconvolution_settings_to_all(
-                    compound_name, new_level, new_fit, new_gate
-                )
-            elif (
-                new_level != current_level
-                or new_fit != current_fit
-                or new_gate != current_gate
-            ):
-                with get_connection() as conn:
-                    conn.execute(
-                        "UPDATE compounds SET deconvolution_level = ?, "
-                        "deconvolution_fit_type = ?, deconvolution_noise_gate = ? "
-                        "WHERE compound_name = ? AND deleted = 0",
-                        (new_level, new_fit, new_gate, compound_name),
-                    )
-                logger.info(
-                    f"Deconvolution settings updated for '{compound_name}': "
-                    f"level={new_level}, fit_type={new_fit}, noise_gate={new_gate}"
-                )
-                if self._validation_provider is not None:
-                    self._validation_provider.invalidate_cache()
-                self.update_deconvolution_indicator(compound_name)
-                if self.cdf_data_loaded and self.compound_data_loaded:
-                    current_compound = self.toolbar.get_selected_compound()
-                    current_samples = self.toolbar.get_selected_samples()
-                    if current_compound and current_samples:
-                        self.on_plot_button(current_compound, current_samples)
-
-    def _apply_deconvolution_settings_to_all(
-        self, current_compound_name: str, new_level: str, new_fit: str, new_gate: str
-    ) -> None:
-        """Overwrite deconvolution settings for every compound after confirmation."""
-        with get_connection() as conn:
-            compound_count = conn.execute(
-                "SELECT COUNT(*) FROM compounds WHERE deleted = 0"
-            ).fetchone()[0]
-
-        if compound_count == 0:
-            return
-
-        confirm = QMessageBox.question(
-            self,
-            "Apply to All Compounds",
-            f"This will overwrite the deconvolution settings of all "
-            f"{compound_count} compound(s) with:\n\n"
-            f"    Resolution: {new_level}\n"
-            f"    Fit type: {new_fit}\n"
-            f"    Noise gate: {new_gate}\n\n"
-            f"Existing per-compound settings will be replaced. Continue?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if confirm != QMessageBox.Yes:
-            return
-
-        with get_connection() as conn:
-            conn.execute(
-                "UPDATE compounds SET deconvolution_level = ?, "
-                "deconvolution_fit_type = ?, deconvolution_noise_gate = ? "
-                "WHERE deleted = 0",
-                (new_level, new_fit, new_gate),
-            )
-        logger.info(
-            f"Deconvolution settings applied to all {compound_count} compounds: "
-            f"level={new_level}, fit_type={new_fit}, noise_gate={new_gate}"
-        )
-
-        if self._validation_provider is not None:
-            self._validation_provider.invalidate_cache()
-        self.update_deconvolution_indicator(current_compound_name)
-        if self.cdf_data_loaded and self.compound_data_loaded:
-            current_compound = self.toolbar.get_selected_compound()
-            current_samples = self.toolbar.get_selected_samples()
-            if current_compound and current_samples:
-                self.on_plot_button(current_compound, current_samples)
-
-    def show_labelled_internal_standard_dialog(self) -> None:
-        """Choose which internal standard isotopologue (M+N) is the reference peak."""
-        internal_standard = self.toolbar.get_internal_standard()
-        if not internal_standard:
-            msg = self._create_message_box(
-                "information",
-                "Labelled Internal Standard",
-                "No internal standard selected.",
-                "Select an internal standard first, then choose the reference peak (M+N).",
-            )
-            msg.exec()
-            return
-
-        try:
-            with get_connection() as conn:
-                row = conn.execute(
-                    "SELECT label_atoms FROM compounds WHERE compound_name = ? AND deleted = 0",
-                    (internal_standard,),
-                ).fetchone()
-        except Exception as exc:
-            logger.error("Failed reading internal standard label_atoms: %s", exc)
-            row = None
-
-        label_atoms = 0
-        try:
-            if row is not None:
-                label_atoms = int(row["label_atoms"]) if row["label_atoms"] is not None else 0
-        except Exception:
-            try:
-                label_atoms = int(row[0]) if row and row[0] is not None else 0
-            except Exception:
-                label_atoms = 0
-
-        if label_atoms < 0:
-            label_atoms = 0
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Labelled Internal Standard")
-        dialog.setModal(True)
-        dialog.resize(520, 220)
-
-        layout = QVBoxLayout(dialog)
-
-        info_label = QLabel(
-            "Select which internal standard isotopologue peak is the reference peak (M+N).\n"
-            "This reference peak is used for peak validation, abundance normalization, and MRRF calculations.\n"
-            "Changing the internal standard compound resets this setting to M0."
-        )
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-
-        form = QFormLayout()
-
-        combo = QComboBox()
-        for idx in range(label_atoms + 1):
-            combo.addItem(f"M+{idx}", idx)
-
-        current_idx = int(getattr(self, "internal_standard_reference_isotope", 0))
-        if current_idx < 0:
-            current_idx = 0
-        if current_idx > label_atoms:
-            current_idx = 0
-        combo.setCurrentIndex(current_idx)
-
-        form.addRow(QLabel(f"Internal Standard: {internal_standard}"), QLabel(""))
-        form.addRow("Reference Peak:", combo)
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() != QDialog.Accepted:
-            return
-
-        new_idx = int(combo.currentData())
-        if new_idx != self.internal_standard_reference_isotope:
-            self.internal_standard_reference_isotope = new_idx
-
-            # Invalidate validation cache (threshold reference peak changed)
-            if self._validation_provider is not None:
-                self._validation_provider.invalidate_cache()
-
-            # Refresh plots if data is loaded
-            if self.cdf_data_loaded and self.compound_data_loaded:
-                current_compound = self.toolbar.get_selected_compound()
-                current_samples = self.toolbar.get_selected_samples()
-                if current_compound and current_samples:
-                    self.on_plot_button(current_compound, current_samples)
-
-    def _create_documentation_menu(self, docs_menu):
-        """Create documentation menu with available markdown files."""
-        # Get the docs directory path
-        # From src/manic/ui/main_window.py, go up to project root, then to docs
-        docs_dir = Path(docs_path())
-
-        if not docs_dir.exists():
-            no_docs_action = QAction("No documentation available", self)
-            no_docs_action.setEnabled(False)
-            docs_menu.addAction(no_docs_action)
-            return
-
-        # Find all markdown files in the docs directory
-        md_files = list(docs_dir.glob("*.md"))
-
-        if not md_files:
-            no_files_action = QAction("No documentation files found", self)
-            no_files_action.setEnabled(False)
-            docs_menu.addAction(no_files_action)
-            return
-
-        # Sort files - put getting_started first, then alphabetical
-        md_files.sort(key=lambda f: (f.name != "getting_started.md", f.name.lower()))
-
-        # Create menu actions for each markdown file
-        for md_file in md_files:
-            # Create a nice display name from the filename
-            display_name = md_file.stem.replace("_", " ").title()
-
-            action = QAction(display_name, self)
-            # Use lambda with default argument to capture the file path
-            action.triggered.connect(
-                lambda checked, file_path=md_file: self._show_documentation(file_path)
-            )
-            docs_menu.addAction(action)
-
-    def _show_documentation(self, file_path: Path):
-        """Show a documentation file in the viewer dialog."""
-        try:
-            show_documentation_file(self, file_path)
-        except Exception as e:
-            logger.error(f"Failed to show documentation {file_path}: {e}")
-            msg_box = self._create_message_box(
-                "critical",
-                "Documentation Error",
-                f"Failed to open documentation file:\n{str(e)}",
-            )
-            msg_box.exec()
 
     def show_about(self):
         """Show About dialog with version information."""
@@ -2643,56 +2298,6 @@ class MainWindow(QMainWindow):
                 )
                 msg_box.exec()
 
-    def toggle_natural_abundance_correction(self):
-        is_enabled = self.nat_abundance_toggle.isChecked()
-        logger.info(
-            f"Natural abundance correction visualization toggled: {'ON' if is_enabled else 'OFF'}"
-        )
-
-        self.nat_abundance_toggle.setText(
-            f"Preview Natural Abundance Correction: {'On' if is_enabled else 'Off'}"
-        )
-        self.toolbar.isotopologue_ratios.set_use_corrected(is_enabled)
-        self.graph_view.set_use_corrected(is_enabled)
-
-        selected_compound = self.toolbar.get_selected_compound()
-        selected_samples = self.toolbar.get_selected_samples()
-
-        if selected_compound and selected_samples:
-            self.on_plot_button(selected_compound, selected_samples)
-
-    def toggle_legacy_integration_mode(self):
-        """Toggle legacy MATLAB-compatible integration mode on/off."""
-        is_enabled = self.legacy_integration_toggle.isChecked()
-        self.use_legacy_integration = is_enabled
-
-        logger.info(f"Legacy integration mode toggled: {'ON' if is_enabled else 'OFF'}")
-
-        # Update menu text
-        self.legacy_integration_toggle.setText(
-            f"Legacy Integration Mode: {'On' if is_enabled else 'Off'}"
-        )
-
-        # Show information dialog about the change
-        mode_name = "Legacy Unit-Spacing" if is_enabled else "Time-Based"
-
-        msg = self._create_message_box(
-            "info",
-            "Integration Mode Changed",
-            f"Integration method changed to: {mode_name}",
-            "The change will only apply to graphs in the GUI. Integration method for export is chosen at the time of export. "
-            "See documentation for detailed information about integration methods.",
-        )
-        msg.exec()
-
-        # If we have data displayed, refresh everything
-        selected_compound = self.toolbar.get_selected_compound()
-        selected_samples = self.toolbar.get_selected_samples()
-
-        if selected_compound and selected_samples:
-            # Trigger a full replot of the main graphs
-            self.on_plot_button(selected_compound, selected_samples)
-
     def _ensure_corrections_applied_for_export(self):
         """
         Ensure natural isotope corrections are applied before data export.
@@ -2807,7 +2412,7 @@ class MainWindow(QMainWindow):
             options_dialog.setWindowTitle("Export Options")
             vbox = QVBoxLayout(options_dialog)
             info_label = QLabel(
-                "Choose integration method for this export (can also be changed in Settings → Legacy Integration Mode):"
+                "Choose integration method for this export (can also be changed in Settings → Integration):"
             )
             vbox.addWidget(info_label)
             # Force black text for label, radio buttons, and checkboxes regardless of theme

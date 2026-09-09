@@ -53,11 +53,11 @@ In the final results workbook (specifically the **Abundances** sheet):
 
 You can adjust the strictness of this check in the settings.
 
-**Settings → Minimum Peak Area...**
+**Settings → Peak Validation**
 
 Optionally, if your internal standard is labelled, you can choose which isotopologue peak is used as the reference peak:
 
-**Settings → Labelled Internal Standard...**
+**Settings → Internal Standard**
 
 * **Default:** `0.005` (0.5%)
 * **Range:** `0.0` to `1.0`

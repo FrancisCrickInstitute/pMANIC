@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QGraphicsTextItem,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QMenu,
     QRubberBand,
@@ -39,6 +40,7 @@ from manic.validation.unlabelled_identity import (
 
 from .channel_chips import ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
+from .icon_button import icon_button
 from .colors import (
     ChannelTraceStyle,
     channel_trace_styles,
@@ -140,6 +142,8 @@ class GraphView(QWidget):
     # Signal to emit when plot selection changes
     selection_changed = Signal(list)  # List of selected sample names
     peak_review_changed = Signal(str, list, object)
+    settings_requested = Signal()
+    documentation_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -148,8 +152,19 @@ class GraphView(QWidget):
         outer_layout.setSpacing(0)
         outer_layout.setContentsMargins(0, 0, 0, 0)
 
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 6, 0)
+        header.setSpacing(2)
         self.channel_legend = ChannelChipRow()
-        outer_layout.addWidget(self.channel_legend, stretch=0)
+        header.addWidget(self.channel_legend, stretch=1)
+        header.addStretch()
+        self.docs_button = icon_button("docsButton", "docs_book.svg", "Documentation")
+        self.docs_button.clicked.connect(self.documentation_requested.emit)
+        header.addWidget(self.docs_button)
+        self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
+        self.settings_button.clicked.connect(self.settings_requested.emit)
+        header.addWidget(self.settings_button)
+        outer_layout.addLayout(header)
 
         grid_host = QWidget()
         outer_layout.addWidget(grid_host, stretch=1)

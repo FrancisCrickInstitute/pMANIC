@@ -63,7 +63,7 @@ Import raw experimental data files for processing. The application will extract 
 
 **Configuration Note**   
 The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) to bin detected masses.
-* To check or change this: Go to **Settings → Mass Tolerance...** *before* loading data.
+* To check or change this: Go to **Settings → Mass Tolerance** *before* loading data.
 * *Note: If you change the tolerance later, you will need to re-import the data.*
 
 **Procedure**   
@@ -308,23 +308,25 @@ The left toolbar contains two summary charts: **Label Incorporation** and **Tota
 
 ## 8. Settings & Configuration
 
+Open **Settings**, **Documentation**, **Check for Updates** and **About** from the **MANIC** menu (on macOS these sit in the application menu), or use the book and gear icons at the top right of the plot area.
+
 These settings control the global behavior of the application. Changing them usually requires re-processing your data.
 
 ### Mass Tolerance
-**Settings → Mass Tolerance...**
+**Settings → Mass Tolerance**
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
 * **Impact:** Changing this requires re-importing your raw data (Step 2).
 * **Deep Dive:** 📖 [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Legacy Integration Mode
-**Settings → Legacy Integration Mode**
+**Settings → Integration**
 * **Off (Default):** Uses **Time-Based Integration**. Areas are calculated as $Intensity \times Time$. This is the scientifically accurate method for modern reporting.
 * **On:** Uses **Unit-Spacing Integration**. Areas are simple sums of intensity. This produces values ~100× larger and is intended *only* for reproducing historical data from MATLAB GVISO/MANIC v3.3.0.
 * **Deep Dive:** 📖 [Compare Integration Methods](Reference_Integration_Methods.md)
 
 ### Minimum Peak Area
-**Settings → Minimum Peak Area...**
+**Settings → Peak Validation**
 * **Default:** `0.005` (0.5%)
 * **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area are flagged with a **red background**.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
@@ -337,10 +339,10 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Chromatographic Peak Deconvolution
-**Settings → Chromatographic Peak Deconvolution**
+**Settings → Deconvolution**
 * **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes around the expected retention time and selects the component nearest that time whose centre sits inside the dashed loffset/roffset window. This can separate overlapping peaks before area calculation.
-* **Scope:** This is a **per-compound** setting. Open the dialog with a compound selected; the chosen resolution level and fit type are saved for that compound and applied across all of its samples. (There is no longer a single global setting.)
+* **Scope:** This is a **per-compound** setting. Open **Settings → Deconvolution** with a compound selected; the chosen resolution level and fit type are saved for that compound and applied across all of its samples. (There is no longer a single global setting.)
 * **Resolution levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered (and cost more time). The default `Level 4` is tuned for aggressive splitting of resolved overlaps while staying fast; levels `5`-`7` additionally enable shoulder detection (separating components that ride on a flank without their own peak) for the hardest coelutions.
 * **Fit type:** Choose how the elution shape is modelled:
     * `Auto` - compares the candidate shapes and picks the best by BIC (recommended default).
@@ -353,7 +355,7 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
     * `Lenient` - skip only near-pure noise.
     * `Aggressive` - only fit clearly smooth peaks.
     * `Off` - always attempt a fit (the old behaviour).
-* **Apply to all compounds:** The dialog has an **"Apply these settings to all compounds"** checkbox. Tick it to copy the chosen resolution, fit type, and noise gate to *every* compound at once (after a confirmation prompt). This is the quickest way to, for example, turn deconvolution **off everywhere** (select `Off`, tick the box, confirm) or roll one configuration out across your whole method. Note that this overwrites each compound's existing per-compound settings.
+* **Apply to all compounds:** The page has an **"Apply to all compounds"** checkbox. Tick it to copy the chosen resolution, fit type, and noise gate to *every* compound at once (after a confirmation prompt). This is the quickest way to, for example, turn deconvolution **off everywhere** (select `Off`, tick the box, confirm) or roll one configuration out across your whole method. Note that this overwrites each compound's existing per-compound settings.
 * **Affects raw, corrected, and abundance results:** When every non-empty ion of a compound in a sample fitted, the *same* selected component is used for the Raw Values, the natural-abundance Corrected Values, and the Abundances. Turning deconvolution on or off for a compound therefore moves all of its result sheets together (not just the raw areas).
 * **One noisy failed ion puts the whole envelope on scans:** If any isotopologue with real intensity cannot be fitted, plots show the raw scan traces and export integrates those same raw in-window scans for every non-empty ion of that pair on both Raw and Corrected. An ion with no positive signal inside the dashed boundaries is empty, not a failed fit. Signal elsewhere in the chromatogram does not change that. A successful fit with no peak centre inside the boundaries is also empty. Empty ions stay at area 0. Weak positive ions use their raw scans if fitting fails.
 * **Status indicator:** The bottom status bar (left side) shows the current compound's setting, e.g. `Deconvolution: On · Level 4 · Auto · Gate Balanced (compound_name)`, or `Deconvolution: Off`.
@@ -361,7 +363,7 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 * **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction
-**Settings → Preview Natural Abundance Correction** (Toggle)
+**Settings → Natural Abundance**
 * **Function:** Controls what the main chromatogram plots and the Label Incorporation bars show.
     * **On:** Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * **Off:** Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.

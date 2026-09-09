@@ -8,9 +8,9 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from manic.constants import DEFAULT_RT_WINDOW_BUFFER
+from manic.constants import minimum_extract_rt_window
 from manic.io.cdf_reader import read_cdf_file
-from manic.io.compound_reader import read_compound
+from manic.io.compound_reader import Compound, read_compound
 from manic.models.database import get_connection
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_calculator import EIC, EmptyRtWindowError, extract_eic
@@ -32,6 +32,26 @@ class CompoundExtractionTarget:
     label_atoms: int
     target_mzs: tuple[float, ...]
     required_rt_window: float
+
+
+def _extract_rt_window_covering_offsets(
+    requested: float,
+    compound_name: str,
+    sample_names: list[str],
+    compound_data: Compound,
+    pending_regeneration: PendingRegeneration | None,
+) -> float:
+    loffset = float(compound_data.loffset or 0.0)
+    roffset = float(compound_data.roffset or 0.0)
+    if pending_regeneration is not None:
+        loffset = max(loffset, float(pending_regeneration.loffset))
+        roffset = max(roffset, float(pending_regeneration.roffset))
+    for session in SessionActivityService.get_session_data_for_samples(
+        compound_name, sample_names
+    ):
+        loffset = max(loffset, float(session.loffset or 0.0))
+        roffset = max(roffset, float(session.roffset or 0.0))
+    return max(float(requested), minimum_extract_rt_window(loffset, roffset))
 
 
 # ─────────────────────────── Utility Functions ────────────────────────────
@@ -98,8 +118,8 @@ def _iter_compounds(conn):
             mass0=float(data["mass0"]),
             label_atoms=data["label_atoms"],
             target_mzs=target_mzs,
-            required_rt_window=(
-                max(data["loffset"], data["roffset"]) + DEFAULT_RT_WINDOW_BUFFER
+            required_rt_window=minimum_extract_rt_window(
+                data["loffset"], data["roffset"]
             ),
         )
 
@@ -555,10 +575,6 @@ def regenerate_compound_eics(
     """
     start = time.time()
 
-    logger.info(
-        f"Starting regeneration for compound '{compound_name}' with tR window {tr_window}"
-    )
-
     try:
         compound_data = read_compound(compound_name)
         mz = compound_data.mass0
@@ -568,6 +584,17 @@ def regenerate_compound_eics(
         )
     except Exception as e:
         raise RuntimeError(f"Failed to read compound '{compound_name}': {e}")
+
+    tr_window = _extract_rt_window_covering_offsets(
+        tr_window,
+        compound_name,
+        sample_names,
+        compound_data,
+        pending_regeneration,
+    )
+    logger.info(
+        f"Starting regeneration for compound '{compound_name}' with tR window {tr_window}"
+    )
 
     if pending_regeneration is not None:
         if pending_regeneration.compound_name != compound_name:
@@ -883,9 +910,8 @@ def regenerate_all_eics_with_mass_tolerance(
                     mass0=base_target.mass0,
                     label_atoms=base_target.label_atoms,
                     target_mzs=base_target.target_mzs,
-                    required_rt_window=(
-                        max(float(row["loffset"]), float(row["roffset"]))
-                        + DEFAULT_RT_WINDOW_BUFFER
+                    required_rt_window=minimum_extract_rt_window(
+                        row["loffset"], row["roffset"]
                     ),
                 )
             )

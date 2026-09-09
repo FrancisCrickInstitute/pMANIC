@@ -10,7 +10,8 @@ from manic.io.compound_reader import read_compound
 from manic.io.eic_reader import read_eics_batch
 from manic.io.eic_importer import _compress, regenerate_compound_eics
 from manic.models import database
-from manic.models.session_activity import PendingRegeneration
+from manic.models.session_activity import PendingRegeneration, SessionActivityService
+from manic.processors.chromatographic_peak_deconvolution import deconvolve_eic
 from manic.processors.eic_calculator import EmptyRtWindowError
 from manic.ui.main_window import MainWindow
 from manic.ui.integration_window_widget import (
@@ -292,6 +293,113 @@ class TestPerSampleReloadChecking:
             ("Glucose", 0.2, ["s1", "s2"], sample_rts)
         ]
 
+    def test_update_tr_window_raises_extract_to_cover_offsets(self):
+        emitted = []
+        tr_window_field = _TextField("0.1")
+        fields = {
+            "tr_input": _TextField("5.0"),
+            "tr_window_input": tr_window_field,
+            "lo_input": _TextField("0.4"),
+            "ro_input": _TextField("0.4"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _all_samples=["s1"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _get_current_retention_time=lambda: 5.0,
+            _show_message=lambda *_args: None,
+            _format_number=lambda value: IntegrationWindow._format_number(None, value),
+        )
+
+        IntegrationWindow._on_regenerate_clicked(window)
+
+        assert emitted == [("Glucose", 0.5, ["s1"], 5.0)]
+        assert tr_window_field.text() == "0.5"
+
+    def test_update_tr_window_keeps_a_wider_requested_extract(self):
+        emitted = []
+        tr_window_field = _TextField("0.8")
+        fields = {
+            "tr_input": _TextField("5.0"),
+            "tr_window_input": tr_window_field,
+            "lo_input": _TextField("0.2"),
+            "ro_input": _TextField("0.3"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _all_samples=["s1"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _get_current_retention_time=lambda: 5.0,
+            _show_message=lambda *_args: None,
+            _format_number=lambda value: IntegrationWindow._format_number(None, value),
+        )
+
+        IntegrationWindow._on_regenerate_clicked(window)
+
+        assert emitted == [("Glucose", 0.8, ["s1"], 5.0)]
+        assert tr_window_field.text() == "0.8"
+
+    def test_update_tr_window_uses_widest_offset_in_a_range(self):
+        emitted = []
+        tr_window_field = _TextField("0.15")
+        fields = {
+            "tr_input": _TextField("5.0"),
+            "tr_window_input": tr_window_field,
+            "lo_input": _TextField("0.2 - 0.6"),
+            "ro_input": _TextField("0.1 - 0.3"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _all_samples=["s1", "s2"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _get_current_retention_time=lambda: 5.0,
+            _show_message=lambda *_args: None,
+            _format_number=lambda value: IntegrationWindow._format_number(None, value),
+        )
+
+        IntegrationWindow._on_regenerate_clicked(window)
+
+        assert emitted == [("Glucose", 0.7, ["s1", "s2"], 5.0)]
+        assert tr_window_field.text() == "0.7"
+
+
+class _TextField:
+    def __init__(self, value: str):
+        self._value = value
+
+    def text(self) -> str:
+        return self._value
+
+    def setText(self, value: str) -> None:
+        self._value = value
+
+    def setFocus(self) -> None:
+        return None
+
+
+def _gaussian(time, center, width, height):
+    return height * np.exp(-0.5 * ((time - center) / width) ** 2)
+
+
+def _overlap_trace(retention_time: float, half_width: float):
+    point_count = max(41, int(half_width / 0.005) + 1)
+    time = np.linspace(
+        retention_time - half_width, retention_time + half_width, point_count
+    )
+    intensity = _gaussian(time, retention_time, 0.08, 12.0) + _gaussian(
+        time, retention_time + 0.22, 0.08, 10.0
+    )
+    return time, intensity
+
 
 def _seed_eic_db(db_path: Path, sample_files: dict[str, Path]):
     time_axis = np.array([7.07, 7.17, 7.27], dtype=np.float64)
@@ -321,6 +429,63 @@ def _seed_eic_db(db_path: Path, sample_files: dict[str, Path]):
                     0.2,
                 ),
             )
+
+
+def _glucose_regen_db(tmp_path, monkeypatch) -> Path:
+    db_path = tmp_path / "regen.db"
+    cdf_path = tmp_path / "s1.cdf"
+    cdf_path.write_bytes(b"cdf")
+    monkeypatch.setattr(database, "DB_FILE", db_path)
+    _seed_eic_db(db_path, {"s1": cdf_path})
+    return db_path
+
+
+def _set_compound_offsets(db_path: Path, loffset: float, roffset: float) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
+            (loffset, roffset, "Glucose"),
+        )
+        conn.commit()
+
+
+def _stub_window_extract(monkeypatch) -> list[float]:
+    captured_windows: list[float] = []
+
+    def _extract(
+        _compound_name,
+        _sample_rt,
+        _mz,
+        _cdf,
+        _mass_tol,
+        tr_window,
+        *_args,
+        **_kwargs,
+    ):
+        captured_windows.append(tr_window)
+        return SimpleNamespace(
+            time=np.array([6.67, 7.17, 7.67]),
+            intensity=np.array([2.0, 20.0, 2.0]),
+        )
+
+    monkeypatch.setattr(
+        "manic.io.eic_importer.read_cdf_file",
+        lambda _path: SimpleNamespace(sample_name="s1"),
+    )
+    monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
+    monkeypatch.setattr(
+        "manic.processors.eic_correction_manager.apply_correction_to_eic",
+        lambda *_args, **_kwargs: False,
+    )
+    return captured_windows
+
+
+def _stored_rt_window(db_path: Path) -> float:
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
+            ("Glucose", "s1"),
+        ).fetchone()[0]
 
 
 def test_batch_read_falls_back_to_raw_per_sample(tmp_path, monkeypatch):
@@ -599,6 +764,160 @@ class TestRecoveryAfterEmptyExtract:
         assert count == 1
         assert stored[0] == "s1"
         assert restored == pytest.approx(new_time)
+
+    def test_regenerate_raises_tr_window_to_cover_offsets(self, tmp_path, monkeypatch):
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _set_compound_offsets(db_path, 0.4, 0.4)
+        captured_windows = _stub_window_extract(monkeypatch)
+
+        regenerate_compound_eics(
+            "Glucose",
+            0.1,
+            ["s1"],
+            retention_time=7.17,
+        )
+
+        assert captured_windows == [pytest.approx(0.5)]
+        assert _stored_rt_window(db_path) == pytest.approx(0.5)
+
+    def test_regenerate_raises_tr_window_to_cover_session_offsets(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _set_compound_offsets(db_path, 0.1, 0.1)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO session_activity
+                    (compound_name, sample_name, retention_time, loffset, roffset)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("Glucose", "s1", 7.17, 0.4, 0.4),
+            )
+            conn.commit()
+        captured_windows = _stub_window_extract(monkeypatch)
+
+        regenerate_compound_eics(
+            "Glucose",
+            0.1,
+            ["s1"],
+            retention_time=7.17,
+        )
+
+        assert captured_windows == [pytest.approx(0.5)]
+        assert _stored_rt_window(db_path) == pytest.approx(0.5)
+
+    def test_regenerate_raises_tr_window_to_cover_pending_offsets(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _set_compound_offsets(db_path, 0.1, 0.1)
+        captured_windows = _stub_window_extract(monkeypatch)
+        pending = PendingRegeneration(
+            compound_name="Glucose",
+            retention_time=7.17,
+            loffset=0.4,
+            roffset=0.4,
+            sample_names=("s1",),
+            regenerated_sample_names=("s1",),
+        )
+
+        regenerate_compound_eics(
+            "Glucose",
+            0.1,
+            ["s1"],
+            retention_time=7.17,
+            pending_regeneration=pending,
+        )
+
+        assert captured_windows == [pytest.approx(0.5)]
+        assert _stored_rt_window(db_path) == pytest.approx(0.5)
+
+    def test_get_session_data_for_samples_raises_when_table_is_missing(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("DROP TABLE session_activity")
+            conn.commit()
+
+        with pytest.raises(sqlite3.OperationalError):
+            SessionActivityService.get_session_data_for_samples("Glucose", ["s1"])
+
+    def test_regenerate_aborts_when_session_offsets_cannot_be_read(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _stub_window_extract(monkeypatch)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("DROP TABLE session_activity")
+            conn.commit()
+
+        with pytest.raises(sqlite3.OperationalError):
+            regenerate_compound_eics(
+                "Glucose",
+                0.1,
+                ["s1"],
+                retention_time=7.17,
+            )
+
+        assert _stored_rt_window(db_path) == pytest.approx(0.2)
+
+    def test_raised_extract_lets_deconvolution_exclude_a_neighbour(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _set_compound_offsets(db_path, 0.4, 0.4)
+        extracted = {}
+
+        def _extract(
+            _compound_name,
+            sample_rt,
+            _mz,
+            _cdf,
+            _mass_tol,
+            tr_window,
+            *_args,
+            **_kwargs,
+        ):
+            time, intensity = _overlap_trace(sample_rt, tr_window)
+            extracted["time"] = time
+            extracted["intensity"] = intensity
+            extracted["tr_window"] = tr_window
+            return SimpleNamespace(time=time, intensity=intensity)
+
+        monkeypatch.setattr(
+            "manic.io.eic_importer.read_cdf_file",
+            lambda _path: SimpleNamespace(sample_name="s1"),
+        )
+        monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
+        monkeypatch.setattr(
+            "manic.processors.eic_correction_manager.apply_correction_to_eic",
+            lambda *_args, **_kwargs: False,
+        )
+
+        regenerate_compound_eics(
+            "Glucose",
+            0.1,
+            ["s1"],
+            retention_time=7.17,
+        )
+
+        raised = deconvolve_eic(
+            extracted["time"],
+            extracted["intensity"],
+            retention_time=7.17,
+            loffset=0.4,
+            roffset=0.4,
+            stringency="medium",
+        )
+
+        assert extracted["tr_window"] == pytest.approx(0.5)
+        assert raised.selected_center == pytest.approx(7.17, abs=0.02)
+        assert len(raised.excluded) == 1
+        assert np.trapezoid(raised.selected, extracted["time"]) < np.trapezoid(
+            extracted["intensity"], extracted["time"]
+        )
 
     def test_eic_and_session_values_commit_together(self, tmp_path, monkeypatch):
         db_path = tmp_path / "regen.db"

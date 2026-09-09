@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from manic.constants import DEFAULT_RT_WINDOW_BUFFER
+from manic.constants import DEFAULT_RT_WINDOW_BUFFER, minimum_extract_rt_window
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
@@ -103,7 +103,7 @@ def calculate_integration_boundaries(
 
 
 def calculate_minimum_rt_window(
-    loffset: float, roffset: float, buffer: float = 0.1
+    loffset: float, roffset: float, buffer: float = DEFAULT_RT_WINDOW_BUFFER
 ) -> float:
     """
     Calculate minimum RT window size required to cover integration boundaries.
@@ -123,7 +123,17 @@ def calculate_minimum_rt_window(
         >>> calculate_minimum_rt_window(0.3, 0.5, buffer=0.1)
         0.6  # max(0.3, 0.5) + 0.1
     """
-    return max(loffset, roffset) + buffer
+    return minimum_extract_rt_window(loffset, roffset, buffer)
+
+
+def _widest_offset(text: str) -> float | None:
+    parts = [part.strip() for part in (text or "").split(" - ") if part.strip()]
+    if not parts:
+        return None
+    try:
+        return max(float(part) for part in parts)
+    except ValueError:
+        return None
 
 
 def check_boundaries_within_window(
@@ -1039,6 +1049,23 @@ class IntegrationWindow(QGroupBox):
                 )
                 tr_window_field.setFocus()
                 return
+
+            lo_field = self.findChild(QLineEdit, "lo_input")
+            ro_field = self.findChild(QLineEdit, "ro_input")
+            loffset = _widest_offset(lo_field.text()) if lo_field else None
+            roffset = _widest_offset(ro_field.text()) if ro_field else None
+            if (
+                loffset is not None
+                and roffset is not None
+                and loffset >= 0
+                and roffset >= 0
+            ):
+                min_required = calculate_minimum_rt_window(
+                    loffset, roffset, buffer=DEFAULT_RT_WINDOW_BUFFER
+                )
+                if tr_window < min_required:
+                    tr_window = min_required
+                    tr_window_field.setText(self._format_number(tr_window))
 
         except ValueError:
             self._show_message(

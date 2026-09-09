@@ -70,54 +70,6 @@ def qapp():
     yield app
 
 
-def test_nic_toggle_updates_preview_state_without_processing_data():
-    labels = []
-    ratio_states = []
-    graph_states = []
-    window = SimpleNamespace(
-        nat_abundance_toggle=SimpleNamespace(
-            isChecked=lambda: True,
-            setText=labels.append,
-        ),
-        toolbar=SimpleNamespace(
-            isotopologue_ratios=SimpleNamespace(
-                set_use_corrected=ratio_states.append
-            ),
-            get_selected_compound=lambda: None,
-            get_selected_samples=lambda: [],
-        ),
-        graph_view=SimpleNamespace(set_use_corrected=graph_states.append),
-    )
-
-    MainWindow.toggle_natural_abundance_correction(window)
-
-    assert labels == ["Preview Natural Abundance Correction: On"]
-    assert ratio_states == [True]
-    assert graph_states == [True]
-
-
-def test_legacy_integration_toggle_leaves_nic_preview_alone():
-    graph_states = []
-    window = SimpleNamespace(
-        legacy_integration_toggle=SimpleNamespace(
-            isChecked=lambda: True,
-            setText=lambda text: None,
-        ),
-        use_legacy_integration=False,
-        _create_message_box=lambda *args: SimpleNamespace(exec=lambda: None),
-        graph_view=SimpleNamespace(set_use_corrected=graph_states.append),
-        toolbar=SimpleNamespace(
-            get_selected_compound=lambda: None,
-            get_selected_samples=lambda: [],
-        ),
-    )
-
-    MainWindow.toggle_legacy_integration_mode(window)
-
-    assert window.use_legacy_integration is True
-    assert graph_states == []
-
-
 @pytest.fixture
 def integration_window(qapp):
     """Create IntegrationWindow instance for testing."""

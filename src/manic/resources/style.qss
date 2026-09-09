@@ -331,6 +331,11 @@ QDialog QPushButton:pressed {
     background-color: #dee2e6;
 }
 
+QDialog QPushButton:disabled {
+    background-color: #f8f9fa;
+    color: #adb5bd;
+}
+
 /* Blue buttons for Yes/OK/Accept actions in dialogs */
 QDialog QPushButton[text="&Yes"],
 QDialog QPushButton[text="Yes"],
@@ -362,6 +367,11 @@ QDialog QPushButton[text="&Accept"]:pressed,
 QDialog QPushButton[text="Accept"]:pressed,
 QDialog QPushButton:default:pressed {
     background-color: #0a58ca;
+}
+
+QDialog QPushButton:default:disabled {
+    background-color: #9ec5fe;
+    color: white;
 }
 
 /* Red buttons for No/Cancel/Reject actions in dialogs */
@@ -426,4 +436,34 @@ QComboBox QAbstractItemView {
     color: #212529;
     selection-background-color: #e6f0ff;
     selection-color: #212529;
+}
+
+QToolButton#settingsButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px;
+}
+
+QToolButton#settingsButton:hover {
+    background-color: #e9ecef;
+}
+
+QListWidget#settingsPageList {
+    border: none;
+    border-right: 1px solid #d0d0d0;
+    border-radius: 0;
+    background-color: #f8f9fa;
+    padding: 8px 4px;
+}
+
+QListWidget#settingsPageList::item {
+    height: 20px;
+    padding: 8px 10px;
+    border-radius: 6px;
+}
+
+QListWidget#settingsPageList::item:selected {
+    background-color: #e9ecef;
+    color: #212529;
 }

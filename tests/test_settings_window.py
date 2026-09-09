@@ -175,9 +175,12 @@ def test_legacy_radio_save_enables_legacy_integration(labelled_window):
 
 
 def test_gear_button_and_menu_action_open_settings(labelled_window):
-    assert labelled_window.settings_action.text() in ("Settings", "Open Settings")
     labelled_window.toolbar.settings_button.click()
-    assert labelled_window.settings_window is not None
+    assert labelled_window.settings_window.isVisible()
+
+    labelled_window.settings_window.close()
+    assert not labelled_window.settings_window.isVisible()
+    labelled_window.settings_action.trigger()
     assert labelled_window.settings_window.isVisible()
 
 

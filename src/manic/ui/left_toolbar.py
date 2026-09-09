@@ -26,6 +26,16 @@ from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
 
 
+def _icon_button(object_name: str, svg: str, tooltip: str) -> QToolButton:
+    button = QToolButton()
+    button.setObjectName(object_name)
+    button.setIcon(QIcon(resource_path("resources", svg)))
+    button.setIconSize(QSize(20, 20))
+    button.setAutoRaise(True)
+    button.setToolTip(tooltip)
+    return button
+
+
 class Toolbar(QWidget):
     # Signal for the currently selected samples
     samples_selected = Signal(list)
@@ -247,24 +257,12 @@ class Toolbar(QWidget):
         footer_layout.setContentsMargins(10, 4, 10, 6)
         footer_layout.addStretch()
 
-        self.docs_button = QToolButton()
-        self.docs_button.setObjectName("docsButton")
-        self.docs_button.setIcon(QIcon(resource_path("resources", "docs_book.svg")))
-        self.docs_button.setIconSize(QSize(20, 20))
-        self.docs_button.setAutoRaise(True)
-        self.docs_button.setToolTip("Documentation")
+        self.docs_button = _icon_button("docsButton", "docs_book.svg", "Documentation")
         self.docs_button.clicked.connect(self.documentation_requested.emit)
-
-        self.settings_button = QToolButton()
-        self.settings_button.setObjectName("settingsButton")
-        self.settings_button.setIcon(
-            QIcon(resource_path("resources", "settings_gear.svg"))
+        self.settings_button = _icon_button(
+            "settingsButton", "settings_gear.svg", "Settings"
         )
-        self.settings_button.setIconSize(QSize(20, 20))
-        self.settings_button.setAutoRaise(True)
-        self.settings_button.setToolTip("Settings")
         self.settings_button.clicked.connect(self.settings_requested.emit)
-
         footer_layout.addWidget(self.docs_button)
         footer_layout.addWidget(self.settings_button)
         container_layout.addWidget(footer)

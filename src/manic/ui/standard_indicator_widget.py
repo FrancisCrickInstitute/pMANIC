@@ -2,13 +2,13 @@ import sys
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFontMetrics
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from manic.constants import BLUE, GREEN, GREY, RED, create_font
 
 
 class TitledPill(QLabel):
-    """A fixed-size status pill reading ``Title: value``, elided to fit."""
+    """A full-width status pill reading ``Title: value``, elided to fit."""
 
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
@@ -16,11 +16,9 @@ class TitledPill(QLabel):
         self._full_text = ""
         self.setFont(create_font(10))
         self.setAlignment(Qt.AlignCenter)
-        # Match the two LoadedDataWidget labels side by side (width + 4px spacing)
-        if sys.platform == "win32":
-            self.setFixedSize(174, 22)
-        else:
-            self.setFixedSize(154, 20)
+        # Ignored: the text must never widen the toolbar, it elides to fit instead
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.setFixedHeight(22 if sys.platform == "win32" else 20)
 
     def set_value(self, value: str, color: QColor) -> None:
         self._full_text = f"{self._title}: {value}"

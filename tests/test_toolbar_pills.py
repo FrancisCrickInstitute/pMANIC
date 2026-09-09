@@ -46,9 +46,13 @@ def test_compound_pill_is_blue_when_set_and_grey_when_empty(qapp):
     assert _fill(pill) == "rgba(13, 110, 253, 0.5019607843137255)"
 
 
-def test_long_names_are_elided_with_full_text_in_tooltip(qapp):
+def test_long_names_are_elided_to_the_pill_width_with_full_text_in_tooltip(qapp):
     pill = CompoundIndicator()
     name = "Phosphoenolpyruvate-13C3-15N2-very-long"
     pill.set_compound(name)
+    pill.show()
+    pill.resize(154, 20)
     assert pill.text().endswith("…")
     assert pill.toolTip() == f"Compound: {name}"
+    pill.resize(600, 20)
+    assert pill.text() == f"Compound: {name}"

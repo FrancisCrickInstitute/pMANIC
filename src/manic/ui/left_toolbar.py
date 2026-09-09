@@ -4,7 +4,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
-    QLabel,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -127,9 +126,7 @@ class Toolbar(QWidget):
         indicators_layout = QVBoxLayout(indicators_container)
         indicators_layout.setContentsMargins(2, 2, 2, 2)  # Minimal padding
         indicators_layout.setSpacing(4)  # Reduced spacing between indicators
-        indicators_layout.setAlignment(
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter
-        )
+        indicators_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.loaded_data = LoadedDataWidget()
         indicators_layout.addWidget(
@@ -140,14 +137,10 @@ class Toolbar(QWidget):
         indicators_layout.addSpacing(8)  # Additional spacing
 
         self.standard = StandardIndicator()
-        indicators_layout.addWidget(
-            self.standard, alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        indicators_layout.addWidget(self.standard)
 
         self.compound_indicator = CompoundIndicator()
-        indicators_layout.addWidget(
-            self.compound_indicator, alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        indicators_layout.addWidget(self.compound_indicator)
 
         # Compact the container to fit content size
         indicators_container.setMaximumHeight(

@@ -126,6 +126,16 @@ def calculate_minimum_rt_window(
     return max(loffset, roffset) + buffer
 
 
+def _widest_offset(text: str) -> float | None:
+    parts = [part.strip() for part in (text or "").split(" - ") if part.strip()]
+    if not parts:
+        return None
+    try:
+        return max(float(part) for part in parts)
+    except ValueError:
+        return None
+
+
 def check_boundaries_within_window(
     left_boundary: float,
     right_boundary: float,
@@ -1039,6 +1049,23 @@ class IntegrationWindow(QGroupBox):
                 )
                 tr_window_field.setFocus()
                 return
+
+            lo_field = self.findChild(QLineEdit, "lo_input")
+            ro_field = self.findChild(QLineEdit, "ro_input")
+            loffset = _widest_offset(lo_field.text()) if lo_field else None
+            roffset = _widest_offset(ro_field.text()) if ro_field else None
+            if (
+                loffset is not None
+                and roffset is not None
+                and loffset >= 0
+                and roffset >= 0
+            ):
+                min_required = calculate_minimum_rt_window(
+                    loffset, roffset, buffer=DEFAULT_RT_WINDOW_BUFFER
+                )
+                if tr_window < min_required:
+                    tr_window = min_required
+                    tr_window_field.setText(self._format_number(tr_window))
 
         except ValueError:
             self._show_message(

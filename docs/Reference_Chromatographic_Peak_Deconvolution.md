@@ -8,7 +8,7 @@ When enabled, MANIC fits peak shapes to the signal around the expected retention
 
 If the window contains two or more overlapping peaks and the fit is acceptable, the component nearest the expected retention time **whose centre sits inside the loffset/roffset window** is selected and the others are excluded. A neighbour whose centre is outside those dashes is never the selected peak. If a successful fit has no centre inside the dashed boundaries, that ion is empty and contributes zero on model, raw-fallback, and legacy paths. A well-resolved single peak becomes a one-component model. A one-component model can also win when splitting an overlap does not improve BIC enough. Too-short or too-messy windows and unusable fits use the raw trace.
 
-The integration offsets (loffset/roffset) decide which component may be selected and which portion contributes to the final area. Each offset also sets the fit context when it exceeds the 0.25-minute minimum, so moving a wider boundary can change the fitted curve.
+The integration offsets (loffset/roffset) decide which component may be selected and which portion contributes to the final area. Each offset also sets the fit context when it exceeds the 0.25-minute minimum, so moving a wider boundary can change the fitted curve. The stored EIC extract (tR Window) is raised to cover those offsets plus a 0.1 min buffer. A typed window inside the dashes is never stored, so deconvolution keeps the in-window scans and neighbour context.
 
 ## Consistency across samples and isotopologues
 

@@ -175,7 +175,7 @@ no prompt. Headers are case-insensitive and ignore spaces or underscores
 | `Qualifier 1 Tolerance` | | Fractional tolerance on that ratio (e.g. `0.30` = ±30%) |
 | `Qualifier 2 Ratio` | | Expected qualifier-2/Q area ratio |
 | `Qualifier 2 Tolerance` | | Fractional tolerance on qualifier-2/Q |
-| `tR Window` | `tR_Window` | RT identity tolerance (minutes). If omitted, defaults to `max(lOffset, rOffset)` |
+| `tR Window` | `tR_Window` | Extract half-width and RT identity tolerance (minutes). If omitted, defaults to `max(lOffset, rOffset)`. A value inside the offsets is raised to `max(lOffset, rOffset) + 0.1` when EICs are extracted. |
 | `Amount in StdMix` | | Concentration of the compound in the standard mixture (for semi-quant) |
 | `Int Std amount` | | Amount of internal standard added to samples |
 | `MM Files` | | Pattern matching standard-mixture sample names (wildcards allowed, e.g. `*_MM_*`) |
@@ -184,7 +184,7 @@ no prompt. Headers are case-insensitive and ignore spaces or underscores
 
 ```csv
 name,tR,lOffset,rOffset,QIon,QualifierIon1,Qualifier 1 Ratio,Qualifier 1 Tolerance,tR Window
-Citrate 4TMS,12.40,0.12,0.12,273,147,0.42,0.25,0.10
+Citrate 4TMS,12.40,0.12,0.12,273,147,0.42,0.25,0.22
 ```
 
 `QualifierIon2` is optional (`ValIon2` is still accepted). Give it its own `Qualifier 2 Ratio` and

@@ -168,6 +168,8 @@ To fix this, you must widen the underlying data extraction window:
 2.  Increase the value (e.g., from `0.2` to `0.4` or `0.5`).
 3.  Click **Update tR Window**.
 
+The extract must cover the current left and right offsets, plus a 0.1 min buffer. If the typed tR Window sits inside those offsets, MANIC raises it to that minimum, updates the field, and continues. Deconvolution and integration then run on a window that actually contains the dashed boundaries.
+
 A progress bar will appear as MANIC re-scans the raw CDF files to extract a wider slice of time around the target peak.
 
 > **Important Note:** This update applies to **all samples** for the currently selected compound to ensure consistent data extraction. It does *not* affect other compounds in your library.

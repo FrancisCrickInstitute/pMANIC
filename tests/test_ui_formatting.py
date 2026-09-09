@@ -258,7 +258,7 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
     widget = TargetedQcWidget()
     try:
         widget.update_results(identity)
-        assert widget.ion_legend.text() == "Target  Q ion m/z 217  Qualifier ion 1 m/z 147"
+        assert widget.ion_legend.text() == "Q ion m/z 217  Qualifier ion 1 m/z 147"
         assert "●" not in widget.ion_legend.text()
         assert widget.chart.title() == ""
         assert not widget.chart.legend().isVisible()

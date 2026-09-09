@@ -269,9 +269,8 @@ class ChartPopupDialog(QDialog):
             return
 
         self.ion_legend.setText(
-            channel_legend_text(
-                self._identity.compound_name, self._identity.channels
-            )
+            f"{self._identity.compound_name}  "
+            + channel_legend_text(self._identity.channels)
         )
         self.ion_legend.show()
         self._identity_binding = add_identity_grid(

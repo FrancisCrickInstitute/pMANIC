@@ -544,9 +544,7 @@ class GraphView(QWidget):
                 color = label_colors[index % len(label_colors)].name()
                 label = channel_legend_label(compound, index)
                 parts.append(f'<span style="color:{color}">●</span> {label}')
-            self.channel_legend.setText(
-                f"<b>{compound_name}</b>&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(parts)
-            )
+            self.channel_legend.setText("&nbsp;&nbsp;".join(parts))
             self.channel_legend.show()
         except LookupError:
             self.channel_legend.hide()

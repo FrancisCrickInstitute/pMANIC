@@ -563,7 +563,7 @@ class DataProvider:
         Get the analytical response used to quantify a compound in a sample.
 
         Labelled compounds use the sum across M+0...M+n. Unlabelled targeted
-        compounds use the Q-ion area only; V ions provide identity evidence and
+        compounds use the Q-ion area only; qualifier ions provide identity evidence and
         must never contribute to the reported response.
 
         Args:
@@ -980,7 +980,7 @@ class DataProvider:
 
         # Compute only the two compounds we actually need (the validated compound
         # and the internal standard) rather than deconvolving the whole dataset.
-        # Unlabelled quantification is defined by the Q ion alone. Summing V-ion
+        # Unlabelled quantification is defined by the Q ion alone. Summing qualifier-ion
         # areas here could let a weak/absent Q ion pass validation merely because
         # an interfering qualifier channel is intense.
         compound_total = self.get_compound_total_area(sample_name, compound_name)

@@ -186,7 +186,7 @@ SAMPLES = [
     SampleSpec("Sample_03", "earlier RT, higher abundance", rt_shift=-0.01, quant_scale=1.25),
     SampleSpec(
         "Sample_04_ratio_fail",
-        "Alanine both V/Q ratios fail → Fail / Review required",
+        "Alanine both qualifier/Q ratios fail → Fail / Review required",
         v_scale={"Alanine": {1: 1.80, 2: 1.80}},
     ),
     SampleSpec(
@@ -196,7 +196,7 @@ SAMPLES = [
     ),
     SampleSpec(
         "Sample_06_partial",
-        "Citrate V2 only is off → Partial",
+        "Citrate qualifier 2 only is off → Partial",
         v_scale={"Citrate": {2: 2.40}},
     ),
     SampleSpec(
@@ -435,13 +435,13 @@ and untargeted background peaks in the TIC.
 
 | Compound | Ions | What it tests |
 |---|---|---|
-| Alanine | Q + V1 + V2, both ratios, tight tR window (0.08 min) | Validated; RT fail in Sample_05 |
-| Lactate | Q + V1 with ratio | Single-V Validated |
-| Glycine | Q + V1, no expected ratio | No ratio / Not assessed |
-| Serine | Q + V1 + V2, only V1 has a ratio | Partial even when V1 passes |
-| Phenylethanol | Q + V1 + V2, neighbour on Q | Deconvolution split |
-| Citrate | Q + V1 + V2, both ratios | Partial when only V2 is off |
-| Uncalibrated | Q + V1, no Amount in StdMix | Relative / assumed-RF abundance |
+| Alanine | Q + qualifier 1 + qualifier 2, both ratios, tight tR window (0.08 min) | Validated; RT fail in Sample_05 |
+| Lactate | Q + qualifier 1 with ratio | Single-qualifier Validated |
+| Glycine | Q + qualifier 1, no expected ratio | No ratio / Not assessed |
+| Serine | Q + qualifier 1 + qualifier 2, only qualifier 1 has a ratio | Partial even when qualifier 1 passes |
+| Phenylethanol | Q + qualifier 1 + qualifier 2, neighbour on Q | Deconvolution split |
+| Citrate | Q + qualifier 1 + qualifier 2, both ratios | Partial when only qualifier 2 is off |
+| Uncalibrated | Q + qualifier 1, no Amount in StdMix | Relative / assumed-RF abundance |
 | scyllo-Inositol | Internal standard | Set this as IS; Sample_08 tanks its height |
 
 ## Samples
@@ -449,9 +449,9 @@ and untargeted background peaks in the TIC.
 | Sample | Purpose |
 |---|---|
 | `Sample_01`–`Sample_03` | Ordinary biological variation |
-| `Sample_04_ratio_fail` | Alanine both V/Q checks fail |
-| `Sample_05_rt_shift` | tR miss on Alanine; V/Q still good |
-| `Sample_06_partial` | Citrate V2 fail, V1 pass |
+| `Sample_04_ratio_fail` | Alanine both qualifier/Q checks fail |
+| `Sample_05_rt_shift` | tR miss on Alanine; qualifier/Q still good |
+| `Sample_06_partial` | Citrate qualifier 2 fail, qualifier 1 pass |
 | `Sample_07_missing` | Alanine absent |
 | `Sample_08_low_is` | IS almost gone (tile validation if IS is set) |
 | `Sample_09_overlap` | Stronger Phenylethanol neighbour |

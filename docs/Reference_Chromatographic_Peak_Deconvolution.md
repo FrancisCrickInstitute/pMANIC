@@ -43,13 +43,13 @@ For a labeled compound the preferred centre for every channel is the compound re
 
 ## Unlabelled quantifier and qualifier ions
 
-Unlabelled mode uses this same per-channel fitter. Import defaults to level 4, matching labelled mode; the setting applies to every sample of that compound. Q and V are different EI fragments, so they are never given a shared elution shape.
+Unlabelled mode uses this same per-channel fitter. Import defaults to level 4, matching labelled mode; the setting applies to every sample of that compound. Q and qualifier ions are different EI fragments, so they are never given a shared elution shape.
 
-Amount is the Q-ion area. V/Q identity ratios use the same area list. If any non-empty ion of that compound/sample failed to fit, every non-empty ion uses the raw in-window scans. Empty ions stay at area 0.
+Amount is the Q-ion area. Qualifier/Q identity ratios use the same area list. If any non-empty ion of that compound/sample failed to fit, every non-empty ion uses the raw in-window scans. Empty ions stay at area 0.
 
 Observed RT and the detail mass spectrum stay on the raw Q apex inside the window. Areas may be modelled; the apex is not switched to the fitted centre.
 
-Imported expected V/Q ratios are almost always measured on raw-window areas. Enabling deconvolution can move observed ratios even when every non-empty ion fitted. Remeasure expected ratios and tolerances on standards with the same setting.
+Imported expected qualifier/Q ratios are almost always measured on raw-window areas. Enabling deconvolution can move observed ratios even when every non-empty ion fitted. Remeasure expected ratios and tolerances on standards with the same setting.
 
 ## Consistency Across Raw, Corrected, and Abundance Results
 
@@ -71,7 +71,7 @@ For each compound/sample:
 - If **every non-empty** ion has a model, plots draw the dense curve and Raw and Corrected both integrate it. Empty ions contribute area 0.
 - If **any** ion of a labelled compound has real intensity and failed to fit (noise-gated, too few points, numerical failure, or poor reconstruction), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for every non-empty ion of that pair, including ions that did fit. Empty rows stay zero. No fitted overlay is drawn. Natural-abundance correction then runs on that envelope.
 - An ion is **empty** when it has no finite positive signal inside the integration window, or when a successful fit found peaks but none of their centres sit inside the nominal loffset/roffset boundaries. Signal elsewhere in the chromatogram does not make that ion active. Weak positive signal inside the window is not empty. If its fit fails, MANIC keeps its raw scans.
-- Unlabelled tiles draw a curve for each ion that fitted. Export still uses the raw window unless every non-empty Q/V ion fitted, so V/Q is never a model area divided by a scan trapezoid.
+- Unlabelled tiles draw a curve for each ion that fitted. Export still uses the raw window unless every non-empty Q/qualifier ion fitted, so qualifier/Q is never a model area divided by a scan trapezoid.
 
 The next sample of the same compound can still use model areas if every non-empty ion there fitted.
 

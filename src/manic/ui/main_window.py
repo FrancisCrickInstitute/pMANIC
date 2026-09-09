@@ -2969,7 +2969,7 @@ class MainWindow(QMainWindow):
                     sheet_list = [
                         "• Raw Values - Quantifier ion areas",
                         "• Abundances - Quantifier-only amounts",
-                        "• Qualifier QC - V/Q ratio pass or review",
+                        "• Qualifier QC - qualifier/Q ratio pass or review",
                     ]
                 else:
                     sheet_list = [

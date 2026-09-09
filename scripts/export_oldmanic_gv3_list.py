@@ -7,7 +7,7 @@ OLD_MANIC's unlabelled mode loads .xls/.xlsx files with exactly these columns:
 Both ValIons are mandatory there (rows missing ValIon2 are dropped with a
 warning), and the ratio/tolerance columns are dropped because OLD_MANIC never
 performed automated ratio QC — it only integrated the three ions and overlaid
-the scaled V-ion traces for visual confirmation.
+the scaled qualifier-ion traces for visual confirmation.
 
 Usage:
     uv run python scripts/export_oldmanic_gv3_list.py <compounds.csv> [--output out.xlsx]

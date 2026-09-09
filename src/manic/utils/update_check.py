@@ -1,9 +1,8 @@
 """
 Update check against the ``releases/latest.json`` manifest on ``main``.
 
-The manifest is fetched from raw.githubusercontent.com, which has no
-per-IP API rate limit, so the check works on shared lab networks where
-``api.github.com/releases/latest`` was returning 403s.
+raw.githubusercontent.com has no per-IP API rate limit, unlike
+``api.github.com``, so the check works on shared lab networks.
 """
 
 from __future__ import annotations
@@ -33,23 +32,24 @@ class UpdateCheckResult:
 FAILED = UpdateCheckResult(False, False, "", "")
 
 
-def parse_version(version_str: str) -> tuple[int, ...]:
-    """'v1.2.3-beta' -> (1, 2, 3). Unparseable input compares lower than any release."""
+def parse_version(version_str: str) -> tuple[int, ...] | None:
+    """'v1.2.3-beta' -> (1, 2, 3). None when the string is not a version."""
     try:
         return tuple(int(part) for part in version_str.lstrip("v").split("-")[0].split("."))
     except ValueError:
-        return (0, 0, 0)
+        return None
 
 
 def compare_manifest(
     manifest: dict, current: tuple[int, ...] = __version_info__
 ) -> UpdateCheckResult:
     version = str(manifest.get("version", "")).lstrip("v")
-    if not version:
+    latest = parse_version(version)
+    if latest is None:
         return FAILED
     return UpdateCheckResult(
         success=True,
-        has_update=parse_version(version) > current,
+        has_update=latest > current,
         latest_version=version,
         url=str(manifest.get("url", "")),
     )

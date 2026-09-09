@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def test_parse_version_strips_prefix_and_suffix():
     assert parse_version("v5.1.2-beta") == (5, 1, 2)
-    assert parse_version("garbage") == (0, 0, 0)
+    assert parse_version("garbage") is None
 
 
 def test_compare_manifest_reports_newer_release():
@@ -30,8 +30,9 @@ def test_compare_manifest_older_or_equal_is_not_an_update():
     assert compare_manifest({"version": "5.0.0"}, current=(5, 0, 0)).has_update is False
 
 
-def test_compare_manifest_without_version_fails():
+def test_compare_manifest_without_a_valid_version_fails():
     assert compare_manifest({}, current=(5, 0, 0)) == FAILED
+    assert compare_manifest({"version": "garbage"}, current=(5, 0, 0)) == FAILED
 
 
 def test_check_for_update_swallows_network_errors(monkeypatch):

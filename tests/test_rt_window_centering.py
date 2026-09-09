@@ -11,6 +11,7 @@ from manic.io.eic_reader import read_eics_batch
 from manic.io.eic_importer import _compress, regenerate_compound_eics
 from manic.models import database
 from manic.models.session_activity import PendingRegeneration
+from manic.processors.chromatographic_peak_deconvolution import deconvolve_eic
 from manic.processors.eic_calculator import EmptyRtWindowError
 from manic.ui.main_window import MainWindow
 from manic.ui.integration_window_widget import (
@@ -385,6 +386,21 @@ class _TextField:
         return None
 
 
+def _gaussian(time, center, width, height):
+    return height * np.exp(-0.5 * ((time - center) / width) ** 2)
+
+
+def _overlap_trace(retention_time: float, half_width: float):
+    point_count = max(41, int(half_width / 0.005) + 1)
+    time = np.linspace(
+        retention_time - half_width, retention_time + half_width, point_count
+    )
+    intensity = _gaussian(time, retention_time, 0.08, 12.0) + _gaussian(
+        time, retention_time + 0.22, 0.08, 10.0
+    )
+    return time, intensity
+
+
 def _seed_eic_db(db_path: Path, sample_files: dict[str, Path]):
     time_axis = np.array([7.07, 7.17, 7.27], dtype=np.float64)
     intensity = np.array([1.0, 10.0, 1.0], dtype=np.float64)
@@ -748,6 +764,82 @@ class TestRecoveryAfterEmptyExtract:
 
         assert captured_windows == [pytest.approx(0.5)]
         assert stored_window == pytest.approx(0.5)
+
+    def test_raised_extract_lets_deconvolution_exclude_a_neighbour(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = tmp_path / "regen.db"
+        cdf_path = tmp_path / "s1.cdf"
+        cdf_path.write_bytes(b"cdf")
+        monkeypatch.setattr(database, "DB_FILE", db_path)
+        _seed_eic_db(db_path, {"s1": cdf_path})
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
+                (0.4, 0.4, "Glucose"),
+            )
+            conn.commit()
+
+        extracted = {}
+
+        def _extract(
+            _compound_name,
+            sample_rt,
+            _mz,
+            _cdf,
+            _mass_tol,
+            tr_window,
+            *_args,
+            **_kwargs,
+        ):
+            time, intensity = _overlap_trace(sample_rt, tr_window)
+            extracted["time"] = time
+            extracted["intensity"] = intensity
+            extracted["tr_window"] = tr_window
+            return SimpleNamespace(time=time, intensity=intensity)
+
+        monkeypatch.setattr(
+            "manic.io.eic_importer.read_cdf_file",
+            lambda _path: SimpleNamespace(sample_name="s1"),
+        )
+        monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
+        monkeypatch.setattr(
+            "manic.processors.eic_correction_manager.apply_correction_to_eic",
+            lambda *_args, **_kwargs: False,
+        )
+
+        regenerate_compound_eics(
+            "Glucose",
+            0.1,
+            ["s1"],
+            retention_time=7.17,
+        )
+
+        raised = deconvolve_eic(
+            extracted["time"],
+            extracted["intensity"],
+            retention_time=7.17,
+            loffset=0.4,
+            roffset=0.4,
+            stringency="medium",
+        )
+        short_time, short_intensity = _overlap_trace(7.17, 0.1)
+        short = deconvolve_eic(
+            short_time,
+            short_intensity,
+            retention_time=7.17,
+            loffset=0.4,
+            roffset=0.4,
+            stringency="medium",
+        )
+
+        assert extracted["tr_window"] == pytest.approx(0.5)
+        assert raised.selected_center == pytest.approx(7.17, abs=0.02)
+        assert len(raised.excluded) == 1
+        assert np.trapezoid(raised.selected, extracted["time"]) < np.trapezoid(
+            extracted["intensity"], extracted["time"]
+        )
+        assert short.excluded == []
 
     def test_eic_and_session_values_commit_together(self, tmp_path, monkeypatch):
         db_path = tmp_path / "regen.db"

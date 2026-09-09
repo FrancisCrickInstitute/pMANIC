@@ -33,6 +33,7 @@ class CompoundListWidget(QListWidget):
         self.itemSelectionChanged.connect(self._center_current_item)
         # Track pending selection index for post-deletion selection
         self._pending_selection_index = None
+        self._context_item: QListWidgetItem | None = None
 
         # Custom scrollbar styling with rounded edges
         self.setStyleSheet("""
@@ -107,9 +108,18 @@ class CompoundListWidget(QListWidget):
                 count += 1
         return count
 
+    def mousePressEvent(self, event):
+        # Right-click selects the item, selection centres it, and the list scrolls
+        # before the context menu is requested. Capture the target now, while it
+        # is still under the cursor.
+        if event.button() == Qt.RightButton:
+            self._context_item = self.itemAt(event.position().toPoint())
+        super().mousePressEvent(event)
+
     def _show_context_menu(self, position):
         """Show context menu when right-clicking on a compound"""
-        item = self.itemAt(position)
+        item = self._context_item or self.itemAt(position)
+        self._context_item = None
         menu = QMenu(self)
 
         # Set menu style to ensure black text on white background

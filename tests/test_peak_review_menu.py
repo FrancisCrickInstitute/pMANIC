@@ -96,3 +96,12 @@ def test_action_applies_to_every_selected_tile(grid):
     assert compound == "Cmp"
     assert sorted(samples) == ["A", "C"]
     assert review is PeakReview.REJECTED
+
+
+def test_group_accept_skips_passing_tiles(grid):
+    view, tiles, emitted = grid
+    view._selected_plots = {tiles["A"][1], tiles["B"][1], tiles["C"][1]}
+    menu, actions = _actions(view, tiles["A"][1])
+    actions["Accept peak (below threshold)"].trigger()
+    menu.close()
+    assert emitted == [("Cmp", ["A"], PeakReview.ACCEPTED)]

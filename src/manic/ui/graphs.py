@@ -692,10 +692,18 @@ class GraphView(QWidget):
         self, clicked_plot: ClickableChartView, review: PeakReview
     ) -> None:
         new_review = None if self._review_for_plot(clicked_plot) is review else review
-        if clicked_plot in self._selected_plots:
-            sample_names = [plot.sample_name for plot in self._selected_plots]
-        else:
-            sample_names = [clicked_plot.sample_name]
+        plots = (
+            self._selected_plots
+            if clicked_plot in self._selected_plots
+            else {clicked_plot}
+        )
+        if new_review is PeakReview.ACCEPTED:
+            plots = {
+                plot
+                for plot in plots
+                if self._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
+            }
+        sample_names = [plot.sample_name for plot in plots]
         self.peak_review_changed.emit(
             clicked_plot.compound_name, sample_names, new_review
         )

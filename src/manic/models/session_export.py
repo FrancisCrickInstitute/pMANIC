@@ -481,16 +481,18 @@ def _import_peak_reviews(method_data: dict) -> None:
                 """,
                 (item["compound_name"], item["sample_name"]),
             ).fetchone()
-            if known is None:
+            review = item.get("review")
+            if known is None or review not in PeakReview:
                 logger.warning(
-                    "Skipping peak review for %s/%s - compound or sample not found",
+                    "Skipping peak review %r for %s/%s - unknown compound, sample or review",
+                    review,
                     item["compound_name"],
                     item["sample_name"],
                 )
                 continue
             conn.execute(
                 "INSERT INTO peak_review (compound_name, sample_name, review) VALUES (?, ?, ?)",
-                (item["compound_name"], item["sample_name"], PeakReview(item["review"]).value),
+                (item["compound_name"], item["sample_name"], review),
             )
 
 

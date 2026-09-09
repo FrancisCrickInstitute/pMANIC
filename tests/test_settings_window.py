@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QMenu
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
 from manic.models.analysis import AnalysisContext, AnalysisMode
+import manic.ui.main_window as main_window_module
 from manic.ui.main_window import MainWindow
 from manic.ui.settings_window import (
     DeconvolutionPage,
@@ -326,3 +328,32 @@ def test_settings_window_opens_centred_on_a_visible_main_window(labelled_window)
         assert abs(frame.center().y() - parent_centre.y()) <= 4
     if frame.width() <= screen_area.width():
         assert abs(frame.center().x() - parent_centre.x()) <= 4
+
+
+class _StuckWorker:
+    instances = 0
+
+    def __init__(self):
+        type(self).instances += 1
+        self.result = mock.Mock()
+        self.started = False
+
+    def start(self):
+        self.started = True
+
+    def isRunning(self):
+        return self.started
+
+
+def test_check_for_updates_does_not_start_a_second_worker_while_one_runs(
+    qapp, empty_db, monkeypatch
+):
+    _StuckWorker.instances = 0
+    monkeypatch.setattr(main_window_module, "UpdateCheckWorker", _StuckWorker)
+    window = MainWindow(AnalysisContext(AnalysisMode.LABELLED))
+    try:
+        window.check_updates_action.trigger()
+        window.check_updates_action.trigger()
+        assert _StuckWorker.instances == 1
+    finally:
+        window.close()

@@ -140,6 +140,7 @@ class MainWindow(QMainWindow):
         self.preview_nat_abundance = False
         self.settings_window = None
         self.documentation_window = None
+        self._update_worker = None
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -164,10 +165,11 @@ class MainWindow(QMainWindow):
         self._check_for_updates()
 
     def _check_for_updates(self):
-        """Start the background update checker."""
+        """Start the background update checker unless one is already running."""
+        if self._update_worker is not None and self._update_worker.isRunning():
+            return
         self._update_worker = UpdateCheckWorker()
         self._update_worker.result.connect(self._on_update_check_finished)
-        self._update_worker.finished.connect(self._update_worker.deleteLater)
         self._update_worker.start()
 
     def _on_update_check_finished(
@@ -1970,7 +1972,11 @@ class MainWindow(QMainWindow):
     ) -> tuple[str, str, str]:
         if not compound_name:
             return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
-        compound = read_compound_with_session(compound_name)
+        try:
+            compound = read_compound_with_session(compound_name)
+        except LookupError:
+            # The toolbar can still name a compound that was just deleted.
+            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
         return (
             normalize_stringency(compound.deconvolution_level),
             normalize_fit_type(compound.deconvolution_fit_type),

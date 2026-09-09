@@ -427,10 +427,27 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
         QIon=217,
         QualifierIon1=147,
     )
+    _import_targets(
+        tmp_path,
+        name="Passed",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+        **{"Qualifier 1 Ratio": 0.4, "Qualifier 1 Tolerance": 0.25},
+    )
 
     _insert_eic(
         "S1",
         "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S1",
+        "Passed",
         [0.0, 1.0, 2.0],
         [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
         rt_window=1.1,
@@ -448,7 +465,7 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
     raw = workbook["Raw Values"]
     assert raw["A1"].value == "Compound Name"
     assert raw["C1"].value == "Target"
-    assert raw["D1"].value is None
+    assert raw["D1"].value == "Passed"
     assert raw["A2"].value == "Mass"
     assert raw["A3"].value == "tR"
     assert raw["C2"].value == pytest.approx(217)
@@ -470,6 +487,15 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
     ]
     assert qc["D2"].value == pytest.approx(10.0)
     assert qc["G2"].value == pytest.approx(4.0)
+    assert qc["L1"].value == "Outcome"
+    assert qc["B2"].value == "Target"
+    assert qc["L2"].value == "No qualifiers"
+    assert qc["A2"].fill.fgColor.rgb == "FF868E96"
+    assert qc["L2"].fill.fgColor.rgb == "FF868E96"
+    assert qc["B3"].value == "Passed"
+    assert qc["L3"].value == "Pass"
+    assert qc["A3"].fill.fgColor.rgb == "FF2F9E44"
+    assert qc["L3"].fill.fgColor.rgb == "FF2F9E44"
 
 
 def test_unlabelled_excel_export_baseline_off_header_is_blue(unlabelled_db, tmp_path):

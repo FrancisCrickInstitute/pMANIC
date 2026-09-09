@@ -6,7 +6,12 @@ from manic.io.compound_reader import read_compound
 from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
 from manic.sheet_generators.formats import peak_verdict_formats
 from manic.validation.peak_verdict import PeakVerdict
-from manic.validation.unlabelled_identity import QualifierRatioResult
+from manic.validation.unlabelled_identity import (
+    QUALIFIER_OUTCOME_FILL,
+    QualifierOutcome,
+    QualifierRatioResult,
+    qualifier_outcome,
+)
 
 
 def _write_header(worksheet, workbook, headers: list[str]) -> None:
@@ -235,8 +240,20 @@ def _write_qualifier_qc(
         "Expected Ratio",
         "Fractional Tolerance",
         "Pass",
+        "Outcome",
     ]
     _write_header(qc_sheet, workbook, qc_headers)
+    outcome_formats = {
+        outcome: workbook.add_format(
+            {
+                "bg_color": fill,
+                "font_color": (
+                    "#000000" if outcome is QualifierOutcome.PARTIAL else "#FFFFFF"
+                ),
+            }
+        )
+        for outcome, fill in QUALIFIER_OUTCOME_FILL.items()
+    }
 
     qc_row = 1
     total = max(1, len(samples) * len(compounds))
@@ -250,6 +267,8 @@ def _write_qualifier_qc(
             except (LookupError, ValueError):
                 qc = None
 
+            outcome = qualifier_outcome(qc)
+            row_format = outcome_formats[outcome]
             areas = bulk_data.get(sample, {}).get(compound.compound_name)
             q_area = _q_area(areas)
             qualifier_results = (
@@ -261,23 +280,22 @@ def _write_qualifier_qc(
                 )
             )
             for ratio in qualifier_results:
-                qc_sheet.write_row(
-                    qc_row,
-                    0,
-                    [
-                        sample,
-                        compound.compound_name,
-                        compound.analysis_channels[0].mz,
-                        q_area,
-                        ratio.channel.ordinal,
-                        ratio.channel.mz,
-                        _channel_area(areas, ratio.channel.ordinal),
-                        ratio.observed_ratio,
-                        ratio.channel.expected_ratio,
-                        ratio.channel.ratio_tolerance,
-                        _pass_label(ratio.passed, qc_available=qc is not None),
-                    ],
-                )
+                values = [
+                    sample,
+                    compound.compound_name,
+                    compound.analysis_channels[0].mz,
+                    q_area,
+                    ratio.channel.ordinal,
+                    ratio.channel.mz,
+                    _channel_area(areas, ratio.channel.ordinal),
+                    ratio.observed_ratio,
+                    ratio.channel.expected_ratio,
+                    ratio.channel.ratio_tolerance,
+                    _pass_label(ratio.passed, qc_available=qc is not None),
+                    outcome.value,
+                ]
+                for column, value in enumerate(values):
+                    qc_sheet.write(qc_row, column, value, row_format)
                 qc_row += 1
 
             completed += 1

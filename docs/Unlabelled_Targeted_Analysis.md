@@ -369,9 +369,18 @@ Those describe an isotopologue envelope that this mode does not have.
 ### Qualifier QC
 
 Long-form qualifier-ion ratios plus the raw Q and qualifier areas used to compute them:
-observed ratio, expected ratio, fractional tolerance, and
-`PASS` / `REVIEW` / `N/A`. Identity status stays in the app chart, not
-the workbook.
+observed ratio, expected ratio, fractional tolerance, per-ion
+`PASS` / `REVIEW` / `N/A`, and an **Outcome** column. Outcome is computed once
+per sample × compound and written on every qualifier row of that group:
+
+| Outcome | Meaning | Row colour |
+| :--- | :--- | :--- |
+| **Pass** | Every qualifier ratio check passed | Green |
+| **Partial** | At least one qualifier passed and at least one did not | Orange |
+| **Fail** | Qualifier ratios were scored and none passed | Red |
+| **No qualifiers** | No scored qualifier ratio (missing ratio/tolerance, or no qualifier ions) | Grey |
+
+Identity status stays in the app chart, not the workbook.
 
 A session changelog is also written. For unlabelled mode it records Q/qualifier ion
 definitions, tR window, Amount in StdMix, MM Files, and baseline, and it

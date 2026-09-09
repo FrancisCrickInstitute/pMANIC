@@ -15,7 +15,7 @@ from PySide6.QtCharts import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
 import sys
 import numpy as np
 from types import SimpleNamespace
@@ -37,7 +37,10 @@ from manic.ui.colors import (
 )
 from manic.ui.identity_chart import identity_cell_tooltip
 
-from manic.ui.integration_window_widget import IntegrationWindow
+from manic.ui.integration_window_widget import (
+    IntegrationWindow,
+    toolbar_decimal_text_is_allowed,
+)
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
@@ -634,60 +637,67 @@ def test_new_session_ignores_deleted_import_thread(monkeypatch):
     assert window_stub._thread is None
 
 
-class TestSignificantFigures:
-    """Test formatting numbers to 4 significant figures."""
-
+class TestThreeDecimalPlaces:
     def test_normal_retention_times(self, integration_window):
-        """Test typical retention time values."""
         assert integration_window._format_number(9.77123456) == "9.771"
-        assert integration_window._format_number(15.4567) == "15.46"
+        assert integration_window._format_number(15.4567) == "15.457"
         assert integration_window._format_number(7.171234) == "7.171"
-        assert integration_window._format_number(12.3456) == "12.35"
+        assert integration_window._format_number(12.3456) == "12.346"
 
     def test_small_offsets(self, integration_window):
-        """Test small offset values (typically < 1)."""
-        assert integration_window._format_number(0.123456) == "0.1235"
+        assert integration_window._format_number(0.123456) == "0.123"
         assert integration_window._format_number(0.1) == "0.1"
-        assert integration_window._format_number(0.456789) == "0.4568"
+        assert integration_window._format_number(0.456789) == "0.457"
         assert integration_window._format_number(0.999) == "0.999"
 
     def test_zero_handling(self, integration_window):
-        """Test zero and near-zero values."""
         assert integration_window._format_number(0) == "0"
         assert integration_window._format_number(0.0) == "0"
         assert integration_window._format_number(-0.0) == "0"
 
     def test_very_small_values(self, integration_window):
-        """Test very small non-zero values."""
         assert integration_window._format_number(0.001) == "0.001"
-        assert integration_window._format_number(0.001234) == "0.001234"
-        assert integration_window._format_number(0.0004567) == "0.0004567"
+        assert integration_window._format_number(0.001234) == "0.001"
+        assert integration_window._format_number(0.0004567) == "0"
 
     def test_boundary_values(self, integration_window):
-        """Test values near rounding boundaries."""
         assert integration_window._format_number(0.99995) == "1"
         assert integration_window._format_number(1.0001) == "1"
-        assert integration_window._format_number(9.9995) == "9.999"  # Keeps 4 sig figs
-        assert integration_window._format_number(10.001) == "10"
+        assert integration_window._format_number(9.9995) == "9.999"
+        assert integration_window._format_number(10.001) == "10.001"
 
     def test_large_values(self, integration_window):
-        """Test larger values (e.g., mass values)."""
-        assert integration_window._format_number(123.456) == "123.5"
-        assert integration_window._format_number(318.123) == "318.1"
-        assert integration_window._format_number(999.999) == "1000"
+        assert integration_window._format_number(123.456) == "123.456"
+        assert integration_window._format_number(318.123) == "318.123"
+        assert integration_window._format_number(999.999) == "999.999"
 
     def test_negative_values(self, integration_window):
-        """Test negative values (shouldn't occur but test anyway)."""
         assert integration_window._format_number(-9.77123) == "-9.771"
-        assert integration_window._format_number(-0.1235) == "-0.1235"
-        assert integration_window._format_number(-15.4567) == "-15.46"
+        assert integration_window._format_number(-0.1235) == "-0.123"
+        assert integration_window._format_number(-15.4567) == "-15.457"
 
     def test_edge_case_precision(self, integration_window):
-        """Test precise rounding behavior."""
-        # Test that 4 sig figs is applied correctly
         assert integration_window._format_number(1.2345) == "1.234"
-        assert integration_window._format_number(1.2346) == "1.235"  # Round up
+        assert integration_window._format_number(1.2346) == "1.235"
         assert integration_window._format_number(1.2344) == "1.234"
+
+
+class TestToolbarDecimalInput:
+    def test_allows_up_to_three_decimals(self):
+        assert toolbar_decimal_text_is_allowed("1.234") is True
+        assert toolbar_decimal_text_is_allowed("7.1 - 7.567") is True
+        assert toolbar_decimal_text_is_allowed("") is True
+
+    def test_rejects_a_fourth_decimal(self):
+        assert toolbar_decimal_text_is_allowed("1.2345") is False
+        assert toolbar_decimal_text_is_allowed("7.1 - 7.5678") is False
+
+    def test_offset_field_refuses_a_fourth_decimal_digit(self, integration_window):
+        edit = integration_window.findChild(QLineEdit, "lo_input")
+        edit.insert("1.234")
+        assert edit.text() == "1.234"
+        edit.insert("5")
+        assert edit.text() == "1.234"
 
 
 class TestRangeFormatting:
@@ -737,18 +747,15 @@ class TestRangeFormatting:
         result = integration_window._format_range(values)
         assert result == ""
 
-    def test_range_consistent_sig_figs(self, integration_window):
-        """Test that both endpoints use 4 sig figs."""
+    def test_range_consistent_three_decimals(self, integration_window):
         values = [9.77123, 10.4567]
         result = integration_window._format_range(values)
-        # Both values should be formatted to 4 sig figs
-        assert result == "9.771 - 10.46"
+        assert result == "9.771 - 10.457"
 
     def test_range_with_small_values(self, integration_window):
-        """Test range with small offset-like values."""
         values = [0.123456, 0.456789]
         result = integration_window._format_range(values)
-        assert result == "0.1235 - 0.4568"
+        assert result == "0.123 - 0.457"
 
     def test_range_invalid_values(self, integration_window):
         """Test range with non-numeric values."""

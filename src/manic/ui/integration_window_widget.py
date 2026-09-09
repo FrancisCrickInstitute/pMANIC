@@ -4,6 +4,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -21,6 +22,21 @@ from manic.models.session_activity import PendingRegeneration, SessionActivitySe
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.paths import resource_path
 from manic.utils.utils import load_stylesheet
+
+_TOOLBAR_DECIMAL_RE = re.compile(
+    r"^\s*[+-]?\d*\.?\d{0,3}(?:\s*-\s*[+-]?\d*\.?\d{0,3})?\s*$"
+)
+
+
+def toolbar_decimal_text_is_allowed(text: str) -> bool:
+    return _TOOLBAR_DECIMAL_RE.fullmatch(text or "") is not None
+
+
+class ToolbarDecimalValidator(QValidator):
+    def validate(self, text, pos):
+        if toolbar_decimal_text_is_allowed(text):
+            return QValidator.State.Acceptable, text, pos
+        return QValidator.State.Invalid, text, pos
 
 
 # ─────────────────────── RT Window Boundary Checking Functions ───────────────────────
@@ -243,6 +259,7 @@ class IntegrationWindow(QGroupBox):
             lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
             edt = QLineEdit()
             edt.setObjectName(obj_name)
+            edt.setValidator(ToolbarDecimalValidator(edt))
             # Enable Enter key to trigger apply (same as clicking Apply button)
             edt.returnPressed.connect(self._on_apply_clicked)
             row.addWidget(lbl)
@@ -269,6 +286,7 @@ class IntegrationWindow(QGroupBox):
         tr_window_lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
+        self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
         # Enable Enter key to trigger regeneration (same as clicking Update tR Window button)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
         tr_window_row.addWidget(tr_window_lbl)
@@ -284,20 +302,10 @@ class IntegrationWindow(QGroupBox):
 
         layout.addLayout(regen_button_row)
 
-    def _format_number(self, value: float, sig_figs: int = 4) -> str:
-        """
-        Format number to specified significant figures.
-
-        Args:
-            value: Number to format
-            sig_figs: Number of significant figures (default: 4)
-
-        Returns:
-            Formatted string with specified significant figures
-        """
+    def _format_number(self, value: float) -> str:
         if value == 0:
             return "0"
-        return f"{value:.{sig_figs}g}"
+        return f"{float(value):.3f}".rstrip("0").rstrip(".") or "0"
 
     def populate_tr_window_field(self, compound_name: str):
         """Populate only the tR window field - called only when compound changes

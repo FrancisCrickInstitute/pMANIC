@@ -79,11 +79,11 @@ The next sample of the same compound can still use model areas if every non-empt
 
 The resolution level, peak-shape fit type, and noise gate are stored **per compound** (persisted in the session database), not as a single global option. Each compound can use a different setting, and the choice applies to all of that compound's samples.
 
-Settings are edited from **Settings → Chromatographic Peak Deconvolution** with a compound selected. The current value for the selected compound is shown in the status bar, and the settings are written to the export changelog so a processed result can be reproduced exactly.
+Settings are edited from **Settings → Deconvolution** with a compound selected. The current value for the selected compound is shown in the status bar, and the settings are written to the export changelog so a processed result can be reproduced exactly.
 
 ### Applying settings to all compounds
 
-The settings dialog includes an **"Apply these settings to all compounds"** checkbox. When ticked (and confirmed), the chosen resolution, fit type, and noise gate are written to every compound, overwriting their previous values. There is no separate global flag: the per-compound settings remain the single source of truth, so a bulk update propagates consistently to display, export, the changelog, and session export. To disable deconvolution for all compounds, set the resolution to `Off` and tick the box.
+The Deconvolution page includes an **"Apply to all compounds"** checkbox. When ticked (and confirmed), the chosen resolution, fit type, and noise gate are written to every compound, overwriting their previous values. There is no separate global flag: the per-compound settings remain the single source of truth, so a bulk update propagates consistently to display, export, the changelog, and session export. To disable deconvolution for all compounds, set the resolution to `Off` and tick the box.
 
 ## Resolution Levels
 
@@ -184,7 +184,7 @@ In summary, when deconvolution is on, every fittable channel is offered a peak m
 
 ## Natural Abundance Correction preview
 
-**Settings → Preview Natural Abundance Correction** changes only what the UI draws and what the Label Incorporation bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
+**Settings → Natural Abundance** changes only what the UI draws and what the Label Incorporation bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
 
 Preview on:
 

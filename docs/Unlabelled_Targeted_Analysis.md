@@ -96,7 +96,7 @@ sample of that compound. Compounds already in a session keep the level they
 were imported with until you change it or re-import the list.
 
 You can change the level per compound (or apply the same settings to every
-compound) from **Settings → Chromatographic Peak Deconvolution**. The same
+compound) from **Settings → Deconvolution**. The same
 independent-per-ion engine used in labelled mode then fits each Q and qualifier EIC on
 its own. Channels do not share an elution shape. A joint shared-shape fit on
 Q/qualifier would still be wrong: those ions are different EI fragments, and qualifier/Q

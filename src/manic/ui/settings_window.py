@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QSignalBlocker, Signal
+from PySide6.QtCore import Qt, QSignalBlocker, QSize, Signal
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
@@ -9,11 +9,14 @@ from PySide6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -23,11 +26,13 @@ from manic.models.analysis import AnalysisMode
 
 _SPIN_STYLE = (
     "QDoubleSpinBox { background-color: white; color: #212529; }"
-    "QDoubleSpinBox:disabled { background-color: #f8f9fa; color: #adb5bd; }"
+    "QDoubleSpinBox:disabled { background-color: #f8f9fa; color: #adb5bd; "
+    "border: 1px solid #e9ecef; }"
 )
 _COMBO_STYLE = (
     "QComboBox { background-color: white; color: #212529; }"
-    "QComboBox:disabled { background-color: #f8f9fa; color: #adb5bd; }"
+    "QComboBox:disabled { background-color: #f8f9fa; color: #adb5bd; "
+    "border: 1px solid #e9ecef; }"
 )
 _HINT_STYLE = "color: gray; font-style: italic; padding: 0px;"
 
@@ -124,6 +129,7 @@ class MassTolerancePage(SettingsPage):
         super().__init__(host, parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         info = QLabel("Set the mass tolerance (±Da) for EIC extraction:")
         info.setWordWrap(True)
@@ -159,6 +165,7 @@ class PeakValidationPage(SettingsPage):
         super().__init__(host, parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         info = QLabel(
             "Set the minimum peak area threshold as a fraction of the internal standard "
@@ -205,6 +212,7 @@ class IntegrationPage(SettingsPage):
         super().__init__(host, parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         self.time_radio = QRadioButton("Time-based (recommended)")
         self.time_radio.setObjectName("integrationTimeRadio")
@@ -251,6 +259,7 @@ class NaturalAbundancePage(SettingsPage):
         super().__init__(host, parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         self.preview_check = QCheckBox(
             "Preview natural-abundance-corrected data in plots"
@@ -278,6 +287,7 @@ class InternalStandardPage(SettingsPage):
         super().__init__(host, parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         info = QLabel(
             "Select which internal standard isotopologue peak is the reference peak (M+N).\n"
@@ -301,9 +311,15 @@ class InternalStandardPage(SettingsPage):
         layout.addStretch()
 
     def editable(self) -> tuple[bool, str]:
-        if self.host.internal_standard_name():
-            return True, ""
-        return False, "Select an internal standard in the toolbar to change this."
+        name = self.host.internal_standard_name()
+        if not name:
+            return False, "Select an internal standard in the toolbar to change this."
+        if self.host.internal_standard_label_atoms() == 0:
+            return (
+                False,
+                f"'{name}' has no label atoms, so only M+0 can be the reference peak.",
+            )
+        return True, ""
 
     def load(self) -> None:
         name = self.host.internal_standard_name()
@@ -332,6 +348,7 @@ class DeconvolutionPage(SettingsPage):
         self._compound_name: str | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
         info = QLabel(
             "Choose how MANIC fits and separates overlapping chromatographic peaks "
@@ -456,7 +473,8 @@ class SettingsWindow(QDialog):
         self._host = host
         self.setObjectName("settingsWindow")
         self.setWindowTitle("Settings")
-        self.resize(760, 460)
+        self.resize(880, 600)
+        self.setMinimumSize(720, 480)
 
         labelled = host.analysis_mode is AnalysisMode.LABELLED
         self._pages: list[SettingsPage] = [
@@ -471,9 +489,12 @@ class SettingsWindow(QDialog):
 
         self.page_list = QListWidget()
         self.page_list.setObjectName("settingsPageList")
-        self.page_list.setFixedWidth(180)
+        self.page_list.setFixedWidth(200)
+        self.page_list.setUniformItemSizes(True)
         for page in self._pages:
-            self.page_list.addItem(page.title)
+            item = QListWidgetItem(page.title)
+            item.setSizeHint(QSize(0, 36))
+            self.page_list.addItem(item)
         root.addWidget(self.page_list)
 
         right = QVBoxLayout()
@@ -488,7 +509,14 @@ class SettingsWindow(QDialog):
         for page in self._pages:
             self.stack.addWidget(page)
             page.dirty_changed.connect(self._on_page_dirty_changed)
-        right.addWidget(self.stack, stretch=1)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("settingsPageScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(self.stack)
+        right.addWidget(scroll, stretch=1)
 
         footer = QHBoxLayout()
         self.hint_label = QLabel()

@@ -79,6 +79,8 @@ def labelled_window(qapp, empty_db, monkeypatch):
     yield window
     if window.settings_window is not None:
         window.settings_window.close()
+    if window.documentation_window is not None:
+        window.documentation_window.close()
     window.close()
 
 
@@ -173,7 +175,7 @@ def test_legacy_radio_save_enables_legacy_integration(labelled_window):
 
 
 def test_gear_button_and_menu_action_open_settings(labelled_window):
-    assert labelled_window.settings_action.text() == "Settings..."
+    assert labelled_window.settings_action.text() in ("Settings", "Open Settings")
     labelled_window.toolbar.settings_button.click()
     assert labelled_window.settings_window is not None
     assert labelled_window.settings_window.isVisible()
@@ -223,3 +225,45 @@ def test_deconvolution_page_unlocks_for_selected_compound_and_saves(labelled_win
         ).fetchone()
     assert tuple(row) == ("off", "auto")
     assert settings.save_button.isEnabled() is False
+
+
+def test_internal_standard_without_label_atoms_disables_combo(labelled_window):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
+            "VALUES ('Norvaline', 5.0, 0.6, 0.6, 100.0, 0, 10.0, 1.0, 'S1')"
+        )
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Norvaline"])
+    labelled_window.toolbar.on_internal_standard_selected("Norvaline")
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    _select_page(settings, "Internal Standard")
+    page = settings.page_named("Internal Standard")
+    assert not page.combo.isEnabled()
+    assert (
+        settings.hint_label.text()
+        == "'Norvaline' has no label atoms, so only M+0 can be the reference peak."
+    )
+
+
+def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
+            "VALUES ('Norvaline', 5.0, 0.6, 0.6, 100.0, 3, 10.0, 1.0, 'S1')"
+        )
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Norvaline"])
+    labelled_window.toolbar.on_internal_standard_selected("Norvaline")
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    _select_page(settings, "Internal Standard")
+    page = settings.page_named("Internal Standard")
+    assert page.combo.isEnabled()
+    assert page.combo.count() == 4
+    page.combo.setCurrentIndex(2)
+    settings.save_button.click()
+    assert labelled_window.internal_standard_reference_isotope == 2

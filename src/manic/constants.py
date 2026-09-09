@@ -183,3 +183,5 @@ FONT = FONT_FAMILY
 # Status indicator colors
 RED = QColor(215, 50, 50, 128)
 GREEN = QColor(102, 215, 102, 128)
+BLUE = QColor(13, 110, 253, 128)
+GREY = QColor(233, 236, 239)

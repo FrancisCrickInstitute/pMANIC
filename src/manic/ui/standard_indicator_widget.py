@@ -1,52 +1,71 @@
 import sys
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFontMetrics
 from PySide6.QtWidgets import QLabel
 
-from manic.constants import GREEN, RED, create_font
+from manic.constants import BLUE, GREEN, GREY, RED, create_font
 
 
-class StandardIndicator(QLabel):
-    def __init__(self, parent=None):
-        super().__init__("-- No Standard Selected --", parent)
+class TitledPill(QLabel):
+    """A fixed-size status pill reading ``Title: value``, elided to fit."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self._title = title
+        self._full_text = ""
         self.setFont(create_font(10))
         self.setAlignment(Qt.AlignCenter)
-
-        # Platform-specific sizing to match LoadedDataWidget indicators
+        # Match the two LoadedDataWidget labels side by side (width + 4px spacing)
         if sys.platform == "win32":
-            # Windows: Match wider labels (85 + 85 + 4px spacing)
             self.setFixedSize(174, 22)
         else:
-            # macOS and Linux: Match original labels (75 + 75 + 4px spacing)
             self.setFixedSize(154, 20)
+
+    def set_value(self, value: str, color: QColor) -> None:
+        self._full_text = f"{self._title}: {value}"
+        self.setToolTip(self._full_text)
+        self.setStyleSheet(
+            f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
+            f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
+        )
+        self._elide()
+
+    def resizeEvent(self, event):
+        self._elide()
+        super().resizeEvent(event)
+
+    def _elide(self) -> None:
+        available = self.width() - 12
+        self.setText(
+            QFontMetrics(self.font()).elidedText(
+                self._full_text, Qt.ElideRight, available
+            )
+        )
+
+
+class StandardIndicator(TitledPill):
+    def __init__(self, parent=None):
+        super().__init__("Int Std", parent)
         self.internal_standard = None
-        self._update_appearance()
+        self.set_value("none", RED)
 
     def set_internal_standard(self, compound_name: str):
-        """Set the internal standard compound"""
         self.internal_standard = compound_name
-        self.setText(f"-- {compound_name} --")
-        self._update_appearance()
+        self.set_value(compound_name, GREEN)
 
     def clear_internal_standard(self):
-        """Clear the internal standard selection"""
         self.internal_standard = None
-        self.setText("- No Standard Selected -")
-        self._update_appearance()
+        self.set_value("none", RED)
 
-    def _update_appearance(self):
-        """Update the widget appearance based on whether a standard is selected"""
-        if self.internal_standard:
-            # Green when selected - matching LoadedDataWidget style
-            color = GREEN
-            self.setStyleSheet(
-                f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-                f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
-            )
+
+class CompoundIndicator(TitledPill):
+    def __init__(self, parent=None):
+        super().__init__("Compound", parent)
+        self.set_compound("")
+
+    def set_compound(self, compound_name: str):
+        if compound_name:
+            self.set_value(compound_name, BLUE)
         else:
-            # Red when not selected - matching LoadedDataWidget style
-            color = RED
-            self.setStyleSheet(
-                f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-                f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
-            )
+            self.set_value("--", GREY)

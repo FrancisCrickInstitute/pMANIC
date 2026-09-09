@@ -175,7 +175,7 @@ no prompt. Headers are case-insensitive and ignore spaces or underscores
 | `Qualifier 1 Tolerance` | | Fractional tolerance on that ratio (e.g. `0.30` = ±30%) |
 | `Qualifier 2 Ratio` | | Expected qualifier-2/Q area ratio |
 | `Qualifier 2 Tolerance` | | Fractional tolerance on qualifier-2/Q |
-| `tR Window` | `tR_Window` | Extract half-width and RT identity tolerance (minutes). If omitted, defaults to `max(lOffset, rOffset)`. A value inside the offsets is raised to `max(lOffset, rOffset) + 0.1` when EICs are extracted. |
+| `tR Window` | `tR_Window` | Extract half-width and RT identity tolerance (minutes). If omitted, defaults to `max(lOffset, rOffset)`. A value inside the offsets is raised to `max(lOffset, rOffset) + DEFAULT_RT_WINDOW_BUFFER` when EICs are extracted. |
 | `Amount in StdMix` | | Concentration of the compound in the standard mixture (for semi-quant) |
 | `Int Std amount` | | Amount of internal standard added to samples |
 | `MM Files` | | Pattern matching standard-mixture sample names (wildcards allowed, e.g. `*_MM_*`) |

@@ -94,6 +94,14 @@ DEFAULT_RT_WINDOW = 0.2  # minutes (half-window)
 # This provides margin to prevent frequent reloads on minor adjustments
 DEFAULT_RT_WINDOW_BUFFER = 0.1  # minutes
 
+
+def minimum_extract_rt_window(
+    loffset: float,
+    roffset: float,
+    buffer: float = DEFAULT_RT_WINDOW_BUFFER,
+) -> float:
+    return max(float(loffset or 0.0), float(roffset or 0.0)) + buffer
+
 # Peak area validation
 DEFAULT_MIN_PEAK_HEIGHT_RATIO = 0.005  # Fraction of internal standard reference peak area for minimum peak validation (0.5%)
 

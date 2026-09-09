@@ -8,9 +8,9 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from manic.constants import DEFAULT_RT_WINDOW_BUFFER
+from manic.constants import minimum_extract_rt_window
 from manic.io.cdf_reader import read_cdf_file
-from manic.io.compound_reader import Compound, read_compound, read_compound_with_session
+from manic.io.compound_reader import Compound, read_compound
 from manic.models.database import get_connection
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_calculator import EIC, EmptyRtWindowError, extract_eic
@@ -34,10 +34,6 @@ class CompoundExtractionTarget:
     required_rt_window: float
 
 
-def _minimum_extract_rt_window(loffset: float, roffset: float) -> float:
-    return max(float(loffset or 0.0), float(roffset or 0.0)) + DEFAULT_RT_WINDOW_BUFFER
-
-
 def _extract_rt_window_covering_offsets(
     requested: float,
     compound_name: str,
@@ -50,11 +46,12 @@ def _extract_rt_window_covering_offsets(
     if pending_regeneration is not None:
         loffset = max(loffset, float(pending_regeneration.loffset))
         roffset = max(roffset, float(pending_regeneration.roffset))
-    for sample_name in sample_names:
-        session_compound = read_compound_with_session(compound_name, sample_name)
-        loffset = max(loffset, float(session_compound.loffset or 0.0))
-        roffset = max(roffset, float(session_compound.roffset or 0.0))
-    return max(float(requested), _minimum_extract_rt_window(loffset, roffset))
+    for session in SessionActivityService.get_session_data_for_samples(
+        compound_name, sample_names
+    ):
+        loffset = max(loffset, float(session.loffset or 0.0))
+        roffset = max(roffset, float(session.roffset or 0.0))
+    return max(float(requested), minimum_extract_rt_window(loffset, roffset))
 
 
 # ─────────────────────────── Utility Functions ────────────────────────────
@@ -121,7 +118,7 @@ def _iter_compounds(conn):
             mass0=float(data["mass0"]),
             label_atoms=data["label_atoms"],
             target_mzs=target_mzs,
-            required_rt_window=_minimum_extract_rt_window(
+            required_rt_window=minimum_extract_rt_window(
                 data["loffset"], data["roffset"]
             ),
         )
@@ -913,7 +910,7 @@ def regenerate_all_eics_with_mass_tolerance(
                     mass0=base_target.mass0,
                     label_atoms=base_target.label_atoms,
                     target_mzs=base_target.target_mzs,
-                    required_rt_window=_minimum_extract_rt_window(
+                    required_rt_window=minimum_extract_rt_window(
                         row["loffset"], row["roffset"]
                     ),
                 )

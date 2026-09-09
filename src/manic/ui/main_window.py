@@ -35,7 +35,11 @@ from PySide6.QtWidgets import (
 )
 
 from manic.__version__ import APP_NAME, __version__
-from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO, DEFAULT_RT_WINDOW
+from manic.constants import (
+    DEFAULT_MIN_PEAK_HEIGHT_RATIO,
+    DEFAULT_RT_WINDOW,
+    minimum_extract_rt_window,
+)
 from manic.io.compounds_import import (
     UnlabelledCompoundRecord,
     import_compound_excel,
@@ -737,8 +741,6 @@ class MainWindow(QMainWindow):
             self._validation_provider.invalidate_cache()
 
         if self.cdf_data_loaded:
-            from manic.constants import DEFAULT_RT_WINDOW_BUFFER
-
             samples = list_active_samples()
             if not samples:
                 return
@@ -747,7 +749,7 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self._show_message("warning", "Add Compound", str(exc))
                 return
-            required = max(compound.loffset, compound.roffset) + DEFAULT_RT_WINDOW_BUFFER
+            required = minimum_extract_rt_window(compound.loffset, compound.roffset)
             tr_window = max(DEFAULT_RT_WINDOW, required)
             if compound.rt_tolerance is not None:
                 tr_window = max(tr_window, float(compound.rt_tolerance))

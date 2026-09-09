@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from manic.constants import DEFAULT_RT_WINDOW_BUFFER
+from manic.constants import DEFAULT_RT_WINDOW_BUFFER, minimum_extract_rt_window
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
@@ -103,7 +103,7 @@ def calculate_integration_boundaries(
 
 
 def calculate_minimum_rt_window(
-    loffset: float, roffset: float, buffer: float = 0.1
+    loffset: float, roffset: float, buffer: float = DEFAULT_RT_WINDOW_BUFFER
 ) -> float:
     """
     Calculate minimum RT window size required to cover integration boundaries.
@@ -123,7 +123,7 @@ def calculate_minimum_rt_window(
         >>> calculate_minimum_rt_window(0.3, 0.5, buffer=0.1)
         0.6  # max(0.3, 0.5) + 0.1
     """
-    return max(loffset, roffset) + buffer
+    return minimum_extract_rt_window(loffset, roffset, buffer)
 
 
 def _widest_offset(text: str) -> float | None:

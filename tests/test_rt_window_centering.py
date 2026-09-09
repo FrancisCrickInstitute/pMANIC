@@ -10,7 +10,7 @@ from manic.io.compound_reader import read_compound
 from manic.io.eic_reader import read_eics_batch
 from manic.io.eic_importer import _compress, regenerate_compound_eics
 from manic.models import database
-from manic.models.session_activity import PendingRegeneration
+from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.chromatographic_peak_deconvolution import deconvolve_eic
 from manic.processors.eic_calculator import EmptyRtWindowError
 from manic.ui.main_window import MainWindow
@@ -431,6 +431,63 @@ def _seed_eic_db(db_path: Path, sample_files: dict[str, Path]):
             )
 
 
+def _glucose_regen_db(tmp_path, monkeypatch) -> Path:
+    db_path = tmp_path / "regen.db"
+    cdf_path = tmp_path / "s1.cdf"
+    cdf_path.write_bytes(b"cdf")
+    monkeypatch.setattr(database, "DB_FILE", db_path)
+    _seed_eic_db(db_path, {"s1": cdf_path})
+    return db_path
+
+
+def _set_compound_offsets(db_path: Path, loffset: float, roffset: float) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
+            (loffset, roffset, "Glucose"),
+        )
+        conn.commit()
+
+
+def _stub_window_extract(monkeypatch) -> list[float]:
+    captured_windows: list[float] = []
+
+    def _extract(
+        _compound_name,
+        _sample_rt,
+        _mz,
+        _cdf,
+        _mass_tol,
+        tr_window,
+        *_args,
+        **_kwargs,
+    ):
+        captured_windows.append(tr_window)
+        return SimpleNamespace(
+            time=np.array([6.67, 7.17, 7.67]),
+            intensity=np.array([2.0, 20.0, 2.0]),
+        )
+
+    monkeypatch.setattr(
+        "manic.io.eic_importer.read_cdf_file",
+        lambda _path: SimpleNamespace(sample_name="s1"),
+    )
+    monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
+    monkeypatch.setattr(
+        "manic.processors.eic_correction_manager.apply_correction_to_eic",
+        lambda *_args, **_kwargs: False,
+    )
+    return captured_windows
+
+
+def _stored_rt_window(db_path: Path) -> float:
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
+            ("Glucose", "s1"),
+        ).fetchone()[0]
+
+
 def test_batch_read_falls_back_to_raw_per_sample(tmp_path, monkeypatch):
     db_path = tmp_path / "eics.db"
     sample_files = {
@@ -709,45 +766,9 @@ class TestRecoveryAfterEmptyExtract:
         assert restored == pytest.approx(new_time)
 
     def test_regenerate_raises_tr_window_to_cover_offsets(self, tmp_path, monkeypatch):
-        db_path = tmp_path / "regen.db"
-        cdf_path = tmp_path / "s1.cdf"
-        cdf_path.write_bytes(b"cdf")
-        monkeypatch.setattr(database, "DB_FILE", db_path)
-        _seed_eic_db(db_path, {"s1": cdf_path})
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
-                (0.4, 0.4, "Glucose"),
-            )
-            conn.commit()
-
-        captured_windows = []
-
-        def _extract(
-            _compound_name,
-            _sample_rt,
-            _mz,
-            _cdf,
-            _mass_tol,
-            tr_window,
-            *_args,
-            **_kwargs,
-        ):
-            captured_windows.append(tr_window)
-            return SimpleNamespace(
-                time=np.array([6.67, 7.17, 7.67]),
-                intensity=np.array([2.0, 20.0, 2.0]),
-            )
-
-        monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
-        )
-        monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
-        monkeypatch.setattr(
-            "manic.processors.eic_correction_manager.apply_correction_to_eic",
-            lambda *_args, **_kwargs: False,
-        )
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _set_compound_offsets(db_path, 0.4, 0.4)
+        captured_windows = _stub_window_extract(monkeypatch)
 
         regenerate_compound_eics(
             "Glucose",
@@ -756,28 +777,15 @@ class TestRecoveryAfterEmptyExtract:
             retention_time=7.17,
         )
 
-        with sqlite3.connect(db_path) as conn:
-            stored_window = conn.execute(
-                "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
-                ("Glucose", "s1"),
-            ).fetchone()[0]
-
         assert captured_windows == [pytest.approx(0.5)]
-        assert stored_window == pytest.approx(0.5)
+        assert _stored_rt_window(db_path) == pytest.approx(0.5)
 
     def test_regenerate_raises_tr_window_to_cover_session_offsets(
         self, tmp_path, monkeypatch
     ):
-        db_path = tmp_path / "regen.db"
-        cdf_path = tmp_path / "s1.cdf"
-        cdf_path.write_bytes(b"cdf")
-        monkeypatch.setattr(database, "DB_FILE", db_path)
-        _seed_eic_db(db_path, {"s1": cdf_path})
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _set_compound_offsets(db_path, 0.1, 0.1)
         with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
-                (0.1, 0.1, "Glucose"),
-            )
             conn.execute(
                 """
                 INSERT INTO session_activity
@@ -787,34 +795,7 @@ class TestRecoveryAfterEmptyExtract:
                 ("Glucose", "s1", 7.17, 0.4, 0.4),
             )
             conn.commit()
-
-        captured_windows = []
-
-        def _extract(
-            _compound_name,
-            _sample_rt,
-            _mz,
-            _cdf,
-            _mass_tol,
-            tr_window,
-            *_args,
-            **_kwargs,
-        ):
-            captured_windows.append(tr_window)
-            return SimpleNamespace(
-                time=np.array([6.67, 7.17, 7.67]),
-                intensity=np.array([2.0, 20.0, 2.0]),
-            )
-
-        monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
-        )
-        monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
-        monkeypatch.setattr(
-            "manic.processors.eic_correction_manager.apply_correction_to_eic",
-            lambda *_args, **_kwargs: False,
-        )
+        captured_windows = _stub_window_extract(monkeypatch)
 
         regenerate_compound_eics(
             "Glucose",
@@ -823,57 +804,15 @@ class TestRecoveryAfterEmptyExtract:
             retention_time=7.17,
         )
 
-        with sqlite3.connect(db_path) as conn:
-            stored_window = conn.execute(
-                "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
-                ("Glucose", "s1"),
-            ).fetchone()[0]
-
         assert captured_windows == [pytest.approx(0.5)]
-        assert stored_window == pytest.approx(0.5)
+        assert _stored_rt_window(db_path) == pytest.approx(0.5)
 
     def test_regenerate_raises_tr_window_to_cover_pending_offsets(
         self, tmp_path, monkeypatch
     ):
-        db_path = tmp_path / "regen.db"
-        cdf_path = tmp_path / "s1.cdf"
-        cdf_path.write_bytes(b"cdf")
-        monkeypatch.setattr(database, "DB_FILE", db_path)
-        _seed_eic_db(db_path, {"s1": cdf_path})
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
-                (0.1, 0.1, "Glucose"),
-            )
-            conn.commit()
-
-        captured_windows = []
-
-        def _extract(
-            _compound_name,
-            _sample_rt,
-            _mz,
-            _cdf,
-            _mass_tol,
-            tr_window,
-            *_args,
-            **_kwargs,
-        ):
-            captured_windows.append(tr_window)
-            return SimpleNamespace(
-                time=np.array([6.67, 7.17, 7.67]),
-                intensity=np.array([2.0, 20.0, 2.0]),
-            )
-
-        monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
-        )
-        monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
-        monkeypatch.setattr(
-            "manic.processors.eic_correction_manager.apply_correction_to_eic",
-            lambda *_args, **_kwargs: False,
-        )
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _set_compound_offsets(db_path, 0.1, 0.1)
+        captured_windows = _stub_window_extract(monkeypatch)
         pending = PendingRegeneration(
             compound_name="Glucose",
             retention_time=7.17,
@@ -891,43 +830,30 @@ class TestRecoveryAfterEmptyExtract:
             pending_regeneration=pending,
         )
 
-        with sqlite3.connect(db_path) as conn:
-            stored_window = conn.execute(
-                "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
-                ("Glucose", "s1"),
-            ).fetchone()[0]
-
         assert captured_windows == [pytest.approx(0.5)]
-        assert stored_window == pytest.approx(0.5)
+        assert _stored_rt_window(db_path) == pytest.approx(0.5)
+
+    def test_get_session_data_for_samples_raises_when_table_is_missing(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("DROP TABLE session_activity")
+            conn.commit()
+
+        with pytest.raises(sqlite3.OperationalError):
+            SessionActivityService.get_session_data_for_samples("Glucose", ["s1"])
 
     def test_regenerate_aborts_when_session_offsets_cannot_be_read(
         self, tmp_path, monkeypatch
     ):
-        db_path = tmp_path / "regen.db"
-        cdf_path = tmp_path / "s1.cdf"
-        cdf_path.write_bytes(b"cdf")
-        monkeypatch.setattr(database, "DB_FILE", db_path)
-        _seed_eic_db(db_path, {"s1": cdf_path})
-        def _session_read_failed(*_args, **_kwargs):
-            raise RuntimeError("session read failed")
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _stub_window_extract(monkeypatch)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("DROP TABLE session_activity")
+            conn.commit()
 
-        monkeypatch.setattr(
-            "manic.io.eic_importer.SessionActivityService.get_session_data_for_samples",
-            _session_read_failed,
-        )
-        monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
-        )
-        monkeypatch.setattr(
-            "manic.io.eic_importer.extract_eic",
-            lambda *_args, **_kwargs: SimpleNamespace(
-                time=np.array([6.67, 7.17, 7.67]),
-                intensity=np.array([2.0, 20.0, 2.0]),
-            ),
-        )
-
-        with pytest.raises(RuntimeError, match="session read failed"):
+        with pytest.raises(sqlite3.OperationalError):
             regenerate_compound_eics(
                 "Glucose",
                 0.1,
@@ -935,29 +861,13 @@ class TestRecoveryAfterEmptyExtract:
                 retention_time=7.17,
             )
 
-        with sqlite3.connect(db_path) as conn:
-            stored_window = conn.execute(
-                "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
-                ("Glucose", "s1"),
-            ).fetchone()[0]
-
-        assert stored_window == pytest.approx(0.2)
+        assert _stored_rt_window(db_path) == pytest.approx(0.2)
 
     def test_raised_extract_lets_deconvolution_exclude_a_neighbour(
         self, tmp_path, monkeypatch
     ):
-        db_path = tmp_path / "regen.db"
-        cdf_path = tmp_path / "s1.cdf"
-        cdf_path.write_bytes(b"cdf")
-        monkeypatch.setattr(database, "DB_FILE", db_path)
-        _seed_eic_db(db_path, {"s1": cdf_path})
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
-                (0.4, 0.4, "Glucose"),
-            )
-            conn.commit()
-
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _set_compound_offsets(db_path, 0.4, 0.4)
         extracted = {}
 
         def _extract(

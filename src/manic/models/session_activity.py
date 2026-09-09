@@ -446,33 +446,24 @@ class SessionActivityService:
         if not compound_name or not sample_names:
             return []
         
-        # Create placeholders for IN clause
         placeholders = ",".join("?" for _ in sample_names)
         query_sql = f"""
             SELECT compound_name, sample_name, retention_time, loffset, roffset, sample_deleted
             FROM session_activity 
             WHERE compound_name = ? AND sample_name IN ({placeholders}) AND sample_deleted = 0
         """
-        
-        try:
-            with get_connection() as conn:
-                params = [compound_name] + sample_names
-                rows = conn.execute(query_sql, params).fetchall()
-                
-                return [
-                    SessionData(
-                        compound_name=row["compound_name"],
-                        sample_name=row["sample_name"],
-                        retention_time=row["retention_time"],
-                        loffset=row["loffset"],
-                        roffset=row["roffset"],
-                        sample_deleted=bool(row["sample_deleted"])
-                    )
-                    for row in rows
-                ]
-                
-        except Exception as e:
-            logger.error(
-                f"Failed to retrieve session data for compound '{compound_name}': {e}"
+        with get_connection() as conn:
+            params = [compound_name] + sample_names
+            rows = conn.execute(query_sql, params).fetchall()
+
+        return [
+            SessionData(
+                compound_name=row["compound_name"],
+                sample_name=row["sample_name"],
+                retention_time=row["retention_time"],
+                loffset=row["loffset"],
+                roffset=row["roffset"],
+                sample_deleted=bool(row["sample_deleted"]),
             )
-            return []
+            for row in rows
+        ]

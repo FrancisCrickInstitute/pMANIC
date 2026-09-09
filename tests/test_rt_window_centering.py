@@ -832,6 +832,117 @@ class TestRecoveryAfterEmptyExtract:
         assert captured_windows == [pytest.approx(0.5)]
         assert stored_window == pytest.approx(0.5)
 
+    def test_regenerate_raises_tr_window_to_cover_pending_offsets(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = tmp_path / "regen.db"
+        cdf_path = tmp_path / "s1.cdf"
+        cdf_path.write_bytes(b"cdf")
+        monkeypatch.setattr(database, "DB_FILE", db_path)
+        _seed_eic_db(db_path, {"s1": cdf_path})
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
+                (0.1, 0.1, "Glucose"),
+            )
+            conn.commit()
+
+        captured_windows = []
+
+        def _extract(
+            _compound_name,
+            _sample_rt,
+            _mz,
+            _cdf,
+            _mass_tol,
+            tr_window,
+            *_args,
+            **_kwargs,
+        ):
+            captured_windows.append(tr_window)
+            return SimpleNamespace(
+                time=np.array([6.67, 7.17, 7.67]),
+                intensity=np.array([2.0, 20.0, 2.0]),
+            )
+
+        monkeypatch.setattr(
+            "manic.io.eic_importer.read_cdf_file",
+            lambda _path: SimpleNamespace(sample_name="s1"),
+        )
+        monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
+        monkeypatch.setattr(
+            "manic.processors.eic_correction_manager.apply_correction_to_eic",
+            lambda *_args, **_kwargs: False,
+        )
+        pending = PendingRegeneration(
+            compound_name="Glucose",
+            retention_time=7.17,
+            loffset=0.4,
+            roffset=0.4,
+            sample_names=("s1",),
+            regenerated_sample_names=("s1",),
+        )
+
+        regenerate_compound_eics(
+            "Glucose",
+            0.1,
+            ["s1"],
+            retention_time=7.17,
+            pending_regeneration=pending,
+        )
+
+        with sqlite3.connect(db_path) as conn:
+            stored_window = conn.execute(
+                "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
+                ("Glucose", "s1"),
+            ).fetchone()[0]
+
+        assert captured_windows == [pytest.approx(0.5)]
+        assert stored_window == pytest.approx(0.5)
+
+    def test_regenerate_aborts_when_session_offsets_cannot_be_read(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = tmp_path / "regen.db"
+        cdf_path = tmp_path / "s1.cdf"
+        cdf_path.write_bytes(b"cdf")
+        monkeypatch.setattr(database, "DB_FILE", db_path)
+        _seed_eic_db(db_path, {"s1": cdf_path})
+        def _session_read_failed(*_args, **_kwargs):
+            raise RuntimeError("session read failed")
+
+        monkeypatch.setattr(
+            "manic.io.eic_importer.SessionActivityService.get_session_data_for_samples",
+            _session_read_failed,
+        )
+        monkeypatch.setattr(
+            "manic.io.eic_importer.read_cdf_file",
+            lambda _path: SimpleNamespace(sample_name="s1"),
+        )
+        monkeypatch.setattr(
+            "manic.io.eic_importer.extract_eic",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                time=np.array([6.67, 7.17, 7.67]),
+                intensity=np.array([2.0, 20.0, 2.0]),
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="session read failed"):
+            regenerate_compound_eics(
+                "Glucose",
+                0.1,
+                ["s1"],
+                retention_time=7.17,
+            )
+
+        with sqlite3.connect(db_path) as conn:
+            stored_window = conn.execute(
+                "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
+                ("Glucose", "s1"),
+            ).fetchone()[0]
+
+        assert stored_window == pytest.approx(0.2)
+
     def test_raised_extract_lets_deconvolution_exclude_a_neighbour(
         self, tmp_path, monkeypatch
     ):

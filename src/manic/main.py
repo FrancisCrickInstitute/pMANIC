@@ -32,8 +32,7 @@ def main():
 
     configure_logging()
     app = QApplication(sys.argv)
-    # Application-wide so every dialog is styled, including the mode chooser
-    # shown before any MainWindow exists and dialogs opened without a parent.
+    # App-wide, not on MainWindow: the mode chooser below runs before any window exists.
     app.setStyleSheet(load_stylesheet(resource_path("resources", "style.qss")))
 
     selected_mode = choose_analysis_mode()

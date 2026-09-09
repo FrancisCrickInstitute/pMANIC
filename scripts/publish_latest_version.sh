@@ -19,6 +19,11 @@ if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
+if command -v gh >/dev/null && ! gh release view "v$VERSION" >/dev/null 2>&1; then
+    echo "Error: no published GitHub Release tagged v$VERSION. Publish it first."
+    exit 1
+fi
+
 cat > releases/latest.json <<EOF
 {
   "version": "$VERSION",

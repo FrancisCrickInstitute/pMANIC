@@ -1,5 +1,6 @@
 import os
 import sys
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from manic.ui.graphs import GraphView
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
+from manic.validation.unlabelled_identity import IdentityStatus
 
 
 @pytest.fixture(scope="module")
@@ -96,6 +98,23 @@ def test_action_applies_to_every_selected_tile(grid):
     assert compound == "Cmp"
     assert sorted(samples) == ["A", "C"]
     assert review is PeakReview.REJECTED
+
+
+def test_not_detected_tile_is_flat_grey_until_reviewed(grid, monkeypatch):
+    view, tiles, _emitted = grid
+    monkeypatch.setattr(
+        view,
+        "_sample_identity",
+        lambda _name: SimpleNamespace(
+            qc=SimpleNamespace(status=IdentityStatus.NOT_DETECTED)
+        ),
+    )
+    view.apply_peak_verdicts({"C": PeakVerdict.PASS})
+    assert "rgba(236, 239, 241, 120)" in tiles["C"][0].styleSheet()
+    assert "border" not in tiles["C"][0].styleSheet()
+
+    view.apply_peak_verdicts({"C": PeakVerdict.REJECTED})
+    assert "rgba(224, 201, 166, 120)" in tiles["C"][0].styleSheet()
 
 
 def test_group_accept_skips_passing_tiles(grid):

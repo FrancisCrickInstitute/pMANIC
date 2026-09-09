@@ -665,10 +665,8 @@ class MainWindow(QMainWindow):
         if not file_path:
             return
 
-        # Guard against loading a list written for the other workflow: a
-        # QIon/QualifierIon list (ValIon is still an accepted alias) in a
-        # labelled session (or vice versa) can only be misinterpreted, so
-        # offer to restart in the right mode instead.
+        # A QIon/QualifierIon list in a labelled session (or vice versa)
+        # can only be misinterpreted. Offer to restart in the right mode.
         from manic.io.compounds_import import detect_compound_list_format
 
         detected_mode = detect_compound_list_format(file_path)

@@ -92,7 +92,7 @@ def main() -> None:
                 continue
             values = observed[ordinal]
             if len(values) < 3:
-                print(f"{name:<22} Q{ordinal:<3} {row.get(ratio_col, ''):>7} {'skip':>7} {'':>5} {len(values):>3}  (too few detections)")
+                print(f"{name:<22} qual{ordinal:<3} {row.get(ratio_col, ''):>7} {'skip':>7} {'':>5} {len(values):>3}  (too few detections)")
                 continue
             old = row.get(ratio_col, "")
             median = float(np.median(values))
@@ -101,7 +101,7 @@ def main() -> None:
             tol = float(np.clip(3.0 * frac, 0.30, 0.60))
             row[ratio_col] = f"{median:.4f}"
             row[tol_col] = f"{tol:.2f}"
-            print(f"{name:<22} Q{ordinal:<3} {old:>7} {median:7.3f} {tol:5.0%} {len(values):>3}")
+            print(f"{name:<22} qual{ordinal:<3} {old:>7} {median:7.3f} {tol:5.0%} {len(values):>3}")
 
     with out_path.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)

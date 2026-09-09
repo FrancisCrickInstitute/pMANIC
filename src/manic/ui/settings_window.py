@@ -107,6 +107,9 @@ class SettingsPage(QWidget):
     def editable(self) -> tuple[bool, str]:
         return True, ""
 
+    def unsaved_hint(self) -> str:
+        return "Unsaved changes"
+
     def set_inputs_enabled(self, enabled: bool) -> None:
         for widget in self._inputs:
             widget.setEnabled(enabled)
@@ -417,6 +420,16 @@ class DeconvolutionPage(SettingsPage):
         if enabled:
             self._sync_fit_enabled()
 
+    def unsaved_hint(self) -> str:
+        selected = self.host.selected_compound_name()
+        if selected == self._compound_name:
+            return f"Unsaved changes for {self._compound_name}"
+        return (
+            f"Unsaved changes for {self._compound_name}. "
+            f"The toolbar now selects {selected or 'nothing'}; Save still writes to "
+            f"{self._compound_name}."
+        )
+
     def _on_level_changed(self, _index: int) -> None:
         self._sync_fit_enabled()
         self._mark_dirty()
@@ -573,7 +586,7 @@ class SettingsWindow(QDialog):
         if not editable:
             self.hint_label.setText(reason)
         elif dirty:
-            self.hint_label.setText("Unsaved changes")
+            self.hint_label.setText(page.unsaved_hint())
         else:
             self.hint_label.setText("")
         self.reset_button.setEnabled(dirty)

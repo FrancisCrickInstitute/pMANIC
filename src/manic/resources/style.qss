@@ -460,11 +460,6 @@ QToolButton#settingsButton:hover, QToolButton#docsButton:hover {
     background-color: #e9ecef;
 }
 
-QWidget#toolbarFooter {
-    border-top: 1px solid #e0e0e0;
-    background: transparent;
-}
-
 QListWidget#settingsPageList,
 QListWidget#documentationPageList {
     border: none;

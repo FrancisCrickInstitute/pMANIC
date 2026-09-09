@@ -33,9 +33,10 @@ logger = logging.getLogger(__name__)
 
 
 def _documentation_title(path: Path) -> str:
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("# "):
-            return line[2:].strip()
+    with path.open(encoding="utf-8") as lines:
+        for line in lines:
+            if line.startswith("# "):
+                return line[2:].strip()
     return path.stem.replace("_", " ").title()
 
 

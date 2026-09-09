@@ -1,13 +1,10 @@
 from typing import List
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
-    QHBoxLayout,
     QScrollArea,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -24,16 +21,6 @@ from .sample_list_widget import SampleListWidget
 from .standard_indicator_widget import CompoundIndicator, StandardIndicator
 from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
-
-
-def _icon_button(object_name: str, svg: str, tooltip: str) -> QToolButton:
-    button = QToolButton()
-    button.setObjectName(object_name)
-    button.setIcon(QIcon(resource_path("resources", svg)))
-    button.setIconSize(QSize(20, 20))
-    button.setAutoRaise(True)
-    button.setToolTip(tooltip)
-    return button
 
 
 class Toolbar(QWidget):
@@ -53,10 +40,6 @@ class Toolbar(QWidget):
     compounds_restored = Signal(list)
 
     add_compound_requested = Signal()
-
-    settings_requested = Signal()
-
-    documentation_requested = Signal()
 
     # Signal for when samples are deleted
     samples_deleted = Signal(list)
@@ -251,21 +234,6 @@ class Toolbar(QWidget):
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)
 
-        footer = QWidget()
-        footer.setObjectName("toolbarFooter")
-        footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(10, 4, 10, 6)
-        footer_layout.addStretch()
-
-        self.docs_button = _icon_button("docsButton", "docs_book.svg", "Documentation")
-        self.docs_button.clicked.connect(self.documentation_requested.emit)
-        self.settings_button = _icon_button(
-            "settingsButton", "settings_gear.svg", "Settings"
-        )
-        self.settings_button.clicked.connect(self.settings_requested.emit)
-        footer_layout.addWidget(self.docs_button)
-        footer_layout.addWidget(self.settings_button)
-        container_layout.addWidget(footer)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)

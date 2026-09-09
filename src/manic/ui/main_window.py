@@ -152,8 +152,8 @@ class MainWindow(QMainWindow):
         self.toolbar.internal_standard_selected.connect(
             self.on_internal_standard_selected
         )
-        self.toolbar.settings_requested.connect(self.open_settings_window)
-        self.toolbar.documentation_requested.connect(self.open_documentation_window)
+        self.graph_view.settings_requested.connect(self.open_settings_window)
+        self.graph_view.documentation_requested.connect(self.open_documentation_window)
         self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
         self.toolbar.compounds_restored.connect(self.on_compounds_restored)
         self.toolbar.add_compound_requested.connect(self.show_add_compound_dialog)
@@ -1931,7 +1931,8 @@ class MainWindow(QMainWindow):
             menu = menu_bar.addMenu(title)
             action = menu.addAction(f"Open {title}")
             action.triggered.connect(open_window)
-            menu.aboutToShow.connect(open_window)
+            # Deferred so the window opens after Cocoa finishes its menu tracking.
+            menu.aboutToShow.connect(lambda: QTimer.singleShot(0, open_window))
             return action
         action = menu_bar.addAction(title)
         action.triggered.connect(open_window)

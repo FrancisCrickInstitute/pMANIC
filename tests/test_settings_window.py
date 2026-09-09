@@ -175,7 +175,7 @@ def test_legacy_radio_save_enables_legacy_integration(labelled_window):
 
 
 def test_gear_button_and_menu_action_open_settings(labelled_window):
-    labelled_window.toolbar.settings_button.click()
+    labelled_window.graph_view.settings_button.click()
     assert labelled_window.settings_window.isVisible()
 
     labelled_window.settings_window.close()
@@ -270,3 +270,30 @@ def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window
     page.combo.setCurrentIndex(2)
     settings.save_button.click()
     assert labelled_window.internal_standard_reference_isotope == 2
+
+
+def test_deconvolution_unsaved_hint_names_the_compound_it_will_write(labelled_window):
+    with database.get_connection() as conn:
+        for name in ("Alanine", "Glycine"):
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+                "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
+                "VALUES (?, 5.0, 0.6, 0.6, 100.0, 3, 10.0, 1.0, 'S1')",
+                (name,),
+            )
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Alanine", "Glycine"], selected_name="Alanine")
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    _select_page(settings, "Deconvolution")
+    page = settings.page_named("Deconvolution")
+    page.level_combo.setCurrentIndex(0)
+    assert settings.hint_label.text() == "Unsaved changes for Alanine"
+
+    labelled_window.toolbar.update_compound_list(["Alanine", "Glycine"], selected_name="Glycine")
+    settings.refresh()
+    assert page.compound_label.text() == "Compound: Alanine"
+    assert settings.hint_label.text() == (
+        "Unsaved changes for Alanine. The toolbar now selects Glycine; "
+        "Save still writes to Alanine."
+    )

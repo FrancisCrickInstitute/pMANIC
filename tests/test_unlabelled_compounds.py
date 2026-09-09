@@ -469,6 +469,39 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
     assert qc["G2"].value == pytest.approx(4.0)
 
 
+def test_unlabelled_excel_export_baseline_off_header_is_blue(unlabelled_db, tmp_path):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+    )
+    with database.get_connection() as conn:
+        conn.execute(
+            "UPDATE compounds SET baseline_correction = 0 WHERE compound_name = 'Target'"
+        )
+
+    _insert_eic(
+        "S1",
+        "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+        rt_window=1.1,
+    )
+
+    export_path = tmp_path / "baseline_off.xlsx"
+    assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
+
+    workbook = openpyxl.load_workbook(export_path, data_only=True)
+    header = workbook["Raw Values"]["C1"]
+    assert header.value == "Target"
+    assert header.font.color.rgb == "FF1F5FBF"
+    assert header.fill.patternType != "solid"
+
+
 def test_unlabelled_excel_export_with_internal_standard(unlabelled_db, tmp_path):
     _import_targets(
         tmp_path,

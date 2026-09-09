@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List
 
 from manic.models.database import get_connection
+from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def write(
     """
     worksheet = workbook.add_worksheet("% Carbons Labelled")
     invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
-    baseline_off_header_format = workbook.add_format({"bg_color": "#FFF2CC"})
+    baseline_off_header_format = make_baseline_off_header_format(workbook)
 
     # 1. Fetch Metadata
     if provider is None:

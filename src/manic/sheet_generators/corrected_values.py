@@ -4,6 +4,7 @@ import logging
 from typing import List
 
 from manic.models.database import get_connection
+from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     """
     worksheet = workbook.add_worksheet('Corrected Values')
     invalid_format = workbook.add_format({'bg_color': '#FFCCCC'})
-    baseline_off_header_format = workbook.add_format({'bg_color': '#FFF2CC'})
+    baseline_off_header_format = make_baseline_off_header_format(workbook)
 
     if provider is None:
         with get_connection() as conn:

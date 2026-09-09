@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from manic.io.compound_reader import read_compound
+from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
 from manic.validation.unlabelled_identity import QualifierRatioResult
 
 
@@ -106,7 +107,7 @@ def _write_q_column_headers(worksheet, compounds, baseline_off_header_format) ->
 def _write_raw_values(workbook, samples, compounds, bulk_data, validation_data) -> None:
     worksheet = workbook.add_worksheet("Raw Values")
     invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
-    baseline_off_header_format = workbook.add_format({"bg_color": "#FFF2CC"})
+    baseline_off_header_format = make_baseline_off_header_format(workbook)
     _write_q_column_headers(worksheet, compounds, baseline_off_header_format)
 
     for sample_idx, sample_name in enumerate(samples):
@@ -137,7 +138,7 @@ def _write_abundances(
     worksheet = workbook.add_worksheet("Abundances")
     invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
     rel_unit_format = workbook.add_format({"bg_color": "#D9D9D9"})
-    baseline_off_header_format = workbook.add_format({"bg_color": "#FFF2CC"})
+    baseline_off_header_format = make_baseline_off_header_format(workbook)
 
     mrrf_values = {}
     if exporter.internal_standard_compound:

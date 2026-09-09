@@ -103,3 +103,11 @@ CREATE TABLE IF NOT EXISTS eic_corrected (
 
 CREATE INDEX IF NOT EXISTS idx_eic_corrected_sample_compound
           ON eic_corrected(sample_name, compound_name);
+
+-- Manual peak reviews --------------------------------------------
+CREATE TABLE IF NOT EXISTS peak_review (
+    compound_name TEXT NOT NULL,
+    sample_name   TEXT NOT NULL,
+    review        TEXT NOT NULL CHECK (review IN ('accepted', 'rejected')),
+    PRIMARY KEY (compound_name, sample_name)
+);

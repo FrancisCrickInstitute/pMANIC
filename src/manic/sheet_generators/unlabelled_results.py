@@ -4,6 +4,8 @@ from typing import Callable
 
 from manic.io.compound_reader import read_compound
 from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
+from manic.sheet_generators.formats import peak_verdict_formats
+from manic.validation.peak_verdict import PeakVerdict
 from manic.validation.unlabelled_identity import QualifierRatioResult
 
 
@@ -106,7 +108,7 @@ def _write_q_column_headers(worksheet, compounds, baseline_off_header_format) ->
 
 def _write_raw_values(workbook, samples, compounds, bulk_data, validation_data) -> None:
     worksheet = workbook.add_worksheet("Raw Values")
-    invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
+    verdict_formats = peak_verdict_formats(workbook)
     baseline_off_header_format = make_baseline_off_header_format(workbook)
     _write_q_column_headers(worksheet, compounds, baseline_off_header_format)
 
@@ -115,14 +117,11 @@ def _write_raw_values(workbook, samples, compounds, bulk_data, validation_data) 
         worksheet.write(row, 0, None)
         worksheet.write(row, 1, sample_name)
         areas_by_compound = bulk_data.get(sample_name, {})
-        invalid_compounds = (validation_data or {}).get(sample_name, {})
+        sample_verdicts = (validation_data or {}).get(sample_name, {})
         for col, compound in enumerate(compounds):
             value = _q_area(areas_by_compound.get(compound.compound_name))
-            is_valid = invalid_compounds.get(compound.compound_name, True)
-            if is_valid:
-                worksheet.write(row, col + 2, value)
-            else:
-                worksheet.write(row, col + 2, value, invalid_format)
+            fmt = verdict_formats[sample_verdicts.get(compound.compound_name, PeakVerdict.PASS)]
+            worksheet.write(row, col + 2, value, fmt)
 
 
 def _write_abundances(
@@ -136,7 +135,7 @@ def _write_abundances(
     validation_data,
 ) -> None:
     worksheet = workbook.add_worksheet("Abundances")
-    invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
+    verdict_formats = peak_verdict_formats(workbook)
     rel_unit_format = workbook.add_format({"bg_color": "#D9D9D9"})
     baseline_off_header_format = make_baseline_off_header_format(workbook)
 
@@ -182,7 +181,7 @@ def _write_abundances(
         worksheet.write(row, 0, None)
         worksheet.write(row, 1, sample_name)
         areas_by_compound = bulk_data.get(sample_name, {})
-        invalid_compounds = (validation_data or {}).get(sample_name, {})
+        sample_verdicts = (validation_data or {}).get(sample_name, {})
         internal_area = _q_area(
             areas_by_compound.get(exporter.internal_standard_compound)
         )
@@ -211,11 +210,8 @@ def _write_abundances(
                 and _positive(mrrf)
             ):
                 value = value * std_amount / internal_area / float(mrrf)
-            is_valid = invalid_compounds.get(compound.compound_name, True)
-            if is_valid:
-                worksheet.write(row, col + 2, value)
-            else:
-                worksheet.write(row, col + 2, value, invalid_format)
+            fmt = verdict_formats[sample_verdicts.get(compound.compound_name, PeakVerdict.PASS)]
+            worksheet.write(row, col + 2, value, fmt)
 
 
 def _write_qualifier_qc(

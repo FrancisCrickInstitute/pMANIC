@@ -20,6 +20,8 @@ from manic.io.eic_reader import read_eic
 from manic.models import database
 from manic.models import session_export
 from manic.models.analysis import AnalysisMode, IonRole
+from manic.models.peak_review import get_peak_reviews, set_peak_review
+from manic.validation.peak_verdict import PeakReview
 from manic.processors import chromatographic_peak_deconvolution as deconv
 from manic.processors import integration as integration_module
 from manic.processors.chromatographic_peak_deconvolution import (
@@ -168,6 +170,7 @@ def test_existing_database_migrates_targeted_schema(tmp_path, monkeypatch):
 
     assert "rt_tolerance" in columns
     assert "compound_ions" in tables
+    assert "peak_review" in tables
     assert existing == ("Existing",)
 
 
@@ -545,6 +548,106 @@ def test_unlabelled_excel_export_with_internal_standard(unlabelled_db, tmp_path)
     workbook = openpyxl.load_workbook(export_path, data_only=True)
     assert "Abundances" in workbook.sheetnames
     assert workbook["Abundances"]["A4"].value == "Units"
+
+
+def test_peak_review_store_round_trip(unlabelled_db):
+    set_peak_review("Target", "S1", PeakReview.ACCEPTED)
+    set_peak_review("Std", "S1", PeakReview.REJECTED)
+    assert get_peak_reviews()[("Target", "S1")] is PeakReview.ACCEPTED
+    assert get_peak_reviews()[("Std", "S1")] is PeakReview.REJECTED
+    assert get_peak_reviews() == {
+        ("Target", "S1"): PeakReview.ACCEPTED,
+        ("Std", "S1"): PeakReview.REJECTED,
+    }
+
+    set_peak_review("Target", "S1", None)
+    assert ("Target", "S1") not in get_peak_reviews()
+    assert get_peak_reviews() == {("Std", "S1"): PeakReview.REJECTED}
+
+
+def test_unlabelled_excel_export_colours_peak_reviews(unlabelled_db, tmp_path):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+        **{"Amount in StdMix": 2.5},
+    )
+    _import_targets(
+        tmp_path,
+        name="Std",
+        tR=2.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=318,
+        QualifierIon1=217,
+        **{"Amount in StdMix": 1.0, "Int Std amount": 10.0, "MM Files": "S1"},
+    )
+    _insert_eic(
+        "S1",
+        "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S1",
+        "Std",
+        [1.0, 2.0, 3.0],
+        [[0.0, 20.0, 0.0], [0.0, 6.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S2",
+        "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 30.0, 0.0], [0.0, 8.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S2",
+        "Std",
+        [1.0, 2.0, 3.0],
+        [[0.0, 20.0, 0.0], [0.0, 6.0, 0.0]],
+        rt_window=1.1,
+    )
+
+    set_peak_review("Std", "S1", PeakReview.REJECTED)
+    set_peak_review("Target", "S1", PeakReview.ACCEPTED)
+
+    exporter = DataExporter(AnalysisMode.UNLABELLED)
+    exporter.set_internal_standard("Std")
+    exporter.set_min_peak_area_ratio(0.8)
+    export_path = tmp_path / "reviewed.xlsx"
+    assert exporter.export_to_excel(str(export_path))
+
+    workbook = openpyxl.load_workbook(export_path, data_only=True)
+    raw = workbook["Raw Values"]
+    assert raw["C4"].value == pytest.approx(10.0)
+    assert raw["C4"].fill.fgColor.rgb == "FFE5D4F1"
+    assert raw["D4"].fill.fgColor.rgb == "FFFFD8A8"
+    assert raw["C5"].fill.patternType != "solid"
+
+    assert session_export.export_session_method(
+        str(tmp_path / "method"),
+        AnalysisMode.UNLABELLED,
+    )
+    method_path = tmp_path / "manic_session_export" / "method.json"
+    set_peak_review("Target", "S1", None)
+    set_peak_review("Std", "S1", None)
+    set_peak_review("Target", "S2", PeakReview.REJECTED)
+    ok, _ = session_export.import_session_overrides(
+        str(method_path),
+        expected_mode=AnalysisMode.UNLABELLED,
+    )
+    assert ok
+    assert get_peak_reviews() == {
+        ("Std", "S1"): PeakReview.REJECTED,
+        ("Target", "S1"): PeakReview.ACCEPTED,
+    }
 
 
 def _unlabelled_mixed_bundle(time, *, failed_index: int):

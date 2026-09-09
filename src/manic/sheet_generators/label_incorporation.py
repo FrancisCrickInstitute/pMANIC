@@ -5,6 +5,8 @@ from typing import List
 
 from manic.models.database import get_connection
 from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
+from manic.sheet_generators.formats import peak_verdict_formats
+from manic.validation.peak_verdict import PeakVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +18,7 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     Extracted from DataExporter._export_label_incorporation_sheet.
     """
     worksheet = workbook.add_worksheet('% Label Incorporation')
-    invalid_format = workbook.add_format({'bg_color': '#FFCCCC'})
+    verdict_formats = peak_verdict_formats(workbook)
     baseline_off_header_format = make_baseline_off_header_format(workbook)
 
     if provider is None:
@@ -111,14 +113,12 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
             else:
                 label_percentage = 0.0
 
+            fmt = None
             if validation_data and sample_name in validation_data:
-                is_valid = validation_data[sample_name].get(compound_name, True)
-                if not is_valid:
-                    worksheet.write(row, col + 2, label_percentage, invalid_format)
-                else:
-                    worksheet.write(row, col + 2, label_percentage)
-            else:
-                worksheet.write(row, col + 2, label_percentage)
+                fmt = verdict_formats[
+                    validation_data[sample_name].get(compound_name, PeakVerdict.PASS)
+                ]
+            worksheet.write(row, col + 2, label_percentage, fmt)
 
         if progress_callback and (sample_idx + 1) % 5 == 0:
             progress = start_progress + (sample_idx + 1) / len(samples) * (end_progress - start_progress)

@@ -5,6 +5,8 @@ from typing import Dict, List
 
 from manic.models.database import get_connection
 from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
+from manic.sheet_generators.formats import peak_verdict_formats
+from manic.validation.peak_verdict import PeakVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,7 @@ def write(
     This represents the excess labelling above natural/background levels.
     """
     worksheet = workbook.add_worksheet("% Carbons Labelled")
-    invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
+    verdict_formats = peak_verdict_formats(workbook)
     baseline_off_header_format = make_baseline_off_header_format(workbook)
 
     # 1. Fetch Metadata
@@ -191,14 +193,12 @@ def write(
             # C. Clamp to 0 (no negative enrichment)
             final_value = max(0.0, ape_value)
 
+            fmt = None
             if validation_data and sample_name in validation_data:
-                is_valid = validation_data[sample_name].get(compound_name, True)
-                if not is_valid:
-                    worksheet.write(row, col + 2, final_value, invalid_format)
-                else:
-                    worksheet.write(row, col + 2, final_value)
-            else:
-                worksheet.write(row, col + 2, final_value)
+                fmt = verdict_formats[
+                    validation_data[sample_name].get(compound_name, PeakVerdict.PASS)
+                ]
+            worksheet.write(row, col + 2, final_value, fmt)
 
         if progress_callback and (sample_idx + 1) % 5 == 0:
             progress = start_progress + (sample_idx + 1) / len(samples) * (

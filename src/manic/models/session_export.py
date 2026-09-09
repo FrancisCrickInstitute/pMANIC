@@ -21,6 +21,8 @@ from manic.models.database import (
     soft_delete_compound,
     soft_delete_sample,
 )
+from manic.models.peak_review import get_peak_reviews
+from manic.validation.peak_verdict import PeakReview
 from manic.__version__ import __version__, APP_NAME
 from manic.models.analysis import AnalysisMode
 from manic.io.changelog_sections import (
@@ -277,6 +279,17 @@ def export_session_method(
 
             method_data["session_overrides"] = session_overrides
 
+            method_data["peak_reviews"] = [
+                {
+                    "compound_name": compound_name,
+                    "sample_name": sample_name,
+                    "review": review.value,
+                }
+                for (compound_name, sample_name), review in sorted(
+                    get_peak_reviews().items()
+                )
+            ]
+
             # Export deleted sample names
             cursor = conn.execute("""
                 SELECT sample_name FROM samples WHERE deleted = 1 ORDER BY sample_name
@@ -398,6 +411,8 @@ def import_session_overrides(
         _apply_compound_method_settings(compounds)
         _apply_compound_ions(compounds)
 
+        _import_peak_reviews(method_data)
+
         if not session_overrides:
             logger.info("No session overrides to import")
             return True, has_deletion_data
@@ -449,6 +464,33 @@ def import_session_overrides(
     except Exception as e:
         logger.error(f"Failed to import session overrides: {e}")
         return False, False
+
+
+def _import_peak_reviews(method_data: dict) -> None:
+    if "peak_reviews" not in method_data:
+        return
+
+    with get_connection() as conn:
+        conn.execute("DELETE FROM peak_review")
+        for item in method_data["peak_reviews"] or []:
+            known = conn.execute(
+                """
+                SELECT 1 FROM compounds c, samples s
+                WHERE c.compound_name = ? AND s.sample_name = ?
+                """,
+                (item["compound_name"], item["sample_name"]),
+            ).fetchone()
+            if known is None:
+                logger.warning(
+                    "Skipping peak review for %s/%s - compound or sample not found",
+                    item["compound_name"],
+                    item["sample_name"],
+                )
+                continue
+            conn.execute(
+                "INSERT INTO peak_review (compound_name, sample_name, review) VALUES (?, ?, ?)",
+                (item["compound_name"], item["sample_name"], PeakReview(item["review"]).value),
+            )
 
 
 def _apply_compound_method_settings(compounds: list) -> None:

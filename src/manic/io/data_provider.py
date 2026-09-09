@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 
 from manic.models.database import get_connection
+from manic.validation.peak_verdict import PeakReview, PeakVerdict, resolve_verdict
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
     deconvolve_channel_matrix,
@@ -996,6 +997,25 @@ class DataProvider:
 
         threshold = is_ref * min_ratio
         return compound_total >= threshold
+
+    def peak_verdict(
+        self,
+        sample_name: str,
+        compound_name: str,
+        internal_standard: str,
+        min_ratio: float,
+        internal_standard_isotope_index: int = 0,
+        reviews: Dict[tuple[str, str], PeakReview] | None = None,
+    ) -> PeakVerdict:
+        meets_threshold = self.validate_peak_area(
+            sample_name,
+            compound_name,
+            internal_standard,
+            min_ratio,
+            internal_standard_isotope_index=internal_standard_isotope_index,
+        )
+        review = None if reviews is None else reviews.get((compound_name, sample_name))
+        return resolve_verdict(meets_threshold, review)
 
     def get_sample_peak_metrics(
         self,

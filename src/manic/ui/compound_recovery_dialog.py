@@ -13,8 +13,6 @@ from PySide6.QtWidgets import (
 
 from manic.constants import FONT
 from manic.models.database import get_deleted_compounds, restore_compounds
-from manic.utils.paths import resource_path
-from manic.utils.utils import load_stylesheet
 
 
 class CompoundRecoveryDialog(QDialog):
@@ -27,10 +25,6 @@ class CompoundRecoveryDialog(QDialog):
         self.setWindowTitle("Recover Deleted Compounds")
         self.setModal(True)
         self.resize(400, 500)
-
-        # Load and apply the stylesheet from resources
-        stylesheet = load_stylesheet(resource_path("resources", "style.qss"))
-        self.setStyleSheet(stylesheet)
 
         self._setup_ui()
         self._load_deleted_compounds()

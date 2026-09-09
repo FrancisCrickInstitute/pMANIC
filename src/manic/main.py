@@ -25,11 +25,14 @@ def main():
     from manic.models.analysis import AnalysisContext
     from manic.ui.analysis_mode_dialog import choose_analysis_mode
     from manic.ui.main_window import MainWindow
+    from manic.utils.utils import apply_app_stylesheet
 
     logger = logging.getLogger(__name__)
 
     configure_logging()
     app = QApplication(sys.argv)
+    # App-wide, not on MainWindow: the mode chooser below runs before any window exists.
+    apply_app_stylesheet(app)
 
     selected_mode = choose_analysis_mode()
     if selected_mode is None:

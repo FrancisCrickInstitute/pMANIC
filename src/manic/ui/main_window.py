@@ -80,7 +80,6 @@ from manic.ui.left_toolbar import Toolbar
 from manic.ui.toast_notification import ToastNotification
 from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.utils.paths import docs_path, resource_path
-from manic.utils.utils import load_stylesheet
 from manic.utils.workers import (
     CdfImportWorker,
     EicRegenerationWorker,
@@ -147,10 +146,6 @@ class MainWindow(QMainWindow):
         self._validation_provider = None
 
         self.setup_ui()
-
-        # Load and apply the stylesheet
-        stylesheet = load_stylesheet(resource_path("resources", "style.qss"))
-        self.setStyleSheet(stylesheet)
 
         # Connect toolbar signals (avoid duplicate connections; others are set in setup_ui)
         self.toolbar.internal_standard_selected.connect(

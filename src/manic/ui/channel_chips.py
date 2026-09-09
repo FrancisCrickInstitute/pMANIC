@@ -9,12 +9,34 @@ from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from manic.constants import create_font
-from manic.ui.colors import ChannelTraceStyle
+from manic.models.analysis import IonChannel, IonRole
+from manic.ui.colors import QUALIFIER_GREY, ChannelTraceStyle, legend_trace_styles
+from manic.validation.unlabelled_identity import qualifier_expectation
 
 SWATCH_WIDTH = 18
 CHIP_HEIGHT = 20
 PAD_X = 8
 GAP = 6
+
+
+def identity_key_chips(
+    channels: Sequence[IonChannel],
+) -> tuple[list[str], list[ChannelTraceStyle]]:
+    """Chips for the Identity view: every channel with its expectation, plus a
+    dotted placeholder for each of the two qualifier slots the method left empty."""
+    labels = [
+        f"{channel.label}   {qualifier_expectation(channel)}"
+        if channel.role is IonRole.QUALIFIER
+        else channel.label
+        for channel in channels
+    ]
+    styles = list(legend_trace_styles(channels, unlabelled=True, multi_trace=True))
+    present = {channel.ordinal for channel in channels if channel.role is IonRole.QUALIFIER}
+    for ordinal in (1, 2):
+        if ordinal not in present:
+            labels.append(f"Qualifier ion {ordinal}   not in the method")
+            styles.append(ChannelTraceStyle(QUALIFIER_GREY, Qt.DotLine))
+    return labels, styles
 
 
 class ChannelChip(QWidget):

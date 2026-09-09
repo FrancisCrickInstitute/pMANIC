@@ -37,6 +37,7 @@ from manic.ui.colors import (
     dark_red_colour,
     label_colors,
 )
+from manic.ui.channel_chips import identity_key_chips
 from manic.ui.identity_chart import identity_cell_tooltip
 
 from manic.ui.integration_window_widget import (
@@ -285,7 +286,7 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert value_axes[0].min() == 0
         assert value_axes[0].max() == 2
         assert not value_axes[0].labelsVisible()
-        assert category_axes[0].categoriesLabels() == ["V1", "V2"]
+        assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
         y_axis = widget.chart.axes(Qt.Vertical)[0]
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
@@ -381,8 +382,12 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         assert dialog.windowTitle() == "MANIC - Identity"
         assert dialog.chart.title() == ""
         assert not dialog.chart.legend().isVisible()
-        assert "Target" in dialog.ion_legend.text()
-        assert "●" not in dialog.ion_legend.text()
+        assert dialog.compound_title.text() == "Target"
+        assert dialog.ion_legend.labels() == [
+            "Q ion m/z 217",
+            "Qualifier ion 1 m/z 147   expected 0.400  ±25%",
+            "Qualifier ion 2 m/z 73   expected 0.200  ±25%",
+        ]
         y_axis = dialog.chart.axes(Qt.Vertical)[0]
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
@@ -390,7 +395,7 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         assert y_axis.labelsFont().family() == "Arial"
         assert y_axis.labelsFont().pointSize() == 12
         value_axes, category_axes = _horizontal_axes(dialog.chart)
-        assert category_axes[0].categoriesLabels() == ["V1", "V2"]
+        assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
         assert dialog._identity_binding is not None
         bar_sets = dialog._identity_binding.bar_sets
         assert len(bar_sets) == 4
@@ -1496,3 +1501,15 @@ def test_preview_off_graph_tile_still_draws_model_overlay(qapp):
         assert all(abs(peak - 7.0) < 0.08 for peak in solid_peak_times)
     finally:
         view.deleteLater()
+
+
+def test_identity_key_marks_a_qualifier_slot_the_method_left_empty():
+    labels, styles = identity_key_chips((_qion(), _v1()))
+    assert labels == [
+        "Q ion m/z 217",
+        "Qualifier ion 1 m/z 147   expected 0.400  ±25%",
+        "Qualifier ion 2   not in the method",
+    ]
+    assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
+    assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
+    assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DotLine)

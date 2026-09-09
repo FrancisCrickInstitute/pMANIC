@@ -122,6 +122,7 @@ class ChartPopupDialog(QDialog):
         self.chart.setTitleBrush(QColor("black"))
         
         self.compound_title = QLabel("")
+        self.compound_title.setAlignment(Qt.AlignHCenter)
         self.compound_title.setStyleSheet(
             "color: #222; font-size: 14px; font-weight: bold; background: transparent;"
         )

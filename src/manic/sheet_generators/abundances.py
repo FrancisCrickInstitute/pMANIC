@@ -4,8 +4,7 @@ import logging
 from typing import List
 
 from manic.models.database import get_connection
-from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
-from manic.sheet_generators.formats import peak_verdict_formats
+from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
 from manic.validation.peak_verdict import PeakVerdict
 
 logger = logging.getLogger(__name__)
@@ -29,7 +28,7 @@ def write(
     worksheet = workbook.add_worksheet("Abundances")
     verdict_formats = peak_verdict_formats(workbook)
     rel_unit_format = workbook.add_format({"bg_color": "#D9D9D9"})
-    baseline_off_header_format = make_baseline_off_header_format(workbook)
+    baseline_off_header_format = baseline_off_header(workbook)
 
     # Helper to get values from either a sqlite Row or a dictionary safely
     def _row_get(row, key):

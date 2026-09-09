@@ -40,7 +40,6 @@ label_colors = [
 QUALIFIER_GREEN = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.PASS])
 QUALIFIER_RED = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.FAIL])
 QUALIFIER_GREY = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.NO_QUALIFIERS])
-QUALIFIER_ORANGE = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.PARTIAL])
 
 
 def peak_verdict_qcolor(verdict: PeakVerdict) -> QColor | None:

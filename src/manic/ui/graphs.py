@@ -1839,8 +1839,7 @@ class GraphView(QWidget):
 
     def _restyle_container(self, container: QWidget):
         verdict = getattr(container, "verdict", PeakVerdict.PASS)
-        chart_view = getattr(container, "chart_view", None)
-        sample_name = getattr(chart_view, "sample_name", "") if chart_view is not None else ""
+        sample_name = getattr(container.chart_view, "sample_name", "")
         assessment = self._sample_identity(sample_name)
         qc_status = None if assessment is None or assessment.qc is None else assessment.qc.status
 

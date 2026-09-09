@@ -4,8 +4,7 @@ import logging
 from typing import List
 
 from manic.models.database import get_connection
-from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
-from manic.sheet_generators.formats import peak_verdict_formats
+from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
 from manic.validation.peak_verdict import PeakVerdict
 
 logger = logging.getLogger(__name__)
@@ -24,7 +23,7 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     worksheet = workbook.add_worksheet('Raw Values')
     
     verdict_formats = peak_verdict_formats(workbook)
-    baseline_off_header_format = make_baseline_off_header_format(workbook)
+    baseline_off_header_format = baseline_off_header(workbook)
 
     # Get all compounds and samples
     if provider is None:

@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from manic.io.compound_reader import read_compound
-from manic.sheet_generators.formats import baseline_off_header_format as make_baseline_off_header_format
-from manic.sheet_generators.formats import peak_verdict_formats
+from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
 from manic.validation.peak_verdict import PeakVerdict
 from manic.validation.unlabelled_identity import (
     QUALIFIER_OUTCOME_FILL,
@@ -114,7 +113,7 @@ def _write_q_column_headers(worksheet, compounds, baseline_off_header_format) ->
 def _write_raw_values(workbook, samples, compounds, bulk_data, validation_data) -> None:
     worksheet = workbook.add_worksheet("Raw Values")
     verdict_formats = peak_verdict_formats(workbook)
-    baseline_off_header_format = make_baseline_off_header_format(workbook)
+    baseline_off_header_format = baseline_off_header(workbook)
     _write_q_column_headers(worksheet, compounds, baseline_off_header_format)
 
     for sample_idx, sample_name in enumerate(samples):
@@ -142,7 +141,7 @@ def _write_abundances(
     worksheet = workbook.add_worksheet("Abundances")
     verdict_formats = peak_verdict_formats(workbook)
     rel_unit_format = workbook.add_format({"bg_color": "#D9D9D9"})
-    baseline_off_header_format = make_baseline_off_header_format(workbook)
+    baseline_off_header_format = baseline_off_header(workbook)
 
     mrrf_values = {}
     if exporter.internal_standard_compound:

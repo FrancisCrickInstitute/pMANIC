@@ -337,6 +337,7 @@ class MainWindow(QMainWindow):
         self.documentation_action = self._add_window_opener(
             menu_bar, "Documentation", self.open_documentation_window
         )
+        self.documentation_action.setShortcut(QKeySequence.HelpContents)
 
         """ Create Help Menu """
 
@@ -1925,14 +1926,12 @@ class MainWindow(QMainWindow):
 
     def _add_window_opener(self, menu_bar: QMenuBar, title: str, open_window) -> QAction:
         # A native (macOS) menubar shows neither a bare top-level action nor an
-        # empty menu, so there the entry is a one-item menu that opens the window
-        # as soon as it drops down.
+        # empty menu, and opening a window from aboutToShow leaves the dropdown
+        # stuck open, so there the entry is a one-item menu.
         if menu_bar.isNativeMenuBar():
             menu = menu_bar.addMenu(title)
             action = menu.addAction(f"Open {title}")
             action.triggered.connect(open_window)
-            # Deferred so the window opens after Cocoa finishes its menu tracking.
-            menu.aboutToShow.connect(lambda: QTimer.singleShot(0, open_window))
             return action
         action = menu_bar.addAction(title)
         action.triggered.connect(open_window)

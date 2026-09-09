@@ -20,7 +20,7 @@ def resolve_verdict(meets_threshold: bool, review: PeakReview | None) -> PeakVer
     if review is PeakReview.REJECTED:
         return PeakVerdict.REJECTED
     if review is PeakReview.ACCEPTED:
-        return PeakVerdict.PASS if meets_threshold else PeakVerdict.ACCEPTED
+        return PeakVerdict.ACCEPTED
     return PeakVerdict.PASS if meets_threshold else PeakVerdict.FAIL
 
 

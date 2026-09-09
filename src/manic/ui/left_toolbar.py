@@ -1,10 +1,13 @@
 from typing import List
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
+    QHBoxLayout,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -40,6 +43,8 @@ class Toolbar(QWidget):
     compounds_restored = Signal(list)
 
     add_compound_requested = Signal()
+
+    settings_requested = Signal()
 
     # Signal for when samples are deleted
     samples_deleted = Signal(list)
@@ -129,9 +134,30 @@ class Toolbar(QWidget):
         indicators_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.loaded_data = LoadedDataWidget()
-        indicators_layout.addWidget(
+        self.settings_button = QToolButton()
+        self.settings_button.setObjectName("settingsButton")
+        self.settings_button.setIcon(
+            QIcon(resource_path("resources", "settings_gear.svg"))
+        )
+        self.settings_button.setIconSize(QSize(18, 18))
+        self.settings_button.setAutoRaise(True)
+        self.settings_button.setToolTip("Settings")
+        self.settings_button.clicked.connect(self.settings_requested.emit)
+
+        header = QWidget()
+        header.setObjectName("toolbarIndicatorsHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(0)
+        header_layout.addStretch()
+        header_layout.addWidget(
             self.loaded_data, alignment=Qt.AlignmentFlag.AlignCenter
         )
+        header_layout.addStretch()
+        header_layout.addWidget(
+            self.settings_button, alignment=Qt.AlignmentFlag.AlignRight
+        )
+        indicators_layout.addWidget(header)
 
         # Add extra vertical spacing between data indicators and standard indicator
         indicators_layout.addSpacing(8)  # Additional spacing
@@ -144,7 +170,7 @@ class Toolbar(QWidget):
 
         # Compact the container to fit content size
         indicators_container.setMaximumHeight(
-            self.loaded_data.sizeHint().height()
+            header.sizeHint().height()
             + self.standard.sizeHint().height()
             + self.compound_indicator.sizeHint().height()
             + 24  # Account for margins, spacing, and extra vertical gap

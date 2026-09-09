@@ -255,7 +255,7 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
     widget = TargetedQcWidget()
     try:
         widget.update_results(identity)
-        assert widget.ion_legend.text() == "Target  Q ion m/z 217  V ion 1 m/z 147"
+        assert widget.ion_legend.text() == "Target  Q ion m/z 217  Qualifier ion 1 m/z 147"
         assert "●" not in widget.ion_legend.text()
         assert widget.chart.title() == ""
         assert not widget.chart.legend().isVisible()
@@ -859,7 +859,7 @@ def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
         assert "M+0 m/z 174" in text
         assert "M+1 m/z 175" in text
         assert text.count("●") == 2
-        assert "V ion" not in text
+        assert "Qualifier ion" not in text
     finally:
         view.deleteLater()
 

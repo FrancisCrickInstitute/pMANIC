@@ -95,10 +95,10 @@ def test_detailed_plot_uses_diagnostic_ion_labels_in_unlabelled_mode():
         channel_count = len(analysis_channels)
 
     assert channel_legend_label(Target(), 0) == "Q ion m/z 217"
-    assert channel_legend_label(Target(), 1) == "V ion 1 m/z 147"
+    assert channel_legend_label(Target(), 1) == "Qualifier ion 1 m/z 147"
     assert (
         channel_legend_text("Target", Target.analysis_channels)
-        == "Target  Q ion m/z 217  V ion 1 m/z 147"
+        == "Target  Q ion m/z 217  Qualifier ion 1 m/z 147"
     )
     assert "●" not in channel_legend_text("Target", Target.analysis_channels)
 

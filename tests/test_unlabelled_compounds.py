@@ -435,9 +435,9 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
         "Compound",
         "Q Ion m/z",
         "Q Ion Area",
-        "V Ion",
-        "V Ion m/z",
-        "V Ion Area",
+        "Qualifier Ion",
+        "Qualifier Ion m/z",
+        "Qualifier Ion Area",
     ]
     assert qc["D2"].value == pytest.approx(10.0)
     assert qc["G2"].value == pytest.approx(4.0)
@@ -765,7 +765,7 @@ def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
     assert "2.5" in changelog
     assert "S1" in changelog
     assert "Q-ion area only" in changelog
-    assert "V-ion areas are on Qualifier QC" in changelog
+    assert "Qualifier-ion areas are on Qualifier QC" in changelog
     assert "Raw Q-ion apex" in changelog
     assert "raw-window areas" in changelog
     assert "not in this workbook" in changelog

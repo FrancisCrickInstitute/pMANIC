@@ -103,7 +103,7 @@ def test_data_provider_peak_validation_uses_reference_isotope_index():
 
 
 def test_peak_validation_uses_quantification_total_not_all_channels(monkeypatch):
-    """A strong V ion must not rescue a weak Q ion in unlabelled validation."""
+    """A strong qualifier ion must not rescue a weak Q ion in unlabelled validation."""
     provider = DataProvider()
     monkeypatch.setattr(
         provider,

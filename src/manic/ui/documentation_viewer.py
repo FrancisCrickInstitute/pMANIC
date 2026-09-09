@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.utils.paths import docs_path
+from manic.ui.window_placement import show_over_parent
 
 try:
     import markdown
@@ -166,9 +167,7 @@ class DocumentationViewer(QDialog):
     def open(self) -> None:
         if self.current_file is None and self.page_list.count():
             self.page_list.setCurrentRow(0)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        show_over_parent(self)
 
     def _on_page_selected(self, row: int) -> None:
         if row < 0:

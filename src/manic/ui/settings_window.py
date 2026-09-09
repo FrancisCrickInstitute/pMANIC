@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.models.analysis import AnalysisMode
+from manic.ui.window_placement import show_over_parent
 
 _SPIN_STYLE = (
     "QDoubleSpinBox { background-color: white; color: #212529; }"
@@ -614,6 +615,4 @@ class SettingsWindow(QDialog):
 
     def open(self) -> None:
         self.refresh()
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        show_over_parent(self)

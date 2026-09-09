@@ -37,12 +37,14 @@ from manic.validation.unlabelled_identity import (
     IdentityStatus,
 )
 
+from .channel_chips import ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
 from .colors import (
     ChannelTraceStyle,
     channel_trace_styles,
     dark_red_colour,
     label_colors,
+    legend_trace_styles,
     peak_verdict_qcolor,
     selection_color,
     steel_blue_colour,
@@ -146,13 +148,7 @@ class GraphView(QWidget):
         outer_layout.setSpacing(0)
         outer_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.channel_legend = QLabel("")
-        self.channel_legend.setTextFormat(Qt.RichText)
-        self.channel_legend.setContentsMargins(4, 2, 4, 2)
-        self.channel_legend.setStyleSheet(
-            "color: #333; font-size: 11px; background: transparent;"
-        )
-        self.channel_legend.hide()
+        self.channel_legend = ChannelChipRow()
         outer_layout.addWidget(self.channel_legend, stretch=0)
 
         grid_host = QWidget()
@@ -522,12 +518,7 @@ class GraphView(QWidget):
         return prepared.intensity
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:
-        """Name each plotted channel above the grid, in both analysis modes.
-
-        Colour dots only accompany labelled multi-trace plots. Unlabelled
-        qualifier traces are coloured per sample by QC status, and a single
-        trace is drawn dark red, so neither has one fixed colour to show.
-        """
+        """One chip per plotted channel above the grid, in both analysis modes."""
         if not eics:
             self.channel_legend.hide()
             return
@@ -536,23 +527,18 @@ class GraphView(QWidget):
             intensity = eics[0].intensity
             multi_trace = getattr(intensity, "ndim", 1) > 1
             n_traces = intensity.shape[0] if multi_trace else 1
-            n_names = min(n_traces, len(compound.analysis_channels))
-            if n_names == 0:
+            channels = compound.analysis_channels[: n_traces]
+            if not channels:
                 self.channel_legend.hide()
                 return
-
-            fixed_colours = multi_trace and not getattr(
-                compound, "is_unlabelled_target", False
+            self.channel_legend.set_channels(
+                [channel_legend_label(compound, i) for i in range(len(channels))],
+                legend_trace_styles(
+                    channels,
+                    unlabelled=getattr(compound, "is_unlabelled_target", False),
+                    multi_trace=multi_trace,
+                ),
             )
-            parts = []
-            for index in range(n_names):
-                label = channel_legend_label(compound, index)
-                if fixed_colours:
-                    color = label_colors[index % len(label_colors)].name()
-                    label = f'<span style="color:{color}">●</span> {label}'
-                parts.append(label)
-            self.channel_legend.setText("&nbsp;&nbsp;".join(parts))
-            self.channel_legend.show()
         except LookupError:
             self.channel_legend.hide()
         except Exception:
@@ -1856,17 +1842,11 @@ class GraphView(QWidget):
         assessment = self._sample_identity(sample_name)
         qc_status = None if assessment is None or assessment.qc is None else assessment.qc.status
 
-        if qc_status is IdentityStatus.NOT_DETECTED:
-            container.setStyleSheet("""
-                QWidget {
-                    background-color: rgba(236, 239, 241, 130);
-                    border: 1px solid #9ca3af;
-                    border-radius: 4px;
-                }
-            """)
-            return
-
         color = peak_verdict_qcolor(verdict)
+        if verdict not in (PeakVerdict.ACCEPTED, PeakVerdict.REJECTED) and (
+            qc_status is IdentityStatus.NOT_DETECTED
+        ):
+            color = QColor(236, 239, 241)
         if color is None:
             container.setStyleSheet("")
             return

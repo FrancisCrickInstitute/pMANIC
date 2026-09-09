@@ -32,7 +32,9 @@ from manic.ui.colors import (
     QUALIFIER_GREY,
     QUALIFIER_RED,
     QUALIFIER_STATUS_COLORS,
+    ChannelTraceStyle,
     channel_trace_styles,
+    dark_red_colour,
     label_colors,
 )
 from manic.ui.identity_chart import identity_cell_tooltip
@@ -258,8 +260,6 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
     widget = TargetedQcWidget()
     try:
         widget.update_results(identity)
-        assert widget.ion_legend.text() == "Q ion m/z 217  Qualifier ion 1 m/z 147"
-        assert "●" not in widget.ion_legend.text()
         assert widget.chart.title() == ""
         assert not widget.chart.legend().isVisible()
         assert widget._binding is not None
@@ -293,7 +293,6 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         widget.clear()
         assert widget._identity is None
         assert widget.chart.series() == []
-        assert widget.ion_legend.isHidden()
     finally:
         widget.deleteLater()
 
@@ -861,22 +860,25 @@ def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
     view = GraphView()
     try:
         view._update_channel_legend("alanine", _multi_trace_eics(4))
-        text = view.channel_legend.text()
         assert not view.channel_legend.isHidden()
-        assert "M+0 m/z 174" in text
-        assert "M+1 m/z 175" in text
-        assert text.count("●") == 2
-        assert "Qualifier ion" not in text
+        assert view.channel_legend.labels() == ["M+0 m/z 174", "M+1 m/z 175"]
+        assert [chip.style.color for chip in view.channel_legend.chips()] == [
+            label_colors[0],
+            label_colors[1],
+        ]
     finally:
         view.deleteLater()
 
 
-def test_channel_legend_names_unlabelled_ions_without_colour_dots(qapp, monkeypatch):
+def test_channel_legend_unlabelled_chips_show_line_style_not_status_colour(
+    qapp, monkeypatch
+):
     compound = SimpleNamespace(
         is_unlabelled_target=True,
         analysis_channels=(
             IonChannel(217.0, IonRole.QUANTIFIER),
             IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
+            IonChannel(73.0, IonRole.QUALIFIER, ordinal=2),
         ),
     )
     monkeypatch.setattr(
@@ -885,19 +887,22 @@ def test_channel_legend_names_unlabelled_ions_without_colour_dots(qapp, monkeypa
     )
     view = GraphView()
     try:
-        view._update_channel_legend("Target", _multi_trace_eics(2))
+        view._update_channel_legend("Target", _multi_trace_eics(3))
         assert not view.channel_legend.isHidden()
-        assert (
-            view.channel_legend.text()
-            == "Q ion m/z 217&nbsp;&nbsp;Qualifier ion 1 m/z 147"
-        )
-        # Without a tag in the text, auto-detection would print the entities literally
-        assert view.channel_legend.textFormat() == Qt.RichText
+        assert view.channel_legend.labels() == [
+            "Q ion m/z 217",
+            "Qualifier ion 1 m/z 147",
+            "Qualifier ion 2 m/z 73",
+        ]
+        styles = [chip.style for chip in view.channel_legend.chips()]
+        assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
+        assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
+        assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DashDotLine)
     finally:
         view.deleteLater()
 
 
-def test_channel_legend_shows_a_single_trace_without_a_dot(qapp, monkeypatch):
+def test_channel_legend_shows_a_single_trace_in_dark_red(qapp, monkeypatch):
     compound = SimpleNamespace(
         is_unlabelled_target=False,
         analysis_channels=(IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),),
@@ -912,7 +917,8 @@ def test_channel_legend_shows_a_single_trace_without_a_dot(qapp, monkeypatch):
             "alanine", [SimpleNamespace(intensity=np.ones(3, dtype=float))]
         )
         assert not view.channel_legend.isHidden()
-        assert view.channel_legend.text() == "M+0 m/z 174"
+        assert view.channel_legend.labels() == ["M+0 m/z 174"]
+        assert view.channel_legend.chips()[0].style.color == dark_red_colour
     finally:
         view.deleteLater()
 

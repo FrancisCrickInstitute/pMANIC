@@ -411,6 +411,17 @@ QDialog QLabel {
     padding: 10px;
 }
 
+QDialog#settingsWindow QLabel {
+    padding: 0px;
+}
+
+QDialog#settingsWindow QScrollArea,
+QDialog#settingsWindow QScrollArea > QWidget,
+QDialog#settingsWindow QStackedWidget,
+QDialog#settingsWindow QStackedWidget > QWidget {
+    background-color: transparent;
+}
+
 /* Inputs: ensure light backgrounds with dark text */
 QLineEdit, QTextEdit, QPlainTextEdit {
     background-color: white;
@@ -438,18 +449,24 @@ QComboBox QAbstractItemView {
     selection-color: #212529;
 }
 
-QToolButton#settingsButton {
+QToolButton#settingsButton, QToolButton#docsButton {
     background-color: transparent;
     border: none;
     border-radius: 4px;
     padding: 2px;
 }
 
-QToolButton#settingsButton:hover {
+QToolButton#settingsButton:hover, QToolButton#docsButton:hover {
     background-color: #e9ecef;
 }
 
-QListWidget#settingsPageList {
+QWidget#toolbarFooter {
+    border-top: 1px solid #e0e0e0;
+    background: transparent;
+}
+
+QListWidget#settingsPageList,
+QListWidget#documentationPageList {
     border: none;
     border-right: 1px solid #d0d0d0;
     border-radius: 0;
@@ -457,13 +474,14 @@ QListWidget#settingsPageList {
     padding: 8px 4px;
 }
 
-QListWidget#settingsPageList::item {
-    height: 20px;
+QListWidget#settingsPageList::item,
+QListWidget#documentationPageList::item {
     padding: 8px 10px;
     border-radius: 6px;
 }
 
-QListWidget#settingsPageList::item:selected {
+QListWidget#settingsPageList::item:selected,
+QListWidget#documentationPageList::item:selected {
     background-color: #e9ecef;
     color: #212529;
 }

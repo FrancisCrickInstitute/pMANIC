@@ -10,18 +10,18 @@ This implementation uses QWebEngineView for:
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
-    QPushButton,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
+    QListWidget,
+    QListWidgetItem,
 )
+
+from manic.utils.paths import docs_path
 
 try:
     import markdown
@@ -30,6 +30,31 @@ except ImportError:
     HAS_MARKDOWN = False
 
 logger = logging.getLogger(__name__)
+
+
+def _documentation_title(path: Path) -> str:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("# "):
+            return line[2:].strip()
+    return path.stem.replace("_", " ").title()
+
+
+def _documentation_group(name: str) -> int:
+    if name == "01_user_guide.md":
+        return 0
+    if name.startswith("Workflow_"):
+        return 1
+    if name.startswith("Reference_"):
+        return 2
+    return 3
+
+
+def documentation_index(docs_dir: Path) -> list[tuple[str, Path]]:
+    files = sorted(
+        docs_dir.glob("*.md"),
+        key=lambda path: (_documentation_group(path.name), path.name.lower()),
+    )
+    return [(_documentation_title(path), path) for path in files]
 
 
 class DocumentationPage(QWebEnginePage):
@@ -102,61 +127,63 @@ class DocumentationViewer(QDialog):
             parent: Parent widget (usually MainWindow)
         """
         super().__init__(parent)
+        self.setObjectName("documentationWindow")
         self.setWindowTitle("MANIC Documentation")
-        self.setModal(True)
-        self.resize(1000, 800)
+        self.setModal(False)
+        self.resize(1200, 780)
+        self.setMinimumSize(800, 520)
 
-        # Standard dialog flags with maximize/close buttons
-        self.setWindowFlags(
-            Qt.Dialog
-            | Qt.CustomizeWindowHint
-            | Qt.WindowTitleHint
-            | Qt.WindowCloseButtonHint
-            | Qt.WindowMaximizeButtonHint
-        )
-
-        # Store the docs directory path for resolving relative links
-        from manic.utils.paths import docs_path
         self.docs_dir = Path(docs_path())
-        
-        # Track current file for navigation
         self.current_file = None
 
         self.setup_ui()
 
     def setup_ui(self):
-        """Create the UI layout with web view and close button."""
-        layout = QVBoxLayout(self)
+        """Create the sidebar plus web view layout."""
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Create the web engine view for rendering HTML
+        self.page_list = QListWidget()
+        self.page_list.setObjectName("documentationPageList")
+        self.page_list.setFixedWidth(300)
+        self.page_list.setUniformItemSizes(True)
+        for title, path in documentation_index(self.docs_dir):
+            item = QListWidgetItem(title)
+            item.setSizeHint(QSize(0, 36))
+            item.setData(Qt.UserRole, path)
+            self.page_list.addItem(item)
+        self.page_list.currentRowChanged.connect(self._on_page_selected)
+        layout.addWidget(self.page_list)
+
         self.web_view = QWebEngineView()
-        
-        # Attach our custom page handler for link interception
         custom_page = DocumentationPage(self.web_view, self._handle_navigation)
         self.web_view.setPage(custom_page)
-        
-        # Clean white background
         self.web_view.setStyleSheet("background-color: white;")
-        
-        # Add web view with stretch factor to fill available space
         layout.addWidget(self.web_view, 1)
 
-        # Bottom control bar with Close button (fixed height)
-        button_container = QWidget(self)
-        button_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(10, 10, 10, 10)
+    def open(self) -> None:
+        if self.current_file is None and self.page_list.count():
+            self.page_list.setCurrentRow(0)
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
-        self.close_button = QPushButton("Close")
-        self.close_button.clicked.connect(self.close)
+    def _on_page_selected(self, row: int) -> None:
+        if row < 0:
+            return
+        path = self.page_list.item(row).data(Qt.UserRole)
+        if path is not None:
+            self.load_markdown_file(Path(path))
 
-        button_layout.addStretch()
-        button_layout.addWidget(self.close_button)
-
-        # Add button container with no stretch
-        layout.addWidget(button_container, 0)
+    def _sync_page_list(self, file_path: Path) -> None:
+        target = file_path.resolve()
+        for index in range(self.page_list.count()):
+            stored = self.page_list.item(index).data(Qt.UserRole)
+            if stored is not None and Path(stored).resolve() == target:
+                with QSignalBlocker(self.page_list):
+                    self.page_list.setCurrentRow(index)
+                return
 
     def _handle_navigation(self, url: QUrl) -> bool:
         """
@@ -280,7 +307,8 @@ class DocumentationViewer(QDialog):
             
             # Store current file for relative link resolution BEFORE loading HTML
             self.current_file = file_path
-            
+            self._sync_page_list(file_path)
+
             # Convert markdown to HTML
             html_body = self._markdown_to_html(raw_markdown)
             
@@ -307,11 +335,7 @@ class DocumentationViewer(QDialog):
                         pass
                 
                 self.web_view.loadFinished.connect(scroll_to_anchor)
-            
-            # Update window title
-            readable_name = file_path.stem.replace("_", " ").title()
-            self.setWindowTitle(f"MANIC Documentation - {readable_name}")
-            
+
             logger.info(f"Successfully loaded: {file_path.name}")
             return True
 
@@ -703,21 +727,3 @@ window.MathJax = {{
         </html>
         """
         self.web_view.setHtml(error_html)
-
-
-def show_documentation_file(parent, file_path: Path) -> None:
-    """
-    Convenience function to open the documentation viewer with a specific file.
-    
-    This creates the viewer dialog, loads the specified markdown file,
-    and displays it to the user.
-    
-    Args:
-        parent: Parent widget (usually MainWindow)
-        file_path: Path to the markdown file to display
-    """
-    viewer = DocumentationViewer(parent)
-    if viewer.load_markdown_file(file_path):
-        viewer.exec()
-    else:
-        logger.error(f"Failed to load documentation file: {file_path}")

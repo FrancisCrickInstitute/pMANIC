@@ -71,13 +71,13 @@ from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.validation.peak_verdict import PeakVerdict
-from manic.ui.documentation_viewer import show_documentation_file
+from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.settings_window import SettingsWindow
 from manic.ui.toast_notification import ToastNotification
 from manic.ui.total_abundance_widget import abundances_from_provider
-from manic.utils.paths import docs_path, resource_path
+from manic.utils.paths import resource_path
 from manic.utils.workers import (
     CdfImportWorker,
     EicRegenerationWorker,
@@ -139,6 +139,7 @@ class MainWindow(QMainWindow):
         self.use_legacy_integration = False  # Time-based by default
         self.preview_nat_abundance = False
         self.settings_window = None
+        self.documentation_window = None
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
 
@@ -152,6 +153,7 @@ class MainWindow(QMainWindow):
             self.on_internal_standard_selected
         )
         self.toolbar.settings_requested.connect(self.open_settings_window)
+        self.toolbar.documentation_requested.connect(self.open_documentation_window)
         self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
         self.toolbar.compounds_restored.connect(self.on_compounds_restored)
         self.toolbar.add_compound_requested.connect(self.show_add_compound_dialog)
@@ -324,18 +326,17 @@ class MainWindow(QMainWindow):
         self.update_old_data_action.triggered.connect(self.update_old_data)
         file_menu.addAction(self.update_old_data_action)
 
-        """ Create Settings Menu """
+        """ Create Settings and Documentation entries """
 
-        settings_menu = menu_bar.addMenu("Settings")
-        self.settings_action = QAction("Settings...", self)
-        self.settings_action.setShortcut(QKeySequence.Preferences)
-        self.settings_action.triggered.connect(self.open_settings_window)
-        settings_menu.addAction(self.settings_action)
-
-        """ Create Documentation Menu """
-
-        docs_menu = menu_bar.addMenu("Documentation")
-        self._create_documentation_menu(docs_menu)
+        self.settings_action = self._add_window_opener(
+            menu_bar, "Settings", self.open_settings_window
+        )
+        self.settings_action.setShortcuts(
+            [QKeySequence.Preferences, QKeySequence("Ctrl+,")]
+        )
+        self.documentation_action = self._add_window_opener(
+            menu_bar, "Documentation", self.open_documentation_window
+        )
 
         """ Create Help Menu """
 
@@ -1922,10 +1923,29 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")
 
+    def _add_window_opener(self, menu_bar: QMenuBar, title: str, open_window) -> QAction:
+        # A native (macOS) menubar shows neither a bare top-level action nor an
+        # empty menu, so there the entry is a one-item menu that opens the window
+        # as soon as it drops down.
+        if menu_bar.isNativeMenuBar():
+            menu = menu_bar.addMenu(title)
+            action = menu.addAction(f"Open {title}")
+            action.triggered.connect(open_window)
+            menu.aboutToShow.connect(open_window)
+            return action
+        action = menu_bar.addAction(title)
+        action.triggered.connect(open_window)
+        return action
+
     def open_settings_window(self) -> None:
         if self.settings_window is None:
             self.settings_window = SettingsWindow(self, host=self)
         self.settings_window.open()
+
+    def open_documentation_window(self) -> None:
+        if self.documentation_window is None:
+            self.documentation_window = DocumentationViewer(self)
+        self.documentation_window.open()
 
     def selected_compound_name(self) -> str | None:
         name = self.toolbar.get_selected_compound()
@@ -2111,55 +2131,6 @@ class MainWindow(QMainWindow):
         self.deconvolution_indicator_label.setText(
             self._deconvolution_indicator_text(compound_name)
         )
-
-    def _create_documentation_menu(self, docs_menu):
-        """Create documentation menu with available markdown files."""
-        # Get the docs directory path
-        # From src/manic/ui/main_window.py, go up to project root, then to docs
-        docs_dir = Path(docs_path())
-
-        if not docs_dir.exists():
-            no_docs_action = QAction("No documentation available", self)
-            no_docs_action.setEnabled(False)
-            docs_menu.addAction(no_docs_action)
-            return
-
-        # Find all markdown files in the docs directory
-        md_files = list(docs_dir.glob("*.md"))
-
-        if not md_files:
-            no_files_action = QAction("No documentation files found", self)
-            no_files_action.setEnabled(False)
-            docs_menu.addAction(no_files_action)
-            return
-
-        # Sort files - put getting_started first, then alphabetical
-        md_files.sort(key=lambda f: (f.name != "getting_started.md", f.name.lower()))
-
-        # Create menu actions for each markdown file
-        for md_file in md_files:
-            # Create a nice display name from the filename
-            display_name = md_file.stem.replace("_", " ").title()
-
-            action = QAction(display_name, self)
-            # Use lambda with default argument to capture the file path
-            action.triggered.connect(
-                lambda checked, file_path=md_file: self._show_documentation(file_path)
-            )
-            docs_menu.addAction(action)
-
-    def _show_documentation(self, file_path: Path):
-        """Show a documentation file in the viewer dialog."""
-        try:
-            show_documentation_file(self, file_path)
-        except Exception as e:
-            logger.error(f"Failed to show documentation {file_path}: {e}")
-            msg_box = self._create_message_box(
-                "critical",
-                "Documentation Error",
-                f"Failed to open documentation file:\n{str(e)}",
-            )
-            msg_box.exec()
 
     def show_about(self):
         """Show About dialog with version information."""

@@ -308,6 +308,8 @@ The left toolbar contains two summary charts: **Label Incorporation** and **Tota
 
 ## 8. Settings & Configuration
 
+Open **Settings** or **Documentation** from the menubar (each entry opens its window on a single click), or use the book and gear icons at the bottom of the left toolbar.
+
 These settings control the global behavior of the application. Changing them usually requires re-processing your data.
 
 ### Mass Tolerance

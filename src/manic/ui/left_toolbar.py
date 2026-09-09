@@ -46,6 +46,8 @@ class Toolbar(QWidget):
 
     settings_requested = Signal()
 
+    documentation_requested = Signal()
+
     # Signal for when samples are deleted
     samples_deleted = Signal(list)
 
@@ -134,30 +136,9 @@ class Toolbar(QWidget):
         indicators_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.loaded_data = LoadedDataWidget()
-        self.settings_button = QToolButton()
-        self.settings_button.setObjectName("settingsButton")
-        self.settings_button.setIcon(
-            QIcon(resource_path("resources", "settings_gear.svg"))
-        )
-        self.settings_button.setIconSize(QSize(18, 18))
-        self.settings_button.setAutoRaise(True)
-        self.settings_button.setToolTip("Settings")
-        self.settings_button.clicked.connect(self.settings_requested.emit)
-
-        header = QWidget()
-        header.setObjectName("toolbarIndicatorsHeader")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(0)
-        header_layout.addStretch()
-        header_layout.addWidget(
+        indicators_layout.addWidget(
             self.loaded_data, alignment=Qt.AlignmentFlag.AlignCenter
         )
-        header_layout.addStretch()
-        header_layout.addWidget(
-            self.settings_button, alignment=Qt.AlignmentFlag.AlignRight
-        )
-        indicators_layout.addWidget(header)
 
         # Add extra vertical spacing between data indicators and standard indicator
         indicators_layout.addSpacing(8)  # Additional spacing
@@ -170,7 +151,7 @@ class Toolbar(QWidget):
 
         # Compact the container to fit content size
         indicators_container.setMaximumHeight(
-            header.sizeHint().height()
+            self.loaded_data.sizeHint().height()
             + self.standard.sizeHint().height()
             + self.compound_indicator.sizeHint().height()
             + 24  # Account for margins, spacing, and extra vertical gap
@@ -259,6 +240,34 @@ class Toolbar(QWidget):
 
         scroll_area.setWidget(content_widget)
         container_layout.addWidget(scroll_area)
+
+        footer = QWidget()
+        footer.setObjectName("toolbarFooter")
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(10, 4, 10, 6)
+        footer_layout.addStretch()
+
+        self.docs_button = QToolButton()
+        self.docs_button.setObjectName("docsButton")
+        self.docs_button.setIcon(QIcon(resource_path("resources", "docs_book.svg")))
+        self.docs_button.setIconSize(QSize(20, 20))
+        self.docs_button.setAutoRaise(True)
+        self.docs_button.setToolTip("Documentation")
+        self.docs_button.clicked.connect(self.documentation_requested.emit)
+
+        self.settings_button = QToolButton()
+        self.settings_button.setObjectName("settingsButton")
+        self.settings_button.setIcon(
+            QIcon(resource_path("resources", "settings_gear.svg"))
+        )
+        self.settings_button.setIconSize(QSize(20, 20))
+        self.settings_button.setAutoRaise(True)
+        self.settings_button.setToolTip("Settings")
+        self.settings_button.clicked.connect(self.settings_requested.emit)
+
+        footer_layout.addWidget(self.docs_button)
+        footer_layout.addWidget(self.settings_button)
+        container_layout.addWidget(footer)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)

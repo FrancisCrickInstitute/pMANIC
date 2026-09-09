@@ -292,6 +292,98 @@ class TestPerSampleReloadChecking:
             ("Glucose", 0.2, ["s1", "s2"], sample_rts)
         ]
 
+    def test_update_tr_window_raises_extract_to_cover_offsets(self):
+        emitted = []
+        tr_window_field = _TextField("0.1")
+        fields = {
+            "tr_input": _TextField("5.0"),
+            "tr_window_input": tr_window_field,
+            "lo_input": _TextField("0.4"),
+            "ro_input": _TextField("0.4"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _all_samples=["s1"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _get_current_retention_time=lambda: 5.0,
+            _show_message=lambda *_args: None,
+            _format_number=lambda value: IntegrationWindow._format_number(None, value),
+        )
+
+        IntegrationWindow._on_regenerate_clicked(window)
+
+        assert emitted == [("Glucose", 0.5, ["s1"], 5.0)]
+        assert tr_window_field.text() == "0.5"
+
+    def test_update_tr_window_keeps_a_wider_requested_extract(self):
+        emitted = []
+        tr_window_field = _TextField("0.8")
+        fields = {
+            "tr_input": _TextField("5.0"),
+            "tr_window_input": tr_window_field,
+            "lo_input": _TextField("0.2"),
+            "ro_input": _TextField("0.3"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _all_samples=["s1"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _get_current_retention_time=lambda: 5.0,
+            _show_message=lambda *_args: None,
+            _format_number=lambda value: IntegrationWindow._format_number(None, value),
+        )
+
+        IntegrationWindow._on_regenerate_clicked(window)
+
+        assert emitted == [("Glucose", 0.8, ["s1"], 5.0)]
+        assert tr_window_field.text() == "0.8"
+
+    def test_update_tr_window_uses_widest_offset_in_a_range(self):
+        emitted = []
+        tr_window_field = _TextField("0.15")
+        fields = {
+            "tr_input": _TextField("5.0"),
+            "tr_window_input": tr_window_field,
+            "lo_input": _TextField("0.2 - 0.6"),
+            "ro_input": _TextField("0.1 - 0.3"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _all_samples=["s1", "s2"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _get_current_retention_time=lambda: 5.0,
+            _show_message=lambda *_args: None,
+            _format_number=lambda value: IntegrationWindow._format_number(None, value),
+        )
+
+        IntegrationWindow._on_regenerate_clicked(window)
+
+        assert emitted == [("Glucose", 0.7, ["s1", "s2"], 5.0)]
+        assert tr_window_field.text() == "0.7"
+
+
+class _TextField:
+    def __init__(self, value: str):
+        self._value = value
+
+    def text(self) -> str:
+        return self._value
+
+    def setText(self, value: str) -> None:
+        self._value = value
+
+    def setFocus(self) -> None:
+        return None
+
 
 def _seed_eic_db(db_path: Path, sample_files: dict[str, Path]):
     time_axis = np.array([7.07, 7.17, 7.27], dtype=np.float64)
@@ -599,6 +691,63 @@ class TestRecoveryAfterEmptyExtract:
         assert count == 1
         assert stored[0] == "s1"
         assert restored == pytest.approx(new_time)
+
+    def test_regenerate_raises_tr_window_to_cover_offsets(self, tmp_path, monkeypatch):
+        db_path = tmp_path / "regen.db"
+        cdf_path = tmp_path / "s1.cdf"
+        cdf_path.write_bytes(b"cdf")
+        monkeypatch.setattr(database, "DB_FILE", db_path)
+        _seed_eic_db(db_path, {"s1": cdf_path})
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE compounds SET loffset = ?, roffset = ? WHERE compound_name = ?",
+                (0.4, 0.4, "Glucose"),
+            )
+            conn.commit()
+
+        captured_windows = []
+
+        def _extract(
+            _compound_name,
+            _sample_rt,
+            _mz,
+            _cdf,
+            _mass_tol,
+            tr_window,
+            *_args,
+            **_kwargs,
+        ):
+            captured_windows.append(tr_window)
+            return SimpleNamespace(
+                time=np.array([6.67, 7.17, 7.67]),
+                intensity=np.array([2.0, 20.0, 2.0]),
+            )
+
+        monkeypatch.setattr(
+            "manic.io.eic_importer.read_cdf_file",
+            lambda _path: SimpleNamespace(sample_name="s1"),
+        )
+        monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
+        monkeypatch.setattr(
+            "manic.processors.eic_correction_manager.apply_correction_to_eic",
+            lambda *_args, **_kwargs: False,
+        )
+
+        regenerate_compound_eics(
+            "Glucose",
+            0.1,
+            ["s1"],
+            retention_time=7.17,
+        )
+
+        with sqlite3.connect(db_path) as conn:
+            stored_window = conn.execute(
+                "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
+                ("Glucose", "s1"),
+            ).fetchone()[0]
+
+        assert captured_windows == [pytest.approx(0.5)]
+        assert stored_window == pytest.approx(0.5)
 
     def test_eic_and_session_values_commit_together(self, tmp_path, monkeypatch):
         db_path = tmp_path / "regen.db"

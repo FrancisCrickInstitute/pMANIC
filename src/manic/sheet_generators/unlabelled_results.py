@@ -3,7 +3,14 @@ from __future__ import annotations
 from typing import Callable
 
 from manic.io.compound_reader import read_compound
-from manic.validation.unlabelled_identity import QualifierRatioResult
+from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
+from manic.validation.peak_verdict import PeakVerdict
+from manic.validation.unlabelled_identity import (
+    QUALIFIER_OUTCOME_FILL,
+    QualifierOutcome,
+    QualifierRatioResult,
+    qualifier_outcome,
+)
 
 
 def _write_header(worksheet, workbook, headers: list[str]) -> None:
@@ -105,8 +112,8 @@ def _write_q_column_headers(worksheet, compounds, baseline_off_header_format) ->
 
 def _write_raw_values(workbook, samples, compounds, bulk_data, validation_data) -> None:
     worksheet = workbook.add_worksheet("Raw Values")
-    invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
-    baseline_off_header_format = workbook.add_format({"bg_color": "#FFF2CC"})
+    verdict_formats = peak_verdict_formats(workbook)
+    baseline_off_header_format = baseline_off_header(workbook)
     _write_q_column_headers(worksheet, compounds, baseline_off_header_format)
 
     for sample_idx, sample_name in enumerate(samples):
@@ -114,14 +121,11 @@ def _write_raw_values(workbook, samples, compounds, bulk_data, validation_data) 
         worksheet.write(row, 0, None)
         worksheet.write(row, 1, sample_name)
         areas_by_compound = bulk_data.get(sample_name, {})
-        invalid_compounds = (validation_data or {}).get(sample_name, {})
+        sample_verdicts = (validation_data or {}).get(sample_name, {})
         for col, compound in enumerate(compounds):
             value = _q_area(areas_by_compound.get(compound.compound_name))
-            is_valid = invalid_compounds.get(compound.compound_name, True)
-            if is_valid:
-                worksheet.write(row, col + 2, value)
-            else:
-                worksheet.write(row, col + 2, value, invalid_format)
+            fmt = verdict_formats[sample_verdicts.get(compound.compound_name, PeakVerdict.PASS)]
+            worksheet.write(row, col + 2, value, fmt)
 
 
 def _write_abundances(
@@ -135,9 +139,9 @@ def _write_abundances(
     validation_data,
 ) -> None:
     worksheet = workbook.add_worksheet("Abundances")
-    invalid_format = workbook.add_format({"bg_color": "#FFCCCC"})
+    verdict_formats = peak_verdict_formats(workbook)
     rel_unit_format = workbook.add_format({"bg_color": "#D9D9D9"})
-    baseline_off_header_format = workbook.add_format({"bg_color": "#FFF2CC"})
+    baseline_off_header_format = baseline_off_header(workbook)
 
     mrrf_values = {}
     if exporter.internal_standard_compound:
@@ -181,7 +185,7 @@ def _write_abundances(
         worksheet.write(row, 0, None)
         worksheet.write(row, 1, sample_name)
         areas_by_compound = bulk_data.get(sample_name, {})
-        invalid_compounds = (validation_data or {}).get(sample_name, {})
+        sample_verdicts = (validation_data or {}).get(sample_name, {})
         internal_area = _q_area(
             areas_by_compound.get(exporter.internal_standard_compound)
         )
@@ -210,11 +214,8 @@ def _write_abundances(
                 and _positive(mrrf)
             ):
                 value = value * std_amount / internal_area / float(mrrf)
-            is_valid = invalid_compounds.get(compound.compound_name, True)
-            if is_valid:
-                worksheet.write(row, col + 2, value)
-            else:
-                worksheet.write(row, col + 2, value, invalid_format)
+            fmt = verdict_formats[sample_verdicts.get(compound.compound_name, PeakVerdict.PASS)]
+            worksheet.write(row, col + 2, value, fmt)
 
 
 def _write_qualifier_qc(
@@ -238,8 +239,20 @@ def _write_qualifier_qc(
         "Expected Ratio",
         "Fractional Tolerance",
         "Pass",
+        "Outcome",
     ]
     _write_header(qc_sheet, workbook, qc_headers)
+    outcome_formats = {
+        outcome: workbook.add_format(
+            {
+                "bg_color": fill,
+                "font_color": (
+                    "#000000" if outcome is QualifierOutcome.PARTIAL else "#FFFFFF"
+                ),
+            }
+        )
+        for outcome, fill in QUALIFIER_OUTCOME_FILL.items()
+    }
 
     qc_row = 1
     total = max(1, len(samples) * len(compounds))
@@ -253,6 +266,8 @@ def _write_qualifier_qc(
             except (LookupError, ValueError):
                 qc = None
 
+            outcome = qualifier_outcome(qc)
+            row_format = outcome_formats[outcome]
             areas = bulk_data.get(sample, {}).get(compound.compound_name)
             q_area = _q_area(areas)
             qualifier_results = (
@@ -264,23 +279,22 @@ def _write_qualifier_qc(
                 )
             )
             for ratio in qualifier_results:
-                qc_sheet.write_row(
-                    qc_row,
-                    0,
-                    [
-                        sample,
-                        compound.compound_name,
-                        compound.analysis_channels[0].mz,
-                        q_area,
-                        ratio.channel.ordinal,
-                        ratio.channel.mz,
-                        _channel_area(areas, ratio.channel.ordinal),
-                        ratio.observed_ratio,
-                        ratio.channel.expected_ratio,
-                        ratio.channel.ratio_tolerance,
-                        _pass_label(ratio.passed, qc_available=qc is not None),
-                    ],
-                )
+                values = [
+                    sample,
+                    compound.compound_name,
+                    compound.analysis_channels[0].mz,
+                    q_area,
+                    ratio.channel.ordinal,
+                    ratio.channel.mz,
+                    _channel_area(areas, ratio.channel.ordinal),
+                    ratio.observed_ratio,
+                    ratio.channel.expected_ratio,
+                    ratio.channel.ratio_tolerance,
+                    _pass_label(ratio.passed, qc_available=qc is not None),
+                    outcome.value,
+                ]
+                for column, value in enumerate(values):
+                    qc_sheet.write(qc_row, column, value, row_format)
                 qc_row += 1
 
             completed += 1

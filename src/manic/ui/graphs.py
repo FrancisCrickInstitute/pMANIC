@@ -30,6 +30,7 @@ from manic.processors.display_deconvolution import (
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
 
+from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentitySampleAssessment,
@@ -42,6 +43,7 @@ from .colors import (
     channel_trace_styles,
     dark_red_colour,
     label_colors,
+    peak_verdict_qcolor,
     selection_color,
     steel_blue_colour,
 )
@@ -135,6 +137,7 @@ class GraphView(QWidget):
 
     # Signal to emit when plot selection changes
     selection_changed = Signal(list)  # List of selected sample names
+    peak_review_changed = Signal(str, list, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -177,7 +180,7 @@ class GraphView(QWidget):
         self._shared_y_scale: bool = False
         # (scale_factor, scale_exp, shared_scaled_max); None = per-tile autoscale
         self._scale_override: tuple[float, int, float] | None = None
-        self._last_validation_data: Dict[str, bool] | None = None
+        self._last_validation_data: Dict[str, PeakVerdict] | None = None
 
         # Track max grid dimensions we've used, so we can reliably reset
         # stretch/min-size for any historical rows/cols when the grid shrinks.
@@ -326,7 +329,7 @@ class GraphView(QWidget):
         self,
         compound_name: str,
         samples: List[str],
-        validation_data: Dict[str, bool] = None,
+        validation_data: Dict[str, PeakVerdict] = None,
         *,
         identity: IdentityAssessmentSet | None = None,
     ) -> None:
@@ -427,9 +430,9 @@ class GraphView(QWidget):
             plot_containers = [
                 self._build_plot_with_caption(
                     eic,
-                    is_valid=validation_data.get(eic.sample_name, True)
+                    verdict=validation_data.get(eic.sample_name, PeakVerdict.PASS)
                     if validation_data
-                    else True,
+                    else PeakVerdict.PASS,
                 )
                 for eic in eics
             ]
@@ -647,8 +650,72 @@ class GraphView(QWidget):
             detailed_action.setEnabled(False)
             detailed_action.setToolTip("Right-click a specific plot to view details")
 
+        context_menu.addSeparator()
+        accept_action = context_menu.addAction("Accept peak (below threshold)")
+        accept_action.setCheckable(True)
+        reject_action = context_menu.addAction("Mark peak as bad")
+        reject_action.setCheckable(True)
+        if clicked_plot is None:
+            accept_action.setEnabled(False)
+            reject_action.setEnabled(False)
+        else:
+            current_review = self._review_for_plot(clicked_plot)
+            verdict = self._verdict_for_plot(clicked_plot)
+            accept_action.setChecked(current_review is PeakReview.ACCEPTED)
+            reject_action.setChecked(current_review is PeakReview.REJECTED)
+            accept_action.setEnabled(
+                verdict in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
+            )
+            accept_action.triggered.connect(
+                lambda: self._toggle_peak_review(clicked_plot, PeakReview.ACCEPTED)
+            )
+            reject_action.triggered.connect(
+                lambda: self._toggle_peak_review(clicked_plot, PeakReview.REJECTED)
+            )
+
         # Show menu at position - use popup() instead of exec() for better behavior
         context_menu.popup(global_pos)
+
+    def _verdict_for_plot(self, plot: ClickableChartView) -> PeakVerdict:
+        container = plot.parent()
+        return getattr(container, "verdict", PeakVerdict.PASS)
+
+    def _review_for_plot(self, plot: ClickableChartView) -> PeakReview | None:
+        verdict = self._verdict_for_plot(plot)
+        if verdict is PeakVerdict.ACCEPTED:
+            return PeakReview.ACCEPTED
+        if verdict is PeakVerdict.REJECTED:
+            return PeakReview.REJECTED
+        return None
+
+    def _toggle_peak_review(
+        self, clicked_plot: ClickableChartView, review: PeakReview
+    ) -> None:
+        new_review = None if self._review_for_plot(clicked_plot) is review else review
+        plots = (
+            self._selected_plots
+            if clicked_plot in self._selected_plots
+            else {clicked_plot}
+        )
+        if new_review is PeakReview.ACCEPTED:
+            plots = {
+                plot
+                for plot in plots
+                if self._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
+            }
+        sample_names = [plot.sample_name for plot in plots]
+        self.peak_review_changed.emit(
+            clicked_plot.compound_name, sample_names, new_review
+        )
+
+    def apply_peak_verdicts(self, validation_data: Dict[str, PeakVerdict]) -> None:
+        self._last_validation_data = validation_data
+        for chart_view in self._current_plots:
+            container = chart_view.parent()
+            if container is None:
+                continue
+            verdict = validation_data.get(chart_view.sample_name, PeakVerdict.PASS)
+            self._apply_validation_styling(container, verdict)
 
     def _on_context_menu_closed(self):
         """Handle context menu cleanup when it closes."""
@@ -789,7 +856,7 @@ class GraphView(QWidget):
 
     def refresh_plots_with_session_data(
         self,
-        validation_data: Optional[Dict[str, bool]] = None,
+        validation_data: Optional[Dict[str, PeakVerdict]] = None,
         *,
         identity: IdentityAssessmentSet | None = None,
     ):
@@ -850,7 +917,9 @@ class GraphView(QWidget):
             except Exception as e:
                 pass  # Don't cascade failures
 
-    def _get_container_from_pool(self, eic, is_valid: bool = True) -> QWidget:
+    def _get_container_from_pool(
+        self, eic, verdict: PeakVerdict = PeakVerdict.PASS
+    ) -> QWidget:
         """
         Retrieve a complete plot container from the pool or create a new one.
 
@@ -869,16 +938,18 @@ class GraphView(QWidget):
             # Reuse existing container from pool
             container = self._available_containers.pop()
             # Update data atomically (container update handles visibility)
-            self._update_container_data(container, eic, is_valid)
+            self._update_container_data(container, eic, verdict)
             # Container will be shown by _update_container_data after update is complete
             return container
         else:
             # Pool exhausted, create new container and add to pool tracking
-            container = self._create_plot_container(eic, is_valid)
+            container = self._create_plot_container(eic, verdict)
             self._container_pool.append(container)
             return container
 
-    def _create_plot_container(self, eic, is_valid: bool = True) -> QWidget:
+    def _create_plot_container(
+        self, eic, verdict: PeakVerdict = PeakVerdict.PASS
+    ) -> QWidget:
         """
         Create a new plot container with chart view and caption.
 
@@ -924,7 +995,7 @@ class GraphView(QWidget):
         chart_view.right_clicked.connect(self._on_plot_right_clicked)
 
         # Apply validation styling
-        self._apply_validation_styling(container, is_valid)
+        self._apply_validation_styling(container, verdict)
 
         # Install event filter for rubberband selection on ALL interactive parts
         # Note: QChartView/QGraphicsView events happen on the viewport widget!
@@ -935,7 +1006,9 @@ class GraphView(QWidget):
 
         return container
 
-    def _update_container_data(self, container: QWidget, eic, is_valid: bool = True):
+    def _update_container_data(
+        self, container: QWidget, eic, verdict: PeakVerdict = PeakVerdict.PASS
+    ):
         """
         Update an existing container with new EIC data.
 
@@ -987,7 +1060,7 @@ class GraphView(QWidget):
             container.caption.setText(eic.sample_name)
 
             # Apply validation styling
-            self._apply_validation_styling(container, is_valid)
+            self._apply_validation_styling(container, verdict)
 
             # Reconnect signals for this specific usage
             chart_view.clicked.connect(self._on_plot_clicked)
@@ -1183,10 +1256,12 @@ class GraphView(QWidget):
         self._selected_plots.clear()
 
     #  internal functions
-    def _build_plot_with_caption(self, eic, is_valid: bool = True) -> QWidget:
+    def _build_plot_with_caption(
+        self, eic, verdict: PeakVerdict = PeakVerdict.PASS
+    ) -> QWidget:
         """Create a widget containing a plot with sample name caption below."""
         # Create the plot container using pooling for performance
-        return self._get_container_from_pool(eic, is_valid)
+        return self._get_container_from_pool(eic, verdict)
 
     def _build_plot(self, eic) -> ClickableChartView:
         """Create a ClickableChartView with EIC data and guide lines."""
@@ -1766,13 +1841,12 @@ class GraphView(QWidget):
             parent.updateGeometry()
             parent.update()
 
-    def _apply_validation_styling(self, container: QWidget, is_valid: bool):
-        """Record peak-height validation state and restyle the tile."""
-        container.is_valid_peak = is_valid
+    def _apply_validation_styling(self, container: QWidget, verdict: PeakVerdict):
+        container.verdict = verdict
         self._restyle_container(container)
 
     def _restyle_container(self, container: QWidget):
-        is_valid = getattr(container, "is_valid_peak", True)
+        verdict = getattr(container, "verdict", PeakVerdict.PASS)
         sample_name = getattr(container.chart_view, "sample_name", "")
         assessment = self._sample_identity(sample_name)
         qc_status = None if assessment is None or assessment.qc is None else assessment.qc.status
@@ -1785,14 +1859,18 @@ class GraphView(QWidget):
                     border-radius: 4px;
                 }
             """)
-        elif not is_valid:
-            container.setStyleSheet("""
-                QWidget {
-                    background-color: rgba(255, 200, 200, 120);
-                }
-            """)
-        else:
+            return
+
+        color = peak_verdict_qcolor(verdict)
+        if color is None:
             container.setStyleSheet("")
+            return
+        red, green, blue, _alpha = color.getRgb()
+        container.setStyleSheet(f"""
+            QWidget {{
+                background-color: rgba({red}, {green}, {blue}, 120);
+            }}
+        """)
 
     def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:

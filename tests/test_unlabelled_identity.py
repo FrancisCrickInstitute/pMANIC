@@ -9,9 +9,11 @@ from manic.validation.unlabelled_identity import (
     IdentityQcResult,
     IdentitySampleAssessment,
     IdentityStatus,
+    QualifierOutcome,
     QualifierRatioResult,
     QualifierStatus,
     assess_identity,
+    qualifier_outcome,
     qualifier_pair,
 )
 
@@ -371,3 +373,58 @@ def test_main_window_assess_identities_returns_snapshot():
     )
     assert MainWindow._assess_identities(window, Provider(), "", ["S1"]) is None
     assert MainWindow._assess_identities(window, Provider(), "Target", []) is None
+
+
+def _hand_built_qc(
+    *passed: bool | None, status: IdentityStatus = IdentityStatus.NOT_ASSESSED
+) -> IdentityQcResult:
+    channel = IonChannel(147.0, IonRole.QUALIFIER, ordinal=1)
+    return IdentityQcResult(
+        status=status,
+        quantifier_area=10.0,
+        observed_rt=1.0,
+        rt_error=0.0,
+        rt_passed=True,
+        qualifier_ratios=tuple(
+            QualifierRatioResult(channel, None, value) for value in passed
+        ),
+        reasons=(),
+    )
+
+
+def test_qualifier_outcome_pass():
+    assert qualifier_outcome(_hand_built_qc(True, True)) is QualifierOutcome.PASS
+
+
+def test_qualifier_outcome_partial():
+    assert qualifier_outcome(_hand_built_qc(True, False)) is QualifierOutcome.PARTIAL
+    assert qualifier_outcome(_hand_built_qc(True, None)) is QualifierOutcome.PARTIAL
+
+
+def test_qualifier_outcome_fail():
+    assert qualifier_outcome(_hand_built_qc(False)) is QualifierOutcome.FAIL
+    assert qualifier_outcome(_hand_built_qc(False, None)) is QualifierOutcome.FAIL
+
+
+def test_qualifier_outcome_not_detected():
+    assert (
+        qualifier_outcome(
+            _hand_built_qc(None, None, status=IdentityStatus.NOT_DETECTED)
+        )
+        is QualifierOutcome.NOT_DETECTED
+    )
+
+
+def test_qualifier_outcome_no_qualifiers():
+    assert qualifier_outcome(None) is QualifierOutcome.NO_QUALIFIERS
+    assert qualifier_outcome(_hand_built_qc(None)) is QualifierOutcome.NO_QUALIFIERS
+    empty = IdentityQcResult(
+        status=IdentityStatus.NOT_ASSESSED,
+        quantifier_area=10.0,
+        observed_rt=1.0,
+        rt_error=0.0,
+        rt_passed=True,
+        qualifier_ratios=(),
+        reasons=(),
+    )
+    assert qualifier_outcome(empty) is QualifierOutcome.NO_QUALIFIERS

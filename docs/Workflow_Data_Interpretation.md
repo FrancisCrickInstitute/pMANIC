@@ -102,8 +102,10 @@ MANIC automatically validates every peak during export. You may see coloured cel
 * **🔴 Light Red (Warning):** **Low Intensity.**
     * The peak area was less than **5%** (default) of the Internal Standard reference peak area.
     * *Action:* Check the raw chromatogram. This data may be noise.
-* **🟡 Pale Yellow (Info):** **Baseline correction disabled** for this compound.
-    * Highlights the compound name in the header row across sheets.
+* **🟣 Light Purple (Reviewed):** **Accepted below threshold.** You right-clicked this peak in the EIC grid and chose *Accept peak*. The value is kept and the colour records the manual decision. The colour stays until you clear the review.
+* **🟤 Tan (Reviewed):** **Marked as bad.** You right-clicked this peak and chose *Mark peak as bad*. The value is still exported; the colour flags it for exclusion downstream.
+* **🔵 Blue text (Info):** **Baseline correction disabled** for this compound.
+    * The compound name in the header row is written in blue across sheets.
     * This corresponds to the compound's **Baseline correction** checkbox being unchecked in the UI.
 * **⬜ Grey (Info):** **Relative units** in the **Abundances** sheet.
     * In the Abundances sheet "Units" row, a grey cell indicates the value is reported as `Relative`/`rel` rather than `nmol`.

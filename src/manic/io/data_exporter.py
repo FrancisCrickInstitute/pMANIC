@@ -23,6 +23,8 @@ from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.io.changelog_writer import generate_changelog
 from manic.io.data_provider import DataProvider
 from manic.models.analysis import AnalysisMode
+from manic.models.peak_review import get_peak_reviews
+from manic.validation.peak_verdict import PeakVerdict
 from manic.sheet_generators import (
     abundances as sheet_abundances,
 )
@@ -168,15 +170,12 @@ class DataExporter:
 
     def _compute_validation_data(
         self, samples: List[str], compounds: List[dict]
-    ) -> Dict[str, Dict[str, bool]]:
-        """
-        Compute validation data for all sample/compound combinations.
-
-        Returns:
-            Dict mapping sample_name -> {compound_name: is_valid}
-        """
-        # Change: Validation (area ratio vs standard) cannot be performed without an internal standard
-        if not self.internal_standard_compound or self.min_peak_area_ratio <= 0:
+    ) -> Dict[str, Dict[str, PeakVerdict]]:
+        reviews = get_peak_reviews()
+        validation_disabled = (
+            not self.internal_standard_compound or self.min_peak_area_ratio <= 0
+        )
+        if validation_disabled and not reviews:
             return {}
 
         validation_data = {}
@@ -184,14 +183,14 @@ class DataExporter:
             validation_data[sample] = {}
             for compound in compounds:
                 compound_name = compound["compound_name"]
-                is_valid = self._provider.validate_peak_area(
+                validation_data[sample][compound_name] = self._provider.peak_verdict(
                     sample,
                     compound_name,
                     self.internal_standard_compound,
                     self.min_peak_area_ratio,
                     internal_standard_isotope_index=self.internal_standard_reference_isotope,
+                    reviews=reviews,
                 )
-                validation_data[sample][compound_name] = is_valid
 
         return validation_data
 

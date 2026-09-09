@@ -72,6 +72,8 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
+from manic.models.peak_review import get_peak_reviews, set_peak_review
+from manic.validation.peak_verdict import PeakVerdict
 from manic.ui.documentation_viewer import show_documentation_file
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
@@ -408,6 +410,7 @@ class MainWindow(QMainWindow):
 
         # Connect the graph view's selection signal
         self.graph_view.selection_changed.connect(self.on_plot_selection_changed)
+        self.graph_view.peak_review_changed.connect(self.on_peak_review_changed)
 
         # Connect the integration window's session data signals
         self.toolbar.integration.session_data_applied.connect(
@@ -839,46 +842,36 @@ class MainWindow(QMainWindow):
         msg_box = self._create_message_box("critical", "Import failed", msg)
         msg_box.exec()
 
-    def _validate_peak_area(self, compound_name: str, sample_name: str) -> bool:
-        """
-        Validate if the compound's total peak area meets the minimum threshold.
-
-        This method compares the sum of all isotopologue peak areas for the compound
-        against a threshold calculated as: internal_standard_reference_peak × min_peak_height_ratio.
-
-        Both the compound and internal standard use their own integration boundaries
-        (retention time ± offsets), which respect session overrides.
-
-        Args:
-            compound_name: Name of the compound being validated
-            sample_name: Name of the sample
-
-        Returns:
-            True if compound total area >= threshold, False otherwise
-        """
+    def _peak_verdicts(self, compound_name: str, samples) -> dict[str, PeakVerdict]:
+        reviews = get_peak_reviews()
         internal_standard = self.toolbar.get_internal_standard()
-        if not internal_standard:
-            return True
-
-        try:
-            if self._validation_provider is None:
-                self._validation_provider = DataProvider(
-                    use_legacy_integration=self.use_legacy_integration,
+        if self._validation_provider is None:
+            self._validation_provider = DataProvider(
+                use_legacy_integration=self.use_legacy_integration,
+            )
+        verdicts = {}
+        for sample in samples:
+            try:
+                verdicts[sample] = self._validation_provider.peak_verdict(
+                    sample,
+                    compound_name,
+                    internal_standard,
+                    self.min_peak_height_ratio,
+                    internal_standard_isotope_index=self.internal_standard_reference_isotope,
+                    reviews=reviews,
                 )
+            except Exception as e:
+                logger.warning(
+                    f"Peak verdict failed for {compound_name}/{sample}: {e}"
+                )
+                verdicts[sample] = PeakVerdict.PASS
+        return verdicts
 
-            return self._validation_provider.validate_peak_area(
-                sample_name,
-                compound_name,
-                internal_standard,
-                self.min_peak_height_ratio,
-                internal_standard_isotope_index=self.internal_standard_reference_isotope,
-            )
-
-        except Exception as e:
-            logger.warning(
-                f"Peak area validation failed for {compound_name}/{sample_name}: {e}"
-            )
-            return True
+    def on_peak_review_changed(self, compound_name: str, sample_names: list, review):
+        for sample_name in sample_names:
+            set_peak_review(compound_name, sample_name, review)
+        samples = self.graph_view.get_current_samples()
+        self.graph_view.apply_peak_verdicts(self._peak_verdicts(compound_name, samples))
 
     def on_plot_button(self, compound_name, samples):
         # Validate inputs before plotting
@@ -891,13 +884,7 @@ class MainWindow(QMainWindow):
         try:
             if samples:
                 with measure_time("total_plotting_speed"):
-                    # Calculate validation data for all samples
-                    validation_data = {}
-                    if self.min_peak_height_ratio > 0:  # Only if validation is enabled
-                        for sample in samples:
-                            validation_data[sample] = self._validate_peak_area(
-                                compound_name, sample
-                            )
+                    validation_data = self._peak_verdicts(compound_name, samples)
 
                     provider, identity = self._identity_snapshot(compound_name, samples)
                     self.graph_view.plot_compound(
@@ -1247,12 +1234,7 @@ class MainWindow(QMainWindow):
                 self._validation_provider.invalidate_cache()
 
             current_samples = self.graph_view.get_current_samples()
-            validation_data = {}
-            if self.min_peak_height_ratio > 0:
-                for sample in current_samples:
-                    validation_data[sample] = self._validate_peak_area(
-                        compound_name, sample
-                    )
+            validation_data = self._peak_verdicts(compound_name, current_samples)
 
             _provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(
@@ -1341,12 +1323,7 @@ class MainWindow(QMainWindow):
                 self._validation_provider.invalidate_cache()
 
             current_samples = self.graph_view.get_current_samples()
-            validation_data = {}
-            if self.min_peak_height_ratio > 0:
-                for sample in current_samples:
-                    validation_data[sample] = self._validate_peak_area(
-                        compound_name, sample
-                    )
+            validation_data = self._peak_verdicts(compound_name, current_samples)
 
             _provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(
@@ -1602,12 +1579,7 @@ class MainWindow(QMainWindow):
 
                 self.toolbar.integration.populate_tr_window_field(current_compound)
 
-                validation_data = {}
-                if self.min_peak_height_ratio > 0:
-                    for sample in current_samples:
-                        validation_data[sample] = self._validate_peak_area(
-                            current_compound, sample
-                        )
+                validation_data = self._peak_verdicts(current_compound, current_samples)
                 _provider, identity = self._identity_snapshot(
                     current_compound, current_samples
                 )

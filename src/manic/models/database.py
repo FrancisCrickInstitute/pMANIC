@@ -216,6 +216,7 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         pass
 
 
+
 @contextmanager
 # work inside a managed transaction
 def get_connection():
@@ -413,6 +414,7 @@ def _clear_database_fast(progress_callback=None):
         # This is much faster than individual DELETE statements
         clear_script = """
         DELETE FROM session_activity;
+        DELETE FROM peak_review;
         DELETE FROM eic_corrected;
         DELETE FROM eic;
         DELETE FROM tic_data;  

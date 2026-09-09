@@ -4,6 +4,8 @@ import logging
 from typing import List
 
 from manic.models.database import get_connection
+from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
+from manic.validation.peak_verdict import PeakVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +17,8 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
     Extracted from DataExporter._export_corrected_values_sheet without changes in behavior.
     """
     worksheet = workbook.add_worksheet('Corrected Values')
-    invalid_format = workbook.add_format({'bg_color': '#FFCCCC'})
-    baseline_off_header_format = workbook.add_format({'bg_color': '#FFF2CC'})
+    verdict_formats = peak_verdict_formats(workbook)
+    baseline_off_header_format = baseline_off_header(workbook)
 
     if provider is None:
         with get_connection() as conn:
@@ -111,14 +113,12 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
             for isotope_idx in range(num_isotopologues):
                 area_value = isotopologue_data[isotope_idx] if isotope_idx < len(isotopologue_data) else 0.0
                 
+                fmt = None
                 if validation_data and sample_name in validation_data:
-                    is_valid = validation_data[sample_name].get(compound_name, True)
-                    if not is_valid:
-                        worksheet.write(row, col, area_value, invalid_format)
-                    else:
-                        worksheet.write(row, col, area_value)
-                else:
-                    worksheet.write(row, col, area_value)
+                    fmt = verdict_formats[
+                        validation_data[sample_name].get(compound_name, PeakVerdict.PASS)
+                    ]
+                worksheet.write(row, col, area_value, fmt)
                 
                 col += 1
 

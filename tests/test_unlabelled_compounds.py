@@ -20,6 +20,8 @@ from manic.io.eic_reader import read_eic
 from manic.models import database
 from manic.models import session_export
 from manic.models.analysis import AnalysisMode, IonRole
+from manic.models.peak_review import get_peak_reviews, set_peak_review
+from manic.validation.peak_verdict import PeakReview
 from manic.processors import chromatographic_peak_deconvolution as deconv
 from manic.processors import integration as integration_module
 from manic.processors.chromatographic_peak_deconvolution import (
@@ -168,6 +170,7 @@ def test_existing_database_migrates_targeted_schema(tmp_path, monkeypatch):
 
     assert "rt_tolerance" in columns
     assert "compound_ions" in tables
+    assert "peak_review" in tables
     assert existing == ("Existing",)
 
 
@@ -366,11 +369,16 @@ def test_unlabelled_session_round_trip_preserves_mode_and_ions(
         },
     )
 
+    set_peak_review("Target", "S1", PeakReview.REJECTED)
     assert session_export.export_session_method(
         str(tmp_path / "method"),
         AnalysisMode.UNLABELLED,
     )
     method_path = tmp_path / "manic_session_export" / "method.json"
+    session_changelog = next(
+        (tmp_path / "manic_session_export").glob("changelog_*.md")
+    ).read_text(encoding="utf-8")
+    assert "## Manual Peak Reviews" in session_changelog
     exported = json.loads(method_path.read_text(encoding="utf-8"))
     assert exported["analysis_mode"] == "unlabelled"
     assert exported["compounds"][0]["ions"][1]["expected_ratio"] == pytest.approx(0.4)
@@ -424,10 +432,27 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
         QIon=217,
         QualifierIon1=147,
     )
+    _import_targets(
+        tmp_path,
+        name="Passed",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+        **{"Qualifier 1 Ratio": 0.4, "Qualifier 1 Tolerance": 0.25},
+    )
 
     _insert_eic(
         "S1",
         "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S1",
+        "Passed",
         [0.0, 1.0, 2.0],
         [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
         rt_window=1.1,
@@ -445,7 +470,7 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
     raw = workbook["Raw Values"]
     assert raw["A1"].value == "Compound Name"
     assert raw["C1"].value == "Target"
-    assert raw["D1"].value is None
+    assert raw["D1"].value == "Passed"
     assert raw["A2"].value == "Mass"
     assert raw["A3"].value == "tR"
     assert raw["C2"].value == pytest.approx(217)
@@ -467,6 +492,48 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
     ]
     assert qc["D2"].value == pytest.approx(10.0)
     assert qc["G2"].value == pytest.approx(4.0)
+    assert qc["L1"].value == "Outcome"
+    assert qc["B2"].value == "Target"
+    assert qc["L2"].value == "No qualifiers"
+    assert qc["A2"].fill.fgColor.rgb == "FF868E96"
+    assert qc["L2"].fill.fgColor.rgb == "FF868E96"
+    assert qc["B3"].value == "Passed"
+    assert qc["L3"].value == "Pass"
+    assert qc["A3"].fill.fgColor.rgb == "FF2F9E44"
+    assert qc["L3"].fill.fgColor.rgb == "FF2F9E44"
+
+
+def test_unlabelled_excel_export_baseline_off_header_is_blue(unlabelled_db, tmp_path):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+    )
+    with database.get_connection() as conn:
+        conn.execute(
+            "UPDATE compounds SET baseline_correction = 0 WHERE compound_name = 'Target'"
+        )
+
+    _insert_eic(
+        "S1",
+        "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+        rt_window=1.1,
+    )
+
+    export_path = tmp_path / "baseline_off.xlsx"
+    assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
+
+    workbook = openpyxl.load_workbook(export_path, data_only=True)
+    header = workbook["Raw Values"]["C1"]
+    assert header.value == "Target"
+    assert header.font.color.rgb == "FF1F5FBF"
+    assert header.fill.patternType != "solid"
 
 
 def test_unlabelled_excel_export_with_internal_standard(unlabelled_db, tmp_path):
@@ -512,6 +579,106 @@ def test_unlabelled_excel_export_with_internal_standard(unlabelled_db, tmp_path)
     workbook = openpyxl.load_workbook(export_path, data_only=True)
     assert "Abundances" in workbook.sheetnames
     assert workbook["Abundances"]["A4"].value == "Units"
+
+
+def test_peak_review_store_round_trip(unlabelled_db):
+    set_peak_review("Target", "S1", PeakReview.ACCEPTED)
+    set_peak_review("Std", "S1", PeakReview.REJECTED)
+    assert get_peak_reviews()[("Target", "S1")] is PeakReview.ACCEPTED
+    assert get_peak_reviews()[("Std", "S1")] is PeakReview.REJECTED
+    assert get_peak_reviews() == {
+        ("Target", "S1"): PeakReview.ACCEPTED,
+        ("Std", "S1"): PeakReview.REJECTED,
+    }
+
+    set_peak_review("Target", "S1", None)
+    assert ("Target", "S1") not in get_peak_reviews()
+    assert get_peak_reviews() == {("Std", "S1"): PeakReview.REJECTED}
+
+
+def test_unlabelled_excel_export_colours_peak_reviews(unlabelled_db, tmp_path):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+        **{"Amount in StdMix": 2.5},
+    )
+    _import_targets(
+        tmp_path,
+        name="Std",
+        tR=2.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=318,
+        QualifierIon1=217,
+        **{"Amount in StdMix": 1.0, "Int Std amount": 10.0, "MM Files": "S1"},
+    )
+    _insert_eic(
+        "S1",
+        "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S1",
+        "Std",
+        [1.0, 2.0, 3.0],
+        [[0.0, 20.0, 0.0], [0.0, 6.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S2",
+        "Target",
+        [0.0, 1.0, 2.0],
+        [[0.0, 30.0, 0.0], [0.0, 8.0, 0.0]],
+        rt_window=1.1,
+    )
+    _insert_eic(
+        "S2",
+        "Std",
+        [1.0, 2.0, 3.0],
+        [[0.0, 20.0, 0.0], [0.0, 6.0, 0.0]],
+        rt_window=1.1,
+    )
+
+    set_peak_review("Std", "S1", PeakReview.REJECTED)
+    set_peak_review("Target", "S1", PeakReview.ACCEPTED)
+
+    exporter = DataExporter(AnalysisMode.UNLABELLED)
+    exporter.set_internal_standard("Std")
+    exporter.set_min_peak_area_ratio(0.8)
+    export_path = tmp_path / "reviewed.xlsx"
+    assert exporter.export_to_excel(str(export_path))
+
+    workbook = openpyxl.load_workbook(export_path, data_only=True)
+    raw = workbook["Raw Values"]
+    assert raw["C4"].value == pytest.approx(10.0)
+    assert raw["C4"].fill.fgColor.rgb == "FFE5D4F1"
+    assert raw["D4"].fill.fgColor.rgb == "FFE0C9A6"
+    assert raw["C5"].fill.patternType != "solid"
+
+    assert session_export.export_session_method(
+        str(tmp_path / "method"),
+        AnalysisMode.UNLABELLED,
+    )
+    method_path = tmp_path / "manic_session_export" / "method.json"
+    set_peak_review("Target", "S1", None)
+    set_peak_review("Std", "S1", None)
+    set_peak_review("Target", "S2", PeakReview.REJECTED)
+    ok, _ = session_export.import_session_overrides(
+        str(method_path),
+        expected_mode=AnalysisMode.UNLABELLED,
+    )
+    assert ok
+    assert get_peak_reviews() == {
+        ("Std", "S1"): PeakReview.REJECTED,
+        ("Target", "S1"): PeakReview.ACCEPTED,
+    }
 
 
 def _unlabelled_mixed_bundle(time, *, failed_index: int):
@@ -796,3 +963,29 @@ def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
     assert "raw-window areas" in changelog
     assert "not in this workbook" in changelog
     assert "Identity chart" in changelog
+
+
+def test_unlabelled_changelog_lists_peak_reviews_and_colour_key(
+    unlabelled_db, tmp_path
+):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=0.1,
+        rOffset=0.1,
+        QIon=217,
+        QualifierIon1=147,
+    )
+    set_peak_review("Target", "S1", PeakReview.REJECTED)
+    export_path = tmp_path / "reviewed.xlsx"
+    generate_changelog(
+        str(export_path),
+        internal_standard=None,
+        use_legacy_integration=False,
+        analysis_mode=AnalysisMode.UNLABELLED,
+    )
+    changelog = next(tmp_path.glob("changelog_*.md")).read_text(encoding="utf-8")
+    assert "## Manual Peak Reviews" in changelog
+    assert "| Target | S1 | Bad |" in changelog
+    assert "## Cell Colour Key" in changelog

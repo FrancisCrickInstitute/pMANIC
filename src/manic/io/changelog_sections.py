@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from manic.sheet_generators.formats import BASELINE_OFF_FONT_COLOR
+from manic.validation.peak_verdict import PEAK_VERDICT_FILL, PeakVerdict
+
 
 def format_compounds_table_for_data_export(compounds: Iterable[dict]) -> str:
     """
@@ -169,3 +172,32 @@ def format_overrides_section_for_session_export(session_overrides: Iterable[dict
         out.append("")
 
     return "\n".join(out) + "\n"
+
+
+def format_peak_reviews_section(reviews: Iterable[dict]) -> str:
+    rows = list(reviews)
+    if not rows:
+        return ""
+    labels = {"accepted": "Accepted", "rejected": "Bad"}
+    out = [
+        "## Manual Peak Reviews",
+        "Peaks the analyst accepted below the internal-standard threshold or marked as bad.",
+        "",
+        "| Compound | Sample | Review |",
+        "|----------|--------|--------|",
+    ]
+    for row in rows:
+        out.append(
+            f"| {row['compound_name']} | {row['sample_name']} | {labels[row['review']]} |"
+        )
+    return "\n".join(out) + "\n"
+
+
+def format_cell_colour_key() -> str:
+    return (
+        "## Cell Colour Key\n"
+        f"- Light red ({PEAK_VERDICT_FILL[PeakVerdict.FAIL]}) = below internal-standard threshold\n"
+        f"- Light purple ({PEAK_VERDICT_FILL[PeakVerdict.ACCEPTED]}) = accepted by the analyst\n"
+        f"- Tan ({PEAK_VERDICT_FILL[PeakVerdict.REJECTED]}) = marked bad by the analyst\n"
+        f"- Blue compound name ({BASELINE_OFF_FONT_COLOR}) = baseline correction off\n"
+    )

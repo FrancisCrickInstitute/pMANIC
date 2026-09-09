@@ -9,8 +9,10 @@ from manic.__version__ import __version__
 from manic.models.analysis import AnalysisMode
 from manic.models.database import get_connection
 from manic.io.changelog_sections import (
+    format_cell_colour_key,
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
+    format_peak_reviews_section,
     format_unlabelled_compounds_table_for_data_export,
 )
 
@@ -61,6 +63,13 @@ def generate_changelog(
         """
         session_overrides = conn.execute(session_query).fetchall()
 
+        peak_reviews = conn.execute(
+            """
+            SELECT compound_name, sample_name, review FROM peak_review
+            ORDER BY compound_name, sample_name
+            """
+        ).fetchall()
+
         # Get deleted items for audit trail
         deleted_compounds_query = """
             SELECT compound_name FROM compounds WHERE deleted = 1 ORDER BY compound_name
@@ -93,7 +102,7 @@ def generate_changelog(
 - **Quantitative claim:** Peak Area without an internal standard. With an IS, nmol when Amount in StdMix is set, otherwise Relative. Single-point response factor, not a calibration curve"""
         sheets_description = """1. **Raw Values** - One column per compound, Q-ion area only. `Mass` is the Q m/z. Qualifier-ion areas are on Qualifier QC
 2. **Abundances** - One column per compound, Q-ion response only. Units row is Peak Area, nmol, or Relative
-3. **Qualifier QC** - Q and qualifier raw areas, observed qualifier/Q, expected ratio, fractional tolerance, and PASS / REVIEW / N/A. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
+3. **Qualifier QC** - Q and qualifier raw areas, observed qualifier/Q, expected ratio, fractional tolerance, per-ion PASS / REVIEW / N/A, and an Outcome column (Pass / Partial / Fail / Not detected / No qualifiers) that colours each row. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
         key_processing_notes = """- Integration uses the shared Q/qualifier window [tR - lOffset, tR + rOffset]. A qualifier peak outside that window integrates near zero and fails ratio QC
 - Q-ion area alone supplies the analytical response. Qualifier-ion areas are identity evidence
 - Current tR is used for integration and for the in-app identity RT check. Changing tR updates both. That RT check is not written to the workbook
@@ -181,10 +190,15 @@ def generate_changelog(
     if session_overrides:
         changelog_content += "\n" + format_overrides_section_for_data_export(session_overrides) + "\n"
 
+    reviews_section = format_peak_reviews_section(peak_reviews)
+    if reviews_section:
+        changelog_content += "\n" + reviews_section + "\n"
+
     changelog_content += f"""
 ## Export Sheets Generated
 {sheets_description}
 
+{format_cell_colour_key()}
 ## Key Processing Notes
 - Strict boundaries (time > l_boundary & time < r_boundary) for precise peak integration
 - Compound-specific MM file patterns used for standard mixture identification

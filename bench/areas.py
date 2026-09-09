@@ -14,6 +14,15 @@ default) and level 7 (the most expensive), about 6 minutes on 8 cores. Each
 snapshot records the dataset manifests it was fitted from, so two snapshots
 compare only when they describe the same generated data, whichever commit
 built the databases.
+
+`snapshot --perturb 1e-12` nudges every intensity by a random relative amount
+of that size before fitting. Diffing it against an unperturbed snapshot of the
+same commit counts the cells whose answer depends on last-digit arithmetic,
+which is what differs between machines and BLAS libraries:
+
+    uv run python bench/areas.py snapshot .benchmarks/areas.npz
+    uv run python bench/areas.py snapshot --perturb 1e-12 .benchmarks/areas-perturbed.npz
+    uv run python bench/areas.py diff .benchmarks/areas.npz .benchmarks/areas-perturbed.npz
 """
 
 from __future__ import annotations
@@ -70,14 +79,24 @@ def _dataset_provenance(data: Path = BENCH_DATA) -> str:
     )
 
 
-def _cell_areas(job: tuple[str, str, str, list[str], str]) -> dict[str, np.ndarray]:
-    db, mode, name, samples, level = job
+def _perturbed(matrix: np.ndarray, key: str, eps: float) -> np.ndarray:
+    """Nudge every intensity by a random relative amount in [-eps, eps], seeded by cell."""
+    seed = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "little")
+    noise = np.random.default_rng(seed).uniform(-eps, eps, size=matrix.shape)
+    return matrix * (1.0 + noise)
+
+
+def _cell_areas(job: tuple[str, str, str, list[str], str, float]) -> dict[str, np.ndarray]:
+    db, mode, name, samples, level, eps = job
     database.DB_FILE = Path(db)
     fit_type, noise_gate = LEVELS[level]
     compound = read_compound(name)
     rows = {}
     for eic in read_eics_batch(samples, compound, use_corrected=False):
+        key = f"{mode}|{level}|{name}|{eic.sample_name}"
         matrix = np.asarray(eic.intensity, dtype=np.float64)
+        if eps:
+            matrix = _perturbed(matrix, key, eps)
         bundle = deconvolve_channel_matrix(
             eic.time,
             matrix,
@@ -100,11 +119,11 @@ def _cell_areas(job: tuple[str, str, str, list[str], str]) -> dict[str, np.ndarr
             label_atoms=compound.label_atoms,
             channel_count=matrix.shape[0] if matrix.ndim > 1 else 1,
         )
-        rows[f"{mode}|{level}|{name}|{eic.sample_name}"] = np.asarray(areas, dtype=np.float64)
+        rows[key] = np.asarray(areas, dtype=np.float64)
     return rows
 
 
-def snapshot(out: Path) -> None:
+def snapshot(out: Path, eps: float = 0.0) -> None:
     databases = _discover_databases()
     provenance = _dataset_provenance()
     jobs = []
@@ -112,7 +131,9 @@ def snapshot(out: Path) -> None:
         database.DB_FILE = db
         names = list_compound_names()
         samples = list_active_samples()
-        jobs += [(str(db), mode, name, samples, level) for level in LEVELS for name in names]
+        jobs += [
+            (str(db), mode, name, samples, level, eps) for level in LEVELS for name in names
+        ]
     started = time.perf_counter()
     table: dict[str, np.ndarray] = {}
     with ProcessPoolExecutor() as pool:
@@ -183,13 +204,20 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     snap = commands.add_parser("snapshot", help="fit every cell and write an .npz table")
     snap.add_argument("out", type=Path)
+    snap.add_argument(
+        "--perturb",
+        type=float,
+        default=0.0,
+        metavar="EPS",
+        help="nudge every intensity by up to EPS relative before fitting (try 1e-12)",
+    )
     compare = commands.add_parser("diff", help="compare two snapshot tables")
     compare.add_argument("before", type=Path)
     compare.add_argument("after", type=Path)
     compare.add_argument("--show", type=int, default=10, help="largest differences to print")
     args = parser.parse_args()
     if args.command == "snapshot":
-        snapshot(args.out)
+        snapshot(args.out, args.perturb)
     else:
         diff(args.before, args.after, args.show)
 

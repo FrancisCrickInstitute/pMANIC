@@ -34,6 +34,19 @@ def test_relative_difference_is_nan_for_incomparable_areas(
     assert np.isnan(areas._relative_difference(before, after))
 
 
+def test_perturbed_is_bounded_and_deterministic_per_cell() -> None:
+    matrix = np.full((3, 50), 1e5)
+
+    first = areas._perturbed(matrix, "labelled|4|Glucose|Bio_001", 1e-12)
+    again = areas._perturbed(matrix, "labelled|4|Glucose|Bio_001", 1e-12)
+    other = areas._perturbed(matrix, "labelled|4|Glucose|Bio_002", 1e-12)
+
+    np.testing.assert_array_equal(first, again)
+    assert not np.array_equal(first, other)
+    assert np.all(np.abs(first / matrix - 1.0) <= 1e-12)
+    assert np.any(first != matrix)
+
+
 def test_discover_databases_requires_one_database_per_mode(tmp_path: Path) -> None:
     (tmp_path / "labelled-one.db").touch()
     (tmp_path / "labelled-two.db").touch()

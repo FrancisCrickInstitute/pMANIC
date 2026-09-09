@@ -9,8 +9,10 @@ from manic.__version__ import __version__
 from manic.models.analysis import AnalysisMode
 from manic.models.database import get_connection
 from manic.io.changelog_sections import (
+    format_cell_colour_key,
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
+    format_peak_reviews_section,
     format_unlabelled_compounds_table_for_data_export,
 )
 
@@ -60,6 +62,13 @@ def generate_changelog(
             ORDER BY compound_name, sample_name
         """
         session_overrides = conn.execute(session_query).fetchall()
+
+        peak_reviews = conn.execute(
+            """
+            SELECT compound_name, sample_name, review FROM peak_review
+            ORDER BY compound_name, sample_name
+            """
+        ).fetchall()
 
         # Get deleted items for audit trail
         deleted_compounds_query = """
@@ -181,10 +190,15 @@ def generate_changelog(
     if session_overrides:
         changelog_content += "\n" + format_overrides_section_for_data_export(session_overrides) + "\n"
 
+    reviews_section = format_peak_reviews_section(peak_reviews)
+    if reviews_section:
+        changelog_content += "\n" + reviews_section + "\n"
+
     changelog_content += f"""
 ## Export Sheets Generated
 {sheets_description}
 
+{format_cell_colour_key()}
 ## Key Processing Notes
 - Strict boundaries (time > l_boundary & time < r_boundary) for precise peak integration
 - Compound-specific MM file patterns used for standard mixture identification

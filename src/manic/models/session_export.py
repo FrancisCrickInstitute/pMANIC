@@ -28,6 +28,7 @@ from manic.models.analysis import AnalysisMode
 from manic.io.changelog_sections import (
     format_compounds_table_for_session_export,
     format_overrides_section_for_session_export,
+    format_peak_reviews_section,
 )
 from manic.processors.chromatographic_peak_deconvolution import (
     normalize_fit_type,
@@ -801,6 +802,7 @@ def _generate_changelog(method_data: dict, changelog_path: Path) -> None:
             # Session activity section (shared formatter)
             session_overrides = method_data.get("session_overrides", [])
             f.write(format_overrides_section_for_session_export(session_overrides))
+            f.write(format_peak_reviews_section(method_data.get("peak_reviews", [])))
 
             f.write("\n---\n\n")
 

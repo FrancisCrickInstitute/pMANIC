@@ -369,11 +369,16 @@ def test_unlabelled_session_round_trip_preserves_mode_and_ions(
         },
     )
 
+    set_peak_review("Target", "S1", PeakReview.REJECTED)
     assert session_export.export_session_method(
         str(tmp_path / "method"),
         AnalysisMode.UNLABELLED,
     )
     method_path = tmp_path / "manic_session_export" / "method.json"
+    session_changelog = next(
+        (tmp_path / "manic_session_export").glob("changelog_*.md")
+    ).read_text(encoding="utf-8")
+    assert "## Manual Peak Reviews" in session_changelog
     exported = json.loads(method_path.read_text(encoding="utf-8"))
     assert exported["analysis_mode"] == "unlabelled"
     assert exported["compounds"][0]["ions"][1]["expected_ratio"] == pytest.approx(0.4)
@@ -958,3 +963,29 @@ def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
     assert "raw-window areas" in changelog
     assert "not in this workbook" in changelog
     assert "Identity chart" in changelog
+
+
+def test_unlabelled_changelog_lists_peak_reviews_and_colour_key(
+    unlabelled_db, tmp_path
+):
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=0.1,
+        rOffset=0.1,
+        QIon=217,
+        QualifierIon1=147,
+    )
+    set_peak_review("Target", "S1", PeakReview.REJECTED)
+    export_path = tmp_path / "reviewed.xlsx"
+    generate_changelog(
+        str(export_path),
+        internal_standard=None,
+        use_legacy_integration=False,
+        analysis_mode=AnalysisMode.UNLABELLED,
+    )
+    changelog = next(tmp_path.glob("changelog_*.md")).read_text(encoding="utf-8")
+    assert "## Manual Peak Reviews" in changelog
+    assert "| Target | S1 | Bad |" in changelog
+    assert "## Cell Colour Key" in changelog

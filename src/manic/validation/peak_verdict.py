@@ -28,5 +28,5 @@ PEAK_VERDICT_FILL: Mapping[PeakVerdict, str | None] = {
     PeakVerdict.PASS: None,
     PeakVerdict.FAIL: "#FFCCCC",
     PeakVerdict.ACCEPTED: "#E5D4F1",
-    PeakVerdict.REJECTED: "#FFD8A8",
+    PeakVerdict.REJECTED: "#E0C9A6",
 }

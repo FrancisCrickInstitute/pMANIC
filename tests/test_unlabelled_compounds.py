@@ -654,7 +654,7 @@ def test_unlabelled_excel_export_colours_peak_reviews(unlabelled_db, tmp_path):
     raw = workbook["Raw Values"]
     assert raw["C4"].value == pytest.approx(10.0)
     assert raw["C4"].fill.fgColor.rgb == "FFE5D4F1"
-    assert raw["D4"].fill.fgColor.rgb == "FFFFD8A8"
+    assert raw["D4"].fill.fgColor.rgb == "FFE0C9A6"
     assert raw["C5"].fill.patternType != "solid"
 
     assert session_export.export_session_method(

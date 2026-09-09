@@ -50,7 +50,7 @@ def identity_cell_tooltip(cell: "IdentityCell") -> str:
     qualifier = cell.qualifier
     return (
         f"{cell.sample_name}\n"
-        f"V{qualifier.ordinal}  {_STATUS_LABELS[qualifier.status]}\n"
+        f"Qualifier {qualifier.ordinal}  {_STATUS_LABELS[qualifier.status]}\n"
         f"{qualifier.detail}"
     )
 
@@ -121,8 +121,8 @@ def add_identity_grid(
 
     top_axis = QCategoryAxis()
     top_axis.setLabelsPosition(QCategoryAxis.AxisLabelsPositionOnValue)
-    top_axis.append("V1", 0.5)
-    top_axis.append("V2", 1.5)
+    top_axis.append("Qualifier 1", 0.5)
+    top_axis.append("Qualifier 2", 1.5)
     top_axis.setRange(0, 2)
     top_axis.setLabelsFont(QFont("Arial", label_font_size))
     top_axis.setGridLineVisible(False)

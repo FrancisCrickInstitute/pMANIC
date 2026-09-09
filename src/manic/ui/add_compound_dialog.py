@@ -190,6 +190,13 @@ class AddCompoundDialog(QDialog):
 
         self.qualifier2_tolerance = self._optional_float_edit()
         form.addRow("Qualifier 2 tolerance:", self.qualifier2_tolerance)
+        form.addRow(
+            "",
+            self._hint(
+                "Provide two qualifier ions, each with an expected ratio and tolerance. "
+                "Blank fields are accepted but leave identity QC unassessed."
+            ),
+        )
 
         self.rt_window = self._optional_float_edit()
         form.addRow("tR window:", self.rt_window)

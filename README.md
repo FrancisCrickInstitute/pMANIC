@@ -19,7 +19,7 @@ two different scientific models. Switch modes with
   M+n channels and uses natural-abundance correction and label-derived outputs.
 - **Unlabelled** is for targeted profiling. It integrates one quantifier ion
   (Q ion) for the reported response and uses qualifier ions, retention
-  time, and optional reference ion ratios as identity-supporting checks. It does
+  time, and reference ion ratios as identity-supporting checks. It does
   not apply isotopologue correction or calculate label incorporation.
 
 Full unlabelled documentation (compound-list format, identity QC, UI guides,

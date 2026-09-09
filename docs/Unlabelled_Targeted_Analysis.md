@@ -155,7 +155,7 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file. Write
 no prompt. Headers are case-insensitive and ignore spaces or underscores
 (`QIon`, `q_ion`, and `quant_ion` are treated the same after normalisation).
 
-### Required columns
+### Columns
 
 | Column | Accepted aliases | Meaning |
 | :--- | :--- | :--- |
@@ -165,16 +165,18 @@ no prompt. Headers are case-insensitive and ignore spaces or underscores
 | `rOffset` | | Right integration half-window (minutes) from tR |
 | `QIon` | `quant_ion` | Quantifier *m/z* |
 | `QualifierIon1` | `ValIon1`, `qualifier_ion_1` | First qualifier *m/z* |
-
-### Optional columns
-
-| Column | Accepted aliases | Meaning |
-| :--- | :--- | :--- |
 | `QualifierIon2` | `ValIon2`, `qualifier_ion_2` | Second qualifier *m/z* |
 | `Qualifier 1 Ratio` | | Expected qualifier-1/Q area ratio |
 | `Qualifier 1 Tolerance` | | Fractional tolerance on that ratio (e.g. `0.30` = ±30%) |
 | `Qualifier 2 Ratio` | | Expected qualifier-2/Q area ratio |
 | `Qualifier 2 Tolerance` | | Fractional tolerance on qualifier-2/Q |
+
+MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds.
+
+### Additional columns
+
+| Column | Accepted aliases | Meaning |
+| :--- | :--- | :--- |
 | `tR Window` | `tR_Window` | Extract half-width and RT identity tolerance (minutes). If omitted, defaults to `max(lOffset, rOffset)`. A value inside the offsets is raised to `max(lOffset, rOffset) + DEFAULT_RT_WINDOW_BUFFER` when EICs are extracted. |
 | `Amount in StdMix` | | Concentration of the compound in the standard mixture (for semi-quant) |
 | `Int Std amount` | | Amount of internal standard added to samples |
@@ -187,9 +189,11 @@ name,tR,lOffset,rOffset,QIon,QualifierIon1,Qualifier 1 Ratio,Qualifier 1 Toleran
 Citrate 4TMS,12.40,0.12,0.12,273,147,0.42,0.25,0.22
 ```
 
-`QualifierIon2` is optional (`ValIon2` is still accepted). Give it its own `Qualifier 2 Ratio` and
-`Qualifier 2 Tolerance` if both ions should count toward Validated. A second
-qualifier *m/z* with no ratio stays **Partial** even when qualifier 1 passes.
+Provide two qualifier ions, each with an expected ratio and tolerance, so
+identity QC can report Validated. `ValIon2` is still accepted as an alias for
+`QualifierIon2`. A list that omits the second qualifier, a ratio, or a
+tolerance still imports; those compounds then report **No qualifiers** or
+**Partial** instead of Validated.
 
 ### Scientific constraints enforced on import
 
@@ -451,7 +455,7 @@ Right-click a tile for the detail view:
 | :--- | :--- | :--- | :--- |
 | Channels | Q + qualifier diagnostic ions | M+0…M+n isotopologues | Q + ValIon1 + ValIon2 |
 | Quantification | Q-ion area only | Sum / distribution across isotopologues | Q (+ visual qualifier overlay) |
-| Identity | RT + optional qualifier/Q ratios | Envelope / experimental design | Visual qualifier scaling; no automated ratio QC |
+| Identity | RT + qualifier/Q ratios | Envelope / experimental design | Visual qualifier scaling; no automated ratio QC |
 | Natural-abundance correction | Off | On | N/A for Gv3 unlabelled |
 | Deconvolution | Level 4 by default; independent Q/qualifier fits | Level 4 by default | N/A |
 | Export | Raw Values + Abundances (labelled layout), plus Qualifier QC | Isotope-tracing sheets | Legacy MATLAB exports |

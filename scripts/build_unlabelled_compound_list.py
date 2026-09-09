@@ -6,8 +6,8 @@ to two qualifier ions from each apex spectrum, then measures retention time
 and qualifier/quantifier area ratios across every file so the list ships with
 data-derived expected ratios and tolerances.
 
-The output CSV deliberately uses the legacy OLD_MANIC Gv3 header names
-(QIon / ValIon1 / ValIon2); the pythonMANIC importer accepts them directly.
+The output CSV uses QIon / QualifierIon1 / QualifierIon2. The importer
+still accepts the old Gv3 names ValIon1 / ValIon2.
 
 Usage:
     uv run python scripts/build_unlabelled_compound_list.py <cdf_dir> \
@@ -332,7 +332,7 @@ def main() -> None:
     with out.open("w", newline="") as fh:
         writer = csv.writer(fh)
         writer.writerow([
-            "name", "tR", "lOffset", "rOffset", "QIon", "ValIon1", "ValIon2",
+            "name", "tR", "lOffset", "rOffset", "QIon", "QualifierIon1", "QualifierIon2",
             "Qualifier 1 Ratio", "Qualifier 1 Tolerance",
             "Qualifier 2 Ratio", "Qualifier 2 Tolerance", "tR Window",
         ])

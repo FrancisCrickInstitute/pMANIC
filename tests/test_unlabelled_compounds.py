@@ -84,6 +84,15 @@ def _insert_eic(sample: str, compound: str, time, matrix, rt_window: float) -> N
         )
 
 
+def test_detect_format_recognises_qualifier_ion_csv(tmp_path):
+    path = tmp_path / "qualifier.csv"
+    path.write_text(
+        "name,tR,lOffset,rOffset,QIon,QualifierIon1,QualifierIon2,tR_Window\n"
+        "A,1.0,0.1,0.1,100,150,200,0.1\n"
+    )
+    assert detect_compound_list_format(path) is AnalysisMode.UNLABELLED
+
+
 def test_detect_format_recognises_gv3_csv(tmp_path):
     path = tmp_path / "gv3.csv"
     path.write_text(
@@ -172,8 +181,8 @@ def test_unlabelled_compound_import_stores_arbitrary_ion_channels(
         lOffset=0.15,
         rOffset=0.2,
         QIon=273,
-        ValIon1=147,
-        ValIon2=73,
+        QualifierIon1=147,
+        QualifierIon2=73,
         **{"Qualifier 1 Ratio": 0.42, "Qualifier 1 Tolerance": 0.25},
     )
 
@@ -193,6 +202,23 @@ def test_unlabelled_compound_import_stores_arbitrary_ion_channels(
     assert compound.baseline_correction == 1
     assert compound.analysis_channels[1].expected_ratio == pytest.approx(0.42)
     assert compound.analysis_channels[1].ratio_tolerance == pytest.approx(0.25)
+
+
+def test_unlabelled_import_still_accepts_valion_headers(unlabelled_db, tmp_path):
+    count = _import_targets(
+        tmp_path,
+        name="Legacy",
+        tR=1.0,
+        lOffset=0.1,
+        rOffset=0.1,
+        QIon=217,
+        ValIon1=147,
+        ValIon2=73,
+    )
+
+    assert count == 1
+    compound = read_compound("Legacy")
+    assert [channel.mz for channel in compound.analysis_channels] == [217, 147, 73]
 
 
 def test_unlabelled_import_requires_quantifier_and_qualifier_columns(
@@ -329,7 +355,7 @@ def test_unlabelled_session_round_trip_preserves_mode_and_ions(
         lOffset=0.1,
         rOffset=0.1,
         QIon=217,
-        ValIon1=147,
+        QualifierIon1=147,
         **{
             "tR Window": 0.08,
             "Qualifier 1 Ratio": 0.4,
@@ -396,7 +422,7 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
         lOffset=1.1,
         rOffset=1.1,
         QIon=217,
-        ValIon1=147,
+        QualifierIon1=147,
     )
 
     _insert_eic(
@@ -451,7 +477,7 @@ def test_unlabelled_excel_export_with_internal_standard(unlabelled_db, tmp_path)
         lOffset=1.1,
         rOffset=1.1,
         QIon=217,
-        ValIon1=147,
+        QualifierIon1=147,
         **{"Amount in StdMix": 2.5},
     )
     _import_targets(
@@ -461,7 +487,7 @@ def test_unlabelled_excel_export_with_internal_standard(unlabelled_db, tmp_path)
         lOffset=1.1,
         rOffset=1.1,
         QIon=318,
-        ValIon1=217,
+        QualifierIon1=217,
         **{"Amount in StdMix": 1.0, "Int Std amount": 10.0, "MM Files": "S1"},
     )
     _insert_eic(
@@ -525,7 +551,7 @@ def test_deconvolution_on_quantifies_q_only_and_pairs_vq(unlabelled_db, tmp_path
         lOffset=4.0,
         rOffset=4.0,
         QIon=217,
-        ValIon1=147,
+        QualifierIon1=147,
         **{"Qualifier 1 Ratio": 0.4, "Qualifier 1 Tolerance": 0.25},
     )
     _enable_deconvolution("Target")
@@ -619,7 +645,7 @@ def test_raw_calibrated_expected_ratio_fails_after_deconvolution_on(
         lOffset=4.0,
         rOffset=4.0,
         QIon=217,
-        ValIon1=147,
+        QualifierIon1=147,
         **{"Qualifier 1 Ratio": raw_ratio, "Qualifier 1 Tolerance": 0.25},
     )
     _insert_eic("S1", "Target", time, matrix, rt_window=4.0)
@@ -648,7 +674,7 @@ def test_deconvolution_on_falls_back_when_any_ion_fails(
         lOffset=0.4,
         rOffset=0.4,
         QIon=217,
-        ValIon1=147,
+        QualifierIon1=147,
         **{"Qualifier 1 Ratio": 0.25, "Qualifier 1 Tolerance": 0.25},
     )
     _enable_deconvolution("Target")
@@ -737,7 +763,7 @@ def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
         lOffset=0.1,
         rOffset=0.1,
         QIon=217,
-        ValIon1=147,
+        QualifierIon1=147,
         **{
             "tR Window": 0.08,
             "Amount in StdMix": 2.5,

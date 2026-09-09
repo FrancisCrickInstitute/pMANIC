@@ -163,13 +163,13 @@ case-insensitive and ignore spaces or underscores
 | `lOffset` | | Left integration half-window (minutes) from tR |
 | `rOffset` | | Right integration half-window (minutes) from tR |
 | `QIon` | `quant_ion` | Quantifier *m/z* |
-| `ValIon1` | `qualifier_ion_1` | First qualifier *m/z* |
+| `QualifierIon1` | `ValIon1`, `qualifier_ion_1` | First qualifier *m/z* |
 
 ### Optional columns
 
 | Column | Accepted aliases | Meaning |
 | :--- | :--- | :--- |
-| `ValIon2` | `qualifier_ion_2` | Second qualifier *m/z* |
+| `QualifierIon2` | `ValIon2`, `qualifier_ion_2` | Second qualifier *m/z* |
 | `Qualifier 1 Ratio` | | Expected qualifier-1/Q area ratio |
 | `Qualifier 1 Tolerance` | | Fractional tolerance on that ratio (e.g. `0.30` = ±30%) |
 | `Qualifier 2 Ratio` | | Expected qualifier-2/Q area ratio |
@@ -182,11 +182,11 @@ case-insensitive and ignore spaces or underscores
 ### Minimal example
 
 ```csv
-name,tR,lOffset,rOffset,QIon,ValIon1,Qualifier 1 Ratio,Qualifier 1 Tolerance,tR Window
+name,tR,lOffset,rOffset,QIon,QualifierIon1,Qualifier 1 Ratio,Qualifier 1 Tolerance,tR Window
 Citrate 4TMS,12.40,0.12,0.12,273,147,0.42,0.25,0.10
 ```
 
-`ValIon2` is optional. Give it its own `Qualifier 2 Ratio` and
+`QualifierIon2` is optional (`ValIon2` is still accepted). Give it its own `Qualifier 2 Ratio` and
 `Qualifier 2 Tolerance` if both ions should count toward Validated. A second
 qualifier *m/z* with no ratio stays **Partial** even when qualifier 1 passes.
 
@@ -445,9 +445,9 @@ Right-click a tile for the detail view:
 | Export | Raw Values + Abundances (labelled layout), plus Qualifier QC | Isotope-tracing sheets | Legacy MATLAB exports |
 
 Old MANIC Gv3 lists (exactly
-`name, tR, lOffset, rOffset, QIon, ValIon1, ValIon2, tR_Window`) import into
-pythonMANIC; ratio columns can be added to enable automated identity QC that
-old MANIC did not perform.
+`name, tR, lOffset, rOffset, QIon, ValIon1, ValIon2, tR_Window`) still import.
+New lists should use `QualifierIon1` / `QualifierIon2`. Ratio columns can be
+added to enable automated identity QC that old MANIC did not perform.
 
 ---
 

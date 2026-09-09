@@ -392,8 +392,8 @@ def write_compound_list(path: Path) -> None:
                     "tr_window", max(compound["loffset"], compound["roffset"])
                 ),
                 "QIon": compound["quant"],
-                "ValIon1": compound["q1"] if compound["q1"] is not None else "",
-                "ValIon2": q2 if q2 is not None else "",
+                "QualifierIon1": compound["q1"] if compound["q1"] is not None else "",
+                "QualifierIon2": q2 if q2 is not None else "",
                 "Qualifier 1 Ratio": (
                     compound["q1_ratio"] if compound["q1_ratio"] is not None else ""
                 ),

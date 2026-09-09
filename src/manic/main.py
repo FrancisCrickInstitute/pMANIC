@@ -25,11 +25,16 @@ def main():
     from manic.models.analysis import AnalysisContext
     from manic.ui.analysis_mode_dialog import choose_analysis_mode
     from manic.ui.main_window import MainWindow
+    from manic.utils.paths import resource_path
+    from manic.utils.utils import load_stylesheet
 
     logger = logging.getLogger(__name__)
 
     configure_logging()
     app = QApplication(sys.argv)
+    # Application-wide so every dialog is styled, including the mode chooser
+    # shown before any MainWindow exists and dialogs opened without a parent.
+    app.setStyleSheet(load_stylesheet(resource_path("resources", "style.qss")))
 
     selected_mode = choose_analysis_mode()
     if selected_mode is None:

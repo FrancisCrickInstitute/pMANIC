@@ -15,8 +15,6 @@ from PySide6.QtWidgets import (
 
 from manic.constants import FONT
 from manic.models.database import get_deleted_samples, restore_samples
-from manic.utils.paths import resource_path
-from manic.utils.utils import load_stylesheet
 
 
 class SampleRecoveryDialog(QDialog):
@@ -29,10 +27,6 @@ class SampleRecoveryDialog(QDialog):
         self.setWindowTitle("Recover Deleted Samples")
         self.setModal(True)
         self.resize(400, 500)
-
-        # Load and apply the stylesheet from resources
-        stylesheet = load_stylesheet(resource_path("resources", "style.qss"))
-        self.setStyleSheet(stylesheet)
 
         self._setup_ui()
         self._load_deleted_samples()

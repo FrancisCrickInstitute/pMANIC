@@ -113,9 +113,9 @@ class DeconvolutionModel:
         Shape is (n_channels, len(grid)), or (len(grid),) for 1-D inputs.
         """
         grid = np.asarray(time_grid, dtype=np.float64)
-        raw = _component_shape_raw(
-            grid - self.x0, self.shape_model, self.shape_params[component_index]
-        )
+        raw = _raw_component_shapes(
+            grid - self.x0, self.shape_model, self.shape_params[component_index][None, :]
+        )[0]
         norm = float(self.norms[component_index])
         unit = raw / norm if norm > 0 and np.isfinite(norm) else np.zeros_like(raw)
         component = self.weights[:, component_index][:, None] * unit[None, :]
@@ -821,7 +821,7 @@ def _fit_shape_candidate(
             residual,
             x0=np.asarray(initial, dtype=np.float64),
             bounds=(np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)),
-            jac=jacobian if shape_model in ("gaussian", "bi_gaussian") else "2-point",
+            jac=jacobian,
             x_scale="jac",
             max_nfev=params.max_nfev,
         )
@@ -851,13 +851,7 @@ def _fit_shape_candidate(
         component_count, param_count
     )
     ordered_params = ordered_params[np.argsort(ordered_params[:, 0])]
-    norms = np.array(
-        [
-            float(np.max(_component_shape_raw(x_rel, shape_model, ordered_params[k])))
-            for k in range(component_count)
-        ],
-        dtype=np.float64,
-    )
+    norms = np.max(_raw_component_shapes(x_rel, shape_model, ordered_params), axis=1)
     return FittedComponentModel(
         baseline=np.maximum(baseline, 0.0),
         components=np.maximum(components, 0.0),
@@ -1105,30 +1099,6 @@ def _shape_param_count(shape_model: PeakShapeModel) -> int:
     return 2 if shape_model == "gaussian" else 3
 
 
-def _component_shape_raw(
-    x_rel: np.ndarray, shape_model: PeakShapeModel, values: np.ndarray
-) -> np.ndarray:
-    """Evaluate the (un-normalized) peak shape on an arbitrary time grid."""
-    if shape_model == "gaussian":
-        center, sigma = values
-        shape = np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
-    elif shape_model == "bi_gaussian":
-        center, sigma_left, sigma_right = values
-        sigma = np.where(x_rel < center, sigma_left, sigma_right)
-        shape = np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
-    else:
-        center, sigma, tau = values
-        sigma = max(float(sigma), np.finfo(float).eps)
-        tau = max(float(tau), np.finfo(float).eps)
-        offset = x_rel - center
-        # Stable EMG via the scaled complementary error function; the leading
-        # 1/(2*tau) constant is dropped because the shape is max-normalized later.
-        # z is clipped to keep erfcx finite far out in the (negligible) tail.
-        z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
-        shape = np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
-    return np.asarray(shape, dtype=np.float64)
-
-
 def _normalize_rows(shapes: np.ndarray) -> np.ndarray:
     max_shapes = np.max(shapes, axis=1)
     normalized = np.zeros_like(shapes, dtype=np.float64)
@@ -1140,6 +1110,7 @@ def _normalize_rows(shapes: np.ndarray) -> np.ndarray:
 def _raw_component_shapes(
     x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
 ) -> np.ndarray:
+    """Un-normalised shape of every component (K, n) on an arbitrary time grid."""
     if shape_model == "gaussian":
         center = values_matrix[:, 0, None]
         sigma = values_matrix[:, 1, None]
@@ -1152,10 +1123,16 @@ def _raw_component_shapes(
             values_matrix[:, 2, None],
         )
         return np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
-    return np.asarray(
-        [_component_shape_raw(x_rel, shape_model, values) for values in values_matrix],
-        dtype=np.float64,
-    )
+    center = values_matrix[:, 0, None]
+    eps = np.finfo(np.float64).eps
+    sigma = np.maximum(values_matrix[:, 1, None], eps)
+    tau = np.maximum(values_matrix[:, 2, None], eps)
+    offset = x_rel[None, :] - center
+    # Stable EMG via the scaled complementary error function; the leading
+    # 1/(2*tau) constant is dropped because the shape is max-normalized later.
+    # z is clipped to keep erfcx finite far out in the (negligible) tail.
+    z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
+    return np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
 
 
 def _component_shapes(
@@ -1168,20 +1145,54 @@ def _component_shapes(
 def _component_shape_gradients(
     x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Normalised shapes (K, n) and their derivatives (K, p, n) for gaussian models."""
+    """Normalised shapes (K, n) and their derivatives (K, p, n)."""
     raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
     center = values_matrix[:, 0, None]
     if shape_model == "gaussian":
         sigma = values_matrix[:, 1, None]
         u = (x_rel[None, :] - center) / sigma
         raw_gradients = np.stack((raw * u / sigma, raw * u**2 / sigma), axis=1)
-    else:
+    elif shape_model == "bi_gaussian":
         left = x_rel[None, :] < center
         sigma = np.where(left, values_matrix[:, 1, None], values_matrix[:, 2, None])
         u = (x_rel[None, :] - center) / sigma
         sigma_gradient = raw * u**2 / sigma
         raw_gradients = np.stack(
             (raw * u / sigma, sigma_gradient * left, sigma_gradient * ~left), axis=1
+        )
+    else:
+        eps = np.finfo(np.float64).eps
+        sigma = np.maximum(values_matrix[:, 1, None], eps)
+        tau = np.maximum(values_matrix[:, 2, None], eps)
+        u = (x_rel[None, :] - center) / sigma
+        z_unclipped = (sigma / tau - u) / np.sqrt(2.0)
+        z = np.clip(z_unclipped, -26.0, None)
+        exponential = np.exp(-0.5 * u**2)
+        scaled_erfc = erfcx(z)
+        scaled_erfc_gradient = np.where(
+            z_unclipped < -26.0,
+            0.0,
+            2.0 * z * scaled_erfc - 2.0 / np.sqrt(np.pi),
+        )
+        center_gradient = (
+            raw * u / sigma
+            + exponential * scaled_erfc_gradient / (sigma * np.sqrt(2.0))
+        )
+        sigma_gradient = (
+            raw * u**2 / sigma
+            + exponential
+            * scaled_erfc_gradient
+            * (1.0 / tau + u / sigma)
+            / np.sqrt(2.0)
+        )
+        tau_gradient = (
+            -exponential
+            * scaled_erfc_gradient
+            * sigma
+            / (tau**2 * np.sqrt(2.0))
+        )
+        raw_gradients = np.stack(
+            (center_gradient, sigma_gradient, tau_gradient), axis=1
         )
 
     shapes = _normalize_rows(raw)

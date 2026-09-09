@@ -2,6 +2,7 @@ import dataclasses
 
 import numpy as np
 import pytest
+from scipy.special import erfcx
 
 from manic.processors import chromatographic_peak_deconvolution as deconv
 from manic.processors.chromatographic_peak_deconvolution import (
@@ -1384,7 +1385,21 @@ def _projected_residual(x_rel, shape_model, values_matrix, y, ridge, scale):
     return (((design @ coef).T - y) / scale[:, None]).ravel()
 
 
-@pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian"])
+def _reference_shape(x_rel, shape_model, values):
+    if shape_model == "gaussian":
+        center, sigma = values
+        return np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
+    if shape_model == "bi_gaussian":
+        center, sigma_left, sigma_right = values
+        sigma = np.where(x_rel < center, sigma_left, sigma_right)
+        return np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
+    center, sigma, tau = values
+    offset = x_rel - center
+    z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
+    return np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
+
+
+@pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian", "emg"])
 def test_component_shapes_match_single_component_evaluation(shape_model):
     rng = np.random.default_rng(0)
     x_rel = np.arange(0.0, 24.0, 0.5)
@@ -1395,16 +1410,14 @@ def test_component_shapes_match_single_component_evaluation(shape_model):
             [rng.uniform(0.0, 24.0, count)]
             + [rng.uniform(0.05, 6.0, count) for _ in range(params - 1)]
         )
-        raw = [
-            deconv._component_shape_raw(x_rel, shape_model, row) for row in values
-        ]
+        raw = [_reference_shape(x_rel, shape_model, row) for row in values]
         expected = np.asarray([shape / np.max(shape) for shape in raw])
         np.testing.assert_array_equal(
             deconv._component_shapes(x_rel, shape_model, values), expected
         )
 
 
-@pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian"])
+@pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian", "emg"])
 def test_variable_projection_jacobian_matches_finite_differences(shape_model):
     rng = np.random.default_rng(1)
     x_rel = np.arange(0.0, 24.0, 0.5)

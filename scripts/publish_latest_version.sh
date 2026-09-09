@@ -1,10 +1,5 @@
 #!/bin/bash
-# Point the in-app update checker at a published release.
-#
-# Run this AFTER the GitHub Release exists and its installers are uploaded,
-# then commit releases/latest.json to main. Installed copies of MANIC read
-# this file on start-up, so bumping it early announces a version nobody can
-# download yet.
+# Point the in-app update checker at a published release. See releases/README.md.
 
 if [ -z "$1" ]; then
     echo "Usage: $0 <released_version>"
@@ -19,9 +14,12 @@ if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
-if command -v gh >/dev/null && ! gh release view "v$VERSION" >/dev/null 2>&1; then
-    echo "Error: no published GitHub Release tagged v$VERSION. Publish it first."
-    exit 1
+if command -v gh >/dev/null; then
+    IS_DRAFT=$(gh release view "v$VERSION" --json isDraft -q .isDraft 2>/dev/null)
+    if [ "$IS_DRAFT" != "false" ]; then
+        echo "Error: no published GitHub Release tagged v$VERSION. Publish it first."
+        exit 1
+    fi
 fi
 
 cat > releases/latest.json <<EOF

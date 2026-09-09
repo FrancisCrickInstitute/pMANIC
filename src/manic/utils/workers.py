@@ -1,68 +1,24 @@
 # In src/manic/utils/workers.py
-import json
-import urllib.request
-from typing import Tuple
-
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
-from manic.__version__ import __version_info__
 from manic.io.eic_importer import (
     import_eics,
     regenerate_all_eics_with_mass_tolerance,
     regenerate_compound_eics,
 )
 from manic.models.session_activity import PendingRegeneration
+from manic.utils.update_check import check_for_update
 
 
 class UpdateCheckWorker(QThread):
     # Signal emits: (success, has_update, latest_version_str, download_url)
     result = Signal(bool, bool, str, str)
 
-    # Configure your repository here
-    REPO_OWNER = "FrancisCrickInstitute"
-    REPO_NAME = "pMANIC"
-
     def run(self):
-        try:
-            url = f"https://api.github.com/repos/{self.REPO_OWNER}/{self.REPO_NAME}/releases/latest"
-
-            # Create request with User-Agent (required by GitHub API)
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "MANIC-Update-Checker"}
-            )
-
-            with urllib.request.urlopen(req, timeout=5) as response:
-                data = json.loads(response.read().decode())
-
-                tag_name = data.get("tag_name", "").lstrip("v")
-                html_url = data.get("html_url", "")
-
-                if not tag_name:
-                    self.result.emit(False, False, "", "")
-                    return
-
-                # Parse versions into tuples for comparison (e.g., "4.0.1" -> (4, 0, 1))
-                latest_version = self._parse_version(tag_name)
-                current_version = __version_info__
-
-                if latest_version > current_version:
-                    self.result.emit(True, True, tag_name, html_url)
-                else:
-                    self.result.emit(True, False, tag_name, html_url)
-
-        except Exception as e:
-            # Silently fail on network errors or api limits
-            print(f"Update check failed: {e}")
-            self.result.emit(False, False, "", "")
-
-    def _parse_version(self, version_str: str) -> Tuple[int, ...]:
-        """Convert '1.2.3' string to (1, 2, 3) tuple."""
-        try:
-            # Remove any non-numeric suffixes if necessary
-            clean_ver = version_str.split("-")[0]
-            return tuple(map(int, clean_ver.split(".")))
-        except ValueError:
-            return (0, 0, 0)
+        outcome = check_for_update()
+        self.result.emit(
+            outcome.success, outcome.has_update, outcome.latest_version, outcome.url
+        )
 
 
 class CdfImportWorker(QObject):

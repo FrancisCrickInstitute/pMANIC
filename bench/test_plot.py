@@ -12,6 +12,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
     _fit_single_component_model_cached,
 )
 from manic.ui.main_window import MainWindow
+from manic.utils.utils import apply_app_stylesheet
 
 
 def _clear_fit_caches() -> None:
@@ -21,6 +22,7 @@ def _clear_fit_caches() -> None:
 
 def _make_window(case, qapp):
     MainWindow._check_for_updates = lambda self: None
+    apply_app_stylesheet(qapp)
     window = MainWindow(AnalysisContext(case.mode))
     names = list_compound_names()
     samples = list_active_samples()

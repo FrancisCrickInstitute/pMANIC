@@ -521,29 +521,35 @@ class GraphView(QWidget):
         return prepared.intensity
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:
-        """Show a colour key naming each plotted channel above the grid."""
-        multi_trace = bool(
-            eics and getattr(eics[0].intensity, "ndim", 1) > 1
-        )
-        if not multi_trace:
+        """Name each plotted channel above the grid, in both analysis modes.
+
+        Colour dots only accompany labelled multi-trace plots. Unlabelled
+        qualifier traces are coloured per sample by QC status, and a single
+        trace is drawn dark red, so neither has one fixed colour to show.
+        """
+        if not eics:
             self.channel_legend.hide()
             return
         try:
             compound = read_compound_with_session(compound_name, None)
             intensity = eics[0].intensity
-            n_traces = (
-                intensity.shape[0] if getattr(intensity, "ndim", 1) > 1 else 1
-            )
+            multi_trace = getattr(intensity, "ndim", 1) > 1
+            n_traces = intensity.shape[0] if multi_trace else 1
             n_names = min(n_traces, len(compound.analysis_channels))
-            if n_names == 0 or getattr(compound, "is_unlabelled_target", False):
+            if n_names == 0:
                 self.channel_legend.hide()
                 return
 
+            fixed_colours = multi_trace and not getattr(
+                compound, "is_unlabelled_target", False
+            )
             parts = []
             for index in range(n_names):
-                color = label_colors[index % len(label_colors)].name()
                 label = channel_legend_label(compound, index)
-                parts.append(f'<span style="color:{color}">●</span> {label}')
+                if fixed_colours:
+                    color = label_colors[index % len(label_colors)].name()
+                    label = f'<span style="color:{color}">●</span> {label}'
+                parts.append(label)
             self.channel_legend.setText("&nbsp;&nbsp;".join(parts))
             self.channel_legend.show()
         except LookupError:

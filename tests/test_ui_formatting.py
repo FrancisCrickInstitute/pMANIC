@@ -871,7 +871,7 @@ def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
         view.deleteLater()
 
 
-def test_channel_legend_hides_for_unlabelled_target(qapp, monkeypatch):
+def test_channel_legend_names_unlabelled_ions_without_colour_dots(qapp, monkeypatch):
     compound = SimpleNamespace(
         is_unlabelled_target=True,
         analysis_channels=(
@@ -885,9 +885,32 @@ def test_channel_legend_hides_for_unlabelled_target(qapp, monkeypatch):
     )
     view = GraphView()
     try:
-        view.channel_legend.show()
         view._update_channel_legend("Target", _multi_trace_eics(2))
-        assert view.channel_legend.isHidden()
+        assert not view.channel_legend.isHidden()
+        assert (
+            view.channel_legend.text()
+            == "Q ion m/z 217&nbsp;&nbsp;Qualifier ion 1 m/z 147"
+        )
+    finally:
+        view.deleteLater()
+
+
+def test_channel_legend_shows_a_single_trace_without_a_dot(qapp, monkeypatch):
+    compound = SimpleNamespace(
+        is_unlabelled_target=False,
+        analysis_channels=(IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),),
+    )
+    monkeypatch.setattr(
+        "manic.ui.graphs.read_compound_with_session",
+        lambda *_args: compound,
+    )
+    view = GraphView()
+    try:
+        view._update_channel_legend(
+            "alanine", [SimpleNamespace(intensity=np.ones(3, dtype=float))]
+        )
+        assert not view.channel_legend.isHidden()
+        assert view.channel_legend.text() == "M+0 m/z 174"
     finally:
         view.deleteLater()
 

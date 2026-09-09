@@ -326,26 +326,35 @@ class MainWindow(QMainWindow):
         self.update_old_data_action.triggered.connect(self.update_old_data)
         file_menu.addAction(self.update_old_data_action)
 
-        """ Create Settings and Documentation entries """
+        # One "MANIC" menu. On macOS the roles move every entry into the native
+        # application menu and Qt hides the emptied menu, which is that platform's
+        # convention; elsewhere the menu shows as-is.
+        manic_menu = menu_bar.addMenu("MANIC")
 
-        self.settings_action = self._add_window_opener(
-            menu_bar, "Settings", self.open_settings_window
-        )
+        self.settings_action = QAction("Settings...", self)
+        self.settings_action.setMenuRole(QAction.PreferencesRole)
         self.settings_action.setShortcuts(
             [QKeySequence.Preferences, QKeySequence("Ctrl+,")]
         )
-        self.documentation_action = self._add_window_opener(
-            menu_bar, "Documentation", self.open_documentation_window
-        )
+        self.settings_action.triggered.connect(self.open_settings_window)
+        manic_menu.addAction(self.settings_action)
+
+        self.documentation_action = QAction("Documentation", self)
+        self.documentation_action.setMenuRole(QAction.ApplicationSpecificRole)
         self.documentation_action.setShortcut(QKeySequence.HelpContents)
+        self.documentation_action.triggered.connect(self.open_documentation_window)
+        manic_menu.addAction(self.documentation_action)
 
-        """ Create Help Menu """
+        self.check_updates_action = QAction("Check for Updates...", self)
+        self.check_updates_action.setMenuRole(QAction.ApplicationSpecificRole)
+        self.check_updates_action.triggered.connect(self._check_for_updates)
+        manic_menu.addAction(self.check_updates_action)
 
-        help_menu = menu_bar.addMenu("Help")
-
+        manic_menu.addSeparator()
         self.about_action = QAction("About MANIC...", self)
+        self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        help_menu.addAction(self.about_action)
+        manic_menu.addAction(self.about_action)
 
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
@@ -1923,19 +1932,6 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")
-
-    def _add_window_opener(self, menu_bar: QMenuBar, title: str, open_window) -> QAction:
-        # A native (macOS) menubar shows neither a bare top-level action nor an
-        # empty menu, and opening a window from aboutToShow leaves the dropdown
-        # stuck open, so there the entry is a one-item menu.
-        if menu_bar.isNativeMenuBar():
-            menu = menu_bar.addMenu(title)
-            action = menu.addAction(f"Open {title}")
-            action.triggered.connect(open_window)
-            return action
-        action = menu_bar.addAction(title)
-        action.triggered.connect(open_window)
-        return action
 
     def open_settings_window(self) -> None:
         if self.settings_window is None:

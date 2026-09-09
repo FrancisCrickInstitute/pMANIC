@@ -5,7 +5,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMenu
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
@@ -297,3 +297,32 @@ def test_deconvolution_unsaved_hint_names_the_compound_it_will_write(labelled_wi
         "Unsaved changes for Alanine. The toolbar now selects Glycine; "
         "Save still writes to Alanine."
     )
+
+
+def test_manic_menu_holds_settings_docs_updates_and_about(labelled_window):
+    menus = [
+        m for m in labelled_window.menuBar().findChildren(QMenu) if m.title() == "MANIC"
+    ]
+    assert len(menus) == 1
+    texts = [a.text() for a in menus[0].actions() if not a.isSeparator()]
+    assert texts == [
+        "Settings...",
+        "Documentation",
+        "Check for Updates...",
+        "About MANIC...",
+    ]
+
+
+def test_settings_window_opens_centred_on_a_visible_main_window(labelled_window):
+    labelled_window.resize(1200, 800)
+    labelled_window.show()
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    screen_area = labelled_window.screen().availableGeometry()
+    frame = settings.frameGeometry()
+    assert screen_area.contains(frame.topLeft())
+    parent_centre = labelled_window.frameGeometry().center()
+    if frame.height() <= screen_area.height():
+        assert abs(frame.center().y() - parent_centre.y()) <= 4
+    if frame.width() <= screen_area.width():
+        assert abs(frame.center().x() - parent_centre.x()) <= 4

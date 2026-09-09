@@ -147,6 +147,7 @@ class GraphView(QWidget):
         outer_layout.setContentsMargins(0, 0, 0, 0)
 
         self.channel_legend = QLabel("")
+        self.channel_legend.setTextFormat(Qt.RichText)
         self.channel_legend.setContentsMargins(4, 2, 4, 2)
         self.channel_legend.setStyleSheet(
             "color: #333; font-size: 11px; background: transparent;"

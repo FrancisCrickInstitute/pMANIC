@@ -891,6 +891,8 @@ def test_channel_legend_names_unlabelled_ions_without_colour_dots(qapp, monkeypa
             view.channel_legend.text()
             == "Q ion m/z 217&nbsp;&nbsp;Qualifier ion 1 m/z 147"
         )
+        # Without a tag in the text, auto-detection would print the entities literally
+        assert view.channel_legend.textFormat() == Qt.RichText
     finally:
         view.deleteLater()
 

@@ -150,8 +150,9 @@ The window title always shows the active mode
 
 ## 4. Compound list format
 
-Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file. Headers are
-case-insensitive and ignore spaces or underscores
+Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file. Write
+`QualifierIon1` / `QualifierIon2`. `ValIon1` / `ValIon2` still import with
+no prompt. Headers are case-insensitive and ignore spaces or underscores
 (`QIon`, `q_ion`, and `quant_ion` are treated the same after normalisation).
 
 ### Required columns
@@ -239,7 +240,9 @@ Launch MANIC (or use **File → New Analysis Session…**) and choose
 
 ### Step B — Load the compound list
 
-**File → Load Compounds/Parameter List** and select your Gv3-style file.
+**File → Load Compounds/Parameter List** and select a list with `QIon` and
+`QualifierIon1`. Lists that still use `ValIon1` / `ValIon2` load without a
+prompt. New lists should use the qualifier names.
 
 Verification:
 

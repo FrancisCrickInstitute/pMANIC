@@ -671,11 +671,10 @@ class MainWindow(QMainWindow):
 
         detected_mode = detect_compound_list_format(file_path)
         if detected_mode is not None and detected_mode is not self.analysis_mode:
-            list_kind = "Gv3" if detected_mode is AnalysisMode.UNLABELLED else "Gv5"
             msg_box = self._create_message_box(
                 "warning",
                 "Compound list does not match this session",
-                f"This looks like a {detected_mode.display_name} ({list_kind}) "
+                f"This looks like a {detected_mode.display_name} "
                 f"compound list, but this session is in "
                 f"{self.analysis_mode.display_name} mode.\n\n"
                 f"Start a new {detected_mode.display_name} session and load it there?",

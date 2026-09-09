@@ -542,8 +542,8 @@ def _plan_unlabelled_rows(
                 "rOffset": roffset,
                 "tR Window": max(loffset, roffset),
                 "QIon": q_ion,
-                "ValIon1": v1,
-                "ValIon2": v2,
+                "QualifierIon1": v1,
+                "QualifierIon2": v2,
                 "q1_ratio": q1_ratio,
                 "q2_ratio": q2_ratio,
                 "amount": amount,
@@ -558,15 +558,15 @@ def _plan_unlabelled_rows(
         v1 = rows[right_i]["QIon"] + 41.0
         if _nominal(v1) == _nominal(rows[right_i]["QIon"]):
             v1 += 2.0
-        rows[right_i]["ValIon1"] = v1
-        if rows[right_i]["ValIon2"] is not None:
+        rows[right_i]["QualifierIon1"] = v1
+        if rows[right_i]["QualifierIon2"] is not None:
             v2 = rows[right_i]["QIon"] + 67.0
             if _nominal(v2) in {
                 _nominal(rows[right_i]["QIon"]),
-                _nominal(rows[right_i]["ValIon1"]),
+                _nominal(rows[right_i]["QualifierIon1"]),
             }:
                 v2 += 3.0
-            rows[right_i]["ValIon2"] = v2
+            rows[right_i]["QualifierIon2"] = v2
 
     pairs = [(rows[i]["name"], rows[j]["name"]) for i, j in pair_idxs]
     return rows, is_name, pairs
@@ -584,10 +584,10 @@ def _unlabelled_targets(
     csv_rows = []
     targets: list[Target] = []
     for row in rows:
-        channels = [float(row["QIon"]), float(row["ValIon1"])]
+        channels = [float(row["QIon"]), float(row["QualifierIon1"])]
         fractions = [1.0, float(row["q1_ratio"] if row["q1_ratio"] is not None else 0.35)]
-        if row["ValIon2"] is not None:
-            channels.append(float(row["ValIon2"]))
+        if row["QualifierIon2"] is not None:
+            channels.append(float(row["QualifierIon2"]))
             fractions.append(
                 float(row["q2_ratio"] if row["q2_ratio"] is not None else 0.20)
             )
@@ -615,8 +615,8 @@ def _unlabelled_targets(
                 "rOffset": row["rOffset"],
                 "tR Window": row["tR Window"],
                 "QIon": row["QIon"],
-                "ValIon1": row["ValIon1"],
-                "ValIon2": row["ValIon2"] if row["ValIon2"] is not None else "",
+                "QualifierIon1": row["QualifierIon1"],
+                "QualifierIon2": row["QualifierIon2"] if row["QualifierIon2"] is not None else "",
                 "Qualifier 1 Ratio": row["q1_ratio"] if row["q1_ratio"] is not None else "",
                 "Qualifier 1 Tolerance": 0.25 if row["q1_ratio"] is not None else "",
                 "Qualifier 2 Ratio": row["q2_ratio"] if row["q2_ratio"] is not None else "",

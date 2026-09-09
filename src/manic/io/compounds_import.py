@@ -107,10 +107,10 @@ class CompoundRow(BaseModel):
 def detect_compound_list_format(filepath: str | Path) -> AnalysisMode | None:
     """Sniff a compound list's headers to infer which workflow it targets.
 
-    Gv3-style lists (QIon / ValIon1 / ValIon2 columns) are unlabelled targeted
-    lists; Gv5-style lists (Mass0 / LabelAtoms) are labelled isotope-tracing
-    lists. Returns None when the format can't be determined — callers should
-    then fall back to the session's own mode.
+    Unlabelled lists use QIon plus QualifierIon1 (ValIon1 remains an alias).
+    Labelled lists use Mass0 / LabelAtoms. Returns None when the format
+    can't be determined — callers should then fall back to the session's
+    own mode.
     """
 
     path = Path(filepath).expanduser()
@@ -131,7 +131,7 @@ def detect_compound_list_format(filepath: str | Path) -> AnalysisMode | None:
     normalized = {
         str(c).strip().lower().replace(" ", "").replace("_", "") for c in columns
     }
-    if {"qion", "valion1"} & normalized:
+    if {"qion", "qualifierion1", "valion1"} & normalized:
         return AnalysisMode.UNLABELLED
     if {"mass0", "labelatoms"} & normalized:
         return AnalysisMode.LABELLED

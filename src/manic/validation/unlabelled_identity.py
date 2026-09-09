@@ -328,7 +328,7 @@ def assess_identity(
             )
             if not passed:
                 reasons.append(
-                    f"V ion {channel.ordinal} ratio {observed_ratio:.3f} "
+                    f"Qualifier ion {channel.ordinal} ratio {observed_ratio:.3f} "
                     f"is outside {channel.expected_ratio:.3f} "
                     f"±{channel.ratio_tolerance:.0%}"
                 )

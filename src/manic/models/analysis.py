@@ -57,7 +57,7 @@ class IonChannel:
         if self.role is IonRole.QUANTIFIER:
             return f"Q ion m/z {self.mz:g}"
         if self.role is IonRole.QUALIFIER:
-            return f"V ion {self.ordinal} m/z {self.mz:g}"
+            return f"Qualifier ion {self.ordinal} m/z {self.mz:g}"
         return f"M+{self.ordinal} m/z {self.mz:g}"
 
 

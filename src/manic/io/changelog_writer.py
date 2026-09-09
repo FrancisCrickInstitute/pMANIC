@@ -85,20 +85,20 @@ def generate_changelog(
         ).fetchall()
 
     if mode is AnalysisMode.UNLABELLED:
-        processing_description = """- **Diagnostic-ion workflow:** Amount uses Q-ion area only. V ions are identity evidence and are not added to amount
-- **V-ion ratio:** Observed ratio is V-ion area / Q-ion area. A ratio passes when |observed - expected| <= |expected| * fractional tolerance. If expected is 0 the comparison is absolute
+        processing_description = """- **Diagnostic-ion workflow:** Amount uses Q-ion area only. Qualifier ions are identity evidence and are not added to amount
+- **Qualifier-ion ratio:** Observed ratio is qualifier-ion area / Q-ion area. A ratio passes when |observed - expected| <= |expected| * fractional tolerance. If expected is 0 the comparison is absolute
 - **Observed RT:** Raw Q-ion apex inside the shared window [tR - lOffset, tR + rOffset], not a fitted-centre time
 - **tR window:** Identity RT check uses the compound tR window. Offsets still set the integration window
-- **Natural Isotope Correction:** Not applied. Q and V are diagnostic ions, not isotopologues
+- **Natural Isotope Correction:** Not applied. Q and qualifier ions are diagnostic ions, not isotopologues
 - **Quantitative claim:** Peak Area without an internal standard. With an IS, nmol when Amount in StdMix is set, otherwise Relative. Single-point response factor, not a calibration curve"""
-        sheets_description = """1. **Raw Values** - One column per compound, Q-ion area only. `Mass` is the Q m/z. V-ion areas are on Qualifier QC
+        sheets_description = """1. **Raw Values** - One column per compound, Q-ion area only. `Mass` is the Q m/z. Qualifier-ion areas are on Qualifier QC
 2. **Abundances** - One column per compound, Q-ion response only. Units row is Peak Area, nmol, or Relative
-3. **Qualifier QC** - Q and V raw areas, observed V/Q, expected ratio, fractional tolerance, and PASS / REVIEW / N/A. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
-        key_processing_notes = """- Integration uses the shared Q/V window [tR - lOffset, tR + rOffset]. A V peak outside that window integrates near zero and fails ratio QC
-- Q-ion area alone supplies the analytical response. V-ion areas are identity evidence
+3. **Qualifier QC** - Q and qualifier raw areas, observed qualifier/Q, expected ratio, fractional tolerance, and PASS / REVIEW / N/A. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
+        key_processing_notes = """- Integration uses the shared Q/qualifier window [tR - lOffset, tR + rOffset]. A qualifier peak outside that window integrates near zero and fails ratio QC
+- Q-ion area alone supplies the analytical response. Qualifier-ion areas are identity evidence
 - Current tR is used for integration and for the in-app identity RT check. Changing tR updates both. That RT check is not written to the workbook
-- Natural-isotope correction is not applied. Q and V are diagnostic ions, not isotopologues
-- Chromatographic peak deconvolution defaults to level 4, as in labelled mode. Each Q/V ion is fitted independently. If any Q or V ion of a compound in a sample fails to fit, every ion of that compound/sample uses raw-window areas so V/Q is never mixed measurement types
+- Natural-isotope correction is not applied. Q and qualifier ions are diagnostic ions, not isotopologues
+- Chromatographic peak deconvolution defaults to level 4, as in labelled mode. Each Q/qualifier ion is fitted independently. If any Q or qualifier ion of a compound in a sample fails to fit, every ion of that compound/sample uses raw-window areas so qualifier/Q is never mixed measurement types
 - Observed RT used for identity is the raw Q apex in the window, not the fitted-centre time"""
     else:
         processing_description = """- **Natural Isotope Correction:** Applied to all compounds with label_atoms > 0

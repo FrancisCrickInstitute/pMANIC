@@ -101,6 +101,36 @@ uv run pytest bench --bench-full --benchmark-compare=0004
 ./scripts/tests.sh                                     # correctness
 ```
 
+The bench asserts only cheap invariants, so a faster deconvolution that lands on different peak areas still passes. When touching the fitter, also diff the answers. `bench/areas.py snapshot` fits every compound × sample cell in both cached datasets at levels 4 and 7 (about 6 minutes) and `diff` reports how many cells moved and by how much:
+
+```bash
+uv run python bench/areas.py snapshot .benchmarks/areas-before.npz  # on main
+uv run python bench/areas.py snapshot .benchmarks/areas-after.npz   # on the branch
+uv run python bench/areas.py diff .benchmarks/areas-before.npz .benchmarks/areas-after.npz
+```
+
+A pure overhead change should report every cell identical. A change to the optimiser's path will move a handful of ill-determined cells; the diff scores every channel against its own size (floored at one area unit) so a small isotopologue that moves is not hidden behind M+0, and prints the largest changes so they can be judged against `testdata/bench/*/manifest.json` truths. Snapshots record the manifests they were fitted from and compare only across the same generated data, so a branch that rebuilds the cached database (importer or schema change) still diffs cleanly against `main`. Re-running `snapshot` to the same path replaces the file.
+
+### Numerical stability
+
+Fitted areas are not bit-identical across machines. Different CPUs and BLAS libraries round `exp` and matrix products differently in the last digit, and the fitter makes discrete choices (component count, peak shape) by comparing BIC values, so a cell whose two best candidates are nearly tied can flip. `snapshot --perturb 1e-12` measures this on one machine: it nudges every intensity by a random relative amount of that size, far below any instrument's precision and about the size of a BLAS difference, and the diff against an unperturbed snapshot counts the cells that care.
+
+```bash
+uv run python bench/areas.py snapshot .benchmarks/areas.npz
+uv run python bench/areas.py snapshot --perturb 1e-12 .benchmarks/areas-perturbed.npz
+uv run python bench/areas.py diff .benchmarks/areas.npz .benchmarks/areas-perturbed.npz
+```
+
+Measured on the 11,700 cells of both bench datasets (levels 4 and 7 together):
+
+| fitter | cells moved > 0.1 % | > 10 % | at level 4 (the default) > 0.1 % |
+| --- | --- | --- | --- |
+| finite-difference Jacobian (`main` before the exact Jacobian) | 16 | 8 | 2 |
+| exact Jacobian for gaussian and bi-gaussian | 3 | 1 | 0 |
+| exact Jacobian for all three shapes | 3 | 2 | 0 |
+
+Finite differences estimate a derivative by subtracting two nearly equal residuals, which magnifies last-digit noise in the inputs; the exact Jacobian does not subtract, so a 1e-12 nudge stays a 1e-12 nudge. The cells that still move are all at level 7 on planted hard scenarios (near co-elution, noisy traces) where the data genuinely do not determine the split. A change to the fitter should not raise these counts.
+
 ## Maintenance
 
 - Generator, helper, source-XLS, corpus-parameter, or artifact changes trigger

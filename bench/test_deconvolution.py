@@ -60,6 +60,7 @@ def test_deconvolve_hard_windows(case, corpus, full, level, benchmark, repeat):
     assert len(areas) == len(corpus)
     for (compound, eic), cell in zip(corpus, areas):
         channels = eic.intensity.shape[0] if eic.intensity.ndim > 1 else 1
-        assert len(cell) == channels, compound.name
-        assert all(np.isfinite(cell)) and all(a >= 0 for a in cell), compound.name
-        assert any(a > 0 for a in cell), compound.name
+        label = f"{compound.compound_name} {eic.sample_name}"
+        assert len(cell) == channels, label
+        assert all(np.isfinite(cell)) and all(a >= 0 for a in cell), label
+        assert any(a > 0 for a in cell), label

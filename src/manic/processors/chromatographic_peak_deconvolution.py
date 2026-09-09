@@ -35,6 +35,8 @@ PEAK_SHAPE_FIT_TYPES: tuple[PeakShapeFitType, ...] = (
 DEFAULT_DECONVOLUTION_LEVEL = "4"
 DEFAULT_DECONVOLUTION_FIT_TYPE = "auto"
 MIN_DECONVOLUTION_CONTEXT_MINUTES = 0.25
+# erfcx(-26) is finite (7.7e293); erfcx(-27) overflows.
+EMG_Z_FLOOR = -26.0
 
 
 @dataclass(frozen=True)
@@ -113,9 +115,9 @@ class DeconvolutionModel:
         Shape is (n_channels, len(grid)), or (len(grid),) for 1-D inputs.
         """
         grid = np.asarray(time_grid, dtype=np.float64)
-        raw = _component_shape_raw(
-            grid - self.x0, self.shape_model, self.shape_params[component_index]
-        )
+        raw = _raw_component_shapes(
+            grid - self.x0, self.shape_model, self.shape_params[component_index][None, :]
+        )[0]
         norm = float(self.norms[component_index])
         unit = raw / norm if norm > 0 and np.isfinite(norm) else np.zeros_like(raw)
         component = self.weights[:, component_index][:, None] * unit[None, :]
@@ -756,6 +758,8 @@ def _fit_shape_candidate(
         np.percentile(y, 95, axis=1) - np.percentile(y, 10, axis=1),
         max(max_y * 1e-6, np.finfo(float).eps),
     )
+    ridge = 1e-12 * np.eye(1 + component_count)
+    ones = np.ones(points)
 
     # Only the shape parameters are optimized nonlinearly; the per-channel
     # baseline and component weights are linear, so they are recovered with a
@@ -772,14 +776,11 @@ def _fit_shape_candidate(
     def shapes_from(
         values: np.ndarray, sort: bool = True
     ) -> tuple[np.ndarray, np.ndarray]:
-        shapes: list[np.ndarray] = []
-        centers: list[float] = []
-        for index in range(component_count):
-            shape_params = values[index * param_count : (index + 1) * param_count]
-            centers.append(float(shape_params[0]))
-            shapes.append(_component_shape(x_rel, shape_model, shape_params))
-        center_array = np.asarray(centers, dtype=np.float64)
-        shape_matrix = np.asarray(shapes, dtype=np.float64)
+        values_matrix = np.asarray(values, dtype=np.float64).reshape(
+            component_count, param_count
+        )
+        center_array = values_matrix[:, 0]
+        shape_matrix = _component_shapes(x_rel, shape_model, values_matrix)
         # Component order does not affect the objective (the model is a sum over
         # components), so the sort is skipped on the optimizer's hot path and
         # applied only when the ordered result is needed.
@@ -792,13 +793,11 @@ def _fit_shape_candidate(
     def solve_linear(
         shape_matrix: np.ndarray, enforce_nonneg: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        design = np.column_stack([np.ones(points), shape_matrix.T])
         # Cheap unconstrained solve via the tiny (1+K)x(1+K) normal equations.
         # During optimization this runs on every residual evaluation, so it must
         # be fast; non-negativity is only enforced once on the final fit, where a
         # per-channel NNLS cleans up any channel with a negative coefficient.
-        gram = design.T @ design
-        gram[np.diag_indices_from(gram)] += 1e-12
+        design, gram = _normal_equations(shape_matrix, ones, ridge)
         coef = np.linalg.solve(gram, design.T @ y.T)
         if enforce_nonneg:
             for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
@@ -811,11 +810,20 @@ def _fit_shape_candidate(
         total = intercept[:, None] + weights @ shape_matrix
         return ((total - y) / channel_scale[:, None]).ravel()
 
+    def jacobian(values: np.ndarray) -> np.ndarray:
+        values_matrix = np.asarray(values, dtype=np.float64).reshape(
+            component_count, param_count
+        )
+        return _variable_projection_jacobian(
+            x_rel, shape_model, values_matrix, y, ones, ridge, channel_scale
+        )
+
     try:
         result = least_squares(
             residual,
             x0=np.asarray(initial, dtype=np.float64),
             bounds=(np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)),
+            jac=jacobian,
             x_scale="jac",
             max_nfev=params.max_nfev,
         )
@@ -845,13 +853,7 @@ def _fit_shape_candidate(
         component_count, param_count
     )
     ordered_params = ordered_params[np.argsort(ordered_params[:, 0])]
-    norms = np.array(
-        [
-            float(np.max(_component_shape_raw(x_rel, shape_model, ordered_params[k])))
-            for k in range(component_count)
-        ],
-        dtype=np.float64,
-    )
+    norms = np.max(_raw_component_shapes(x_rel, shape_model, ordered_params), axis=1)
     return FittedComponentModel(
         baseline=np.maximum(baseline, 0.0),
         components=np.maximum(components, 0.0),
@@ -1099,38 +1101,152 @@ def _shape_param_count(shape_model: PeakShapeModel) -> int:
     return 2 if shape_model == "gaussian" else 3
 
 
-def _component_shape_raw(
-    x_rel: np.ndarray, shape_model: PeakShapeModel, values: np.ndarray
+def _normalize_rows(shapes: np.ndarray) -> np.ndarray:
+    max_shapes = np.max(shapes, axis=1)
+    normalized = np.zeros_like(shapes, dtype=np.float64)
+    valid = (max_shapes > 0) & np.isfinite(max_shapes)
+    normalized[valid] = shapes[valid] / max_shapes[valid, None]
+    return normalized
+
+
+def _raw_component_shapes(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
 ) -> np.ndarray:
-    """Evaluate the (un-normalized) peak shape on an arbitrary time grid."""
+    """Un-normalised shape of every component (K, n) on an arbitrary time grid."""
     if shape_model == "gaussian":
-        center, sigma = values
-        shape = np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
-    elif shape_model == "bi_gaussian":
-        center, sigma_left, sigma_right = values
-        sigma = np.where(x_rel < center, sigma_left, sigma_right)
-        shape = np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
-    else:
-        center, sigma, tau = values
-        sigma = max(float(sigma), np.finfo(float).eps)
-        tau = max(float(tau), np.finfo(float).eps)
-        offset = x_rel - center
-        # Stable EMG via the scaled complementary error function; the leading
-        # 1/(2*tau) constant is dropped because the shape is max-normalized later.
-        # z is clipped to keep erfcx finite far out in the (negligible) tail.
-        z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
-        shape = np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
-    return np.asarray(shape, dtype=np.float64)
+        center = values_matrix[:, 0, None]
+        sigma = values_matrix[:, 1, None]
+        return np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
+    if shape_model == "bi_gaussian":
+        center = values_matrix[:, 0, None]
+        sigma = np.where(
+            x_rel[None, :] < center,
+            values_matrix[:, 1, None],
+            values_matrix[:, 2, None],
+        )
+        return np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
+    u, z_unclipped, _, _ = _emg_terms(x_rel, values_matrix)
+    return np.exp(-0.5 * u**2) * erfcx(np.clip(z_unclipped, EMG_Z_FLOOR, None))
 
 
-def _component_shape(
-    x_rel: np.ndarray, shape_model: PeakShapeModel, values: np.ndarray
+def _emg_terms(
+    x_rel: np.ndarray, values_matrix: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """EMG reduced variables u and z, plus the floored sigma and tau.
+
+    Stable EMG via the scaled complementary error function; the leading
+    1/(2*tau) constant is dropped because the shape is max-normalized later.
+    Callers clip z at EMG_Z_FLOOR to keep erfcx finite far out in the
+    (negligible) tail.
+    """
+    eps = np.finfo(np.float64).eps
+    center = values_matrix[:, 0, None]
+    sigma = np.maximum(values_matrix[:, 1, None], eps)
+    tau = np.maximum(values_matrix[:, 2, None], eps)
+    u = (x_rel[None, :] - center) / sigma
+    return u, (sigma / tau - u) / np.sqrt(2.0), sigma, tau
+
+
+def _component_shapes(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
 ) -> np.ndarray:
-    shape = _component_shape_raw(x_rel, shape_model, values)
-    max_shape = float(np.max(shape)) if shape.size else 0.0
-    if max_shape <= 0 or not np.isfinite(max_shape):
-        return np.zeros_like(x_rel, dtype=np.float64)
-    return np.asarray(shape / max_shape, dtype=np.float64)
+    """Max-normalized shape of every component, one row per component."""
+    return _normalize_rows(_raw_component_shapes(x_rel, shape_model, values_matrix))
+
+
+def _component_shape_gradients(
+    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Normalized shapes (K, n) and their derivatives (K, p, n)."""
+    raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
+    center = values_matrix[:, 0, None]
+    if shape_model == "gaussian":
+        sigma = values_matrix[:, 1, None]
+        u = (x_rel[None, :] - center) / sigma
+        raw_gradients = np.stack((raw * u / sigma, raw * u**2 / sigma), axis=1)
+    elif shape_model == "bi_gaussian":
+        left = x_rel[None, :] < center
+        sigma = np.where(left, values_matrix[:, 1, None], values_matrix[:, 2, None])
+        u = (x_rel[None, :] - center) / sigma
+        sigma_gradient = raw * u**2 / sigma
+        raw_gradients = np.stack(
+            (raw * u / sigma, sigma_gradient * left, sigma_gradient * ~left), axis=1
+        )
+    else:
+        u, z_unclipped, sigma, tau = _emg_terms(x_rel, values_matrix)
+        z = np.clip(z_unclipped, EMG_Z_FLOOR, None)
+        # d erfcx(z)/dz = 2 z erfcx(z) - 2/sqrt(pi); zero where z is clipped.
+        through_z = np.exp(-0.5 * u**2) * np.where(
+            z_unclipped < EMG_Z_FLOOR, 0.0, 2.0 * z * erfcx(z) - 2.0 / np.sqrt(np.pi)
+        )
+        raw_gradients = np.stack(
+            (
+                raw * u / sigma + through_z / (sigma * np.sqrt(2.0)),
+                raw * u**2 / sigma + through_z * (1.0 / tau + u / sigma) / np.sqrt(2.0),
+                -through_z * sigma / (tau**2 * np.sqrt(2.0)),
+            ),
+            axis=1,
+        )
+
+    shapes = _normalize_rows(raw)
+    max_shapes = np.max(raw, axis=1)
+    valid = (max_shapes > 0) & np.isfinite(max_shapes)
+    max_gradients = np.take_along_axis(
+        raw_gradients, np.argmax(raw, axis=1)[:, None, None], axis=2
+    ).squeeze(axis=2)
+    gradients = np.zeros_like(raw_gradients)
+    gradients[valid] = (
+        raw_gradients[valid] - shapes[valid, None, :] * max_gradients[valid, :, None]
+    ) / max_shapes[valid, None, None]
+    return shapes, gradients
+
+
+def _normal_equations(
+    shape_matrix: np.ndarray, ones: np.ndarray, ridge: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    design = np.column_stack([ones, shape_matrix.T])
+    return design, design.T @ design + ridge
+
+
+def _variable_projection_jacobian(
+    x_rel: np.ndarray,
+    shape_model: PeakShapeModel,
+    values_matrix: np.ndarray,
+    y: np.ndarray,
+    ones: np.ndarray,
+    ridge: np.ndarray,
+    channel_scale: np.ndarray,
+) -> np.ndarray:
+    """Golub-Pereyra derivative of the variable-projection residual.
+
+    The intercept and weights are re-solved at every trial shape, so the
+    derivative is ``(I - D G^-1 D^T) D_q coef + D G^-1 D_q^T r`` rather than
+    ``weights * dS/dtheta``. Must stay consistent with ``solve_linear``.
+    """
+    component_count, param_count = values_matrix.shape
+    channels, points = y.shape
+    shapes, gradients = _component_shape_gradients(x_rel, shape_model, values_matrix)
+    design, gram = _normal_equations(shapes, ones, ridge)
+    gram_inv_design_t = np.linalg.solve(gram, design.T)
+    coef = gram_inv_design_t @ y.T
+    residual = y.T - design @ coef
+    weights = coef[1:]
+
+    column_count = component_count * param_count
+    grads = gradients.reshape(column_count, points)
+    component_of_column = np.repeat(np.arange(component_count), param_count)
+    naive = grads.T[:, None, :] * weights[component_of_column].T[None, :, :]
+    flat = naive.reshape(points, channels * column_count)
+    projected = flat - design @ (gram_inv_design_t @ flat)
+    projected = projected.reshape(points, channels, column_count)
+
+    design_gram_inv = gram_inv_design_t.T
+    feedback = (
+        design_gram_inv[:, component_of_column + 1][:, None, :]
+        * (grads @ residual).T[None, :, :]
+    )
+    jac = (projected + feedback) / channel_scale[None, :, None]
+    return np.transpose(jac, (1, 0, 2)).reshape(channels * points, column_count)
 
 
 def _masked_result(

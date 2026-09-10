@@ -27,8 +27,13 @@ from manic.io.compound_reader import read_compound_with_session
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.display_deconvolution import (
-    display_y_max,
     plot_display,
+)
+from manic.processors.tile_y_scale import (
+    TileScaleInput,
+    YAxisScale,
+    YScalePolicy,
+    axes_for_tiles,
 )
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
@@ -200,10 +205,7 @@ class GraphView(QWidget):
 
         self._identity: IdentityAssessmentSet | None = None
 
-        # Shared y-axis scaling across tiles (off = per-tile autoscaling)
-        self._shared_y_scale: bool = False
-        # (scale_factor, scale_exp, shared_scaled_max); None = per-tile autoscale
-        self._scale_override: tuple[float, int, float] | None = None
+        self._y_scale_policy = YScalePolicy.PER_TILE_EXTRACT
         self._last_validation_data: Dict[str, PeakVerdict] | None = None
 
         # Track max grid dimensions we've used, so we can reliably reset
@@ -388,9 +390,8 @@ class GraphView(QWidget):
 
         self._last_validation_data = validation_data
 
-        self._scale_override = None
         prepared_displays = []
-        scale_maxes = []
+        scale_inputs: list[TileScaleInput] = []
         for eic in eics:
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
             prepared = plot_display(
@@ -400,26 +401,18 @@ class GraphView(QWidget):
                 use_corrected=self.use_corrected,
             )
             prepared_displays.append(prepared)
-            if self._shared_y_scale:
-                scale_source = self._intensity_for_y_scale(
-                    prepared, eic.intensity, compound
+            scale_inputs.append(
+                TileScaleInput(
+                    prepared=prepared,
+                    raw_intensity=eic.intensity,
+                    independent_channels=compound.is_unlabelled_target,
                 )
-                if np.asarray(scale_source).size:
-                    scale_maxes.append(display_y_max(scale_source))
+            )
         self._prepared_displays = {
             (eic.sample_name, eic.compound_name): prepared
             for eic, prepared in zip(eics, prepared_displays)
         }
-        if self._shared_y_scale:
-            global_max = max(scale_maxes, default=0.0)
-            if global_max > 0:
-                scale_exp = int(np.floor(np.log10(global_max)))
-                scale_factor = 10**scale_exp
-                self._scale_override = (
-                    scale_factor,
-                    scale_exp,
-                    global_max / scale_factor,
-                )
+        tile_axes = axes_for_tiles(self._y_scale_policy, scale_inputs)
 
         self._update_channel_legend(compound_name, eics)
 
@@ -458,8 +451,9 @@ class GraphView(QWidget):
                     verdict=validation_data.get(eic.sample_name, PeakVerdict.PASS)
                     if validation_data
                     else PeakVerdict.PASS,
+                    axis_scale=axis_scale,
                 )
-                for eic in eics
+                for eic, axis_scale in zip(eics, tile_axes, strict=True)
             ]
 
             # Extract chart views for click handling
@@ -493,12 +487,10 @@ class GraphView(QWidget):
                 return True
         return False
 
-    def set_shared_y_scale(self, enabled: bool):
-        """Toggle one common y-axis scale across all tiles and re-plot."""
-        enabled = bool(enabled)
-        if enabled == self._shared_y_scale:
+    def set_y_scale_policy(self, policy: YScalePolicy):
+        if policy is self._y_scale_policy:
             return
-        self._shared_y_scale = enabled
+        self._y_scale_policy = policy
         self._replot_current()
 
     def _replot_current(self) -> None:
@@ -510,40 +502,6 @@ class GraphView(QWidget):
                 self._last_validation_data,
                 identity=self._identity,
             )
-
-    def _resolve_y_scaling(self, eic_intensity) -> tuple[float, int, float]:
-        """Return (scale_factor, scale_exp, scaled_y_max) for one tile.
-
-        With shared y-scale enabled, the override carries the dataset-wide
-        scaled max so every tile gets the same axis range; otherwise each tile
-        autoscales to its own tallest peak.
-        """
-        if self._scale_override is not None:
-            return self._scale_override
-        unscaled_y_max = display_y_max(eic_intensity)
-        scale_exp = int(np.floor(np.log10(unscaled_y_max))) if unscaled_y_max > 0 else 0
-        scale_factor = 10**scale_exp
-        scaled_y_max = unscaled_y_max / scale_factor if scale_factor != 0 else 0
-        return scale_factor, scale_exp, scaled_y_max
-
-    def _intensity_for_y_scale(self, prepared, raw_intensity, compound):
-        display = prepared.display
-        if (
-            display is not None
-            and not prepared.includes_raw_underlay
-            and display.bundle.shows_model_overlays(
-                independent_channels=getattr(
-                    compound, "is_unlabelled_target", False
-                )
-            )
-        ):
-            return np.concatenate(
-                (
-                    np.asarray(prepared.intensity, dtype=np.float64).ravel(),
-                    np.asarray(raw_intensity, dtype=np.float64).ravel(),
-                )
-            )
-        return prepared.intensity
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:
         """One chip per plotted channel above the grid, in both analysis modes."""
@@ -1011,7 +969,11 @@ class GraphView(QWidget):
                 pass  # Don't cascade failures
 
     def _get_container_from_pool(
-        self, eic, verdict: PeakVerdict = PeakVerdict.PASS
+        self,
+        eic,
+        verdict: PeakVerdict = PeakVerdict.PASS,
+        *,
+        axis_scale: YAxisScale,
     ) -> QWidget:
         """
         Retrieve a complete plot container from the pool or create a new one.
@@ -1031,17 +993,21 @@ class GraphView(QWidget):
             # Reuse existing container from pool
             container = self._available_containers.pop()
             # Update data atomically (container update handles visibility)
-            self._update_container_data(container, eic, verdict)
+            self._update_container_data(container, eic, verdict, axis_scale=axis_scale)
             # Container will be shown by _update_container_data after update is complete
             return container
         else:
             # Pool exhausted, create new container and add to pool tracking
-            container = self._create_plot_container(eic, verdict)
+            container = self._create_plot_container(eic, verdict, axis_scale=axis_scale)
             self._container_pool.append(container)
             return container
 
     def _create_plot_container(
-        self, eic, verdict: PeakVerdict = PeakVerdict.PASS
+        self,
+        eic,
+        verdict: PeakVerdict = PeakVerdict.PASS,
+        *,
+        axis_scale: YAxisScale,
     ) -> QWidget:
         """
         Create a new plot container with chart view and caption.
@@ -1057,7 +1023,7 @@ class GraphView(QWidget):
             QWidget container with chart_view attribute
         """
         # Create the plot
-        chart_view = self._build_plot(eic)
+        chart_view = self._build_plot(eic, axis_scale=axis_scale)
 
         # Create caption label with fixed height + elided text
         caption_text = self._tile_caption_for(eic)
@@ -1105,7 +1071,12 @@ class GraphView(QWidget):
         return tile_caption(eic.sample_name, fit_type)
 
     def _update_container_data(
-        self, container: QWidget, eic, verdict: PeakVerdict = PeakVerdict.PASS
+        self,
+        container: QWidget,
+        eic,
+        verdict: PeakVerdict = PeakVerdict.PASS,
+        *,
+        axis_scale: YAxisScale,
     ):
         """
         Update an existing container with new EIC data.
@@ -1152,7 +1123,7 @@ class GraphView(QWidget):
             chart_view._signal_connected = True
 
             # Update the chart with new data (chart will handle its own visibility)
-            self._update_chart_data(chart_view, eic)
+            self._update_chart_data(chart_view, eic, axis_scale=axis_scale)
 
             # Update the caption
             caption_text = self._tile_caption_for(eic)
@@ -1184,7 +1155,13 @@ class GraphView(QWidget):
             # Container visibility is managed at the layout level for smoother updates
             pass
 
-    def _update_chart_data(self, chart_view: ClickableChartView, eic):
+    def _update_chart_data(
+        self,
+        chart_view: ClickableChartView,
+        eic,
+        *,
+        axis_scale: YAxisScale,
+    ):
         """
         Update an existing chart with new EIC data without recreating Qt objects.
 
@@ -1218,11 +1195,9 @@ class GraphView(QWidget):
             prepared = self._plot_display_for(eic, compound)
 
             eic_intensity = eic.intensity
-
-            # Compute y_max and scaling (with edge case handling)
-            scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(
-                self._intensity_for_y_scale(prepared, eic_intensity, compound)
-            )
+            scale_factor = axis_scale.scale_factor
+            scale_exp = axis_scale.scale_exp
+            scaled_y_max = axis_scale.scaled_max
 
             # Reuse existing axes
             axes = chart.axes()
@@ -1357,13 +1332,19 @@ class GraphView(QWidget):
 
     #  internal functions
     def _build_plot_with_caption(
-        self, eic, verdict: PeakVerdict = PeakVerdict.PASS
+        self,
+        eic,
+        verdict: PeakVerdict = PeakVerdict.PASS,
+        *,
+        axis_scale: YAxisScale,
     ) -> QWidget:
         """Create a widget containing a plot with sample name caption below."""
         # Create the plot container using pooling for performance
-        return self._get_container_from_pool(eic, verdict)
+        return self._get_container_from_pool(eic, verdict, axis_scale=axis_scale)
 
-    def _build_plot(self, eic) -> ClickableChartView:
+    def _build_plot(
+        self, eic, axis_scale: YAxisScale
+    ) -> ClickableChartView:
         """Create a ClickableChartView with EIC data and guide lines."""
         # Use session data if available, otherwise use default compound data
         compound = read_compound_with_session(eic.compound_name, eic.sample_name)
@@ -1377,11 +1358,9 @@ class GraphView(QWidget):
         chart.legend().hide()
 
         eic_intensity = eic.intensity
-
-        # Compute y_max and scaling (with edge case handling)
-        scale_factor, scale_exp, scaled_y_max = self._resolve_y_scaling(
-            self._intensity_for_y_scale(prepared, eic_intensity, compound)
-        )
+        scale_factor = axis_scale.scale_factor
+        scale_exp = axis_scale.scale_exp
+        scaled_y_max = axis_scale.scaled_max
 
         font = create_font(8)
 

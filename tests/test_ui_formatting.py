@@ -15,7 +15,7 @@ from PySide6.QtCharts import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
+from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QLineEdit
 import sys
 import numpy as np
 from types import SimpleNamespace
@@ -27,6 +27,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
     deconvolve_eic,
 )
 from manic.processors.display_deconvolution import plot_display
+from manic.processors.tile_y_scale import YScalePolicy, y_axis_from_max
 from manic.ui.colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
@@ -103,6 +104,76 @@ def test_labelled_toolbar_keeps_abundance_under_ratios(qapp):
         ratio_index = layout.indexOf(toolbar.isotopologue_ratios)
         abundance_index = layout.indexOf(toolbar.total_abundance)
         assert 0 <= ratio_index < abundance_index
+    finally:
+        toolbar.deleteLater()
+
+
+def test_y_scale_checkboxes_labelled_only_and_exclusive(qapp):
+    labelled = Toolbar(AnalysisMode.LABELLED)
+    unlabelled = Toolbar(AnalysisMode.UNLABELLED)
+    try:
+        selected = labelled.findChild(QCheckBox, "scale_selected_peak_checkbox")
+        assert selected is not None
+        assert unlabelled.findChild(QCheckBox, "scale_selected_peak_checkbox") is None
+
+        selected.setChecked(True)
+        assert selected.isChecked()
+        assert not labelled.shared_yscale_checkbox.isChecked()
+        labelled.shared_yscale_checkbox.setChecked(True)
+        assert labelled.shared_yscale_checkbox.isChecked()
+        assert not selected.isChecked()
+        labelled.shared_yscale_checkbox.setChecked(False)
+        assert not labelled.shared_yscale_checkbox.isChecked()
+        assert not selected.isChecked()
+    finally:
+        labelled.deleteLater()
+        unlabelled.deleteLater()
+
+
+def test_set_y_scale_policy_replots_only_on_change(qapp, monkeypatch):
+    view = GraphView()
+    replots = []
+    monkeypatch.setattr(view, "_replot_current", lambda: replots.append(1))
+    try:
+        view.set_y_scale_policy(YScalePolicy.SHARED_EXTRACT)
+        assert replots == [1]
+        view.set_y_scale_policy(YScalePolicy.SHARED_EXTRACT)
+        assert replots == [1]
+    finally:
+        view.deleteLater()
+
+
+def test_selected_peak_yscale_follows_compound_deconvolution(qapp, monkeypatch):
+    toolbar = Toolbar(AnalysisMode.LABELLED)
+    checkbox = toolbar.selected_peak_yscale_checkbox
+    emitted = []
+    toolbar.y_scale_policy_changed.connect(emitted.append)
+    try:
+        checkbox.setChecked(True)
+        assert checkbox.isChecked()
+        emitted.clear()
+
+        monkeypatch.setattr(
+            "manic.ui.left_toolbar.read_compound",
+            lambda _name: SimpleNamespace(
+                deconvolution_level="off",
+                baseline_correction=0,
+            ),
+        )
+        toolbar.update_compound_list(["Glucose"])
+        assert checkbox.isEnabled() is False
+        assert checkbox.isChecked() is False
+        assert emitted == [YScalePolicy.PER_TILE_EXTRACT]
+
+        monkeypatch.setattr(
+            "manic.ui.left_toolbar.read_compound",
+            lambda _name: SimpleNamespace(
+                deconvolution_level="4",
+                baseline_correction=0,
+            ),
+        )
+        toolbar.update_compound_list(["Glucose"])
+        assert checkbox.isEnabled() is True
     finally:
         toolbar.deleteLater()
 
@@ -1355,7 +1426,9 @@ def test_corrected_preview_keeps_raw_context_on_graph_tile(qapp, monkeypatch):
             sample_name="sample_01",
             compound_name="pyruvate",
         )
-        chart_view = view._build_plot(eic)
+        chart_view = view._build_plot(
+            eic, axis_scale=y_axis_from_max(float(np.max(raw)))
+        )
         plot_y = chart_view.chart().axes()[1]
         raw_max = float(np.max(raw))
         scale_factor = 10 ** int(np.floor(np.log10(raw_max)))

@@ -336,11 +336,17 @@ These settings control the global behavior of the application. Changing them usu
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
 
 ### Baseline Correction
-The **Baseline correction** checkbox is located in the left toolbar, between the Integration Window and the Label Incorporation chart.
+The **Baseline correction** checkbox is in the left toolbar, under the Integration Window.
 * **On (Default):** Subtracts a linear baseline from each peak area. A dashed line will appear on plots showing the fitted baseline.
 * **Off:** Uses the raw integrated area without baseline subtraction.
 * **Scope:** This is a per-compound setting. Toggling it affects all samples for the selected compound.
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
+
+### Y-axis scale
+Two ticks sit under **Baseline correction**.
+* **Shared y-scale:** one intensity scale for every sample tile.
+* **Scale to selected peak:** each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. This tick is labelled-only.
+* The ticks cannot both be on. Both off is the default. Each tile then autoscales to the tallest intensity in its extract.
 
 ### Chromatographic Peak Deconvolution
 **Settings → Deconvolution**

@@ -412,8 +412,8 @@ class MainWindow(QMainWindow):
         self.toolbar.baseline_correction_changed.connect(
             self.on_baseline_correction_changed
         )
-        self.toolbar.shared_y_scale_toggled.connect(
-            self.graph_view.set_shared_y_scale
+        self.toolbar.y_scale_policy_changed.connect(
+            self.graph_view.set_y_scale_policy
         )
 
         # Clicking an Identity bar highlights that sample's plot.
@@ -2181,6 +2181,7 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
+        self.toolbar.sync_selected_peak_checkbox(self.toolbar.get_selected_compound())
         if replot:
             self._replot_current_selection()
 

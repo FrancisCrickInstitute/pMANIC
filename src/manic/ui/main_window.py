@@ -1390,6 +1390,7 @@ class MainWindow(QMainWindow):
                 sample_names,
                 retention_time,
                 pending_regeneration,
+                mass_tol=self.mass_tolerance,
             )
             self._regen_worker.moveToThread(self._regen_thread)
 

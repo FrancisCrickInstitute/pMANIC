@@ -1,6 +1,7 @@
 # In src/manic/utils/workers.py
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
+from manic.constants import DEFAULT_MASS_TOLERANCE
 from manic.io.eic_importer import (
     import_eics,
     regenerate_all_eics_with_mass_tolerance,
@@ -56,8 +57,10 @@ class EicRegenerationWorker(QObject):
         sample_names: list,
         retention_time: float | dict[str, float],
         pending_regeneration: PendingRegeneration | None = None,
+        mass_tol: float = DEFAULT_MASS_TOLERANCE,
     ):
         super().__init__()
+        self._mass_tol = mass_tol
         self._compound_name = compound_name
         self._tr_window = tr_window
         self._sample_names = sample_names
@@ -71,6 +74,7 @@ class EicRegenerationWorker(QObject):
                 compound_name=self._compound_name,
                 tr_window=self._tr_window,
                 sample_names=self._sample_names,
+                mass_tol=self._mass_tol,
                 progress_cb=self.progress.emit,
                 retention_time=self._retention_time,
                 pending_regeneration=self._pending_regeneration,

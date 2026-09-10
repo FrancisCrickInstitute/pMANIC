@@ -16,6 +16,7 @@ from manic.processors.natural_abundance_correction import (
     NaturalAbundanceCorrectionError,
     NaturalAbundanceCorrector,
 )
+from manic.utils import workers
 
 SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
 
@@ -173,3 +174,16 @@ def test_existing_database_gains_eic_index(tmp_path, monkeypatch):
             )
         }
     assert "idx_eic_compound_sample" in names
+
+
+def test_regeneration_worker_uses_the_session_mass_tolerance(monkeypatch):
+    seen = {}
+
+    def fake_regenerate(**kwargs):
+        seen.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(workers, "regenerate_compound_eics", fake_regenerate)
+    worker = workers.EicRegenerationWorker("Glucose", 0.2, ["s1"], 7.1, mass_tol=0.15)
+    worker.run()
+    assert seen["mass_tol"] == 0.15

@@ -536,7 +536,7 @@ def regenerate_compound_eics(
     compound_name: str,
     tr_window: float,
     sample_names: list,
-    mass_tol: float = 0.25,
+    mass_tol: float = DEFAULT_MASS_TOLERANCE,
     progress_cb: Optional[Callable[[int, int], None]] = None,
     retention_time: float | Mapping[str, float] | None = None,
     pending_regeneration: PendingRegeneration | None = None,

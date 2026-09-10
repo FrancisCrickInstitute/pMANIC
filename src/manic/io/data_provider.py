@@ -385,7 +385,8 @@ class DataProvider:
                         raw_data[sample_name][compound_name] = areas
                     elif kind == "raw_and_corrected_deconvolved":
                         raw_data[sample_name][compound_name] = areas
-                        corrected_data[sample_name][compound_name] = corrected_areas or []
+                        if corrected_areas:
+                            corrected_data[sample_name][compound_name] = corrected_areas
                     else:
                         corrected_data[sample_name][compound_name] = areas
                     processed += 1

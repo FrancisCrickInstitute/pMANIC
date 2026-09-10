@@ -238,7 +238,9 @@ class NaturalAbundanceCorrector:
         # Cache miss - compute new matrix
         self._cache_misses += 1
 
-        # Calculate derivative formula (accounts for derivatization)
+        # Validate against the base formula. Derivatisation adds carbons that
+        # cannot carry label and drops elements it does not know about.
+        self.validate_formula(formula, label_element, label_atoms)
         deriv_formula, _ = self.calculate_derivative_formula(formula, tbdms, meox, me)
 
         # Build correction matrix using existing algorithm
@@ -302,6 +304,20 @@ class NaturalAbundanceCorrector:
             "total_corrections": self._direct_solves + self._optimization_fallbacks,
         }
 
+    def validate_formula(self, formula: str, label_element: str, label_atoms: int) -> None:
+        elements = self.parse_formula(formula)
+        label_count = elements.get(label_element, 0)
+        if label_atoms > label_count:
+            raise NaturalAbundanceCorrectionError(
+                f"label_atoms={label_atoms} exceeds {label_element} count "
+                f"{label_count} in formula {formula}"
+            )
+        for element, count in elements.items():
+            if count > 0 and not hasattr(self.abundances, element):
+                raise NaturalAbundanceCorrectionError(
+                    f"No natural abundance vector for element {element}"
+                )
+
     def build_correction_matrix(
         self,
         formula: str,
@@ -333,18 +349,8 @@ class NaturalAbundanceCorrector:
         if label_purity is None:
             label_purity = np.array([0.01, 0.99])  # 99% isotope purity
 
+        self.validate_formula(formula, label_element, label_atoms)
         elements = self.parse_formula(formula)
-        label_count = elements.get(label_element, 0)
-        if label_atoms > label_count:
-            raise NaturalAbundanceCorrectionError(
-                f"label_atoms={label_atoms} exceeds {label_element} count "
-                f"{label_count} in formula {formula}"
-            )
-        for element, count in elements.items():
-            if count > 0 and not hasattr(self.abundances, element):
-                raise NaturalAbundanceCorrectionError(
-                    f"No natural abundance vector for element {element}"
-                )
 
         # Determine matrix size
         n_isotopologues = label_atoms + 1

@@ -208,6 +208,18 @@ def test_label_atoms_exceeding_formula_raises():
         NaturalAbundanceCorrector().build_correction_matrix("C3", "C", 6)
 
 
+def test_derivatisation_carbons_do_not_pad_the_label_budget():
+    corrector = NaturalAbundanceCorrector()
+    with pytest.raises(NaturalAbundanceCorrectionError, match="label_atoms=6"):
+        corrector._get_cached_correction_matrix("C3H6O3", "C", 6, tbdms=2, meox=0, me=0)
+
+
+def test_unknown_element_survives_derivatisation():
+    corrector = NaturalAbundanceCorrector()
+    with pytest.raises(NaturalAbundanceCorrectionError, match="Se"):
+        corrector._get_cached_correction_matrix("C3Se1", "C", 3, tbdms=1, meox=0, me=0)
+
+
 def test_c1_correction_matrix_columns():
     matrix = NaturalAbundanceCorrector().build_correction_matrix("C1", "C", 1)
     np.testing.assert_allclose(matrix[:, 0], [0.9893, 0.0107], atol=5e-5)

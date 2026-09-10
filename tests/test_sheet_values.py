@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 
 from manic.io.data_exporter import DataExporter
 from manic.io.data_provider import DataProvider
+from manic.io.in_memory_provider import InMemoryDataProvider
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.processors.calibration import calculate_mrrf_values
@@ -19,6 +20,7 @@ from manic.sheet_generators import (
     corrected_values,
     isotope_ratios,
     label_incorporation,
+    unlabelled_results,
 )
 
 
@@ -208,6 +210,75 @@ def test_calculate_mrrf_two_mm_files_is_2_5(empty_db):
     ]
     values = calculate_mrrf_values(Provider(), compounds, "ISTD")
     assert values["Target"] == pytest.approx(2.5), "(250/1) / (100/1)"
+
+
+def _zero_signal_compounds():
+    return [
+        {"compound_name": "Silent", "amount_in_std_mix": 1.0, "mm_files": "*MM*"},
+        {"compound_name": "ISTD", "amount_in_std_mix": 1.0, "mm_files": "*MM*"},
+    ]
+
+
+def test_calculate_mrrf_zero_metabolite_signal_is_assumed_one():
+    class Provider:
+        def resolve_mm_samples(self, pattern):
+            return ["MM1"]
+
+        def get_sample_corrected_data(self, sample_name):
+            return {"Silent": [0.0], "ISTD": [100.0]}
+
+        def get_compound_total_area(self, sample_name, compound_name):
+            return 0.0 if compound_name == "Silent" else 100.0
+
+    assumed = set()
+    values = calculate_mrrf_values(Provider(), _zero_signal_compounds(), "ISTD", assumed=assumed)
+    assert values["Silent"] == 1.0
+    assert assumed == {"Silent"}
+
+
+def test_in_memory_mrrf_zero_metabolite_signal_is_assumed_one():
+    provider = InMemoryDataProvider(
+        _zero_signal_compounds(), ["MM1"], {"MM1": {"Silent": [0.0], "ISTD": [100.0]}}
+    )
+    assumed = set()
+    values = provider.get_mrrf_values(_zero_signal_compounds(), "ISTD", assumed=assumed)
+    assert values["Silent"] == 1.0
+    assert assumed == {"Silent"}
+
+
+def test_unlabelled_abundances_units_row_marks_assumed_mrrf_as_relative():
+    class Provider:
+        def get_mrrf_values(self, compounds, internal_standard, internal_standard_isotope_index=0, assumed=None):
+            assumed.add("NoStandard")
+            return {"ISTD": 1.0, "NoStandard": 1.0}
+
+        def resolve_mm_samples(self, pattern):
+            return []
+
+    exporter = SimpleNamespace(_provider=Provider(), internal_standard_compound="ISTD")
+    compounds = [
+        SimpleNamespace(
+            compound_name=name,
+            baseline_correction=True,
+            retention_time=1.0,
+            analysis_channels=[SimpleNamespace(mz=100.0)],
+        )
+        for name in ("ISTD", "NoStandard")
+    ]
+    meta = {
+        name: {"amount_in_std_mix": 1.0, "int_std_amount": 1.0, "mm_files": "*MM*"}
+        for name in ("ISTD", "NoStandard")
+    }
+    output = BytesIO()
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    unlabelled_results._write_abundances(
+        workbook, exporter, [], compounds, list(meta.values()), meta, {}, None
+    )
+    workbook.close()
+    output.seek(0)
+    sheet = load_workbook(output)["Abundances"]
+    assert [sheet.cell(4, col).value for col in (3, 4)] == ["nmol", "Relative"]
+    assert exporter.assumed_mrrf == {"NoStandard"}
 
 
 def test_process_all_corrections_matches_correct_time_series(empty_db):

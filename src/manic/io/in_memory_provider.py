@@ -179,7 +179,7 @@ class InMemoryDataProvider:
             if metabolite_signals and internal_std_signals and internal_std_concentration > 0 and metabolite_std_conc > 0:
                 mean_met = sum(metabolite_signals) / len(metabolite_signals)
                 mean_is = sum(internal_std_signals) / len(internal_std_signals)
-                if mean_is > 0:
+                if mean_is > 0 and mean_met > 0:
                     mrrf = (mean_met / metabolite_std_conc) / (mean_is / internal_std_concentration)
                     mrrf_values[cmp_name] = mrrf
                     continue

@@ -144,18 +144,15 @@ def _write_abundances(
     baseline_off_header_format = baseline_off_header(workbook)
 
     mrrf_values = {}
+    assumed_mrrf: set = set()
     if exporter.internal_standard_compound:
-        try:
-            mrrf_values = exporter._provider.get_mrrf_values(
-                compound_rows,
-                exporter.internal_standard_compound,
-                internal_standard_isotope_index=0,
-            )
-        except TypeError:
-            mrrf_values = exporter._provider.get_mrrf_values(
-                compound_rows,
-                exporter.internal_standard_compound,
-            )
+        mrrf_values = exporter._provider.get_mrrf_values(
+            compound_rows,
+            exporter.internal_standard_compound,
+            internal_standard_isotope_index=0,
+            assumed=assumed_mrrf,
+        )
+    exporter.assumed_mrrf = assumed_mrrf
 
     is_std_selected = exporter.internal_standard_compound is not None
     _write_q_column_headers(worksheet, compounds, baseline_off_header_format)
@@ -166,7 +163,7 @@ def _write_abundances(
         meta = compound_meta[compound.compound_name]
         if not is_std_selected:
             unit = "Peak Area"
-        elif _positive(meta["amount_in_std_mix"]):
+        elif _positive(meta["amount_in_std_mix"]) and compound.compound_name not in assumed_mrrf:
             unit = "nmol"
         else:
             unit = "Relative"

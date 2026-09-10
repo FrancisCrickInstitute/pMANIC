@@ -1,6 +1,7 @@
 import os
+import time
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QMessageBox
 
@@ -93,7 +94,7 @@ def test_recent_files_paths_from_single_str(qapp, tmp_path):
     assert recent.paths() == [one_abs]
 
 
-def test_export_worker_cancel_sets_event_and_emits_finished_false(
+def test_export_worker_cancel_crosses_threads_and_quit_unblocks_wait(
     qapp, monkeypatch
 ):
     monkeypatch.setattr(
@@ -101,7 +102,7 @@ def test_export_worker_cancel_sets_event_and_emits_finished_false(
         lambda: None,
     )
 
-    class StubExporter:
+    class BlockingExporter:
         def export_to_excel(
             self,
             path,
@@ -109,14 +110,28 @@ def test_export_worker_cancel_sets_event_and_emits_finished_false(
             use_legacy_integration=False,
             include_carbon_enrichment=False,
         ):
-            return progress_cb(50)
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if progress_cb(1) is False:
+                    return False
+                time.sleep(0.005)
+            return True
 
-    worker = ExportWorker(StubExporter(), str(os.path.join("tmp", "out.xlsx")))
+    class Canceller(QObject):
+        canceled = Signal()
+
+    thread = QThread()
+    worker = ExportWorker(BlockingExporter(), os.path.join("tmp", "out.xlsx"))
+    worker.moveToThread(thread)
+    canceller = Canceller()
+    canceller.canceled.connect(worker.cancel, Qt.DirectConnection)
     finished = []
-    worker.finished.connect(finished.append)
-    worker.cancel()
-    assert worker._cancel_event.is_set()
-    worker.run()
+    worker.finished.connect(finished.append, Qt.DirectConnection)
+    worker.finished.connect(thread.quit, Qt.DirectConnection)
+    thread.started.connect(worker.run)
+    thread.start()
+    canceller.canceled.emit()
+    assert thread.wait(1000), "quit must reach the thread while the GUI thread blocks"
     assert finished == [False]
 
 

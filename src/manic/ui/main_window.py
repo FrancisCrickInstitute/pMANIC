@@ -2729,12 +2729,21 @@ class MainWindow(QMainWindow):
                 include_carbon_enrichment=include_carbon_enrichment,
             )
             self._export_worker.moveToThread(self._export_thread)
-            progress_dialog.canceled.connect(self._export_worker.cancel)
+            # The worker thread is busy inside run(), so a queued call to
+            # cancel() would never be delivered. Direct connections let
+            # cancel() and quit() cross threads without an event loop.
+            progress_dialog.canceled.connect(
+                self._export_worker.cancel, Qt.DirectConnection
+            )
             self._export_worker.progress.connect(progress_dialog.setValue)
             self._export_worker.finished.connect(self._export_finished)
             self._export_worker.failed.connect(self._export_failed)
-            self._export_worker.finished.connect(self._export_thread.quit)
-            self._export_worker.failed.connect(self._export_thread.quit)
+            self._export_worker.finished.connect(
+                self._export_thread.quit, Qt.DirectConnection
+            )
+            self._export_worker.failed.connect(
+                self._export_thread.quit, Qt.DirectConnection
+            )
             self._export_thread.started.connect(self._export_worker.run)
             self._export_thread.finished.connect(self._clear_export_thread)
             self._export_thread.finished.connect(self._export_thread.deleteLater)

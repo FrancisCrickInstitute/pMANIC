@@ -35,26 +35,72 @@ export sheets, and scientific rationale) is in
 
 ## Upgrading to MANIC 5
 
-> **⚠️ Corrected values changed. 5.0 exports are not comparable with 4.x exports.**
+> **⚠️ The Corrected Values sheet changes in 5.0. Your ratios, label incorporation and calibrated amounts do not, in practice.**
 
-Natural isotope correction is now a single solve of $A x = b$. Versions up to
-4.x performed that solve and then divided each isotopologue by the matching
-diagonal element of $A$ — an extra step carried over from the legacy MATLAB
-flow that has no basis in the linear model and inflated every channel by
-$1 / A_{jj}$.
+### The short version
 
-Because each channel was inflated by a different factor, this affects
-**ratios as well as absolute values**. The **Corrected Values**,
-**Isotope Ratio**, **% Label Incorporation** and **% Carbons Labelled** sheets
-all change, and the shift grows with the number of labelled atoms and with
-derivatisation. Raw Values are unaffected.
+- **Raw Values.** Identical to 4.x.
+- **Isotope Ratio, % Label Incorporation, % Carbons Labelled.** Change by less than half a percentage point. Your 4.x results stand.
+- **Abundances (nmol) for compounds calibrated against MM files.** Change by a fraction of a percent. Your 4.x results stand.
+- **Abundances for compounds with no MM-file calibration.** Drop by about a third. 5.0 now labels these columns **Relative** instead of nmol, because they never were absolute amounts.
+- **Corrected Values.** Drop by roughly 15 to 40%. Do not compare a 4.x Corrected Values sheet with a 5.0 one. Reprocess the older data in 5.0 first.
 
-The 5.0 numbers are the correct ones. If you need to compare against results
-produced by 4.x, reprocess that data with 5.0 first rather than comparing
-workbooks across versions. Every exported changelog records the MANIC version
-that produced it. See
-**[Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)**
-for the full derivation.
+### What changed and why
+
+Natural isotope correction works out how much of each isotopologue peak is real
+label and how much is the natural ¹³C background. MANIC 4.x, following the
+original MATLAB code, did that calculation correctly and then applied one extra
+step: it divided every channel by a number slightly below one. That extra step
+had no scientific basis. It inflated every corrected value, by more for bigger
+and more heavily derivatised molecules. MANIC 5.0 removes it.
+
+Because the inflation was almost the same for every channel of a compound
+(within 2%), it cancelled out wherever channels are compared with each other,
+which is what every ratio sheet does. It also cancelled out in calibrated
+abundances, because the response factor (MRRF) is computed from the same
+inflated values and inflates by the same amount. The only place it did not
+cancel is a compound whose response factor could not be computed and was
+assumed to be 1.0. Those abundances carried the full inflation.
+
+### How we checked
+
+Before releasing 5.0 we took two real lab datasets and processed them from
+the raw CDF files twice, once with the 5.0 correction and once with the 4.x
+correction swapped in, then compared every number on every sheet.
+
+| Dataset | Compounds | Samples | EICs |
+|---|---|---|---|
+| CR250807c | 17 | 39 | 663 |
+| EH180919 | 97 | 35 | 3395 |
+
+First we confirmed the two versions really differ only by that one extra
+division. Across 585 sample and compound pairs, the 4.x number equalled the 5.0
+number divided by the extra factor to ten decimal places
+(relative deviation 3.6e-10), all the way through deconvolution, baseline
+correction and integration. Then we measured how much each exported sheet
+moved:
+
+| Sheet | CR250807c (522 pairs) | EH180919 (2662 pairs) |
+|---|---|---|
+| Corrected Values | median 18.1%, max 26.2% | median 26.4%, max 39.1% |
+| Isotope Ratio | median 0.00 pp, max 0.30 pp | median 0.01 pp, max 0.48 pp |
+| % Label Incorporation | median 0.06 pp, max 0.29 pp | median 0.04 pp, max 0.47 pp |
+| % Carbons Labelled | median 0.02 pp, max 0.16 pp | median 0.02 pp, max 0.47 pp |
+| Abundances, MRRF from MM files | median 0.07%, max 2.5% | median 0.13%, max 2.1% |
+| Abundances, MRRF assumed 1.0 | none in this dataset | median 31%, max 34% (4 compounds) |
+
+pp means percentage points, so an isotope ratio of 0.400 moving to 0.403 is
+0.3 pp. Medians are typical values; maxima are the worst case we found.
+
+The size of the old inflation depends on how big and how derivatised the
+molecule is, not on how many positions can carry label. Across 111 labelled
+compounds it correlated +0.65 with total atom count and −0.23 with labelled
+atoms. Glycine (2 labelled carbons) was inflated 1.44×; Picolinate (6 labelled
+carbons) only 1.19×.
+
+Every exported changelog records the MANIC version that produced it, so you
+can always tell which correction a workbook used. The mathematics is in
+**[Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)**.
 
 ---
 

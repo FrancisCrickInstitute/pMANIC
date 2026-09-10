@@ -59,6 +59,7 @@ Import raw experimental data files for processing. The application will extract 
 **Prerequisites**   
 * **Compound Definitions Loaded:** You must complete [Step 1](#step-1-load-compound-definitions) first. The application requires the compound library to know which masses to extract.
 * **File Format:** Data must be in **NetCDF (`.CDF`)** format.
+* **Conversion:** MANIC does not import vendor mass-spec files. Convert them to CDF in [OpenChrom](https://www.openchrom.net/) first.
 * **File Organization:** Ensure all CDF files for the experiment (samples and standards) are located in the same directory.
 
 **Configuration Note**   
@@ -347,6 +348,7 @@ The **Baseline correction** checkbox is located in the left toolbar, between the
 * **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes around the expected retention time and selects the component nearest that time whose centre sits inside the dashed loffset/roffset window. This can separate overlapping peaks before area calculation.
 * **Scope:** This is a **per-compound** setting. Open **Settings → Deconvolution** with a compound selected; the chosen resolution level and fit type are saved for that compound and used by every sample that does not have its own override. A sample can override the curve fit from the plot right-click menu or from the Per-sample curve fit section on the same settings page. An override is shown on that tile's caption. See [Per-sample curve fit](Reference_Chromatographic_Peak_Deconvolution.md#per-sample-curve-fit).
+* **Tiles in view do not limit Save:** The compound setting still applies to every sample of that compound, including samples you are not plotting. A per-sample curve-fit override is the exception.
 * **Resolution levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered (and cost more time). The default `Level 4` is tuned for aggressive splitting of resolved overlaps while staying fast; levels `5`-`7` additionally enable shoulder detection (separating components that ride on a flank without their own peak) for the hardest coelutions.
 * **Fit type:** Choose how the elution shape is modelled:
     * `Auto` - compares the candidate shapes and picks the best by BIC (recommended default).

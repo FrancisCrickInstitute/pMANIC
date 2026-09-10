@@ -77,7 +77,7 @@ The next sample of the same compound can still use model areas if every non-empt
 
 ## Per-Compound Settings
 
-The resolution level, peak-shape fit type, and noise gate are stored **per compound** (persisted in the session database), not as a single global option. Each compound can use a different setting, and the choice applies to all of that compound's samples.
+The resolution level, peak-shape fit type, and noise gate are stored **per compound** (persisted in the session database), not as a single global option. Each compound can use a different setting, and the choice applies to all of that compound's samples. The plot may show only some samples. Save still writes the compound row, so hidden samples use the same setting when you plot them or export.
 
 Settings are edited from **Settings → Deconvolution** with a compound selected. The current value for the selected compound is shown in the status bar, and the settings are written to the export changelog so a processed result can be reproduced exactly.
 

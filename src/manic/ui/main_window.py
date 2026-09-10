@@ -48,7 +48,7 @@ from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound, read_compound_with_session
-from manic.models.analysis import AnalysisContext, AnalysisMode
+from manic.models.analysis import AnalysisContext, AnalysisMode, IonChannel, IonRole
 from manic.models.session_export import (
     InternalStandardRestore,
     InternalStandardRestoreKind,
@@ -1966,6 +1966,50 @@ class MainWindow(QMainWindow):
 
     def selected_sample_names(self) -> list[str]:
         return self.graph_view.get_selected_samples()
+
+    def qualifier_channels(self, compound_name: str | None) -> list[IonChannel]:
+        if not compound_name:
+            return []
+        try:
+            compound = read_compound(compound_name)
+        except LookupError:
+            return []
+        return sorted(
+            (
+                channel
+                for channel in compound.analysis_channels
+                if channel.role is IonRole.QUALIFIER
+            ),
+            key=lambda channel: channel.ordinal,
+        )
+
+    def apply_qualifier_tolerances(
+        self, compound_name: str, tolerances: dict[int, float | None]
+    ) -> None:
+        current = {
+            channel.ordinal: channel.ratio_tolerance
+            for channel in self.qualifier_channels(compound_name)
+        }
+        changed = {
+            ordinal: value
+            for ordinal, value in tolerances.items()
+            if current.get(ordinal) != value
+        }
+        if not changed:
+            return
+        with get_connection() as conn:
+            for ordinal, value in changed.items():
+                conn.execute(
+                    "UPDATE compound_ions SET ratio_tolerance = ? "
+                    "WHERE compound_name = ? AND role = 'qualifier' AND ordinal = ?",
+                    (value, compound_name, ordinal),
+                )
+        logger.info(
+            "Qualifier tolerances updated for '%s': %s",
+            compound_name,
+            changed,
+        )
+        self._replot_current_selection()
 
     def internal_standard_name(self) -> str | None:
         return self.toolbar.get_internal_standard()

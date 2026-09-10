@@ -27,6 +27,8 @@ from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.ui.window_placement import show_over_parent
 
+_ALL_MODES = frozenset(AnalysisMode)
+
 _SPIN_STYLE = (
     "QDoubleSpinBox { background-color: white; color: #212529; }"
     "QDoubleSpinBox:disabled { background-color: #f8f9fa; color: #adb5bd; "
@@ -209,6 +211,114 @@ class PeakValidationPage(SettingsPage):
 
     def save(self) -> None:
         self.host.apply_min_peak_area_ratio(self.spin.value())
+
+
+class QualifierRatioPage(SettingsPage):
+    title = "Qualifier Ratios"
+    _ORDINALS = (1, 2)
+
+    def __init__(self, host, parent: QWidget | None = None) -> None:
+        super().__init__(host, parent)
+        self._compound_name: str | None = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        info = QLabel(
+            "Tolerance is a fraction of the expected ratio (0.25 = ±25%). "
+            "An unset tolerance leaves that qualifier unassessed in Identity QC "
+            "and the Qualifier QC sheet."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self.compound_label = QLabel("Compound: none selected")
+        layout.addWidget(self.compound_label)
+
+        form = _form_layout()
+        self._labels: dict[int, QLabel] = {}
+        self._spins: dict[int, QDoubleSpinBox] = {}
+        for ordinal in self._ORDINALS:
+            label = QLabel()
+            label.setWordWrap(True)
+            spin = QDoubleSpinBox()
+            spin.setObjectName(f"qualifier{ordinal}ToleranceSpin")
+            spin.setRange(0.0, 10.0)
+            spin.setDecimals(3)
+            spin.setSingleStep(0.01)
+            spin.setSpecialValueText("Not set")
+            spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+            spin.setStyleSheet(_SPIN_STYLE)
+            spin.valueChanged.connect(self._mark_dirty)
+            form.addRow(label, spin)
+            self._labels[ordinal] = label
+            self._spins[ordinal] = spin
+            self._inputs.append(spin)
+        layout.addLayout(form)
+        layout.addStretch()
+
+    def editable(self) -> tuple[bool, str]:
+        name = self.host.selected_compound_name()
+        if not name:
+            return (
+                False,
+                "Load compounds and select one in the toolbar to change this.",
+            )
+        if not self.host.qualifier_channels(name):
+            return False, f"{name} has no qualifier ions."
+        return True, ""
+
+    def unsaved_hint(self) -> str:
+        selected = self.host.selected_compound_name()
+        if selected == self._compound_name:
+            return f"Unsaved changes for {self._compound_name}"
+        return (
+            f"Unsaved changes for {self._compound_name}. "
+            f"The toolbar now selects {selected or 'nothing'}; Save still writes to "
+            f"{self._compound_name}."
+        )
+
+    def load(self) -> None:
+        self._compound_name = self.host.selected_compound_name()
+        self.compound_label.setText(
+            f"Compound: {self._compound_name or 'none selected'}"
+        )
+        channels = {
+            channel.ordinal: channel
+            for channel in self.host.qualifier_channels(self._compound_name)
+        }
+        for ordinal, spin in self._spins.items():
+            label = self._labels[ordinal]
+            channel = channels.get(ordinal)
+            visible = channel is not None
+            label.setVisible(visible)
+            spin.setVisible(visible)
+            if channel is None:
+                continue
+            ratio = (
+                f"{channel.expected_ratio:g}"
+                if channel.expected_ratio is not None
+                else "not set"
+            )
+            label.setText(
+                f"Qualifier {channel.ordinal}  ·  m/z {channel.mz:g}  ·  "
+                f"expected ratio {ratio}"
+            )
+            with QSignalBlocker(spin):
+                spin.setValue(
+                    0.0 if channel.ratio_tolerance is None else channel.ratio_tolerance
+                )
+        self._clear_dirty()
+
+    def save(self) -> None:
+        if not self._compound_name:
+            return
+        tolerances = {
+            ordinal: None if spin.value() == 0.0 else spin.value()
+            for ordinal, spin in self._spins.items()
+            if spin.isVisible()
+        }
+        self.host.apply_qualifier_tolerances(self._compound_name, tolerances)
 
 
 class IntegrationPage(SettingsPage):
@@ -569,13 +679,14 @@ class DeconvolutionPage(SettingsPage):
         )
 
 
-SETTINGS_PAGES: tuple[tuple[type[SettingsPage], bool], ...] = (
-    (MassTolerancePage, False),
-    (PeakValidationPage, False),
-    (IntegrationPage, False),
-    (NaturalAbundancePage, True),
-    (InternalStandardPage, True),
-    (DeconvolutionPage, False),
+SETTINGS_PAGES: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] = (
+    (MassTolerancePage, _ALL_MODES),
+    (PeakValidationPage, _ALL_MODES),
+    (QualifierRatioPage, frozenset({AnalysisMode.UNLABELLED})),
+    (IntegrationPage, _ALL_MODES),
+    (NaturalAbundancePage, frozenset({AnalysisMode.LABELLED})),
+    (InternalStandardPage, frozenset({AnalysisMode.LABELLED})),
+    (DeconvolutionPage, _ALL_MODES),
 )
 
 
@@ -590,11 +701,10 @@ class SettingsWindow(QDialog):
         self.resize(880, 600)
         self.setMinimumSize(720, 480)
 
-        labelled = host.analysis_mode is AnalysisMode.LABELLED
         self._pages: list[SettingsPage] = [
             page_cls(host)
-            for page_cls, labelled_only in SETTINGS_PAGES
-            if not labelled_only or labelled
+            for page_cls, modes in SETTINGS_PAGES
+            if host.analysis_mode in modes
         ]
 
         root = QHBoxLayout(self)

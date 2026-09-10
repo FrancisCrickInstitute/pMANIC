@@ -171,7 +171,7 @@ no prompt. Headers are case-insensitive and ignore spaces or underscores
 | `Qualifier 2 Ratio` | | Expected qualifier-2/Q area ratio |
 | `Qualifier 2 Tolerance` | | Fractional tolerance on qualifier-2/Q |
 
-MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds.
+MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds. Tolerances can be changed later in **MANIC ▸ Settings ▸ Qualifier Ratios**.
 
 ### Additional columns
 

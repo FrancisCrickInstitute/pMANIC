@@ -19,6 +19,7 @@ from manic.ui.settings_window import (
     InternalStandardPage,
     MassTolerancePage,
     PeakValidationPage,
+    QualifierRatioPage,
 )
 
 SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
@@ -34,6 +35,7 @@ LABELLED_TITLES = [
 UNLABELLED_TITLES = [
     "Mass Tolerance",
     "Peak Validation",
+    "Qualifier Ratios",
     "Integration",
     "Deconvolution",
 ]
@@ -117,12 +119,107 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     )
 
 
-def test_unlabelled_settings_lists_four_pages(qapp, empty_db, monkeypatch):
+def test_unlabelled_settings_lists_five_pages(qapp, empty_db, monkeypatch):
     window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
     try:
         window.open_settings_window()
         settings = window.settings_window
         assert _page_titles(settings) == UNLABELLED_TITLES
+    finally:
+        if window.settings_window is not None:
+            window.settings_window.close()
+        window.close()
+
+
+def _insert_unlabelled_target(name: str = "Target") -> None:
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+            "label_atoms) VALUES (?, 1.0, 0.1, 0.1, 217.0, 0)",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO compound_ions (compound_name, role, ordinal, mz, expected_ratio, "
+            "ratio_tolerance) VALUES (?, 'quantifier', 0, 217.0, NULL, NULL)",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO compound_ions (compound_name, role, ordinal, mz, expected_ratio, "
+            "ratio_tolerance) VALUES (?, 'qualifier', 1, 147.0, 0.4, 0.25)",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO compound_ions (compound_name, role, ordinal, mz, expected_ratio, "
+            "ratio_tolerance) VALUES (?, 'qualifier', 2, 73.0, 0.2, NULL)",
+            (name,),
+        )
+
+
+def test_qualifier_ratios_page_is_unlabelled_only(labelled_window):
+    labelled_window.open_settings_window()
+    titles = _page_titles(labelled_window.settings_window)
+    assert "Qualifier Ratios" not in titles
+    assert titles == LABELLED_TITLES
+
+
+def test_qualifier_ratios_not_editable_without_a_selected_compound(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
+    try:
+        window.open_settings_window()
+        settings = window.settings_window
+        _select_page(settings, "Qualifier Ratios")
+        page = settings.page_named("Qualifier Ratios")
+        assert isinstance(page, QualifierRatioPage)
+        assert page.editable() == (
+            False,
+            "Load compounds and select one in the toolbar to change this.",
+        )
+        assert not page._spins[1].isEnabled()
+        assert settings.hint_label.text() == (
+            "Load compounds and select one in the toolbar to change this."
+        )
+    finally:
+        if window.settings_window is not None:
+            window.settings_window.close()
+        window.close()
+
+
+def test_qualifier_ratios_save_writes_tolerance_and_null(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
+    try:
+        _insert_unlabelled_target()
+        window.compound_data_loaded = True
+        window.toolbar.update_compound_list(["Target"], selected_name="Target")
+        replots = []
+        monkeypatch.setattr(window, "_replot_current_selection", lambda: replots.append(1))
+        window.open_settings_window()
+        settings = window.settings_window
+        _select_page(settings, "Qualifier Ratios")
+        page = settings.page_named("Qualifier Ratios")
+        assert page.compound_label.text() == "Compound: Target"
+        assert page._labels[1].text() == (
+            "Qualifier 1  ·  m/z 147  ·  expected ratio 0.4"
+        )
+        assert page._spins[1].isVisible()
+        assert page._spins[2].isVisible()
+        page._spins[1].setValue(0.3)
+        page._spins[2].setValue(0.0)
+        settings.save_button.click()
+        with database.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT ordinal, ratio_tolerance FROM compound_ions "
+                "WHERE compound_name = 'Target' AND role = 'qualifier' "
+                "ORDER BY ordinal"
+            ).fetchall()
+        assert rows[0]["ordinal"] == 1
+        assert rows[0]["ratio_tolerance"] == pytest.approx(0.3)
+        assert rows[1]["ordinal"] == 2
+        assert rows[1]["ratio_tolerance"] is None
+        assert replots == [1]
     finally:
         if window.settings_window is not None:
             window.settings_window.close()

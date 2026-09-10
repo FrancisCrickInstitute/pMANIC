@@ -4,7 +4,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.models.mm_file_check import MmFileStatus
+from manic.ui.combo_box import ComboBox
 
 _STATE_ORDER = {"unset": 0, "no_match": 1, "matched": 2}
 _WARNING_CELL = QColor(255, 243, 205)
@@ -96,7 +96,7 @@ class PostLoadChecklistDialog(QDialog):
 
         is_row = QHBoxLayout()
         is_row.setSpacing(12)
-        self.internal_standard_combo = QComboBox()
+        self.internal_standard_combo = ComboBox()
         self.internal_standard_combo.setObjectName("internalStandardCombo")
         self.internal_standard_combo.addItem("No internal standard", None)
         for name in compound_names:

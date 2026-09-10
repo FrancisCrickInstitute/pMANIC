@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
+from manic.ui.combo_box import ComboBox
 from manic.ui.window_placement import show_over_parent
 
 _ALL_MODES = frozenset(AnalysisMode)
@@ -39,11 +40,6 @@ def _count_samples(names: list[str]) -> str:
 _SPIN_STYLE = (
     "QDoubleSpinBox { background-color: white; color: #212529; }"
     "QDoubleSpinBox:disabled { background-color: #f8f9fa; color: #adb5bd; "
-    "border: 1px solid #e9ecef; }"
-)
-_COMBO_STYLE = (
-    "QComboBox { background-color: white; color: #212529; }"
-    "QComboBox:disabled { background-color: #f8f9fa; color: #adb5bd; "
     "border: 1px solid #e9ecef; }"
 )
 _HINT_STYLE = "color: gray; font-style: italic; padding: 0px;"
@@ -432,9 +428,8 @@ class InternalStandardPage(SettingsPage):
         layout.addWidget(self.standard_label)
 
         form = _form_layout()
-        self.combo = QComboBox()
+        self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
-        self.combo.setStyleSheet(_COMBO_STYLE)
         self.combo.currentIndexChanged.connect(self._mark_dirty)
         self._inputs.append(self.combo)
         form.addRow("Reference peak", self.combo)
@@ -498,21 +493,18 @@ class DeconvolutionPage(SettingsPage):
         layout.addWidget(self.compound_label)
 
         form = _form_layout()
-        self.level_combo = QComboBox()
+        self.level_combo = ComboBox()
         self.level_combo.setObjectName("deconvolutionLevelCombo")
-        self.level_combo.setStyleSheet(_COMBO_STYLE)
         self.level_combo.currentIndexChanged.connect(self._on_level_changed)
         form.addRow("Resolution", self.level_combo)
 
-        self.fit_combo = QComboBox()
+        self.fit_combo = ComboBox()
         self.fit_combo.setObjectName("deconvolutionFitCombo")
-        self.fit_combo.setStyleSheet(_COMBO_STYLE)
         self.fit_combo.currentIndexChanged.connect(self._mark_dirty)
         form.addRow("Fit type", self.fit_combo)
 
-        self.gate_combo = QComboBox()
+        self.gate_combo = ComboBox()
         self.gate_combo.setObjectName("deconvolutionGateCombo")
-        self.gate_combo.setStyleSheet(_COMBO_STYLE)
         self.gate_combo.currentIndexChanged.connect(self._mark_dirty)
         form.addRow("Noise gate", self.gate_combo)
         layout.addLayout(form)
@@ -550,9 +542,8 @@ class DeconvolutionPage(SettingsPage):
         )
 
         sample_form = _form_layout()
-        self.sample_fit_combo = QComboBox()
+        self.sample_fit_combo = ComboBox()
         self.sample_fit_combo.setObjectName("sampleFitCombo")
-        self.sample_fit_combo.setStyleSheet(_COMBO_STYLE)
         self.sample_fit_combo.currentIndexChanged.connect(
             self._mark_sample_section_dirty
         )
@@ -581,7 +572,7 @@ class DeconvolutionPage(SettingsPage):
         self.sample_fit_table.setFocusPolicy(Qt.NoFocus)
         self.sample_fit_table.setAlternatingRowColors(False)
         self.sample_fit_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.sample_fit_table.verticalHeader().setDefaultSectionSize(32)
+        self.sample_fit_table.verticalHeader().setDefaultSectionSize(36)
         self.sample_fit_table.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Fixed
         )
@@ -692,8 +683,7 @@ class DeconvolutionPage(SettingsPage):
             item = QTableWidgetItem(sample)
             item.setFlags(Qt.ItemIsEnabled)
             table.setItem(row, 0, item)
-            combo = QComboBox()
-            combo.setStyleSheet(_COMBO_STYLE)
+            combo = ComboBox()
             self._fill_fit_options(combo, fit_type)
             combo.currentIndexChanged.connect(self._mark_dirty)
             table.setCellWidget(row, 1, combo)

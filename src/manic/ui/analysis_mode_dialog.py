@@ -14,14 +14,12 @@ _MODE_CHOICES = (
     (
         AnalysisMode.LABELLED,
         "Labelled isotope-tracing analysis",
-        "Analyse consecutive M+0…M+n isotopologues with natural-abundance correction.",
         "For stable-isotope tracing: M+0, M+1 and later isotopologues are "
         "measured and corrected for natural isotope abundance.",
     ),
     (
         AnalysisMode.UNLABELLED,
         "Unlabelled targeted analysis",
-        "Quantify one diagnostic ion and use qualifier ions to support identity.",
         "For targeted GC-MS profiling: one quantifier ion provides the response "
         "and qualifier ions check retention and ion-ratio consistency.",
     ),
@@ -44,23 +42,15 @@ class AnalysisModeDialog(QDialog):
         heading.setStyleSheet("font-size: 16px; font-weight: 600;")
         layout.addWidget(heading)
 
-        description = QLabel(
-            "The mode is fixed for this analysis so that compounds and results "
-            "cannot be interpreted using the wrong scientific workflow."
-        )
-        description.setWordWrap(True)
-        layout.addWidget(description)
-
         first_button = None
-        for mode, button_text, tooltip, help_text in _MODE_CHOICES:
+        for mode, button_text, description in _MODE_CHOICES:
             button = QPushButton(button_text)
-            button.setToolTip(tooltip)
             button.clicked.connect(lambda _c, m=mode: self._choose(m))
             layout.addWidget(button)
             if first_button is None:
                 first_button = button
 
-            help_label = QLabel(help_text)
+            help_label = QLabel(description)
             help_label.setWordWrap(True)
             help_label.setIndent(12)
             layout.addWidget(help_label)

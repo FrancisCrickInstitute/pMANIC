@@ -396,6 +396,8 @@ class MainWindow(QMainWindow):
         self.graph_view.sample_fit_type_changed.connect(
             self.on_sample_fit_type_changed
         )
+        self.graph_view.focus_selected_requested.connect(self.focus_on_samples)
+        self.graph_view.show_all_samples_requested.connect(self.show_all_samples)
 
         # Connect the integration window's session data signals
         self.toolbar.integration.session_data_applied.connect(
@@ -1185,6 +1187,14 @@ class MainWindow(QMainWindow):
     def on_samples_selected(self, samples_selected):
         compound = self.toolbar.get_selected_compound()
         self.on_plot_button(compound, samples_selected)
+
+    def focus_on_samples(self, names: list[str]) -> None:
+        self.toolbar.set_selected_samples(names)
+        self.graph_view.select_samples(names)
+
+    def show_all_samples(self) -> None:
+        self.toolbar.select_all_samples()
+        self.graph_view.select_all_plots()
 
     def on_internal_standard_selected(self, internal_standard):
         """

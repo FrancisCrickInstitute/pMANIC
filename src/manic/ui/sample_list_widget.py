@@ -1,6 +1,7 @@
+from collections.abc import Iterable
 from typing import List
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -77,6 +78,31 @@ class SampleListWidget(QListWidget):
             self.selectAll()
 
         self._center_current_item_if_single_selected()
+
+    def set_selected_samples(self, names: Iterable[str]) -> None:
+        wanted = set(names)
+        matches = [
+            item
+            for item in (self.item(index) for index in range(self.count()))
+            if item is not None
+            and not item.text().startswith("- No")
+            and item.text() in wanted
+        ]
+        if not matches:
+            return
+        # Block so itemSelectionChanged fires once after the whole edit.
+        with QSignalBlocker(self):
+            self.clearSelection()
+            for item in matches:
+                item.setSelected(True)
+        self.itemSelectionChanged.emit()
+
+    def select_all_samples(self) -> None:
+        if self._get_total_sample_count() == 0:
+            return
+        with QSignalBlocker(self):
+            self.selectAll()
+        self.itemSelectionChanged.emit()
 
     def _get_valid_selected_samples(self) -> List[str]:
         """Get selected sample names, excluding placeholder items"""

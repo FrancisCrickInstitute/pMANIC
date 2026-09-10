@@ -156,6 +156,36 @@ def test_curve_fit_menu_emits_override_for_selected_tiles(grid):
     assert fit_type == "gaussian"
 
 
+def test_show_only_selected_disabled_when_nothing_selected(grid):
+    view, tiles, _emitted = grid
+    view._selected_plots = set()
+    menu, actions = _actions(view, tiles["A"][1])
+    assert actions["Show Only Selected Samples"].isEnabled() is False
+    assert actions["Show All Samples"].isEnabled() is True
+    menu.close()
+
+
+def test_show_only_selected_uses_clicked_tile_when_not_in_selection(grid):
+    view, tiles, _emitted = grid
+    view._selected_plots = {tiles["A"][1]}
+    focused: list[list[str]] = []
+    view.focus_selected_requested.connect(focused.append)
+    menu, actions = _actions(view, tiles["B"][1])
+    actions["Show Only Selected Samples"].trigger()
+    menu.close()
+    assert focused == [["B"]]
+
+
+def test_show_all_samples_menu_emits_request(grid):
+    view, tiles, _emitted = grid
+    shown: list[str] = []
+    view.show_all_samples_requested.connect(lambda: shown.append("all"))
+    menu, actions = _actions(view, tiles["A"][1])
+    actions["Show All Samples"].trigger()
+    menu.close()
+    assert shown == ["all"]
+
+
 def test_curve_fit_menu_checks_common_override(grid):
     view, tiles, _emitted = grid
     view._sample_fit_types = {("Cmp", "A"): "emg", ("Cmp", "B"): "emg"}

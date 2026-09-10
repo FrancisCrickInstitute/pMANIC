@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import List
 
 from PySide6.QtCore import Qt, Signal
@@ -319,6 +320,12 @@ class Toolbar(QWidget):
     def update_sample_list(self, samples: List[str]):
         """Update the samples list widget"""
         self.sample_list.update_samples(samples)
+
+    def set_selected_samples(self, names: Iterable[str]) -> None:
+        self.sample_list.set_selected_samples(names)
+
+    def select_all_samples(self) -> None:
+        self.sample_list.select_all_samples()
 
     def get_selected_samples(self):
         """

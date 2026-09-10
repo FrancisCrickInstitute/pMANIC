@@ -149,6 +149,8 @@ For ambiguous peaks, inspecting the raw data more closely might be helpful:
 You can adjust integration parameters for all samples at once or for specific outliers.
 * **Edit All:** Click "Deselect All" (or click empty space). The Integration Window will show "Selected Plots: All". Changes will apply globally.
 * **Edit Specific Samples:** Click on individual plots to select them (they will turn green). You can also drag a box to select multiple. The Integration Window will show "Selected Plots: X samples". Changes apply *only* to the selection.
+* **Show Only Selected Samples:** Right-click a selected plot and choose this command to hide every other sample. The remaining tiles stay selected. If you right-click a plot that is not selected, the command uses that plot alone.
+* **Show All Samples:** Right-click and choose this command to show every sample again and select all of them.
 
 #### 4. Adjusting Boundaries (Integration Window)
 Locate the **Integration Window** panel (middle-left).

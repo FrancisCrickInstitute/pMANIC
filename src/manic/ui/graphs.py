@@ -2,6 +2,7 @@ import logging
 import math
 import sys
 import warnings
+from collections.abc import Iterable
 from typing import Dict, List, Optional, Sequence, Set
 
 import numpy as np
@@ -150,6 +151,8 @@ class GraphView(QWidget):
     selection_changed = Signal(list)  # List of selected sample names
     peak_review_changed = Signal(str, list, object)
     sample_fit_type_changed = Signal(str, list, object)
+    focus_selected_requested = Signal(list)
+    show_all_samples_requested = Signal()
     settings_requested = Signal()
     documentation_requested = Signal()
 
@@ -646,6 +649,22 @@ class GraphView(QWidget):
             select_only_action.setEnabled(False)
             select_only_action.setToolTip("Right-click a specific plot")
 
+        show_only_action = context_menu.addAction("Show Only Selected Samples")
+        if self._selected_plots:
+            focus_names = self._focus_sample_names(clicked_plot)
+            show_only_action.triggered.connect(
+                lambda checked=False, names=focus_names: (
+                    self.focus_selected_requested.emit(names)
+                )
+            )
+        else:
+            show_only_action.setEnabled(False)
+
+        show_all_action = context_menu.addAction("Show All Samples")
+        show_all_action.triggered.connect(
+            lambda: self.show_all_samples_requested.emit()
+        )
+
         # Plot-specific actions
         context_menu.addSeparator()
 
@@ -812,7 +831,11 @@ class GraphView(QWidget):
 
     def get_selected_samples(self) -> List[str]:
         """Get list of currently selected sample names"""
-        return [plot.sample_name for plot in self._selected_plots]
+        return [
+            plot.sample_name
+            for plot in self._current_plots
+            if plot in self._selected_plots
+        ]
 
     def get_current_compound(self) -> str:
         """Get the currently displayed compound"""
@@ -879,9 +902,23 @@ class GraphView(QWidget):
                 plot.set_selected(True)
                 self._selected_plots.add(plot)
 
-        # Emit signal with all selected sample names
-        selected_samples = [plot.sample_name for plot in self._selected_plots]
-        self.selection_changed.emit(selected_samples)
+        self.selection_changed.emit(self.get_selected_samples())
+
+    def select_samples(self, names: Iterable[str]) -> None:
+        wanted = set(names)
+        self._selected_plots.clear()
+        for plot in self._current_plots:
+            if plot.sample_name in wanted:
+                plot.set_selected(True)
+                self._selected_plots.add(plot)
+            elif plot.is_selected:
+                plot.set_selected(False)
+        self.selection_changed.emit(self.get_selected_samples())
+
+    def _focus_sample_names(self, clicked_plot) -> list[str]:
+        if clicked_plot is not None and clicked_plot not in self._selected_plots:
+            return [clicked_plot.sample_name]
+        return self.get_selected_samples()
 
     def deselect_all_plots(self):
         """Deselect all currently selected plots"""
@@ -956,18 +993,8 @@ class GraphView(QWidget):
                     identity=identity,
                 )
 
-                # Restore selection state - need to be careful with timing
-                # since _current_plots is updated in plot_compound
-                restored_count = 0
-                for plot in self._current_plots:
-                    if plot.sample_name in selected_sample_names:
-                        plot.set_selected(True)
-                        self._selected_plots.add(plot)
-                        restored_count += 1
-
-                # Emit selection signal to update integration window
-                selected_samples = [plot.sample_name for plot in self._selected_plots]
-                self.selection_changed.emit(selected_samples)
+                self.select_samples(selected_sample_names)
+                restored_count = len(self._selected_plots)
 
                 logger.info(
                     f"Refreshed {len(self._current_plots)} plots for '{self._current_compound}' "

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.models.analysis import AnalysisMode
+from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.ui.window_placement import show_over_parent
 
 _SPIN_STYLE = (
@@ -346,18 +348,22 @@ class InternalStandardPage(SettingsPage):
 
 class DeconvolutionPage(SettingsPage):
     title = "Deconvolution"
+    _MIXED = "_mixed"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
         self._compound_name: str | None = None
+        self._sample_names: list[str] = []
+        self._sample_section_touched = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
         info = QLabel(
             "Choose how MANIC fits and separates overlapping chromatographic peaks "
-            "before integration. These settings are saved per compound and apply to "
-            "every sample of that compound."
+            "before integration. Resolution, fit type, and noise gate are saved per "
+            "compound. A sample can override the curve fit from the plot context menu "
+            "or the Per-sample curve fit section below."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -406,6 +412,30 @@ class DeconvolutionPage(SettingsPage):
         self.apply_all.toggled.connect(self._mark_dirty)
         self._inputs.append(self.apply_all)
         layout.addWidget(self.apply_all)
+
+        self.sample_group = QGroupBox("Per-sample curve fit")
+        sample_layout = QVBoxLayout(self.sample_group)
+        self.sample_scope_label = QLabel(
+            "Applies to the 0 samples selected in the plot area"
+        )
+        self.sample_scope_label.setWordWrap(True)
+        sample_layout.addWidget(self.sample_scope_label)
+
+        sample_form = _form_layout()
+        self.sample_fit_combo = QComboBox()
+        self.sample_fit_combo.setObjectName("sampleFitCombo")
+        self.sample_fit_combo.setStyleSheet(_COMBO_STYLE)
+        self.sample_fit_combo.currentIndexChanged.connect(self._mark_sample_section_dirty)
+        sample_form.addRow("Fit type", self.sample_fit_combo)
+        sample_layout.addLayout(sample_form)
+
+        self.clear_overrides = QCheckBox(
+            "Clear all per-sample overrides for this compound (0)"
+        )
+        self.clear_overrides.setObjectName("clearSampleFitCheck")
+        self.clear_overrides.toggled.connect(self._mark_sample_section_dirty)
+        sample_layout.addWidget(self.clear_overrides)
+        layout.addWidget(self.sample_group)
         layout.addStretch()
 
     def editable(self) -> tuple[bool, str]:
@@ -420,16 +450,26 @@ class DeconvolutionPage(SettingsPage):
         super().set_inputs_enabled(enabled)
         if enabled:
             self._sync_fit_enabled()
+        self._sync_sample_section(enabled)
 
     def unsaved_hint(self) -> str:
         selected = self.host.selected_compound_name()
         if selected == self._compound_name:
-            return f"Unsaved changes for {self._compound_name}"
-        return (
-            f"Unsaved changes for {self._compound_name}. "
-            f"The toolbar now selects {selected or 'nothing'}; Save still writes to "
-            f"{self._compound_name}."
-        )
+            hint = f"Unsaved changes for {self._compound_name}"
+        else:
+            hint = (
+                f"Unsaved changes for {self._compound_name}. "
+                f"The toolbar now selects {selected or 'nothing'}; Save still writes to "
+                f"{self._compound_name}."
+            )
+        current_samples = list(self.host.selected_sample_names())
+        if current_samples != self._sample_names:
+            snap = (
+                ", ".join(self._sample_names) if self._sample_names else "no samples"
+            )
+            now = ", ".join(current_samples) if current_samples else "nothing"
+            hint += f" The plot area now selects {now}; Save still writes to {snap}."
+        return hint
 
     def _on_level_changed(self, _index: int) -> None:
         self._sync_fit_enabled()
@@ -440,32 +480,92 @@ class DeconvolutionPage(SettingsPage):
         self.fit_combo.setEnabled(on and self.level_combo.isEnabled())
         self.gate_combo.setEnabled(on and self.level_combo.isEnabled())
 
+    def _mark_sample_section_dirty(self, *_args) -> None:
+        self._sample_section_touched = True
+        self._mark_dirty()
+
+    def _sync_sample_section(self, page_enabled: bool) -> None:
+        has_samples = bool(self._sample_names)
+        self.sample_group.setEnabled(page_enabled and has_samples)
+        overrides = (
+            get_sample_fit_types(self._compound_name) if self._compound_name else {}
+        )
+        self.clear_overrides.setEnabled(
+            page_enabled and has_samples and bool(overrides)
+        )
+
+    def _fill_sample_fit_combo(self, values: set) -> None:
+        combo = self.sample_fit_combo
+        combo.clear()
+        combo.addItem("Use compound setting", None)
+        for value, label in FIT_TYPE_LABELS.items():
+            combo.addItem(label, value)
+        if not self._sample_names or len(values) <= 1:
+            common = next(iter(values), None) if self._sample_names else None
+            index = combo.findData(common)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+            return
+        combo.addItem("(mixed)", self._MIXED)
+        combo.setCurrentIndex(combo.findData(self._MIXED))
+
     def load(self) -> None:
         self._compound_name = self.host.selected_compound_name()
+        self._sample_names = list(self.host.selected_sample_names())
+        self._sample_section_touched = False
         self.compound_label.setText(
             f"Compound: {self._compound_name or 'none selected'}"
         )
+        self.sample_scope_label.setText(
+            f"Applies to the {len(self._sample_names)} samples selected in the plot area"
+        )
+        overrides = (
+            get_sample_fit_types(self._compound_name) if self._compound_name else {}
+        )
+        self.clear_overrides.setText(
+            f"Clear all per-sample overrides for this compound ({len(overrides)})"
+        )
         level, fit, gate = self.host.deconvolution_settings(self._compound_name)
+        values = {
+            overrides.get((self._compound_name, sample)) for sample in self._sample_names
+        }
         with (
             QSignalBlocker(self.level_combo),
             QSignalBlocker(self.fit_combo),
             QSignalBlocker(self.gate_combo),
             QSignalBlocker(self.apply_all),
+            QSignalBlocker(self.sample_fit_combo),
+            QSignalBlocker(self.clear_overrides),
         ):
             _fill_combo(self.level_combo, _DECONVOLUTION_LEVEL_OPTIONS, level)
             _fill_combo(self.fit_combo, _DECONVOLUTION_FIT_OPTIONS, fit)
             _fill_combo(self.gate_combo, _DECONVOLUTION_GATE_OPTIONS, gate)
             self.apply_all.setChecked(False)
+            self._fill_sample_fit_combo(values)
+            self.clear_overrides.setChecked(False)
         self._sync_fit_enabled()
+        self._sync_sample_section(self.editable()[0])
         self._clear_dirty()
 
     def save(self) -> None:
+        fit_type = self.sample_fit_combo.currentData()
+        will_write_samples = self._sample_section_touched and (
+            self.clear_overrides.isChecked() or fit_type != self._MIXED
+        )
         self.host.apply_deconvolution(
             self._compound_name,
             self.level_combo.currentData(),
             self.fit_combo.currentData(),
             self.gate_combo.currentData(),
             self.apply_all.isChecked(),
+            replot=not will_write_samples,
+        )
+        if not will_write_samples:
+            return
+        if self.clear_overrides.isChecked():
+            self.host.clear_sample_fit_types(self._compound_name)
+            return
+        self.host.apply_sample_fit_type(
+            self._compound_name, self._sample_names, fit_type
         )
 
 

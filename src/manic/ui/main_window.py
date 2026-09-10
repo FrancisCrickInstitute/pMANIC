@@ -70,6 +70,10 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
+from manic.models.sample_fit_type import (
+    clear_sample_fit_types as wipe_sample_fit_types,
+    set_sample_fit_type,
+)
 from manic.validation.peak_verdict import PeakVerdict
 from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
@@ -376,6 +380,7 @@ class MainWindow(QMainWindow):
         # Connect the graph view's selection signal
         self.graph_view.selection_changed.connect(self.on_plot_selection_changed)
         self.graph_view.peak_review_changed.connect(self.on_peak_review_changed)
+        self.graph_view.sample_fit_type_changed.connect(self.on_sample_fit_type_changed)
 
         # Connect the integration window's session data signals
         self.toolbar.integration.session_data_applied.connect(
@@ -840,6 +845,14 @@ class MainWindow(QMainWindow):
             set_peak_review(compound_name, sample_name, review)
         samples = self.graph_view.get_current_samples()
         self.graph_view.apply_peak_verdicts(self._peak_verdicts(compound_name, samples))
+
+    def on_sample_fit_type_changed(
+        self, compound_name: str, sample_names: list, fit_type
+    ):
+        set_sample_fit_type(compound_name, sample_names, fit_type)
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+        self._replot_current_selection()
 
     def on_plot_button(self, compound_name, samples):
         # Validate inputs before plotting
@@ -1951,6 +1964,9 @@ class MainWindow(QMainWindow):
             return None
         return name
 
+    def selected_sample_names(self) -> list[str]:
+        return self.graph_view.get_selected_samples()
+
     def internal_standard_name(self) -> str | None:
         return self.toolbar.get_internal_standard()
 
@@ -2037,6 +2053,7 @@ class MainWindow(QMainWindow):
         new_fit: str,
         new_gate: str,
         apply_to_all: bool,
+        replot: bool = True,
     ) -> None:
         if not compound_name:
             return
@@ -2060,6 +2077,28 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
+        if replot:
+            self._replot_current_selection()
+
+    def apply_sample_fit_type(
+        self,
+        compound_name: str | None,
+        sample_names: list[str],
+        fit_type: str | None,
+    ) -> None:
+        if not compound_name:
+            return
+        set_sample_fit_type(compound_name, sample_names, fit_type)
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+        self._replot_current_selection()
+
+    def clear_sample_fit_types(self, compound_name: str | None) -> None:
+        if not compound_name:
+            return
+        wipe_sample_fit_types(compound_name)
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
         self._replot_current_selection()
 
     def _apply_deconvolution_to_all(self, new_level: str, new_fit: str, new_gate: str) -> bool:

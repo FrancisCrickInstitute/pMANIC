@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QMenu
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
 from manic.models.analysis import AnalysisContext, AnalysisMode
+from manic.models.sample_fit_type import get_sample_fit_types
 import manic.ui.main_window as main_window_module
 from manic.ui.main_window import MainWindow
 from manic.ui.settings_window import (
@@ -272,6 +273,49 @@ def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window
     page.combo.setCurrentIndex(2)
     settings.save_button.click()
     assert labelled_window.internal_standard_reference_isotope == 2
+
+
+def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window, monkeypatch):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
+            "VALUES ('Alanine', 5.0, 0.6, 0.6, 100.0, 3, 10.0, 1.0, 'S1')"
+        )
+        conn.execute("INSERT INTO samples (sample_name) VALUES ('S1')")
+        conn.execute("INSERT INTO samples (sample_name) VALUES ('S2')")
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
+    monkeypatch.setattr(
+        labelled_window.graph_view,
+        "get_selected_samples",
+        lambda: ["S1", "S2"],
+    )
+    replots = []
+    monkeypatch.setattr(
+        labelled_window, "_replot_current_selection", lambda: replots.append(1)
+    )
+
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    _select_page(settings, "Deconvolution")
+    page = settings.page_named("Deconvolution")
+    assert page.sample_scope_label.text() == (
+        "Applies to the 2 samples selected in the plot area"
+    )
+    assert page.sample_group.isEnabled()
+    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData("gaussian"))
+    settings.save_button.click()
+    assert get_sample_fit_types("Alanine") == {
+        ("Alanine", "S1"): "gaussian",
+        ("Alanine", "S2"): "gaussian",
+    }
+    assert replots == [1]
+
+    page.clear_overrides.setChecked(True)
+    settings.save_button.click()
+    assert get_sample_fit_types("Alanine") == {}
+    assert replots == [1, 1]
 
 
 def test_deconvolution_unsaved_hint_names_the_compound_it_will_write(labelled_window):

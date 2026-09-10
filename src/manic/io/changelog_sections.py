@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from manic.models.sample_fit_type import FIT_TYPE_LABELS
 from manic.sheet_generators.formats import BASELINE_OFF_FONT_COLOR
 from manic.validation.peak_verdict import PEAK_VERDICT_FILL, PeakVerdict
 
@@ -190,6 +191,30 @@ def format_peak_reviews_section(reviews: Iterable[dict]) -> str:
         out.append(
             f"| {row['compound_name']} | {row['sample_name']} | {labels[row['review']]} |"
         )
+    return "\n".join(out) + "\n"
+
+
+def format_sample_fit_types_section(overrides: Iterable[dict]) -> str:
+    rows = list(overrides)
+    if not rows:
+        return ""
+    by_compound: dict[str, list[dict]] = {}
+    for row in rows:
+        by_compound.setdefault(row["compound_name"], []).append(row)
+    out = [
+        "## Per-sample Curve Fits",
+        "Samples whose peak-shape fit type overrides the compound setting.",
+        "",
+    ]
+    for compound_name in sorted(by_compound):
+        out.append(f"### {compound_name}")
+        out.append("")
+        out.append("| Sample | Fit type |")
+        out.append("|--------|----------|")
+        for row in sorted(by_compound[compound_name], key=lambda item: item["sample_name"]):
+            fit_type = str(row["fit_type"] or "auto").lower()
+            out.append(f"| {row['sample_name']} | {FIT_TYPE_LABELS.get(fit_type, 'Auto')} |")
+        out.append("")
     return "\n".join(out) + "\n"
 
 

@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QWidget
 
-from manic.ui.graphs import GraphView
+from manic.ui.graphs import GraphView, tile_caption
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import IdentityStatus
 
@@ -52,7 +52,15 @@ def grid(qapp):
 def _actions(view: GraphView, chart: FakeChart):
     view._show_context_menu(QPoint(0, 0), chart)
     menu = view._active_context_menu
-    return menu, {action.text(): action for action in menu.actions() if action.text()}
+    actions = {action.text(): action for action in menu.actions() if action.text()}
+    for action in menu.actions():
+        submenu = action.menu()
+        if submenu is None:
+            continue
+        for child in submenu.actions():
+            if child.text():
+                actions[child.text()] = child
+    return menu, actions
 
 
 def test_apply_peak_verdicts_styles_tiles(grid):
@@ -124,3 +132,35 @@ def test_group_accept_skips_passing_tiles(grid):
     actions["Accept peak (below threshold)"].trigger()
     menu.close()
     assert emitted == [("Cmp", ["A"], PeakReview.ACCEPTED)]
+
+
+def test_tile_caption_adds_fit_suffix_only_when_overridden():
+    assert tile_caption("S1", None) == "S1"
+    assert tile_caption("S1", "gaussian") == "S1  ·  Gaussian"
+    assert tile_caption("S1", "bi_gaussian") == "S1  ·  Bi-Gaussian"
+
+
+def test_curve_fit_menu_emits_override_for_selected_tiles(grid):
+    view, tiles, _emitted = grid
+    fits = []
+    view.sample_fit_type_changed.connect(lambda c, s, f: fits.append((c, s, f)))
+    view._selected_plots = {tiles["A"][1], tiles["C"][1]}
+    menu, actions = _actions(view, tiles["A"][1])
+    assert actions["Use compound setting"].isChecked()
+    assert actions["Gaussian"].isChecked() is False
+    actions["Gaussian"].trigger()
+    menu.close()
+    compound, samples, fit_type = fits[-1]
+    assert compound == "Cmp"
+    assert sorted(samples) == ["A", "C"]
+    assert fit_type == "gaussian"
+
+
+def test_curve_fit_menu_checks_common_override(grid):
+    view, tiles, _emitted = grid
+    view._sample_fit_types = {("Cmp", "A"): "emg", ("Cmp", "B"): "emg"}
+    view._selected_plots = {tiles["A"][1], tiles["B"][1]}
+    menu, actions = _actions(view, tiles["A"][1])
+    assert actions["EMG"].isChecked()
+    assert actions["Use compound setting"].isChecked() is False
+    menu.close()

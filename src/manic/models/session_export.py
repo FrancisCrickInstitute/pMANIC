@@ -22,6 +22,13 @@ from manic.models.database import (
     soft_delete_sample,
 )
 from manic.models.peak_review import get_peak_reviews
+from manic.models.sample_fit_type import get_sample_fit_types
+from manic.processors.chromatographic_peak_deconvolution import (
+    PEAK_SHAPE_FIT_TYPES,
+    normalize_fit_type,
+    normalize_noise_gate,
+    normalize_stringency,
+)
 from manic.validation.peak_verdict import PeakReview
 from manic.__version__ import __version__, APP_NAME
 from manic.models.analysis import AnalysisMode
@@ -29,11 +36,7 @@ from manic.io.changelog_sections import (
     format_compounds_table_for_session_export,
     format_overrides_section_for_session_export,
     format_peak_reviews_section,
-)
-from manic.processors.chromatographic_peak_deconvolution import (
-    normalize_fit_type,
-    normalize_noise_gate,
-    normalize_stringency,
+    format_sample_fit_types_section,
 )
 
 logger = logging.getLogger(__name__)
@@ -290,6 +293,16 @@ def export_session_method(
                     get_peak_reviews().items()
                 )
             ]
+            method_data["sample_fit_types"] = [
+                {
+                    "compound_name": compound_name,
+                    "sample_name": sample_name,
+                    "fit_type": fit_type,
+                }
+                for (compound_name, sample_name), fit_type in sorted(
+                    get_sample_fit_types().items()
+                )
+            ]
 
             # Export deleted sample names
             cursor = conn.execute("""
@@ -413,6 +426,7 @@ def import_session_overrides(
         _apply_compound_ions(compounds)
 
         _import_peak_reviews(method_data)
+        _import_sample_fit_types(method_data)
 
         if not session_overrides:
             logger.info("No session overrides to import")
@@ -493,6 +507,38 @@ def _import_peak_reviews(method_data: dict) -> None:
             conn.execute(
                 "INSERT INTO peak_review (compound_name, sample_name, review) VALUES (?, ?, ?)",
                 (item["compound_name"], item["sample_name"], review),
+            )
+
+
+def _import_sample_fit_types(method_data: dict) -> None:
+    if "sample_fit_types" not in method_data:
+        return
+
+    with get_connection() as conn:
+        conn.execute("DELETE FROM sample_fit_type")
+        for item in method_data["sample_fit_types"] or []:
+            known = conn.execute(
+                """
+                SELECT 1 FROM compounds c, samples s
+                WHERE c.compound_name = ? AND s.sample_name = ?
+                """,
+                (item["compound_name"], item["sample_name"]),
+            ).fetchone()
+            fit_type = item.get("fit_type")
+            if known is None or fit_type not in PEAK_SHAPE_FIT_TYPES:
+                logger.warning(
+                    "Skipping sample fit type %r for %s/%s - unknown compound, sample or fit type",
+                    fit_type,
+                    item["compound_name"],
+                    item["sample_name"],
+                )
+                continue
+            conn.execute(
+                """
+                INSERT INTO sample_fit_type (compound_name, sample_name, fit_type)
+                VALUES (?, ?, ?)
+                """,
+                (item["compound_name"], item["sample_name"], fit_type),
             )
 
 
@@ -805,6 +851,9 @@ def _generate_changelog(method_data: dict, changelog_path: Path) -> None:
             session_overrides = method_data.get("session_overrides", [])
             f.write(format_overrides_section_for_session_export(session_overrides))
             f.write(format_peak_reviews_section(method_data.get("peak_reviews", [])))
+            f.write(
+                format_sample_fit_types_section(method_data.get("sample_fit_types", []))
+            )
 
             f.write("\n---\n\n")
 

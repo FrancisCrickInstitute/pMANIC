@@ -111,3 +111,11 @@ CREATE TABLE IF NOT EXISTS peak_review (
     review        TEXT NOT NULL CHECK (review IN ('accepted', 'rejected')),
     PRIMARY KEY (compound_name, sample_name)
 );
+
+-- Per-sample curve-fit overrides (absence inherits the compound setting)
+CREATE TABLE IF NOT EXISTS sample_fit_type (
+    compound_name TEXT NOT NULL,
+    sample_name   TEXT NOT NULL,
+    fit_type      TEXT NOT NULL CHECK (fit_type IN ('auto', 'gaussian', 'bi_gaussian', 'emg')),
+    PRIMARY KEY (compound_name, sample_name)
+);

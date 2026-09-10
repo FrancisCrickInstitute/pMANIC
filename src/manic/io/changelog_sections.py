@@ -212,8 +212,7 @@ def format_sample_fit_types_section(overrides: Iterable[dict]) -> str:
         out.append("| Sample | Fit type |")
         out.append("|--------|----------|")
         for row in sorted(by_compound[compound_name], key=lambda item: item["sample_name"]):
-            fit_type = str(row["fit_type"] or "auto").lower()
-            out.append(f"| {row['sample_name']} | {FIT_TYPE_LABELS.get(fit_type, 'Auto')} |")
+            out.append(f"| {row['sample_name']} | {FIT_TYPE_LABELS[row['fit_type']]} |")
         out.append("")
     return "\n".join(out) + "\n"
 

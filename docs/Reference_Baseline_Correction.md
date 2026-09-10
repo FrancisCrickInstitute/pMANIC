@@ -16,7 +16,7 @@ MANIC uses a **linear baseline subtraction** algorithm that fits a straight line
 2. **Collect edge samples.** Take the first 3 and last 3 points in the window (time and intensity).
 3. **Fit one line.** Fit a degree-1 polynomial (`np.polyfit`) through those six points together. This is not a mean of each edge joined by a line.
 4. **Trapezoid under the line.** Baseline area is $0.5 \times (B(t_{\mathrm{first}}) + B(t_{\mathrm{last}})) \times \mathrm{width}$, where $B(t)$ is the fitted line.
-5. **Subtract and clamp.** Subtract that area from the peak area. A negative result is set to 0.
+5. **Clamp the line at zero, then subtract.** Baseline values below zero contribute no area, so the baseline can only reduce peak area. Subtract that area from the peak area. A negative result is set to 0.
 
 ### Mathematical Formulation
 

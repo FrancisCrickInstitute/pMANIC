@@ -130,7 +130,7 @@ class TestAbundanceCalculations:
                 }
                 return base_data
 
-            def get_mrrf_values(self, compounds, internal_std):
+            def get_mrrf_values(self, compounds, internal_std, **_kwargs):
                 return {"Pyruvate": 2.0}
 
             def resolve_mm_samples(self, mm_field):
@@ -225,7 +225,7 @@ class TestAbundanceCalculations:
             def get_sample_corrected_data(self, sample_name):
                 return {"scyllo-Ins": [1000.0]}
 
-            def get_mrrf_values(self, compounds, internal_std):
+            def get_mrrf_values(self, compounds, internal_std, **_kwargs):
                 return {}
 
             def resolve_mm_samples(self, mm_field):

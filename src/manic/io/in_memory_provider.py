@@ -29,6 +29,7 @@ class InMemoryDataProvider:
         self._corrected_cache: Dict[str, Dict[str, List[float]]] = {}
         self._corrector = NaturalAbundanceCorrector()
         self._mrrf_cache: Dict[str, Dict[str, float]] = {}
+        self._mrrf_assumed: Dict[str, set] = {}
         self._bg_cache: Dict[str, Dict[str, float]] = {}
 
     def get_all_compounds(self) -> List[dict]:
@@ -125,11 +126,20 @@ class InMemoryDataProvider:
         self._bg_cache[key] = vals
         return vals
 
-    def get_mrrf_values(self, compounds: List[dict], internal_standard_compound: str) -> Dict[str, float]:
+    def get_mrrf_values(
+        self,
+        compounds: List[dict],
+        internal_standard_compound: str,
+        internal_standard_isotope_index: Optional[int] = None,
+        assumed: Optional[set] = None,
+    ) -> Dict[str, float]:
         # Compute MRRF using only in-memory compounds and corrected data (no DB)
         key = f"mrrf_{len(compounds)}_{internal_standard_compound}"
         if key in self._mrrf_cache:
+            if assumed is not None:
+                assumed.update(self._mrrf_assumed.get(key, set()))
             return self._mrrf_cache[key]
+        assumed_here: set = set()
 
         # Helper to read fields from dict-like rows
         def _get(row, key, default=None):
@@ -156,6 +166,7 @@ class InMemoryDataProvider:
             comp_mm_samples = self.resolve_mm_samples(comp_mm_field)
             if not comp_mm_samples or not internal_std_mm_samples:
                 mrrf_values[cmp_name] = 1.0
+                assumed_here.add(cmp_name)
                 continue
 
             # Numerator: mean metabolite signal over its own MM set
@@ -182,6 +193,10 @@ class InMemoryDataProvider:
                     continue
 
             mrrf_values[cmp_name] = 1.0
+            assumed_here.add(cmp_name)
 
         self._mrrf_cache[key] = mrrf_values
+        self._mrrf_assumed[key] = assumed_here
+        if assumed is not None:
+            assumed.update(assumed_here)
         return mrrf_values

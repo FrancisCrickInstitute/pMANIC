@@ -97,6 +97,25 @@ def write(
     for col, rt in enumerate(retention_times):
         worksheet.write(3, col + 2, rt)
 
+    mrrf_values = {}
+    assumed_mrrf: set = set()
+    if exporter.internal_standard_compound:
+        logger.info(
+            f"Calculating MRRF values using internal standard: {exporter.internal_standard_compound}"
+        )
+        if provider is not None:
+            idx = int(getattr(exporter, "internal_standard_reference_isotope", 0))
+            mrrf_values = provider.get_mrrf_values(
+                compounds,
+                exporter.internal_standard_compound,
+                internal_standard_isotope_index=idx,
+                assumed=assumed_mrrf,
+            )
+        else:
+            mrrf_values = exporter._calculate_mrrf_values(
+                compounds, exporter.internal_standard_compound
+            )
+
     worksheet.write(4, 0, "Units")
     worksheet.write(4, 1, None)
     is_std_selected = exporter.internal_standard_compound is not None
@@ -104,37 +123,19 @@ def write(
         if not is_std_selected:
             unit = "Peak Area"
         else:
-            # refer to amount as "Relative" rather than "nmol" if amount_in_std_mix is 0 or missing
             amt_in_mix = _row_get(compound_row, "amount_in_std_mix")
-            unit = "nmol" if amt_in_mix and float(amt_in_mix) > 0 else "Relative"
+            compound_name = _row_get(compound_row, "compound_name")
+            if (
+                amt_in_mix
+                and float(amt_in_mix) > 0
+                and compound_name not in assumed_mrrf
+            ):
+                unit = "nmol"
+            else:
+                unit = "Relative"
 
         unit_fmt = rel_unit_format if str(unit).strip().lower() in {"rel", "relative"} else None
         worksheet.write(4, col + 2, unit, unit_fmt)
-
-    # Pre-calculate MRRF values using MM files and internal standard
-    mrrf_values = {}
-    if exporter.internal_standard_compound:
-        logger.info(
-            f"Calculating MRRF values using internal standard: {exporter.internal_standard_compound}"
-        )
-        if provider is not None:
-            idx = int(getattr(exporter, "internal_standard_reference_isotope", 0))
-            try:
-                mrrf_values = provider.get_mrrf_values(
-                    compounds,
-                    exporter.internal_standard_compound,
-                    internal_standard_isotope_index=idx,
-                )
-            except TypeError:
-                # Backward-compatible: some tests/providers implement older signature.
-                mrrf_values = provider.get_mrrf_values(
-                    compounds,
-                    exporter.internal_standard_compound,
-                )
-        else:
-            mrrf_values = exporter._calculate_mrrf_values(
-                compounds, exporter.internal_standard_compound
-            )
 
     # Resolve internal standard metadata if selected
     internal_std_amount_default = 1.0

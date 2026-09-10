@@ -111,4 +111,4 @@ If you clear the internal standard selection, MANIC will export the sum of corre
 If a metabolite has no `amount_in_std_mix` defined, it is treated as **Relative**. It is normalized to the Internal Standard signal but is not scaled by an MRRF.
 
 ### No matching MM files (standard mixture)
-If a compound has no `mm_files` pattern, or the pattern matches no loaded samples, or the MRRF inputs are incomplete, MANIC sets MRRF to 1.0. The abundance is then uncalibrated.
+If a compound has no `mm_files` pattern, or the pattern matches no loaded samples, or the MRRF inputs are incomplete, MANIC sets MRRF to 1.0. A compound whose MRRF could not be computed is reported as Relative.

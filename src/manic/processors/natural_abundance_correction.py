@@ -1,11 +1,10 @@
 """
 Natural isotope abundance correction for isotopologue analysis.
 
-Implements the MATLAB GVISO-equivalent correction using a vectorized direct
+Implements natural abundance correction using a vectorized direct
 linear solve. The algorithm builds a convolution-based correction matrix using
-natural isotope abundances (and MATLAB-matched derivatization stoichiometry),
-normalizes the measured data, solves for corrected fractions, rescales by the
-total intensity, and finally divides by the diagonal of the correction matrix.
+natural isotope abundances (and MATLAB-matched derivatization stoichiometry)
+and solves measured = C @ true, then clamps negatives to zero.
 
 Notes:
 - Optimization (SLSQP/fmincon-style) fallback has been removed; only the
@@ -40,6 +39,8 @@ class NaturalAbundances:
             [0.9493, 0.0076, 0.0429, 0, 0.0002]
         )  # 32S, 33S, 34S, 35S, 36S
         self.P = np.array([1.0])  # 31P (monoisotopic)
+        self.Cl = np.array([0.7576, 0.0, 0.2424])  # 35Cl, none at +1, 37Cl at +2
+        self.Br = np.array([0.5069, 0.0, 0.4931])  # 79Br, 81Br
 
 
 class NaturalAbundanceCorrector:
@@ -176,6 +177,12 @@ class NaturalAbundanceCorrector:
         s = counts.get("S", 0)
         si = counts.get("Si", 0)
         formula_str = f"C{c}H{h}O{o}N{n}S{s}Si{si}"
+        cl = counts.get("Cl", 0)
+        br = counts.get("Br", 0)
+        if cl:
+            formula_str += f"Cl{cl}"
+        if br:
+            formula_str += f"Br{br}"
 
         return formula_str, counts
 
@@ -523,49 +530,8 @@ class NaturalAbundanceCorrector:
                     with natural abundance contributions removed
         """
         try:
-            # Match MATLAB workflow exactly:
-            # 1. Normalize each time point
-            # 2. Solve for normalized fractions (cordist)
-            # 3. Scale back by total intensity (corRaw = cordist * sum(raw))
-            # 4. Divide by diagonal elements
-
-            n_isotopologues, n_timepoints = intensity_2d.shape
-            corrected_2d = np.zeros_like(intensity_2d)
-
-            # Store total intensity for each time point
-            totals = np.sum(intensity_2d, axis=0)
-
-            # Special-case 1×1 matrices (unlabeled compounds):
-            # Under MATLAB's sum-to-one constraint, cordist = [1]. Then corRaw = totals.
-            # Finally divide by diagonal once. Avoid double division by C seen in naive solve.
-            if n_isotopologues == 1 and correction_matrix.shape == (1, 1):
-                corrected_2d[0, :] = totals  # cordist=1 → corRaw = totals
-            else:
-                # Normalize all time points in one broadcasted divide
-                totals_broadcast = totals.reshape(1, -1)
-                intensity_normalized = np.divide(
-                    intensity_2d,
-                    totals_broadcast,
-                    out=np.zeros_like(intensity_2d),
-                    where=totals_broadcast > 1e-10,
-                )
-
-                # Vectorized linear solve on normalized data: C × cordist = measured_normalized
-                cordist_2d = np.linalg.solve(correction_matrix, intensity_normalized)
-
-                # Scale back by total intensity (corRaw = cordist * total)
-                corrected_2d = cordist_2d * totals_broadcast
-
-            # Apply diagonal division (MATLAB: corRaw(:, kIon) = corRaw(:, kIon) ./ cormat(kIon, kIon))
-            diagonal_elements = np.diag(correction_matrix)
-            for i in range(len(diagonal_elements)):
-                if diagonal_elements[i] > 0:
-                    corrected_2d[i, :] = corrected_2d[i, :] / diagonal_elements[i]
-
-            # Apply non-negativity constraint
-            corrected_2d = np.maximum(corrected_2d, 0.0)
-
-            return corrected_2d
+            corrected_2d = np.linalg.solve(correction_matrix, intensity_2d)
+            return np.maximum(corrected_2d, 0.0)
 
         except np.linalg.LinAlgError as e:
             logger.error(f"Direct solver failed: {e}")

@@ -8,34 +8,8 @@ from manic.processors.natural_abundance_correction import (
 
 
 def _reference_direct_correct(intensity_2d: np.ndarray, correction_matrix: np.ndarray) -> np.ndarray:
-    """Reproduce the pre-vectorized correction logic for regression comparisons."""
-    n_isotopologues, n_timepoints = intensity_2d.shape
-    corrected_2d = np.zeros_like(intensity_2d)
-
-    totals = np.sum(intensity_2d, axis=0)
-
-    if n_isotopologues == 1 and correction_matrix.shape == (1, 1):
-        corrected_2d[0, :] = totals
-    else:
-        intensity_normalized = np.zeros_like(intensity_2d)
-        for t in range(n_timepoints):
-            if totals[t] > 1e-10:
-                intensity_normalized[:, t] = intensity_2d[:, t] / totals[t]
-            else:
-                intensity_normalized[:, t] = 0
-
-        cordist_2d = np.linalg.solve(correction_matrix, intensity_normalized)
-
-        for t in range(n_timepoints):
-            corrected_2d[:, t] = cordist_2d[:, t] * totals[t]
-
-    diagonal_elements = np.diag(correction_matrix)
-    for i in range(len(diagonal_elements)):
-        if diagonal_elements[i] > 0:
-            corrected_2d[i, :] = corrected_2d[i, :] / diagonal_elements[i]
-
-    corrected_2d = np.maximum(corrected_2d, 0.0)
-    return corrected_2d
+    corrected_2d = np.linalg.solve(correction_matrix, intensity_2d)
+    return np.maximum(corrected_2d, 0.0)
 
 
 def test_vectorized_correction_matches_reference():

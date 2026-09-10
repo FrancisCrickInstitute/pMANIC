@@ -130,8 +130,8 @@ def test_ravelled_eic_matches_reshaped_time_series():
 
 
 def test_unknown_element_raises():
-    with pytest.raises(NaturalAbundanceCorrectionError, match="Cl"):
-        NaturalAbundanceCorrector().build_correction_matrix("C1Cl1", "C", 1)
+    with pytest.raises(NaturalAbundanceCorrectionError, match="Fe"):
+        NaturalAbundanceCorrector().build_correction_matrix("C1Fe1", "C", 1)
 
 
 def test_label_atoms_exceeding_formula_raises():

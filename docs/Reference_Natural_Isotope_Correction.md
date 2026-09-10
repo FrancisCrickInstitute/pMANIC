@@ -1,7 +1,7 @@
 # Reference: Natural Isotope Correction
 
 ## Overview
-In mass spectrometry, the signal for a biological molecule is spread across multiple mass channels due to the natural presence of heavy isotopes (¹³C ≈ 1.1%, ¹⁵N ≈ 0.4%, etc.).   
+In mass spectrometry, the signal for a biological molecule is spread across multiple mass channels due to the natural presence of heavy isotopes (¹³C ≈ 1.1%, ¹⁵N ≈ 0.4%, ³⁷Cl ≈ 24%, ⁸¹Br ≈ 49%, and others).   
 
 For example, even a completely unlabelled metabolite will produce a signal at **M+0** (100%), **M+1** (~6%), and **M+2** (~0.5%).   
 
@@ -21,9 +21,13 @@ Where:
 * **$A$ (Matrix):** The **Correction Matrix**. Each column $j$ represents the theoretical isotopic distribution of a compound with exactly $j$ labels.
 
 ### The Solution
-To find the true abundances ($x$), MANIC inverts the matrix (or solves the system) for every timepoint:
+To find the true abundances ($x$), MANIC solves the linear system at every timepoint:
 
 $$x = A^{-1} \cdot b$$
+
+This is a single solve of $A x = b$. There is no later scaling by the diagonal of $A$.
+
+MANIC treats the tracer as 99% isotopically pure. One percent of labelled positions still carry the light isotope. That is a fixed constant, typical of commercial ¹³C tracers. Get in touch if your tracer differs.
 
 ### Why this matters
 Unlike simpler "subtraction" methods, this approach correctly handles **overlapping distributions**. For example, the M+2 bin contains signal from:

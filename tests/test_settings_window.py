@@ -439,6 +439,13 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     assert not page.sample_fit_table.isVisible()
     assert page.empty_overrides_label.isVisible()
 
+    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData("emg"))
+    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData(None))
+    assert page.is_dirty()
+    settings.save_button.click()
+    assert get_sample_fit_types("Alanine") == {}
+    assert replots == [1, 1, 1]
+
 
 def test_deconvolution_unsaved_hint_names_the_compound_it_will_write(labelled_window):
     with database.get_connection() as conn:

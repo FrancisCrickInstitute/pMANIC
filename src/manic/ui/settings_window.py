@@ -654,9 +654,7 @@ class DeconvolutionPage(SettingsPage):
         has_rows = self.sample_fit_table.rowCount() > 0
         self.remove_all_button.setEnabled(page_enabled and has_rows)
         for row in range(self.sample_fit_table.rowCount()):
-            combo = self.sample_fit_table.cellWidget(row, 1)
-            if combo is not None:
-                combo.setEnabled(page_enabled)
+            self.sample_fit_table.cellWidget(row, 1).setEnabled(page_enabled)
 
     def _fill_fit_options(self, combo: QComboBox, current: str | None) -> None:
         combo.clear()
@@ -680,11 +678,8 @@ class DeconvolutionPage(SettingsPage):
         header = max(self.sample_fit_table.horizontalHeader().sizeHint().height(), 24)
         row_h = self.sample_fit_table.verticalHeader().defaultSectionSize()
         frame = 2 * self.sample_fit_table.frameWidth()
-        cap = header + 6 * row_h + frame
-        rows = self.sample_fit_table.rowCount()
-        height = header + min(max(rows, 1), 6) * row_h + frame
-        self.sample_fit_table.setMaximumHeight(cap)
-        self.sample_fit_table.setFixedHeight(min(height, cap))
+        visible_rows = min(max(self.sample_fit_table.rowCount(), 1), 6)
+        self.sample_fit_table.setFixedHeight(header + visible_rows * row_h + frame)
 
     def _rebuild_override_table(self, overrides: dict[tuple[str, str], str]) -> None:
         self._loaded_overrides = {
@@ -711,29 +706,24 @@ class DeconvolutionPage(SettingsPage):
     def _stage_remove_all_overrides(self) -> None:
         for row in range(self.sample_fit_table.rowCount()):
             combo = self.sample_fit_table.cellWidget(row, 1)
-            if combo is None:
-                continue
             with QSignalBlocker(combo):
                 combo.setCurrentIndex(combo.findData(None))
         self._mark_dirty()
 
     def _staged_sample_changes(self) -> dict[str, str | None]:
-        changes: dict[str, str | None] = {}
+        staged: dict[str, str | None] = {}
         for row in range(self.sample_fit_table.rowCount()):
-            item = self.sample_fit_table.item(row, 0)
-            combo = self.sample_fit_table.cellWidget(row, 1)
-            if item is None or combo is None:
-                continue
-            sample = item.text()
-            value = combo.currentData()
-            if value != self._loaded_overrides.get(sample):
-                changes[sample] = value
+            sample = self.sample_fit_table.item(row, 0).text()
+            staged[sample] = self.sample_fit_table.cellWidget(row, 1).currentData()
         if self._sample_section_touched:
             fit_type = self.sample_fit_combo.currentData()
             if fit_type != self._MIXED:
-                for sample in self._sample_names:
-                    changes[sample] = fit_type
-        return changes
+                staged.update((sample, fit_type) for sample in self._sample_names)
+        return {
+            sample: value
+            for sample, value in staged.items()
+            if value != self._loaded_overrides.get(sample)
+        }
 
     def load(self) -> None:
         self._compound_name = self.host.selected_compound_name()

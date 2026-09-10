@@ -27,7 +27,7 @@ $$x = A^{-1} \cdot b$$
 
 This is a single solve of $A x = b$. There is no later scaling by the diagonal of $A$.
 
-> **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by no more than 0.5%.**
+> **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by less than half a percentage point.**
 > Versions up to 4.x performed the solve and then divided each isotopologue by
 > the matching diagonal element of $A$, an extra step inherited from the legacy
 > MATLAB flow. That step has no basis in $A x = b$ and inflated every channel by
@@ -37,9 +37,10 @@ This is a single solve of $A x = b$. There is no later scaling by the diagonal o
 > 2662 pairs) re-run through both corrections. 4.x equals 5.0 divided by
 > $A_{jj}$ to a relative deviation of $3.6 \times 10^{-10}$. Corrected Values
 > fall by a median of 18% and 26% (max 39%). Isotope Ratio, % Label
-> Incorporation and % Carbons Labelled change by no more than 0.5% of the
-> percentage each sheet reports, because $A_{jj}$ varies by at most 3.3% across
-> one compound's channels and a near-common factor cancels in a ratio.
+> Incorporation and % Carbons Labelled move by less than half a percentage
+> point; the largest change found was an Isotope Ratio of 45.30% becoming
+> 45.78%. This is because $A_{jj}$ varies by at most 3.3% across one
+> compound's channels and a near-common factor cancels in a ratio.
 > Abundances with an MRRF computed from MM files change by a median of about
 > 0.1% (max 2.5%); the MRRF absorbs the shift. Abundances with an assumed MRRF
 > of 1.0 fall by 15 to 35% and are labelled Relative in 5.0. The inflation

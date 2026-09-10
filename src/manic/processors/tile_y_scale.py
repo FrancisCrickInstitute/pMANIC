@@ -24,34 +24,6 @@ class YScalePolicy(StrEnum):
             return value
         return cls(str(value).strip().lower())
 
-    @property
-    def shares_across_tiles(self) -> bool:
-        match self:
-            case YScalePolicy.PER_TILE_EXTRACT:
-                return False
-            case YScalePolicy.SHARED_EXTRACT:
-                return True
-            case YScalePolicy.PER_TILE_SELECTED_PEAK:
-                return False
-            case unexpected:
-                assert_never(unexpected)
-
-    @property
-    def uses_selected_peak(self) -> bool:
-        match self:
-            case YScalePolicy.PER_TILE_EXTRACT | YScalePolicy.SHARED_EXTRACT:
-                return False
-            case YScalePolicy.PER_TILE_SELECTED_PEAK:
-                return True
-            case unexpected:
-                assert_never(unexpected)
-
-
-class TileYMaxOrigin(StrEnum):
-    EXTRACT = "extract"
-    SELECTED_PEAK = "selected_peak"
-    EXTRACT_FALLBACK = "extract_fallback"
-
 
 @dataclass(frozen=True, slots=True)
 class TileScaleInput:
@@ -66,12 +38,6 @@ class YAxisScale:
     scale_exp: int
     scaled_max: float
     unscaled_max: float
-
-
-@dataclass(frozen=True, slots=True)
-class TileYMax:
-    value: float
-    origin: TileYMaxOrigin
 
 
 def available_y_scale_policies(mode: AnalysisMode) -> frozenset[YScalePolicy]:
@@ -144,8 +110,7 @@ def selected_peak_scale_intensity(
     return np.vstack(rows)
 
 
-def tile_y_max(policy: YScalePolicy, tile: TileScaleInput) -> TileYMax:
-    policy = YScalePolicy.coerce(policy)
+def tile_y_max(policy: YScalePolicy, tile: TileScaleInput) -> float:
     match policy:
         case YScalePolicy.PER_TILE_SELECTED_PEAK:
             selected = selected_peak_scale_intensity(
@@ -153,24 +118,22 @@ def tile_y_max(policy: YScalePolicy, tile: TileScaleInput) -> TileYMax:
                 independent_channels=tile.independent_channels,
             )
             if selected is not None:
-                return TileYMax(
-                    display_y_max(selected), TileYMaxOrigin.SELECTED_PEAK
+                return display_y_max(selected)
+            return display_y_max(
+                extract_scale_intensity(
+                    tile.prepared,
+                    tile.raw_intensity,
+                    independent_channels=tile.independent_channels,
                 )
-            extract = extract_scale_intensity(
-                tile.prepared,
-                tile.raw_intensity,
-                independent_channels=tile.independent_channels,
-            )
-            return TileYMax(
-                display_y_max(extract), TileYMaxOrigin.EXTRACT_FALLBACK
             )
         case YScalePolicy.PER_TILE_EXTRACT | YScalePolicy.SHARED_EXTRACT:
-            extract = extract_scale_intensity(
-                tile.prepared,
-                tile.raw_intensity,
-                independent_channels=tile.independent_channels,
+            return display_y_max(
+                extract_scale_intensity(
+                    tile.prepared,
+                    tile.raw_intensity,
+                    independent_channels=tile.independent_channels,
+                )
             )
-            return TileYMax(display_y_max(extract), TileYMaxOrigin.EXTRACT)
         case unexpected:
             assert_never(unexpected)
 
@@ -192,11 +155,9 @@ def axes_for_tiles(
     maxima = tuple(tile_y_max(policy, tile) for tile in tiles)
     match policy:
         case YScalePolicy.SHARED_EXTRACT:
-            shared = y_axis_from_max(
-                max((item.value for item in maxima), default=0.0)
-            )
+            shared = y_axis_from_max(max(maxima, default=0.0))
             return tuple(shared for _ in maxima)
         case YScalePolicy.PER_TILE_EXTRACT | YScalePolicy.PER_TILE_SELECTED_PEAK:
-            return tuple(y_axis_from_max(item.value) for item in maxima)
+            return tuple(y_axis_from_max(value) for value in maxima)
         case unexpected:
             assert_never(unexpected)

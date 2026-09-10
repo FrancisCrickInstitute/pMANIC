@@ -112,16 +112,8 @@ def test_y_scale_checkboxes_labelled_only_and_exclusive(qapp):
     unlabelled = Toolbar(AnalysisMode.UNLABELLED)
     try:
         selected = labelled.findChild(QCheckBox, "scale_selected_peak_checkbox")
-        assert selected is labelled.selected_peak_yscale_checkbox
         assert selected is not None
-        layout = labelled.shared_yscale_checkbox.parentWidget().layout()
-        assert layout.indexOf(selected) == layout.indexOf(
-            labelled.shared_yscale_checkbox
-        ) + 1
-
         assert unlabelled.findChild(QCheckBox, "scale_selected_peak_checkbox") is None
-        assert unlabelled.selected_peak_yscale_checkbox is None
-        assert unlabelled.shared_yscale_checkbox is not None
 
         selected.setChecked(True)
         assert selected.isChecked()

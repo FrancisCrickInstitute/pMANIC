@@ -2,7 +2,7 @@ import os
 import time
 
 from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QKeySequence
 from PySide6.QtWidgets import QMessageBox
 
 from manic.utils.recent_files import RecentFiles
@@ -150,5 +150,62 @@ def test_load_cdf_folder_noop_when_cdf_already_loaded(
         window._load_cdf_folder(str(folder))
         assert window._thread is None
         assert window._recent_cdf.paths() == []
+    finally:
+        window.close()
+
+
+# Every File-menu action that offers a shortcut, with the portable text it must
+# bind. Qt maps "Ctrl" to Command on macOS and to Ctrl on Windows, so one
+# portable string covers both platforms.
+FILE_MENU_SHORTCUTS = {
+    "load_compound_action": "Ctrl+O",
+    "load_cdf_action": "Ctrl+Shift+O",
+    "import_session_action": "Ctrl+I",
+    "export_data_action": "Ctrl+E",
+    "quit_action": "Ctrl+Q",
+}
+
+# Standard keys Qt does not bind on every platform. Quit and Preferences have
+# no Windows row in the keyBindings table in qtbase/src/gui/kernel/
+# qplatformtheme.cpp, so an action relying on one alone ships with no shortcut
+# on Windows while looking correct on macOS and Linux.
+PLATFORM_INCOMPLETE_STANDARD_KEYS = {
+    "quit_action": QKeySequence.StandardKey.Quit,
+    "settings_action": QKeySequence.StandardKey.Preferences,
+}
+
+
+def test_file_menu_actions_bind_their_expected_shortcuts(qapp, empty_db, monkeypatch):
+    window = _make_window(monkeypatch)
+    try:
+        for attr, expected in FILE_MENU_SHORTCUTS.items():
+            bound = {
+                sequence.toString(QKeySequence.PortableText)
+                for sequence in getattr(window, attr).shortcuts()
+            }
+            assert expected in bound, f"{attr} should bind {expected}, got {bound or 'nothing'}"
+    finally:
+        window.close()
+
+
+def test_actions_using_platform_incomplete_standard_keys_have_a_literal_fallback(
+    qapp, empty_db, monkeypatch
+):
+    """A bare standard key from the incomplete set would be empty on Windows.
+
+    Asserting the resolved shortcut is non-empty cannot catch this, because the
+    test platform resolves these keys fine. Instead require that the action
+    binds more sequences than the standard key supplies on its own, which holds
+    on every platform only when an explicit literal was added alongside it.
+    """
+    window = _make_window(monkeypatch)
+    try:
+        for attr, standard_key in PLATFORM_INCOMPLETE_STANDARD_KEYS.items():
+            action = getattr(window, attr)
+            from_standard_key = QKeySequence.keyBindings(standard_key)
+            assert len(action.shortcuts()) > len(from_standard_key), (
+                f"{attr} relies only on {standard_key}, which Qt leaves unbound "
+                f"on Windows; pair it with an explicit literal sequence"
+            )
     finally:
         window.close()

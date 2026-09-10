@@ -358,7 +358,12 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
         self.quit_action = QAction("Quit", self)
-        self.quit_action.setShortcut(QKeySequence.Quit)
+        # QKeySequence.Quit has no Windows entry in Qt's standard-key table
+        # (KB_X11 | KB_Gnome | KB_KDE | KB_Mac), so on its own it would leave
+        # Windows with no shortcut at all. Pair it with the literal, as
+        # Settings does for QKeySequence.Preferences. On macOS both resolve to
+        # Cmd+Q and the duplicate is harmless.
+        self.quit_action.setShortcuts([QKeySequence.Quit, QKeySequence("Ctrl+Q")])
         self.quit_action.setMenuRole(QAction.QuitRole)
         self.quit_action.triggered.connect(self.close)
         file_menu.addAction(self.quit_action)

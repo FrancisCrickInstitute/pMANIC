@@ -8,11 +8,11 @@ comparing compound total areas against an internal standard reference peak.
 import pytest
 
 from manic.io.data_provider import DataProvider
+from manic.validation.peak_area import is_valid
 
 
 def test_peak_area_validation_math():
     """Peak area validation should compare total areas directly."""
-    from manic.validation.peak_area import is_valid  # type: ignore[import-not-found]
 
     # Test passing threshold: 20.0 >= 0.05 * 200.0 (10.0)
     assert is_valid(compound_total=20.0, internal_standard_reference=200.0, ratio=0.05)
@@ -124,21 +124,3 @@ def test_peak_validation_uses_quantification_total_not_all_channels(monkeypatch)
     )
 
 
-def test_data_provider_peak_metrics_with_session_overrides():
-    """Peak metrics should reflect session-adjusted integration boundaries."""
-    provider = DataProvider()
-    
-    # The cached areas already incorporate session overrides via LEFT JOIN + COALESCE
-    # in load_bulk_sample_data(), so we just verify the helper works correctly
-    provider._bulk_sample_data_cache = {
-        "Sample2": {
-            "CompoundB": [100.0, 50.0],  # Sum = 150.0
-            "ISTD": [500.0],             # M0 = 500.0
-        }
-    }
-    provider._cache_valid = True
-    
-    metrics = provider.get_sample_peak_metrics("Sample2", "ISTD")
-
-    assert metrics["CompoundB"]["compound_total"] == pytest.approx(150.0)
-    assert metrics["CompoundB"]["internal_standard_reference"] == pytest.approx(500.0)

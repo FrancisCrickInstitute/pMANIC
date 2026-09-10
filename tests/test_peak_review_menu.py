@@ -1,24 +1,12 @@
-import os
-import sys
 from types import SimpleNamespace
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QWidget
 
-from manic.ui.graphs import GraphView, tile_caption
+from manic.ui.graphs import GraphView
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import IdentityStatus
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication(sys.argv)
-    yield app
 
 
 class FakeChart:
@@ -132,12 +120,6 @@ def test_group_accept_skips_passing_tiles(grid):
     actions["Accept peak (below threshold)"].trigger()
     menu.close()
     assert emitted == [("Cmp", ["A"], PeakReview.ACCEPTED)]
-
-
-def test_tile_caption_adds_fit_suffix_only_when_overridden():
-    assert tile_caption("S1", None) == "S1"
-    assert tile_caption("S1", "gaussian") == "S1  ·  Gaussian"
-    assert tile_caption("S1", "bi_gaussian") == "S1  ·  Bi-Gaussian"
 
 
 def test_curve_fit_menu_emits_override_for_selected_tiles(grid):

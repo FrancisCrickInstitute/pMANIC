@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import zlib
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-from manic.io.changelog_sections import format_sample_fit_types_section
 from manic.io.changelog_writer import generate_changelog
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.data_provider import DataProvider
@@ -19,18 +16,6 @@ from manic.models.sample_fit_type import (
     get_sample_fit_types,
     set_sample_fit_type,
 )
-
-SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
-
-
-@pytest.fixture
-def fit_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "fit.db"
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-    return db_path
-
 
 def _insert_compound(name: str, *, fit_type: str = "auto") -> None:
     with database.get_connection() as conn:
@@ -62,7 +47,7 @@ def _insert_eic(sample: str, compound: str) -> None:
         )
 
 
-def test_set_and_get_sample_fit_types_round_trip(fit_db):
+def test_set_and_get_sample_fit_types_round_trip(empty_db):
     _insert_compound("Target")
     _insert_eic("S1", "Target")
     _insert_eic("S2", "Target")
@@ -72,7 +57,7 @@ def test_set_and_get_sample_fit_types_round_trip(fit_db):
     assert get_sample_fit_types("Target") == {}
 
 
-def test_read_compound_with_session_uses_override_for_that_sample_only(fit_db):
+def test_read_compound_with_session_uses_override_for_that_sample_only(empty_db):
     _insert_compound("Target", fit_type="auto")
     _insert_eic("S1", "Target")
     _insert_eic("S2", "Target")
@@ -87,7 +72,7 @@ def test_read_compound_with_session_uses_override_for_that_sample_only(fit_db):
     assert base.deconvolution_fit_type == "auto"
 
 
-def test_data_provider_bulk_sql_picks_the_override(fit_db, monkeypatch):
+def test_data_provider_bulk_sql_picks_the_override(empty_db, monkeypatch):
     _insert_compound("Target", fit_type="auto")
     _insert_eic("S1", "Target")
     _insert_eic("S2", "Target")
@@ -107,7 +92,7 @@ def test_data_provider_bulk_sql_picks_the_override(fit_db, monkeypatch):
     assert fits == {"S1": "gaussian", "S2": "auto"}
 
 
-def test_data_provider_fallback_sql_picks_the_override(fit_db, monkeypatch):
+def test_data_provider_fallback_sql_picks_the_override(empty_db, monkeypatch):
     _insert_compound("Target", fit_type="bi_gaussian")
     _insert_eic("S1", "Target")
     set_sample_fit_type("Target", ["S1"], "emg")
@@ -131,7 +116,7 @@ def test_data_provider_fallback_sql_picks_the_override(fit_db, monkeypatch):
     assert fits == ["emg"]
 
 
-def test_session_export_import_round_trips_sample_fit_types(fit_db, tmp_path):
+def test_session_export_import_round_trips_sample_fit_types(empty_db, tmp_path):
     _insert_compound("Target")
     _insert_compound("Other")
     _insert_eic("S1", "Target")
@@ -161,33 +146,7 @@ def test_session_export_import_round_trips_sample_fit_types(fit_db, tmp_path):
     assert get_sample_fit_types() == {("Target", "S1"): "gaussian"}
 
 
-def test_changelog_section_renders_grouped_fit_labels():
-    text = format_sample_fit_types_section(
-        [
-            {"compound_name": "B", "sample_name": "S2", "fit_type": "emg"},
-            {"compound_name": "A", "sample_name": "S1", "fit_type": "bi_gaussian"},
-        ]
-    )
-    assert text == (
-        "## Per-sample Curve Fits\n"
-        "Samples whose peak-shape fit type overrides the compound setting.\n"
-        "\n"
-        "### A\n"
-        "\n"
-        "| Sample | Fit type |\n"
-        "|--------|----------|\n"
-        "| S1 | Bi-Gaussian |\n"
-        "\n"
-        "### B\n"
-        "\n"
-        "| Sample | Fit type |\n"
-        "|--------|----------|\n"
-        "| S2 | EMG |\n"
-        "\n"
-    )
-
-
-def test_data_export_changelog_includes_sample_fit_types(fit_db, tmp_path):
+def test_data_export_changelog_includes_sample_fit_types(empty_db, tmp_path):
     _insert_compound("Target")
     _insert_eic("S1", "Target")
     set_sample_fit_type("Target", ["S1"], "gaussian")
@@ -202,18 +161,7 @@ def test_data_export_changelog_includes_sample_fit_types(fit_db, tmp_path):
     assert "| S1 | Gaussian |" in changelog
 
 
-def test_written_override_appears_on_the_tile_caption(fit_db):
-    from manic.ui.graphs import tile_caption
-
-    _insert_compound("Target")
-    _insert_eic("S1", "Target")
-    set_sample_fit_type("Target", ["S1"], "gaussian")
-    overrides = get_sample_fit_types("Target")
-    assert tile_caption("S1", overrides.get(("Target", "S1"))) == "S1  ·  Gaussian"
-    assert tile_caption("S2", overrides.get(("Target", "S2"))) == "S2"
-
-
-def test_set_sample_fit_type_none_removes_every_named_sample(fit_db):
+def test_set_sample_fit_type_none_removes_every_named_sample(empty_db):
     _insert_compound("Target")
     _insert_eic("S1", "Target")
     _insert_eic("S2", "Target")

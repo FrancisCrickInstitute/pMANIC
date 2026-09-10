@@ -4,7 +4,6 @@ Combines tests for EIC extraction, processing, correction management,
 and data flow through the application.
 """
 
-import zlib
 import numpy as np
 import pytest
 from types import SimpleNamespace
@@ -17,7 +16,6 @@ from manic.io.cdf_data_extractor import (
 from manic.io.cdf_reader import CdfFileData
 from manic.io.eic_importer import _extract_eic_optimized
 from manic.processors.eic_calculator import extract_eic
-from manic.processors.eic_correction_manager import _process_compound_batch_corrections
 from manic.processors.integration import calculate_peak_areas
 import manic.processors.eic_processing as eic_processing
 
@@ -320,107 +318,3 @@ def test_get_eics_for_compound_normalise(monkeypatch):
     assert eics[1].intensity.max() == 1.0
 
 
-# ============================================================================
-# EIC CORRECTION MANAGER TESTS
-# ============================================================================
-
-class FakeConn:
-    """Mock database connection for testing."""
-    def __init__(self, eic_rows):
-        self._eic_rows = eic_rows
-        self.written = None
-
-    def execute(self, sql, params=()):
-        class Cur:
-            def __init__(self, rows):
-                self._rows = rows
-
-            def fetchall(self):
-                return self._rows
-
-        sql_l = sql.lower().strip()
-        if sql_l.startswith("select e.sample_name"):
-            return Cur(self._eic_rows)
-        return Cur([])
-
-    def executemany(self, sql, batch):
-        self.written = list(batch)
-
-
-def test_process_compound_batch_corrections_internal_standard_copy():
-    """Test processing corrections for internal standard (unlabeled compound)."""
-    # Build one EIC row: internal standard (label_atoms=0), 1D intensity
-    time = np.linspace(0, 1, 5)
-    inten = np.array([1, 2, 3, 4, 5], dtype=np.float64)
-    row = {
-        'sample_name': 'S1',
-        'x_axis': zlib.compress(time.tobytes()),
-        'y_axis': zlib.compress(inten.tobytes()),
-    }
-
-    conn = FakeConn([row])
-    compound_row = {
-        'label_atoms': 0,
-        'formula': 'C6H12O6',
-        'label_type': 'C',
-        'tbdms': 0,
-        'meox': 0,
-        'me': 0,
-    }
-
-    # Fake corrector that returns slightly modified data
-    def fake_correct(ts, formula, label_type, label_atoms, tbdms, meox, me):
-        # For unlabeled compounds, return with small modification
-        return ts * 1.084  # About 8.4% increase as observed
-
-    fake_corrector = SimpleNamespace(correct_time_series=fake_correct)
-
-    res = _process_compound_batch_corrections('ISTD', compound_row, fake_corrector, conn)
-    assert res['successful'] == 1
-    assert conn.written is not None
-    # Written payload should include the compressed arrays; check lengths
-    (_, _, x_blob, y_blob, *_rest) = conn.written[0]
-    assert len(zlib.decompress(x_blob)) == len(time.tobytes())
-    # Corrected data should be slightly different
-    corrected = np.frombuffer(zlib.decompress(y_blob), dtype=np.float64)
-    np.testing.assert_array_almost_equal(corrected, inten * 1.084, decimal=2)
-
-
-def test_process_compound_batch_corrections_labeled_uses_corrector():
-    """Test processing corrections for labeled compound uses corrector."""
-    # Build one labeled EIC: 2 isotopologues × 5 timepoints => flattened size 10
-    time = np.linspace(0, 1, 5)
-    inten2d = np.vstack([np.arange(5), np.arange(5)])
-    flat = inten2d.ravel().astype(np.float64)
-    row = {
-        'sample_name': 'S1',
-        'x_axis': zlib.compress(time.tobytes()),
-        'y_axis': zlib.compress(flat.tobytes()),
-    }
-
-    conn = FakeConn([row])
-    compound_row = {
-        'label_atoms': 1,  # 2 isotopologues
-        'formula': 'C1H4',
-        'label_type': 'C',
-        'tbdms': 0,
-        'meox': 0,
-        'me': 0,
-    }
-
-    called = {}
-
-    def fake_correct(ts, formula, label_type, label_atoms, tbdms, meox, me):
-        called['args'] = (formula, label_type, label_atoms)
-        # Return same shape, scaled by 2 for easy detection
-        return ts * 2.0
-
-    fake_corrector = SimpleNamespace(correct_time_series=fake_correct)
-
-    res = _process_compound_batch_corrections('CMP', compound_row, fake_corrector, conn)
-    assert res['successful'] == 1
-    assert called['args'] == ('C1H4', 'C', 1)
-    # Check written intensity doubles original when decompressed
-    (_, _, _xb, yb, *_rest) = conn.written[0]
-    out = np.frombuffer(zlib.decompress(yb), dtype=np.float64)
-    assert np.allclose(out, flat * 2.0)

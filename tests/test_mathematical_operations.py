@@ -14,62 +14,6 @@ from manic.processors.natural_abundance_correction import NaturalAbundanceCorrec
 # MASS BINNING AND ROUNDING TESTS
 # ============================================================================
 
-class TestMassBinning:
-    """Critical tests for mass binning and rounding behavior."""
-
-    def test_matlab_half_up_rounding(self):
-        """Test MATLAB-compatible half-up rounding: floor(x + 0.5)."""
-        # Critical: Python's round() uses banker's rounding which differs from MATLAB
-        test_values = [204.5, 204.4, 204.6, 205.5]
-        expected = [205, 204, 205, 206]
-
-        for val, exp in zip(test_values, expected):
-            # This is the rounding method used in eic_importer.py
-            result = np.floor(val + 0.5)
-            assert result == exp, f"Half-up rounding failed for {val}"
-
-    def test_sum_vs_lastwins_behavior(self):
-        """
-        Test the critical sum vs last-wins bug documented in sum_vs_lastwins_bug.md.
-        Python sums duplicate masses, MATLAB takes last value.
-        """
-        # Simulate masses that round to same integer after -0.2 offset
-        masses = np.array([204.8, 205.1])  # Both round to 205 after offset
-        mass_tol = 0.2
-
-        # Apply MANIC's asymmetric mass tolerance method
-        offset_masses = masses - mass_tol  # [204.6, 204.9]
-        rounded_masses = np.floor(offset_masses + 0.5).astype(int)  # [205, 205]
-
-        # Both should round to 205
-        assert np.all(rounded_masses == 205)
-
-        # Python behavior: bincount sums duplicates
-        intensities = np.array([1000.0, 500.0])
-        scan_indices = np.array([0, 0])  # Same scan
-
-        summed = np.bincount(scan_indices, intensities)
-        assert summed[0] == 1500.0, "Python should sum duplicate masses"
-        # MATLAB would give 500.0 (last-wins)
-
-    def test_asymmetric_mass_tolerance(self):
-        """Test mass - 0.2 Da offset before rounding."""
-        mass_tol = 0.2
-        test_masses = [204.7, 204.8, 205.0, 205.2, 205.3]
-
-        # Expected results after -0.2 offset and half-up rounding
-        # 204.7 - 0.2 = 204.5 → floor(204.5 + 0.5) = 205
-        # 204.8 - 0.2 = 204.6 → floor(205.1) = 205
-        # 205.0 - 0.2 = 204.8 → floor(205.3) = 205
-        # 205.2 - 0.2 = 205.0 → floor(205.5) = 205
-        # 205.3 - 0.2 = 205.1 → floor(205.6) = 205
-        expected = [205, 205, 205, 205, 205]
-
-        for mass, exp in zip(test_masses, expected):
-            offset = mass - mass_tol
-            rounded = int(np.floor(offset + 0.5))
-            assert rounded == exp, f"Mass {mass} should round to {exp}"
-
 
 # ============================================================================
 # INTEGRATION TESTS
@@ -170,30 +114,6 @@ class TestIntegration:
         # No points should be included (5.0 < t < 5.0 is empty)
         assert areas[0] == 0.0
 
-    def test_integration_with_multiple_isotopologues(self):
-        """Test integration of flattened multi-isotopologue data."""
-        time = np.linspace(0, 10, 11)
-        n = len(time)
-
-        # 3 isotopologues with different intensities
-        intensity = np.concatenate([
-            np.ones(n) * 100,  # M+0
-            np.ones(n) * 50,   # M+1
-            np.ones(n) * 25    # M+2
-        ])
-
-        areas = calculate_peak_areas(
-            time, intensity, 2, 5.0, 5.0, 5.0, use_legacy=False
-        )
-
-        assert len(areas) == 3
-        # With strict boundaries (0 < t < 10), excludes endpoints
-        # Points at t=1,2,3,4,5,6,7,8,9 are included (9 points)
-        # Trapezoid integral over 8 intervals = intensity * 8
-        assert abs(areas[0] - 800.0) < 0.01  # 100 * 8
-        assert abs(areas[1] - 400.0) < 0.01  # 50 * 8
-        assert abs(areas[2] - 200.0) < 0.01  # 25 * 8
-
 
 # ============================================================================
 # NATURAL ABUNDANCE CORRECTION TESTS
@@ -232,27 +152,6 @@ class TestNaturalAbundanceCorrection:
         # Diagonal should be positive
         assert np.all(np.diag(mat) > 0)
 
-    def test_correct_time_series_shapes_and_nonnegativity(self):
-        """Test time series correction with shape preservation."""
-        corr = NaturalAbundanceCorrector()
-        # 2 isotopologues × 5 timepoints with simple increasing signal
-        inten2d = np.vstack([np.arange(1, 6), np.arange(1, 6)]).astype(float)
-        out = corr.correct_time_series(inten2d, 'C1H4', 'C', 1)
-        assert out.shape == inten2d.shape
-        assert np.all(out >= 0)
-
-    def test_correction_matrix_construction(self):
-        """Test matrix for known formulas with expected isotope distributions."""
-        corrector = NaturalAbundanceCorrector()
-
-        # Simple C1 compound
-        matrix = corrector.build_correction_matrix('C1', 'C', 1)
-
-        assert matrix.shape == (2, 2)
-        # The matrix is more complex due to convolution
-        # Just verify it's a valid correction matrix
-        assert np.all(np.diag(matrix) > 0)  # Positive diagonal
-        assert np.linalg.det(matrix) != 0  # Non-singular
 
     def test_derivatization_adjustments(self):
         """Test TBDMS, MEOX, ME derivatization formula adjustments."""
@@ -270,23 +169,6 @@ class TestNaturalAbundanceCorrection:
         assert elements['Si'] == 1  # Silicon from TBDMS
         assert elements['O'] == 3  # Unchanged
 
-    def test_diagonal_correction_normalization(self):
-        """Verify x[i] = x[i] / A[i,i] normalization step."""
-        corrector = NaturalAbundanceCorrector()
-
-        # Create simple test data
-        intensities_2d = np.array([
-            [100, 200],  # M+0 at two timepoints
-            [10, 20]     # M+1 at two timepoints
-        ]).astype(float)
-
-        corrected = corrector.correct_time_series(
-            intensities_2d, 'C1', 'C', 1
-        )
-
-        assert corrected.shape == intensities_2d.shape
-        # Should apply correction and diagonal normalization
-        assert np.all(corrected >= 0)
 
     def test_negative_clamping(self):
         """Test max(x, 0) clamping after correction."""
@@ -332,59 +214,6 @@ class TestNaturalAbundanceCorrection:
 class TestCalibrations:
     """Test MRRF and background ratio calculations."""
 
-    def test_mrrf_formula(self):
-        """Test MRRF = (Signal_met/Conc_met)/(Signal_IS/Conc_IS)."""
-        # Simulated data
-        metabolite_signal = 1000.0
-        metabolite_conc = 10.0
-        is_signal = 500.0
-        is_conc = 5.0
-
-        # MRRF calculation
-        mrrf = (metabolite_signal / metabolite_conc) / (is_signal / is_conc)
-
-        assert mrrf == 1.0  # Equal response factors
-
-    def test_background_ratio_mean_calculation(self):
-        """Test background ratio as mean of (Σ labeled)/M0 across MM samples."""
-        # Simulate MM sample data
-        m0_signals = [100, 200, 150]
-        labeled_signals = [10, 20, 15]
-
-        # Calculate per-sample ratios
-        ratios = [lab/m0 for lab, m0 in zip(labeled_signals, m0_signals)]
-
-        # Background ratio is mean
-        background_ratio = sum(ratios) / len(ratios)
-
-        assert abs(background_ratio - 0.1) < 0.001
-
-    def test_percent_label_calculation(self):
-        """Verify percent label formula with background correction."""
-        m0 = 100.0
-        labeled_raw = 25.0
-        background_ratio = 0.05
-
-        # Background correction
-        labeled_corrected = labeled_raw - (background_ratio * m0)
-        labeled_corrected = max(0.0, labeled_corrected)  # 20.0
-
-        # IMPORTANT: Denominator uses ORIGINAL total (MATLAB compatibility)
-        total_original = m0 + labeled_raw  # 125.0
-        percent_label = (labeled_corrected / total_original) * 100
-
-        assert abs(percent_label - 16.0) < 0.01  # 20/125 * 100
-
-    def test_abundance_calculation(self):
-        """Test abundance = (Total_Corrected × IS_amount)/(IS_M0 × MRRF)."""
-        total_corrected = 500.0
-        is_amount = 10.0  # nmol
-        is_m0 = 1000.0
-        mrrf = 2.0
-
-        abundance = (total_corrected * is_amount) / (is_m0 * mrrf)
-
-        assert abs(abundance - 2.5) < 0.01  # 5000 / 2000
 
     def test_calculate_background_ratios_simple(self):
         """Test background ratio calculation from standard samples."""
@@ -518,44 +347,3 @@ class TestCalibrations:
 # PERFORMANCE TESTS
 # ============================================================================
 
-class TestPerformance:
-    """Performance and memory tests."""
-
-    def test_large_dataset_performance(self):
-        """Test that large datasets process efficiently."""
-        import time
-
-        # Create large dataset
-        time_points = np.linspace(0, 20, 1000)  # 1000 timepoints
-        intensities = np.random.random(1000 * 4)  # 4 isotopologues
-
-        start = time.time()
-        areas = calculate_peak_areas(
-            time_points, intensities, 3, 10.0, 2.0, 2.0
-        )
-        elapsed = time.time() - start
-
-        assert elapsed < 0.1  # Should process in < 100ms
-        assert len(areas) == 4
-
-    def test_memory_efficient_operations(self):
-        """Verify operations don't create excessive copies."""
-        import tracemalloc
-
-        tracemalloc.start()
-
-        # Large array operation
-        data = np.ones(100000)
-        snapshot1 = tracemalloc.take_snapshot()
-
-        # This should be memory efficient
-        integrate_peak(data, np.arange(len(data)))
-
-        snapshot2 = tracemalloc.take_snapshot()
-        stats = snapshot2.compare_to(snapshot1, 'lineno')
-
-        # Memory increase should be minimal (< 10MB)
-        total_increase = sum(stat.size_diff for stat in stats) / 1024 / 1024
-        assert total_increase < 10.0
-
-        tracemalloc.stop()

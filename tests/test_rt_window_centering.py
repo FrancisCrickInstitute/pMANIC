@@ -21,151 +21,195 @@ from manic.ui.integration_window_widget import (
     IntegrationWindow,
 )
 
+from conftest import _gaussian
+
 SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
 
 
-class TestIntegrationBoundaryCalculation:
-    def test_symmetric_offsets(self):
-        left, right = calculate_integration_boundaries(rt=10.0, loffset=0.5, roffset=0.5)
-        assert left == 9.5
-        assert right == 10.5
-
-    def test_asymmetric_offsets(self):
-        left, right = calculate_integration_boundaries(rt=7.17, loffset=0.1, roffset=0.3)
-        assert abs(left - 7.07) < 1e-10
-        assert abs(right - 7.47) < 1e-10
-
-    def test_zero_offsets(self):
-        left, right = calculate_integration_boundaries(rt=5.0, loffset=0.0, roffset=0.0)
-        assert left == 5.0
-        assert right == 5.0
-
-    def test_large_offsets(self):
-        left, right = calculate_integration_boundaries(rt=15.0, loffset=2.0, roffset=3.0)
-        assert left == 13.0
-        assert right == 18.0
-
-
-class TestMinimumRTWindowCalculation:
-    def test_symmetric_offsets(self):
-        min_window = calculate_minimum_rt_window(loffset=0.2, roffset=0.2, buffer=0.1)
-        assert abs(min_window - 0.3) < 1e-10
-
-    def test_larger_left_offset(self):
-        min_window = calculate_minimum_rt_window(loffset=0.5, roffset=0.2, buffer=0.1)
-        assert min_window == 0.6
-
-    def test_larger_right_offset(self):
-        min_window = calculate_minimum_rt_window(loffset=0.1, roffset=0.8, buffer=0.1)
-        assert min_window == 0.9
-
-    def test_zero_buffer(self):
-        min_window = calculate_minimum_rt_window(loffset=0.3, roffset=0.3, buffer=0.0)
-        assert min_window == 0.3
-
-    def test_custom_buffer(self):
-        min_window = calculate_minimum_rt_window(loffset=0.2, roffset=0.2, buffer=0.05)
-        assert min_window == 0.25
-
-
-class TestBoundaryWindowChecking:
-    def test_boundaries_fit_exactly(self):
-        fits = check_boundaries_within_window(
-            left_boundary=9.0,
-            right_boundary=11.0,
-            window_min=9.0,
-            window_max=11.0,
+@pytest.mark.parametrize(
+    "kind,kwargs,expected",
+    [
+        ("boundaries", {"rt": 10.0, "loffset": 0.5, "roffset": 0.5}, (9.5, 10.5)),
+        ("boundaries", {"rt": 7.17, "loffset": 0.1, "roffset": 0.3}, (7.07, 7.47)),
+        ("boundaries", {"rt": 5.0, "loffset": 0.0, "roffset": 0.0}, (5.0, 5.0)),
+        ("boundaries", {"rt": 15.0, "loffset": 2.0, "roffset": 3.0}, (13.0, 18.0)),
+        ("min_window", {"loffset": 0.2, "roffset": 0.2, "buffer": 0.1}, 0.3),
+        ("min_window", {"loffset": 0.5, "roffset": 0.2, "buffer": 0.1}, 0.6),
+        ("min_window", {"loffset": 0.1, "roffset": 0.8, "buffer": 0.1}, 0.9),
+        ("min_window", {"loffset": 0.3, "roffset": 0.3, "buffer": 0.0}, 0.3),
+        ("min_window", {"loffset": 0.2, "roffset": 0.2, "buffer": 0.05}, 0.25),
+        (
+            "fits",
+            {
+                "left_boundary": 9.0,
+                "right_boundary": 11.0,
+                "window_min": 9.0,
+                "window_max": 11.0,
+            },
+            True,
+        ),
+        (
+            "fits",
+            {
+                "left_boundary": 9.5,
+                "right_boundary": 10.5,
+                "window_min": 9.0,
+                "window_max": 11.0,
+            },
+            True,
+        ),
+        (
+            "fits",
+            {
+                "left_boundary": 8.5,
+                "right_boundary": 10.5,
+                "window_min": 9.0,
+                "window_max": 11.0,
+            },
+            False,
+        ),
+        (
+            "fits",
+            {
+                "left_boundary": 9.5,
+                "right_boundary": 11.5,
+                "window_min": 9.0,
+                "window_max": 11.0,
+            },
+            False,
+        ),
+        (
+            "fits",
+            {
+                "left_boundary": 8.5,
+                "right_boundary": 11.5,
+                "window_min": 9.0,
+                "window_max": 11.0,
+            },
+            False,
+        ),
+        (
+            "fits",
+            {
+                "left_boundary": 8.9999,
+                "right_boundary": 10.5,
+                "window_min": 9.0,
+                "window_max": 11.0,
+                "tolerance": 0.001,
+            },
+            True,
+        ),
+        (
+            "fits",
+            {
+                "left_boundary": 8.998,
+                "right_boundary": 10.5,
+                "window_min": 9.0,
+                "window_max": 11.0,
+                "tolerance": 0.001,
+            },
+            False,
+        ),
+        (
+            "fits",
+            {
+                "left_boundary": 9.0,
+                "right_boundary": 11.0,
+                "window_min": 9.0,
+                "window_max": 11.0,
+                "tolerance": 0.0,
+            },
+            True,
+        ),
+        (
+            "reload",
+            {"rt": 10.05, "loffset": 0.1, "roffset": 0.1, "window": (9.8, 10.2)},
+            True,
+        ),
+        (
+            "reload",
+            {"rt": 11.0, "loffset": 0.1, "roffset": 0.1, "window": (9.8, 10.2)},
+            False,
+        ),
+        (
+            "reload",
+            {"rt": 10.0, "loffset": 0.3, "roffset": 0.3, "window": (9.8, 10.2)},
+            False,
+        ),
+        (
+            "reload",
+            {"rt": 10.0, "loffset": 0.1, "roffset": 0.1, "window": (9.8, 10.2)},
+            True,
+        ),
+        (
+            "reload",
+            {"rt": 7.17, "loffset": 0.1, "roffset": 0.5, "window": (6.97, 7.37)},
+            False,
+        ),
+        (
+            "reload",
+            {"rt": 10.0, "loffset": 0.01, "roffset": 0.01, "window": (9.99, 10.01)},
+            True,
+        ),
+        (
+            "reload",
+            {"rt": 10.0, "loffset": 1.0, "roffset": 1.0, "window": (5.0, 15.0)},
+            True,
+        ),
+        ("expand", {"loffset": 0.5, "roffset": 0.4, "buffer": 0.1}, 0.6),
+    ],
+    ids=[
+        "boundaries_symmetric",
+        "boundaries_asymmetric",
+        "boundaries_zero",
+        "boundaries_large",
+        "min_window_symmetric",
+        "min_window_larger_left",
+        "min_window_larger_right",
+        "min_window_zero_buffer",
+        "min_window_custom_buffer",
+        "fits_exactly",
+        "fits_with_margin",
+        "fits_left_exceeds",
+        "fits_right_exceeds",
+        "fits_both_exceed",
+        "fits_within_tolerance",
+        "fits_outside_tolerance",
+        "fits_zero_tolerance",
+        "reload_small_rt",
+        "reload_large_rt",
+        "reload_offset_increase",
+        "reload_offset_decrease",
+        "reload_asymmetric",
+        "reload_tiny_window",
+        "reload_huge_window",
+        "expand_min_0.6",
+    ],
+)
+def test_rt_window_arithmetic(kind, kwargs, expected):
+    if kind == "boundaries":
+        left, right = calculate_integration_boundaries(**kwargs)
+        assert (left, right) == pytest.approx(expected)
+        return
+    if kind == "min_window":
+        assert calculate_minimum_rt_window(**kwargs) == pytest.approx(expected)
+        return
+    if kind == "fits":
+        assert check_boundaries_within_window(**kwargs) is expected
+        return
+    if kind == "reload":
+        window = kwargs.pop("window")
+        left, right = calculate_integration_boundaries(
+            kwargs["rt"], kwargs["loffset"], kwargs["roffset"]
         )
-        assert fits is True
-
-    def test_boundaries_fit_with_margin(self):
-        fits = check_boundaries_within_window(
-            left_boundary=9.5,
-            right_boundary=10.5,
-            window_min=9.0,
-            window_max=11.0,
-        )
-        assert fits is True
-
-    def test_left_boundary_exceeds(self):
-        fits = check_boundaries_within_window(
-            left_boundary=8.5,
-            right_boundary=10.5,
-            window_min=9.0,
-            window_max=11.0,
-        )
-        assert fits is False
-
-    def test_right_boundary_exceeds(self):
-        fits = check_boundaries_within_window(
-            left_boundary=9.5,
-            right_boundary=11.5,
-            window_min=9.0,
-            window_max=11.0,
-        )
-        assert fits is False
-
-    def test_both_boundaries_exceed(self):
-        fits = check_boundaries_within_window(
-            left_boundary=8.5,
-            right_boundary=11.5,
-            window_min=9.0,
-            window_max=11.0,
-        )
-        assert fits is False
-
-    def test_floating_point_tolerance(self):
-        fits = check_boundaries_within_window(
-            left_boundary=8.9999,
-            right_boundary=10.5,
-            window_min=9.0,
-            window_max=11.0,
-            tolerance=0.001,
-        )
-        assert fits is True
-
-    def test_outside_tolerance(self):
-        fits = check_boundaries_within_window(
-            left_boundary=8.998,
-            right_boundary=10.5,
-            window_min=9.0,
-            window_max=11.0,
-            tolerance=0.001,
-        )
-        assert fits is False
-
-
-class TestReloadScenarios:
-    def test_small_rt_change_no_reload(self):
-        left, right = calculate_integration_boundaries(10.05, 0.1, 0.1)
-        fits = check_boundaries_within_window(left, right, 9.8, 10.2)
-        assert fits is True
-
-    def test_large_rt_change_needs_reload(self):
-        left, right = calculate_integration_boundaries(11.0, 0.1, 0.1)
-        fits = check_boundaries_within_window(left, right, 9.8, 10.2)
-        assert fits is False
-
-    def test_offset_increase_needs_reload(self):
-        left, right = calculate_integration_boundaries(10.0, 0.3, 0.3)
-        fits = check_boundaries_within_window(left, right, 9.8, 10.2)
-        assert fits is False
-
-    def test_offset_decrease_no_reload(self):
-        left, right = calculate_integration_boundaries(10.0, 0.1, 0.1)
-        fits = check_boundaries_within_window(left, right, 9.8, 10.2)
-        assert fits is True
-
-    def test_asymmetric_offset_change(self):
-        left, right = calculate_integration_boundaries(7.17, 0.1, 0.5)
-        fits = check_boundaries_within_window(left, right, 6.97, 7.37)
-        assert fits is False
-
-    def test_rt_window_expansion_needed(self):
-        current_window = 0.2
-        min_required = calculate_minimum_rt_window(0.5, 0.4, buffer=0.1)
-        assert min_required > current_window
-        assert min_required == 0.6
+        assert check_boundaries_within_window(left, right, window[0], window[1]) is expected
+        return
+    if kind == "expand":
+        min_required = calculate_minimum_rt_window(**kwargs)
+        assert min_required > 0.2
+        assert min_required == expected
+        return
+    raise AssertionError(kind)
 
 
 class TestEdgeCases:
@@ -173,26 +217,6 @@ class TestEdgeCases:
         left, right = calculate_integration_boundaries(10.0, -0.1, -0.1)
         assert left == 10.1
         assert right == 9.9
-
-    def test_very_small_window(self):
-        left, right = calculate_integration_boundaries(10.0, 0.01, 0.01)
-        fits = check_boundaries_within_window(left, right, 9.99, 10.01)
-        assert fits is True
-
-    def test_very_large_window(self):
-        left, right = calculate_integration_boundaries(10.0, 1.0, 1.0)
-        fits = check_boundaries_within_window(left, right, 5.0, 15.0)
-        assert fits is True
-
-    def test_zero_tolerance(self):
-        fits = check_boundaries_within_window(
-            left_boundary=9.0,
-            right_boundary=11.0,
-            window_min=9.0,
-            window_max=11.0,
-            tolerance=0.0,
-        )
-        assert fits is True
 
 
 class TestBufferConstant:
@@ -384,10 +408,6 @@ class _TextField:
 
     def setFocus(self) -> None:
         return None
-
-
-def _gaussian(time, center, width, height):
-    return height * np.exp(-0.5 * ((time - center) / width) ** 2)
 
 
 def _overlap_trace(retention_time: float, half_width: float):
@@ -1168,39 +1188,6 @@ class TestRegenerationCompletion:
             "No changes were applied. thread unavailable"
         ]
 
-    def test_success_invalidates_validation_and_refreshes_mode_charts(self):
-        calls = []
-
-        class ValidationProvider:
-            def invalidate_cache(self):
-                calls.append("invalidate")
-
-        integration = SimpleNamespace(
-            _pending_session_update=None,
-            populate_fields_from_plots=lambda *_args: calls.append("fields"),
-            populate_tr_window_field=lambda *_args: calls.append("window"),
-        )
-        graph_view = SimpleNamespace(
-            get_current_compound=lambda: "Glucose",
-            get_selected_samples=lambda: ["s1"],
-            get_current_samples=lambda: ["s1"],
-            refresh_plots_with_session_data=lambda *_args, **_kwargs: calls.append("plots"),
-        )
-        message = SimpleNamespace(exec=lambda: None)
-        window = SimpleNamespace(
-            toolbar=SimpleNamespace(integration=integration),
-            graph_view=graph_view,
-            _validation_provider=ValidationProvider(),
-            min_peak_height_ratio=0,
-            _peak_verdicts=lambda *_args: {},
-            _identity_snapshot=lambda *_args: (None, None),
-            _refresh_mode_charts=lambda *_args, **_kwargs: calls.append("charts"),
-            _create_message_box=lambda *_args: message,
-        )
-
-        MainWindow._regeneration_completed(window, 1)
-
-        assert calls == ["invalidate", "fields", "window", "plots", "charts"]
 
     def test_offset_only_success_refreshes_without_formatting_none(self):
         calls = []

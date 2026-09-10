@@ -10,8 +10,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.processors.display_deconvolution import integrated_display_areas
 
 
-def _gaussian(time, center, width, height):
-    return height * np.exp(-0.5 * ((time - center) / width) ** 2)
+from conftest import _gaussian
 
 
 def _compound(**overrides):

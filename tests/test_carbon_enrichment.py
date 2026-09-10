@@ -141,47 +141,29 @@ class TestCarbonEnrichmentAPE:
         assert ws["C5"].value == 100.0
 
 
-class TestCarbonEnrichmentCalculation:
-    """Tests for the enrichment calculation helper function."""
-
-    def test_fully_unlabelled(self):
-        """100% M+0 should give 0% enrichment."""
-        data = [1000.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        result = carbon_enrichment.calculate_enrichment(data, label_atoms=6)
-        assert result == 0.0
-
-    def test_fully_labelled(self):
-        """100% M+N should give 100% enrichment."""
-        # 6-carbon compound, all M+6
-        data = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1000.0]
-        result = carbon_enrichment.calculate_enrichment(data, label_atoms=6)
-        assert result == 100.0
-
-    def test_single_label(self):
-        """100% M+1 for 6C compound should give 16.67% enrichment."""
-        data = [0.0, 1000.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        result = carbon_enrichment.calculate_enrichment(data, label_atoms=6)
-        assert result == pytest.approx(16.666666, rel=1e-4)
-
-    def test_mixed_distribution(self):
-        """50% M+0, 50% M+6 should give 50% enrichment."""
-        data = [500.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0]
-        result = carbon_enrichment.calculate_enrichment(data, label_atoms=6)
-        assert result == 50.0
-
-    def test_zero_label_atoms(self):
-        """Zero label atoms should return 0 (avoid division by zero)."""
-        data = [1000.0, 500.0]
-        result = carbon_enrichment.calculate_enrichment(data, label_atoms=0)
-        assert result == 0.0
-
-    def test_empty_data(self):
-        """Empty/zero data should return 0."""
-        result = carbon_enrichment.calculate_enrichment([0.0], label_atoms=6)
-        assert result == 0.0
-
-        result = carbon_enrichment.calculate_enrichment([], label_atoms=6)
-        assert result == 0.0
+@pytest.mark.parametrize(
+    "data,label_atoms,expected",
+    [
+        ([1000.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 6, 0.0),
+        ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1000.0], 6, 100.0),
+        ([0.0, 1000.0, 0.0, 0.0, 0.0, 0.0, 0.0], 6, pytest.approx(16.666666, rel=1e-4)),
+        ([500.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0], 6, 50.0),
+        ([1000.0, 500.0], 0, 0.0),
+        ([0.0], 6, 0.0),
+        ([], 6, 0.0),
+    ],
+    ids=[
+        "fully_unlabelled",
+        "fully_labelled",
+        "single_label",
+        "mixed",
+        "zero_label_atoms",
+        "zero_data",
+        "empty_data",
+    ],
+)
+def test_calculate_enrichment(data, label_atoms, expected):
+    assert carbon_enrichment.calculate_enrichment(data, label_atoms=label_atoms) == expected
 
 
 class TestCarbonEnrichmentEdgeCases:

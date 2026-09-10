@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS eic (
     FOREIGN KEY (compound_name) REFERENCES compounds(compound_name)
 );
 
+CREATE INDEX IF NOT EXISTS idx_eic_compound_sample
+          ON eic(compound_name, sample_name);
+
 -- Session activity -----------------------------------------------
 CREATE TABLE IF NOT EXISTS session_activity (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,

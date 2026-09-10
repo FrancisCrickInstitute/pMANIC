@@ -142,3 +142,34 @@ def test_c1_correction_matrix_columns():
     matrix = NaturalAbundanceCorrector().build_correction_matrix("C1", "C", 1)
     np.testing.assert_allclose(matrix[:, 0], [0.9893, 0.0107], atol=5e-5)
     np.testing.assert_allclose(matrix[:, 1], [0.01, 0.99], atol=5e-5)
+
+
+def test_existing_database_gains_eic_index(tmp_path, monkeypatch):
+    db_path = tmp_path / "legacy.db"
+    monkeypatch.setattr(database, "DB_FILE", db_path)
+    schema_text = SCHEMA.read_text(encoding="utf-8")
+    schema_text = schema_text.replace(
+        "CREATE INDEX IF NOT EXISTS idx_eic_compound_sample\n"
+        "          ON eic(compound_name, sample_name);\n\n",
+        "",
+    )
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(schema_text)
+        names = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        assert "idx_eic_compound_sample" not in names
+
+    database.init_db()
+
+    with sqlite3.connect(db_path) as conn:
+        names = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+    assert "idx_eic_compound_sample" in names

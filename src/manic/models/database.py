@@ -235,6 +235,12 @@ def get_connection():
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+        except sqlite3.OperationalError:
+            # Readonly fixtures and some sandbox paths cannot create the -wal file.
+            pass
         yield conn  #  hand the connection to callers
         conn.commit()  #  normal exit ⇒ commit
     except Exception:

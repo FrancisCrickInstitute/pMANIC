@@ -6,6 +6,7 @@ from PySide6.QtGui import QCloseEvent, QKeySequence
 from PySide6.QtWidgets import QMessageBox
 
 from manic.utils.recent_files import RecentFiles
+from manic.validation.peak_verdict import PeakVerdict
 from manic.utils.workers import ExportWorker
 
 from conftest import _make_window
@@ -207,5 +208,27 @@ def test_actions_using_platform_incomplete_standard_keys_have_a_literal_fallback
                 f"{attr} relies only on {standard_key}, which Qt leaves unbound "
                 f"on Windows; pair it with an explicit literal sequence"
             )
+    finally:
+        window.close()
+
+
+def test_selecting_internal_standard_recolours_plotted_compound(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(monkeypatch)
+    try:
+        window.graph_view._current_compound = "Pyruvate"
+        window.graph_view._current_samples = ["S1", "S2"]
+        window.graph_view._last_validation_data = {}
+        monkeypatch.setattr(
+            window,
+            "_peak_verdicts",
+            lambda compound, samples: {s: PeakVerdict.FAIL for s in samples},
+        )
+        window.on_internal_standard_selected("ISTD")
+        assert window.graph_view._last_validation_data == {
+            "S1": PeakVerdict.FAIL,
+            "S2": PeakVerdict.FAIL,
+        }
     finally:
         window.close()

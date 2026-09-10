@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Sequence, Set
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QEvent, QMargins, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QActionGroup, QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsTextItem,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
+from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.display_deconvolution import (
     display_y_max,
@@ -55,6 +56,12 @@ from .colors import (
 logger = logging.getLogger(__name__)
 
 PLOT_Y_AXIS_HEADROOM = 1.05
+
+
+def tile_caption(sample_name: str, fit_type: str | None) -> str:
+    if not fit_type:
+        return sample_name
+    return f"{sample_name}  ·  {FIT_TYPE_LABELS.get(fit_type, fit_type)}"
 
 
 class ElidingLabel(QLabel):
@@ -142,6 +149,7 @@ class GraphView(QWidget):
     # Signal to emit when plot selection changes
     selection_changed = Signal(list)  # List of selected sample names
     peak_review_changed = Signal(str, list, object)
+    sample_fit_type_changed = Signal(str, list, object)
     settings_requested = Signal()
     documentation_requested = Signal()
 
@@ -182,6 +190,7 @@ class GraphView(QWidget):
         # Store current compound and samples for integration window updates
         self._current_compound: str = ""
         self._current_samples: List[str] = []
+        self._sample_fit_types: Dict[tuple[str, str], str] = {}
 
         self.use_corrected = False
         self._prepared_displays = {}
@@ -362,6 +371,7 @@ class GraphView(QWidget):
         # Store current compound and samples for integration window updates
         self._current_compound = compound_name
         self._current_samples = samples
+        self._sample_fit_types = get_sample_fit_types(compound_name)
 
         with measure_time("get_eics_from_db"):
             eics = get_eics_for_compound(
@@ -679,6 +689,12 @@ class GraphView(QWidget):
                 lambda: self._toggle_peak_review(clicked_plot, PeakReview.REJECTED)
             )
 
+        fit_menu = context_menu.addMenu("Curve fit")
+        if clicked_plot is None:
+            fit_menu.setEnabled(False)
+        else:
+            self._populate_curve_fit_menu(fit_menu, clicked_plot)
+
         # Show menu at position - use popup() instead of exec() for better behavior
         context_menu.popup(global_pos)
 
@@ -712,6 +728,50 @@ class GraphView(QWidget):
         sample_names = [plot.sample_name for plot in plots]
         self.peak_review_changed.emit(
             clicked_plot.compound_name, sample_names, new_review
+        )
+
+    def _curve_fit_targets(self, clicked_plot: ClickableChartView):
+        return (
+            self._selected_plots
+            if clicked_plot in self._selected_plots
+            else {clicked_plot}
+        )
+
+    def _populate_curve_fit_menu(
+        self, fit_menu: QMenu, clicked_plot: ClickableChartView
+    ) -> None:
+        plots = self._curve_fit_targets(clicked_plot)
+        current_values = {
+            self._sample_fit_types.get((plot.compound_name, plot.sample_name))
+            for plot in plots
+        }
+        common = next(iter(current_values)) if len(current_values) == 1 else object()
+        group = QActionGroup(fit_menu)
+        group.setExclusive(True)
+        inherit_action = fit_menu.addAction("Use compound setting")
+        inherit_action.setCheckable(True)
+        inherit_action.setChecked(common is None)
+        inherit_action.triggered.connect(
+            lambda: self._emit_sample_fit_type(clicked_plot, None)
+        )
+        group.addAction(inherit_action)
+        for value, label in FIT_TYPE_LABELS.items():
+            action = fit_menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(common == value)
+            action.triggered.connect(
+                lambda _checked=False, fit=value: self._emit_sample_fit_type(
+                    clicked_plot, fit
+                )
+            )
+            group.addAction(action)
+
+    def _emit_sample_fit_type(
+        self, clicked_plot: ClickableChartView, fit_type: str | None
+    ) -> None:
+        sample_names = [plot.sample_name for plot in self._curve_fit_targets(clicked_plot)]
+        self.sample_fit_type_changed.emit(
+            clicked_plot.compound_name, sample_names, fit_type
         )
 
     def apply_peak_verdicts(self, validation_data: Dict[str, PeakVerdict]) -> None:
@@ -973,7 +1033,8 @@ class GraphView(QWidget):
         chart_view = self._build_plot(eic)
 
         # Create caption label with fixed height + elided text
-        caption = ElidingLabel(eic.sample_name)
+        caption_text = self._tile_caption_for(eic)
+        caption = ElidingLabel(caption_text)
         caption.setAlignment(Qt.AlignCenter)
         caption.setFont(create_font(8, QFont.Weight.Bold))  # Cross-platform font
         caption.setStyleSheet("color: black; padding: 1px;")
@@ -981,8 +1042,8 @@ class GraphView(QWidget):
         # per-row max sizeHint() differences when some captions wrap.
         caption.setWordWrap(False)
         caption.setFixedHeight(18)
-        caption.setToolTip(eic.sample_name)
-        caption.setText(eic.sample_name)
+        caption.setToolTip(caption_text)
+        caption.setText(caption_text)
 
         # Create container widget
         container = QWidget()
@@ -1011,6 +1072,10 @@ class GraphView(QWidget):
         caption.installEventFilter(self)
 
         return container
+
+    def _tile_caption_for(self, eic) -> str:
+        fit_type = self._sample_fit_types.get((eic.compound_name, eic.sample_name))
+        return tile_caption(eic.sample_name, fit_type)
 
     def _update_container_data(
         self, container: QWidget, eic, verdict: PeakVerdict = PeakVerdict.PASS
@@ -1063,7 +1128,9 @@ class GraphView(QWidget):
             self._update_chart_data(chart_view, eic)
 
             # Update the caption
-            container.caption.setText(eic.sample_name)
+            caption_text = self._tile_caption_for(eic)
+            container.caption.setToolTip(caption_text)
+            container.caption.setText(caption_text)
 
             # Apply validation styling
             self._apply_validation_styling(container, verdict)

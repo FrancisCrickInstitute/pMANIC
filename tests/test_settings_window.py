@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QMenu
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
 from manic.models.analysis import AnalysisContext, AnalysisMode
+from manic.models.sample_fit_type import get_sample_fit_types
 import manic.ui.main_window as main_window_module
 from manic.ui.main_window import MainWindow
 from manic.ui.settings_window import (
@@ -18,6 +19,7 @@ from manic.ui.settings_window import (
     InternalStandardPage,
     MassTolerancePage,
     PeakValidationPage,
+    QualifierRatioPage,
 )
 
 SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
@@ -33,6 +35,7 @@ LABELLED_TITLES = [
 UNLABELLED_TITLES = [
     "Mass Tolerance",
     "Peak Validation",
+    "Qualifier Ratios",
     "Integration",
     "Deconvolution",
 ]
@@ -73,6 +76,15 @@ def _select_page(settings_window, title: str) -> None:
             settings_window.page_list.setCurrentRow(index)
             return
     raise KeyError(title)
+
+
+def _override_row_combo(page, sample: str):
+    table = page.sample_fit_table
+    for row in range(table.rowCount()):
+        item = table.item(row, 0)
+        if item is not None and item.text() == sample:
+            return table.cellWidget(row, 1)
+    raise AssertionError(f"no override row for {sample}")
 
 
 @pytest.fixture
@@ -116,12 +128,106 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     )
 
 
-def test_unlabelled_settings_lists_four_pages(qapp, empty_db, monkeypatch):
+def test_unlabelled_settings_lists_five_pages(qapp, empty_db, monkeypatch):
     window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
     try:
         window.open_settings_window()
         settings = window.settings_window
         assert _page_titles(settings) == UNLABELLED_TITLES
+    finally:
+        if window.settings_window is not None:
+            window.settings_window.close()
+        window.close()
+
+
+def _insert_unlabelled_target(name: str = "Target") -> None:
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+            "label_atoms) VALUES (?, 1.0, 0.1, 0.1, 217.0, 0)",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO compound_ions (compound_name, role, ordinal, mz, expected_ratio, "
+            "ratio_tolerance) VALUES (?, 'quantifier', 0, 217.0, NULL, NULL)",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO compound_ions (compound_name, role, ordinal, mz, expected_ratio, "
+            "ratio_tolerance) VALUES (?, 'qualifier', 1, 147.0, 0.4, 0.25)",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO compound_ions (compound_name, role, ordinal, mz, expected_ratio, "
+            "ratio_tolerance) VALUES (?, 'qualifier', 2, 73.0, 0.2, NULL)",
+            (name,),
+        )
+
+
+def test_qualifier_ratios_page_is_unlabelled_only(labelled_window):
+    labelled_window.open_settings_window()
+    titles = _page_titles(labelled_window.settings_window)
+    assert "Qualifier Ratios" not in titles
+    assert titles == LABELLED_TITLES
+
+
+def test_qualifier_ratios_not_editable_without_a_selected_compound(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
+    try:
+        window.open_settings_window()
+        settings = window.settings_window
+        _select_page(settings, "Qualifier Ratios")
+        page = settings.page_named("Qualifier Ratios")
+        assert isinstance(page, QualifierRatioPage)
+        assert page.editable() == (
+            False,
+            "Load compounds and select one in the toolbar to change this.",
+        )
+        assert not page._spins[1].isEnabled()
+        assert settings.hint_label.text() == (
+            "Load compounds and select one in the toolbar to change this."
+        )
+    finally:
+        if window.settings_window is not None:
+            window.settings_window.close()
+        window.close()
+
+
+def test_qualifier_ratios_save_writes_tolerance_and_null(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
+    try:
+        _insert_unlabelled_target()
+        window.compound_data_loaded = True
+        window.toolbar.update_compound_list(["Target"], selected_name="Target")
+        replots = []
+        monkeypatch.setattr(window, "_replot_current_selection", lambda: replots.append(1))
+        window.open_settings_window()
+        settings = window.settings_window
+        _select_page(settings, "Qualifier Ratios")
+        page = settings.page_named("Qualifier Ratios")
+        assert page.compound_label.text() == "Compound: Target"
+        assert page._labels[1].text() == "Qualifier 1 (m/z 147)"
+        assert page._ratio_labels[1].text() == "expected ratio 0.4"
+        assert page._spins[1].isVisible()
+        assert page._spins[2].isVisible()
+        page._spins[1].setValue(0.3)
+        page._spins[2].setValue(0.0)
+        settings.save_button.click()
+        with database.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT ordinal, ratio_tolerance FROM compound_ions "
+                "WHERE compound_name = 'Target' AND role = 'qualifier' "
+                "ORDER BY ordinal"
+            ).fetchall()
+        assert rows[0]["ordinal"] == 1
+        assert rows[0]["ratio_tolerance"] == pytest.approx(0.3)
+        assert rows[1]["ordinal"] == 2
+        assert rows[1]["ratio_tolerance"] is None
+        assert replots == [1]
     finally:
         if window.settings_window is not None:
             window.settings_window.close()
@@ -272,6 +378,73 @@ def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window
     page.combo.setCurrentIndex(2)
     settings.save_button.click()
     assert labelled_window.internal_standard_reference_isotope == 2
+
+
+def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window, monkeypatch):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
+            "VALUES ('Alanine', 5.0, 0.6, 0.6, 100.0, 3, 10.0, 1.0, 'S1')"
+        )
+        conn.execute("INSERT INTO samples (sample_name) VALUES ('S1')")
+        conn.execute("INSERT INTO samples (sample_name) VALUES ('S2')")
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
+    monkeypatch.setattr(
+        labelled_window.graph_view,
+        "get_selected_samples",
+        lambda: ["S1", "S2"],
+    )
+    replots = []
+    monkeypatch.setattr(
+        labelled_window, "_replot_current_selection", lambda: replots.append(1)
+    )
+
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    _select_page(settings, "Deconvolution")
+    page = settings.page_named("Deconvolution")
+    assert page.sample_scope_label.text() == (
+        "Sets the fit for the 2 samples selected in the plot area"
+    )
+    assert page.sample_fit_combo.isEnabled()
+    assert not page.sample_fit_table.isVisible()
+    assert page.empty_overrides_label.isVisible()
+    assert page.empty_overrides_label.text() == (
+        "No per-sample overrides for this compound."
+    )
+    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData("gaussian"))
+    settings.save_button.click()
+    assert get_sample_fit_types("Alanine") == {
+        ("Alanine", "S1"): "gaussian",
+        ("Alanine", "S2"): "gaussian",
+    }
+    assert replots == [1]
+    assert page.sample_fit_table.isVisible()
+    assert not page.empty_overrides_label.isVisible()
+
+    s1_combo = _override_row_combo(page, "S1")
+    s1_combo.setCurrentIndex(s1_combo.findData("emg"))
+    s2_combo = _override_row_combo(page, "S2")
+    s2_combo.setCurrentIndex(s2_combo.findData(None))
+    settings.save_button.click()
+    assert get_sample_fit_types("Alanine") == {("Alanine", "S1"): "emg"}
+    assert replots == [1, 1]
+
+    page.remove_all_button.click()
+    settings.save_button.click()
+    assert get_sample_fit_types("Alanine") == {}
+    assert replots == [1, 1, 1]
+    assert not page.sample_fit_table.isVisible()
+    assert page.empty_overrides_label.isVisible()
+
+    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData("emg"))
+    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData(None))
+    assert page.is_dirty()
+    settings.save_button.click()
+    assert get_sample_fit_types("Alanine") == {}
+    assert replots == [1, 1, 1]
 
 
 def test_deconvolution_unsaved_hint_names_the_compound_it_will_write(labelled_window):

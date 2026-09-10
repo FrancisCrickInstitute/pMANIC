@@ -13,6 +13,7 @@ from manic.io.changelog_sections import (
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
     format_peak_reviews_section,
+    format_sample_fit_types_section,
     format_unlabelled_compounds_table_for_data_export,
 )
 
@@ -66,6 +67,12 @@ def generate_changelog(
         peak_reviews = conn.execute(
             """
             SELECT compound_name, sample_name, review FROM peak_review
+            ORDER BY compound_name, sample_name
+            """
+        ).fetchall()
+        sample_fit_types = conn.execute(
+            """
+            SELECT compound_name, sample_name, fit_type FROM sample_fit_type
             ORDER BY compound_name, sample_name
             """
         ).fetchall()
@@ -193,6 +200,9 @@ def generate_changelog(
     reviews_section = format_peak_reviews_section(peak_reviews)
     if reviews_section:
         changelog_content += "\n" + reviews_section + "\n"
+    fit_section = format_sample_fit_types_section(sample_fit_types)
+    if fit_section:
+        changelog_content += "\n" + fit_section + "\n"
 
     changelog_content += f"""
 ## Export Sheets Generated

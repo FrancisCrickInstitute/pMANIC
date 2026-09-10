@@ -48,7 +48,7 @@ from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import read_compound, read_compound_with_session
-from manic.models.analysis import AnalysisContext, AnalysisMode
+from manic.models.analysis import AnalysisContext, AnalysisMode, IonChannel, IonRole
 from manic.models.session_export import (
     InternalStandardRestore,
     InternalStandardRestoreKind,
@@ -70,6 +70,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
+from manic.models.sample_fit_type import set_sample_fit_type
 from manic.validation.peak_verdict import PeakVerdict
 from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
@@ -376,6 +377,9 @@ class MainWindow(QMainWindow):
         # Connect the graph view's selection signal
         self.graph_view.selection_changed.connect(self.on_plot_selection_changed)
         self.graph_view.peak_review_changed.connect(self.on_peak_review_changed)
+        self.graph_view.sample_fit_type_changed.connect(
+            self.on_sample_fit_type_changed
+        )
 
         # Connect the integration window's session data signals
         self.toolbar.integration.session_data_applied.connect(
@@ -628,8 +632,6 @@ class MainWindow(QMainWindow):
         2. Call the load_compound_list controller function to load the compound list.
 
         """
-        from pathlib import Path
-
         default_dir = str(Path.home() / "Documents")
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -1640,8 +1642,6 @@ class MainWindow(QMainWindow):
             if success:
                 # Show info about what was exported
                 # Extract base name to show directory structure
-                from pathlib import Path
-
                 export_path = Path(file_path)
                 if export_path.suffix.lower() == ".json":
                     base_name = export_path.stem
@@ -1951,6 +1951,53 @@ class MainWindow(QMainWindow):
             return None
         return name
 
+    def selected_sample_names(self) -> list[str]:
+        return self.graph_view.get_selected_samples()
+
+    def qualifier_channels(self, compound_name: str | None) -> list[IonChannel]:
+        if not compound_name:
+            return []
+        try:
+            compound = read_compound(compound_name)
+        except LookupError:
+            return []
+        return sorted(
+            (
+                channel
+                for channel in compound.analysis_channels
+                if channel.role is IonRole.QUALIFIER
+            ),
+            key=lambda channel: channel.ordinal,
+        )
+
+    def apply_qualifier_tolerances(
+        self, compound_name: str, tolerances: dict[int, float | None]
+    ) -> None:
+        current = {
+            channel.ordinal: channel.ratio_tolerance
+            for channel in self.qualifier_channels(compound_name)
+        }
+        changed = {
+            ordinal: value
+            for ordinal, value in tolerances.items()
+            if current.get(ordinal) != value
+        }
+        if not changed:
+            return
+        with get_connection() as conn:
+            for ordinal, value in changed.items():
+                conn.execute(
+                    "UPDATE compound_ions SET ratio_tolerance = ? "
+                    "WHERE compound_name = ? AND role = 'qualifier' AND ordinal = ?",
+                    (value, compound_name, ordinal),
+                )
+        logger.info(
+            "Qualifier tolerances updated for '%s': %s",
+            compound_name,
+            changed,
+        )
+        self._replot_current_selection()
+
     def internal_standard_name(self) -> str | None:
         return self.toolbar.get_internal_standard()
 
@@ -2037,6 +2084,7 @@ class MainWindow(QMainWindow):
         new_fit: str,
         new_gate: str,
         apply_to_all: bool,
+        replot: bool = True,
     ) -> None:
         if not compound_name:
             return
@@ -2060,6 +2108,33 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
+        if replot:
+            self._replot_current_selection()
+
+    def on_sample_fit_type_changed(
+        self,
+        compound_name: str,
+        sample_names: list[str],
+        fit_type: str | None,
+    ) -> None:
+        self.apply_sample_fit_types(
+            compound_name, {name: fit_type for name in sample_names}
+        )
+
+    def apply_sample_fit_types(
+        self,
+        compound_name: str | None,
+        changes: dict[str, str | None],
+    ) -> None:
+        if not compound_name or not changes:
+            return
+        grouped: dict[str | None, list[str]] = {}
+        for sample_name, fit_type in changes.items():
+            grouped.setdefault(fit_type, []).append(sample_name)
+        for fit_type, names in grouped.items():
+            set_sample_fit_type(compound_name, names, fit_type)
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
         self._replot_current_selection()
 
     def _apply_deconvolution_to_all(self, new_level: str, new_fit: str, new_gate: str) -> bool:

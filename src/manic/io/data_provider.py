@@ -265,7 +265,7 @@ class DataProvider:
                        COALESCE(sa.roffset, c.roffset) as roffset,
                        c.baseline_correction as baseline_correction,
                        c.deconvolution_level as deconvolution_level,
-                       c.deconvolution_fit_type as deconvolution_fit_type,
+                       COALESCE(sft.fit_type, c.deconvolution_fit_type) AS deconvolution_fit_type,
                        c.deconvolution_noise_gate as deconvolution_noise_gate,
                        c.formula as formula,
                        c.label_type as label_type,
@@ -278,6 +278,9 @@ class DataProvider:
                     ON e.compound_name = sa.compound_name 
                     AND e.sample_name = sa.sample_name 
                     AND sa.sample_deleted = 0
+                LEFT JOIN sample_fit_type sft
+                    ON sft.compound_name = c.compound_name
+                    AND sft.sample_name = e.sample_name
                 WHERE e.deleted = 0 AND c.deleted = 0
                 ORDER BY e.sample_name, e.compound_name
             """
@@ -293,7 +296,7 @@ class DataProvider:
                        COALESCE(sa.roffset, c.roffset) as roffset,
                        c.baseline_correction as baseline_correction,
                        c.deconvolution_level as deconvolution_level,
-                       c.deconvolution_fit_type as deconvolution_fit_type,
+                       COALESCE(sft.fit_type, c.deconvolution_fit_type) AS deconvolution_fit_type,
                        c.deconvolution_noise_gate as deconvolution_noise_gate
                 FROM eic_corrected ec 
                 JOIN compounds c ON ec.compound_name = c.compound_name
@@ -301,6 +304,9 @@ class DataProvider:
                     ON ec.compound_name = sa.compound_name 
                     AND ec.sample_name = sa.sample_name 
                     AND sa.sample_deleted = 0
+                LEFT JOIN sample_fit_type sft
+                    ON sft.compound_name = c.compound_name
+                    AND sft.sample_name = ec.sample_name
                 WHERE ec.deleted = 0 AND c.deleted = 0
                 ORDER BY ec.sample_name, ec.compound_name
             """
@@ -521,11 +527,14 @@ class DataProvider:
             eic_query = (
                 "SELECT e.compound_name, e.x_axis, e.y_axis, c.label_atoms, c.retention_time, "
                 "c.loffset, c.roffset, c.baseline_correction, "
-                "c.deconvolution_level, c.deconvolution_fit_type, "
+                "c.deconvolution_level, "
+                "COALESCE(sft.fit_type, c.deconvolution_fit_type) AS deconvolution_fit_type, "
                 "c.deconvolution_noise_gate, "
                 "COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci "
                 "WHERE ci.compound_name = c.compound_name), 0), c.label_atoms + 1) AS channel_count "
                 "FROM eic e JOIN compounds c ON e.compound_name = c.compound_name "
+                "LEFT JOIN sample_fit_type sft "
+                "  ON sft.compound_name = c.compound_name AND sft.sample_name = e.sample_name "
                 "WHERE e.sample_name = ? AND e.deleted = 0 AND c.deleted = 0 "
                 "ORDER BY e.compound_name"
             )
@@ -869,14 +878,17 @@ class DataProvider:
                 "COALESCE(sa.loffset, c.loffset) as loffset, "
                 "COALESCE(sa.roffset, c.roffset) as roffset, "
                 "c.baseline_correction, c.deconvolution_level, "
-                "c.deconvolution_fit_type, c.deconvolution_noise_gate, "
+                "COALESCE(sft.fit_type, c.deconvolution_fit_type) AS deconvolution_fit_type, "
+                "c.deconvolution_noise_gate, "
                 "c.formula, c.label_type, c.tbdms, c.meox, c.me "
                 "FROM compounds c "
                 "LEFT JOIN session_activity sa "
                 "  ON sa.compound_name = c.compound_name "
                 "  AND sa.sample_name = ? AND sa.sample_deleted = 0 "
+                "LEFT JOIN sample_fit_type sft "
+                "  ON sft.compound_name = c.compound_name AND sft.sample_name = ? "
                 "WHERE c.compound_name = ? AND c.deleted = 0",
-                (sample_name, compound_name),
+                (sample_name, sample_name, compound_name),
             ).fetchone()
             if meta is None:
                 return []

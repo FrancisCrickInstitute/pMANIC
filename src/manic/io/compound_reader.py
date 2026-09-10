@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +11,8 @@ from manic.models.analysis import (
     validate_unlabelled_channels,
 )
 from manic.models.database import get_connection
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -135,48 +138,57 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
     Raises:
         LookupError: If compound not found
     """
-    # Get base compound data first
     base_compound = read_compound(compound_name)
-    
-    # If no sample specified, return base compound
     if not sample_name:
         return base_compound
-    
-    # Check for session activity override
+
     session_sql = """
         SELECT retention_time, loffset, roffset
         FROM session_activity
         WHERE compound_name = ? AND sample_name = ? AND sample_deleted = 0
         LIMIT 1
     """
-    
+    fit_sql = """
+        SELECT fit_type FROM sample_fit_type
+        WHERE compound_name = ? AND sample_name = ?
+        LIMIT 1
+    """
+
     with get_connection() as conn:
         session_row = conn.execute(session_sql, (compound_name, sample_name)).fetchone()
-        
-        if session_row is None:
+        fit_row = conn.execute(fit_sql, (compound_name, sample_name)).fetchone()
+
+    fit_type = (
+        fit_row["fit_type"]
+        if fit_row is not None
+        else base_compound.deconvolution_fit_type
+    )
+    if session_row is None:
+        if fit_row is None:
             return base_compound
-        
-        # Create compound with session data overrides
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.debug(f"Using session data for {compound_name} / {sample_name}: RT={session_row['retention_time']:.3f}")
-        
-        return Compound(
-            compound_name=base_compound.compound_name,
-            retention_time=session_row["retention_time"],  # Override with session data
-            loffset=session_row["loffset"],  # Override with session data
-            roffset=session_row["roffset"],  # Override with session data  
-            label_atoms=base_compound.label_atoms,  # Always from base compound
-            mass0=base_compound.mass0,  # Always from base compound
-            rt_tolerance=base_compound.rt_tolerance,
-            formula=base_compound.formula,  # Always from base compound
-            label_type=base_compound.label_type,  # Always from base compound
-            tbdms=base_compound.tbdms,  # Always from base compound
-            meox=base_compound.meox,  # Always from base compound
-            me=base_compound.me,  # Always from base compound
-            baseline_correction=base_compound.baseline_correction,  # Always from base compound
-            deconvolution_level=base_compound.deconvolution_level,  # Always from base compound
-            deconvolution_fit_type=base_compound.deconvolution_fit_type,  # Always from base compound
-            deconvolution_noise_gate=base_compound.deconvolution_noise_gate,  # Always from base compound
-            channels=base_compound.channels,
-        )
+        base_compound.deconvolution_fit_type = fit_type
+        return base_compound
+
+    logger.debug(
+        f"Using session data for {compound_name} / {sample_name}: "
+        f"RT={session_row['retention_time']:.3f}"
+    )
+    return Compound(
+        compound_name=base_compound.compound_name,
+        retention_time=session_row["retention_time"],
+        loffset=session_row["loffset"],
+        roffset=session_row["roffset"],
+        label_atoms=base_compound.label_atoms,
+        mass0=base_compound.mass0,
+        rt_tolerance=base_compound.rt_tolerance,
+        formula=base_compound.formula,
+        label_type=base_compound.label_type,
+        tbdms=base_compound.tbdms,
+        meox=base_compound.meox,
+        me=base_compound.me,
+        baseline_correction=base_compound.baseline_correction,
+        deconvolution_level=base_compound.deconvolution_level,
+        deconvolution_fit_type=fit_type,
+        deconvolution_noise_gate=base_compound.deconvolution_noise_gate,
+        channels=base_compound.channels,
+    )

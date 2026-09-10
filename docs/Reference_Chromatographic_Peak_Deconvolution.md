@@ -85,6 +85,10 @@ Settings are edited from **Settings → Deconvolution** with a compound selected
 
 The Deconvolution page includes an **"Apply to all compounds"** checkbox. When ticked (and confirmed), the chosen resolution, fit type, and noise gate are written to every compound, overwriting their previous values. There is no separate global flag: the per-compound settings remain the single source of truth, so a bulk update propagates consistently to display, export, the changelog, and session export. To disable deconvolution for all compounds, set the resolution to `Off` and tick the box.
 
+### Per-sample curve fit
+
+A sample can override the compound fit type without changing resolution or the noise gate. Right-click selected plot tiles and choose **Curve fit**, or use **Settings → Deconvolution → Per-sample curve fit** for the tiles currently selected in the plot area. The same settings section lists every override for the compound. Each row is editable. **Remove all overrides** sets every row to **Use compound setting**. Nothing is written until Save. An override shows on the tile caption as `Sample  ·  Gaussian` (or Auto, Bi-Gaussian, EMG). Tiles that inherit the compound setting keep the sample name only. Export, session export, and the changelog use the same override. Choosing **Use compound setting** returns that sample to the compound fit type.
+
 ## Resolution Levels
 
 Chromatographic peak deconvolution can be turned off, or run at levels `1` through `7`.

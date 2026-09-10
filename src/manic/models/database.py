@@ -415,6 +415,7 @@ def _clear_database_fast(progress_callback=None):
         clear_script = """
         DELETE FROM session_activity;
         DELETE FROM peak_review;
+        DELETE FROM sample_fit_type;
         DELETE FROM eic_corrected;
         DELETE FROM eic;
         DELETE FROM tic_data;  
@@ -454,6 +455,8 @@ def _clear_database_detailed(progress_callback=None):
     # Define clearing operations in dependency order
     clear_operations = [
         ("session_activity", "Clearing session overrides..."),
+        ("peak_review", "Clearing peak reviews..."),
+        ("sample_fit_type", "Clearing per-sample fit types..."),
         ("eic_corrected", "Clearing corrected EIC data..."),
         ("eic", "Clearing raw EIC data..."),
         ("tic_data", "Clearing TIC chromatograms..."),

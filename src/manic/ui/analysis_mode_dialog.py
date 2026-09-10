@@ -27,8 +27,6 @@ _MODE_CHOICES = (
 
 
 class AnalysisModeDialog(QDialog):
-    """Choose the analytical workflow before a database session is cleared."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self._selected_mode: AnalysisMode | None = None

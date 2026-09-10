@@ -35,72 +35,101 @@ export sheets, and scientific rationale) is in
 
 ## Upgrading to MANIC 5
 
-> **⚠️ The Corrected Values sheet changes in 5.0. Your ratios, label incorporation and calibrated amounts do not, in practice.**
+> **⚠️ The Corrected Values sheet changes in 5.0. Ratios, label incorporation and calibrated amounts move by no more than 0.5%.**
+
+Two processing changes in 5.0 alter exported numbers. Both are measured below
+on two real lab datasets.
 
 ### The short version
 
-- **Raw Values.** Identical to 4.x.
-- **Isotope Ratio, % Label Incorporation, % Carbons Labelled.** Change by less than half a percentage point. Your 4.x results stand.
-- **Abundances (nmol) for compounds calibrated against MM files.** Change by a fraction of a percent. Your 4.x results stand.
-- **Abundances for compounds with no MM-file calibration.** Drop by about a third. 5.0 now labels these columns **Relative** instead of nmol, because they never were absolute amounts.
-- **Corrected Values.** Drop by roughly 15 to 40%. Do not compare a 4.x Corrected Values sheet with a 5.0 one. Reprocess the older data in 5.0 first.
+- **Raw Values.** Unchanged by the correction fix. Changed slightly by the
+  baseline clamp (next section). On dataset_1, 11.8% of channel areas moved,
+  by a median of 0.12%, and 90% of those that moved did so by under 1.9%.
+- **Isotope Ratio, % Label Incorporation, % Carbons Labelled.** Change by no
+  more than 0.5%, measured as the change in the percentage shown on the sheet.
+  Your 4.x results stand.
+- **Abundances (nmol) for compounds calibrated against MM files.** Change by
+  under 2.5%, and typically by about 0.1%. Your 4.x results stand.
+- **Abundances for compounds with no MM-file calibration.** Drop by 15 to 35%.
+  5.0 labels these columns **Relative** instead of nmol, because they never
+  were absolute amounts.
+- **Corrected Values.** Drop by roughly 15 to 40%. Do not compare a 4.x
+  Corrected Values sheet with a 5.0 one. Reprocess the older data in 5.0
+  first.
 
 ### What changed and why
 
-Natural isotope correction works out how much of each isotopologue peak is real
-label and how much is the natural ¹³C background. MANIC 4.x, following the
-original MATLAB code, did that calculation correctly and then applied one extra
-step: it divided every channel by a number slightly below one. That extra step
-had no scientific basis. It inflated every corrected value, by more for bigger
-and more heavily derivatised molecules. MANIC 5.0 removes it.
+**Natural isotope correction.** This works out how much of each isotopologue
+peak is real label and how much is the natural ¹³C background. MANIC 4.x,
+following the original MATLAB code, did that calculation correctly and then
+applied one extra step: it divided every channel by a number slightly below
+one. That extra step had no scientific basis. It inflated every corrected
+value, by more for bigger and more heavily derivatised molecules. MANIC 5.0
+removes it.
 
 Because the inflation was almost the same for every channel of a compound
-(within 2%), it cancelled out wherever channels are compared with each other,
-which is what every ratio sheet does. It also cancelled out in calibrated
-abundances, because the response factor (MRRF) is computed from the same
-inflated values and inflates by the same amount. The only place it did not
-cancel is a compound whose response factor could not be computed and was
-assumed to be 1.0. Those abundances carried the full inflation.
+(the channels of one compound differed by at most 3.3%), it cancelled out
+wherever channels are compared with each other, which is what every ratio
+sheet does. It also cancelled out in calibrated abundances, because the
+response factor (MRRF) is computed from the same inflated values and inflates
+by the same amount. The only place it did not cancel is a compound whose
+response factor could not be computed and was assumed to be 1.0. Those
+abundances carried the full inflation.
+
+**Baseline clamp.** When a compound has baseline correction on, MANIC fits a
+straight line under the peak and subtracts the area beneath it. In 4.x, if
+that line dipped below zero, the negative area was subtracted too, which
+added area to the peak. 5.0 subtracts only the part of the line above zero. A
+baseline can therefore only ever reduce a peak. This affects Raw Values and
+everything computed from them.
 
 ### How we checked
 
 Before releasing 5.0 we took two real lab datasets and processed them from
-the raw CDF files twice, once with the 5.0 correction and once with the 4.x
-correction swapped in, then compared every number on every sheet.
+the raw CDF files twice, once with 5.0 and once with the 4.x correction
+swapped in, then compared every number on every sheet.
 
 | Dataset | Compounds | Samples | EICs |
 |---|---|---|---|
 | dataset_1 | 17 | 39 | 663 |
 | dataset_2 | 97 | 35 | 3395 |
 
-First we confirmed the two versions really differ only by that one extra
-division. Across 585 sample and compound pairs, the 4.x number equalled the 5.0
-number divided by the extra factor to ten decimal places
-(relative deviation 3.6e-10), all the way through deconvolution, baseline
-correction and integration. Then we measured how much each exported sheet
-moved:
+First we confirmed the two correction versions really differ only by that one
+extra division. Across 585 sample and compound pairs, the 4.x number equalled
+the 5.0 number divided by the extra factor to ten decimal places (relative
+deviation 3.6e-10), all the way through deconvolution, baseline correction
+and integration. Then we measured how much each exported sheet moved.
 
 | Sheet | dataset_1 (522 pairs) | dataset_2 (2662 pairs) |
 |---|---|---|
 | Corrected Values | median 18.1%, max 26.2% | median 26.4%, max 39.1% |
-| Isotope Ratio | median 0.00 pp, max 0.30 pp | median 0.01 pp, max 0.48 pp |
-| % Label Incorporation | median 0.06 pp, max 0.29 pp | median 0.04 pp, max 0.47 pp |
-| % Carbons Labelled | median 0.02 pp, max 0.16 pp | median 0.02 pp, max 0.47 pp |
+| Isotope Ratio | median 0.00%, max 0.30% | median 0.01%, max 0.48% |
+| % Label Incorporation | median 0.06%, max 0.29% | median 0.04%, max 0.47% |
+| % Carbons Labelled | median 0.02%, max 0.16% | median 0.02%, max 0.47% |
 | Abundances, MRRF from MM files | median 0.07%, max 2.5% | median 0.13%, max 2.1% |
-| Abundances, MRRF assumed 1.0 | none in this dataset | median 31%, max 34% (4 compounds) |
+| Abundances, MRRF assumed 1.0 | none in this dataset | 15% to 34% (4 compounds) |
 
-pp means percentage points, so an isotope ratio of 0.400 moving to 0.403 is
-0.3 pp. Medians are typical values; maxima are the worst case we found.
+Corrected Values and Abundances are relative changes. For the three ratio
+sheets the figure is the change in the percentage the sheet reports, so an
+Isotope Ratio of 40.0% becoming 40.3% counts as 0.3%. Medians are typical
+values; maxima are the worst case found. The assumed-MRRF row rests on four
+compounds in one dataset, so treat its range as indicative.
 
-The size of the old inflation depends on how big and how derivatised the
-molecule is, not on how many positions can carry label. Across 111 labelled
-compounds it correlated +0.65 with total atom count and −0.23 with labelled
-atoms. Glycine (2 labelled carbons) was inflated 1.44×; Picolinate (6 labelled
-carbons) only 1.19×.
+The baseline clamp was measured on dataset_1 alone. 1325 of 11271 channel
+areas changed (11.8%), by a median of 0.12%; 90% of the changed areas moved
+by under 1.87%. A few areas changed by 100%, where the old negative baseline
+had been the whole of the reported area.
+
+The size of the old correction inflation depends on how big and how
+derivatised the molecule is, not on how many positions can carry label.
+Across 111 labelled compounds it correlated +0.65 with total atom count and
+−0.23 with labelled atoms. Glycine (2 labelled carbons) was inflated 1.44×;
+Picolinate (6 labelled carbons) only 1.19×.
 
 Every exported changelog records the MANIC version that produced it, so you
-can always tell which correction a workbook used. The mathematics is in
-**[Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)**.
+can always tell which processing a workbook used. The mathematics is in
+**[Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)**
+and **[Baseline Correction](docs/Reference_Baseline_Correction.md)**.
 
 ---
 

@@ -102,7 +102,14 @@ def write(
             valid_mm_count = 0
 
             for mm_sample in mm_samples:
-                mm_data = provider.get_sample_corrected_data(mm_sample).get(name, [0.0])
+                mm_map = provider.get_sample_corrected_data(mm_sample)
+                if name not in mm_map:
+                    if label_atoms == 0:
+                        mm_data = [0.0]
+                    else:
+                        continue
+                else:
+                    mm_data = mm_map[name]
                 enrichment = calculate_enrichment(mm_data, label_atoms)
 
                 if sum(mm_data) > 0:
@@ -180,23 +187,27 @@ def write(
                 compound_name = compound_row["compound_name"]
                 label_atoms = int(compound_row["label_atoms"] or 0)
 
-            isotopologue_data = sample_data.get(compound_name, [0.0])
+            fmt = None
+            if validation_data and sample_name in validation_data:
+                fmt = verdict_formats[
+                    validation_data[sample_name].get(compound_name, PeakVerdict.PASS)
+                ]
+            if compound_name not in sample_data:
+                if label_atoms == 0:
+                    isotopologue_data = [0.0]
+                else:
+                    worksheet.write(row, col + 2, None, fmt)
+                    continue
+            else:
+                isotopologue_data = sample_data[compound_name]
 
-            # A. Calculate Absolute Enrichment
             abs_enrichment = calculate_enrichment(isotopologue_data, label_atoms)
 
             # B. Subtract Baseline (Calculation)
             baseline = baseline_enrichment.get(compound_name, 0.0)
             ape_value = abs_enrichment - baseline
 
-            # C. Clamp to 0 (no negative enrichment)
             final_value = max(0.0, ape_value)
-
-            fmt = None
-            if validation_data and sample_name in validation_data:
-                fmt = verdict_formats[
-                    validation_data[sample_name].get(compound_name, PeakVerdict.PASS)
-                ]
             worksheet.write(row, col + 2, final_value, fmt)
 
         if progress_callback and (sample_idx + 1) % 5 == 0:

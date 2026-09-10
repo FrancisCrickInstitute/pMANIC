@@ -43,7 +43,7 @@ def write(
     if provider is None:
         with get_connection() as conn:
             compounds_query = """
-                SELECT compound_name, mass0, retention_time, amount_in_std_mix, int_std_amount, mm_files, baseline_correction
+                SELECT compound_name, mass0, retention_time, amount_in_std_mix, int_std_amount, mm_files, baseline_correction, label_atoms
                 FROM compounds
                 WHERE deleted=0
                 ORDER BY id
@@ -113,8 +113,11 @@ def write(
             )
         else:
             mrrf_values = exporter._calculate_mrrf_values(
-                compounds, exporter.internal_standard_compound
+                compounds,
+                exporter.internal_standard_compound,
+                assumed=assumed_mrrf,
             )
+        exporter.assumed_mrrf = assumed_mrrf
 
     worksheet.write(4, 0, "Units")
     worksheet.write(4, 1, None)
@@ -225,8 +228,19 @@ def write(
 
         for col, compound_row in enumerate(compounds):
             compound_name = compound_row["compound_name"]
-
-            iso_data = sample_data.get(compound_name, [0.0])
+            label_atoms = int(_row_get(compound_row, "label_atoms") or 0)
+            fmt = None
+            if validation_data and sample_name in validation_data:
+                fmt = verdict_formats[
+                    validation_data[sample_name].get(compound_name, PeakVerdict.PASS)
+                ]
+            if compound_name not in sample_data:
+                if label_atoms > 0:
+                    worksheet.write(row, col + 2, None, fmt)
+                    continue
+                iso_data = [0.0]
+            else:
+                iso_data = sample_data[compound_name]
             total_signal = sum(iso_data)
 
             # Determine if we are calculating Absolute (nmol) or Relative abundance
@@ -285,11 +299,6 @@ def write(
                     f"No internal standard: Outputting Peak Area for {compound_name}: {calibrated_abundance:.1f}"
                 )
 
-            fmt = None
-            if validation_data and sample_name in validation_data:
-                fmt = verdict_formats[
-                    validation_data[sample_name].get(compound_name, PeakVerdict.PASS)
-                ]
             worksheet.write(row, col + 2, calibrated_abundance, fmt)
 
         if progress_callback and (sample_idx + 1) % 5 == 0:

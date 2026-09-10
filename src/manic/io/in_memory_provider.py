@@ -62,7 +62,7 @@ class InMemoryDataProvider:
             vec = np.array(areas, dtype=float).reshape(label_atoms + 1, 1)
             try:
                 # Force direct-solve path when numerically suitable to match DB-corrected behavior
-                cm, cond, use_direct = self._corrector._get_cached_correction_matrix(
+                cm, _cond, _use_direct = self._corrector._get_cached_correction_matrix(
                     comp.get('formula') or '',
                     comp.get('label_type') or 'C',
                     label_atoms,
@@ -70,20 +70,8 @@ class InMemoryDataProvider:
                     int(comp.get('meox') or 0),
                     int(comp.get('me') or 0),
                 )
-                if use_direct:
-                    corr2d = self._corrector._correct_vectorized_direct(vec, cm)
-                    corr_vec = corr2d[:, 0]
-                else:
-                    corr = self._corrector.correct_time_series(
-                        vec,
-                        comp.get('formula') or '',
-                        comp.get('label_type') or 'C',
-                        label_atoms,
-                        int(comp.get('tbdms') or 0),
-                        int(comp.get('meox') or 0),
-                        int(comp.get('me') or 0),
-                    )
-                    corr_vec = corr[:, 0]
+                corr2d = self._corrector._correct_vectorized_direct(vec, cm)
+                corr_vec = corr2d[:, 0]
             except NaturalAbundanceCorrectionError as exc:
                 logger.warning("No corrected values for %s in %s: %s", name, sample_name, exc)
                 continue
@@ -133,8 +121,8 @@ class InMemoryDataProvider:
         internal_standard_isotope_index: Optional[int] = None,
         assumed: Optional[set] = None,
     ) -> Dict[str, float]:
-        # Compute MRRF using only in-memory compounds and corrected data (no DB)
-        key = f"mrrf_{len(compounds)}_{internal_standard_compound}"
+        idx = int(internal_standard_isotope_index or 0)
+        key = f"mrrf_{len(compounds)}_{internal_standard_compound}_{idx}"
         if key in self._mrrf_cache:
             if assumed is not None:
                 assumed.update(self._mrrf_assumed.get(key, set()))
@@ -181,7 +169,11 @@ class InMemoryDataProvider:
             internal_std_signals: list[float] = []
             for s in internal_std_mm_samples:
                 sd = self.get_sample_corrected_data(s)
-                sig = float(sum(sd.get(internal_standard_compound, [])))
+                iso_data = sd.get(internal_standard_compound, [0.0])
+                if 0 <= idx < len(iso_data):
+                    sig = float(iso_data[idx])
+                else:
+                    sig = 0.0
                 internal_std_signals.append(sig)
 
             if metabolite_signals and internal_std_signals and internal_std_concentration > 0 and metabolite_std_conc > 0:

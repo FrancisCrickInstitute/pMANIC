@@ -369,7 +369,10 @@ class DataProvider:
             total = max(1, len(tasks))
             use_legacy = self.use_legacy_integration
 
+            cancel_exc = None
+
             def consume(executor, worker) -> None:
+                nonlocal cancel_exc
                 processed = 0
                 for (
                     kind,
@@ -386,8 +389,15 @@ class DataProvider:
                     else:
                         corrected_data[sample_name][compound_name] = areas
                     processed += 1
-                    if progress_callback and processed % 25 == 0:
-                        progress_callback(int(processed / total * 100))
+                    if (
+                        progress_callback
+                        and processed % 25 == 0
+                        and cancel_exc is None
+                    ):
+                        try:
+                            progress_callback(int(processed / total * 100))
+                        except Exception as exc:
+                            cancel_exc = exc
 
             max_workers = min(os.cpu_count() or 1, 8)
             integration_start = time.perf_counter()
@@ -426,6 +436,8 @@ class DataProvider:
             if not ran_with_processes:
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     consume(executor, functools.partial(_run_integration, self, use_legacy))
+            if cancel_exc is not None:
+                raise cancel_exc
             integration_time = time.perf_counter() - integration_start
             fit_cache_after = get_deconvolution_fit_cache_info()
             logger.info(
@@ -436,15 +448,6 @@ class DataProvider:
                 integration_time,
             )
 
-            # For compounds without corrected data, fall back to their raw integrated areas
-            # 
-            # IMPORTANT: This fallback exists for two scenarios:
-            # 1. Unlabeled compounds (label_atoms=0): These legitimately use raw data
-            # 2. Labeled compounds missing corrections: This should NOT happen in normal use
-            #    because export_data() ensures all corrections are applied before export
-            #
-            # If you see warnings about labeled compounds using raw data as fallback,
-            # this indicates the correction application step failed or was bypassed.
             fallback_start = time.perf_counter()
             fallback_count = 0
             labeled_fallback_count = 0
@@ -452,20 +455,16 @@ class DataProvider:
                 corrected_map = corrected_data.setdefault(sample_name, {})
                 for compound_name, areas in compounds_map.items():
                     if compound_name not in corrected_map:
-                        # Use the label map captured during the raw load instead of
-                        # opening a fresh DB connection per compound.
                         is_labeled = compound_labels.get(compound_name, 0) > 0
-
                         if is_labeled:
                             labeled_fallback_count += 1
-                            # Labeled compound without corrected data - this should not happen
-                            # if export was triggered through the UI (which applies corrections first)
-                            logger.warning(
-                                f"Labeled compound '{compound_name}' in sample '{sample_name}' "
-                                f"has no corrected data available. Using raw data as fallback. "
-                                f"This may indicate the correction step was skipped or failed."
+                            logger.error(
+                                "Labeled compound '%s' in sample '%s' "
+                                "has no corrected data available",
+                                compound_name,
+                                sample_name,
                             )
-                        # For both labeled and unlabeled compounds, fall back to raw data
+                            continue
                         corrected_map[compound_name] = areas
                         fallback_count += 1
             fallback_time = time.perf_counter() - fallback_start

@@ -7,11 +7,19 @@ import pytest
 import xlsxwriter
 from openpyxl import load_workbook
 
+from manic.io.data_exporter import DataExporter
+from manic.io.data_provider import DataProvider
 from manic.models import database
+from manic.models.analysis import AnalysisMode
 from manic.processors.calibration import calculate_mrrf_values
 from manic.processors.eic_correction_manager import process_all_corrections
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
-from manic.sheet_generators import corrected_values, isotope_ratios, label_incorporation
+from manic.sheet_generators import (
+    abundances,
+    corrected_values,
+    isotope_ratios,
+    label_incorporation,
+)
 
 
 def _sheet_cell(write_fn, provider, sheet_name, cell):
@@ -240,3 +248,38 @@ def test_process_all_corrections_matches_correct_time_series(empty_db):
         ).fetchone()
     stored = np.frombuffer(zlib.decompress(row["y_axis_corrected"]), dtype=np.float64)
     np.testing.assert_allclose(stored, expected.ravel())
+
+
+def test_export_to_excel_stops_and_leaves_no_file_when_callback_says_stop(
+    empty_db, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        DataProvider,
+        "load_bulk_sample_data",
+        lambda self, progress_callback=None: progress_callback(10) or {},
+    )
+    export_path = tmp_path / "cancelled.xlsx"
+    exporter = DataExporter(AnalysisMode.LABELLED)
+    assert exporter.export_to_excel(str(export_path), lambda _value: False) is False
+    assert not export_path.exists()
+
+
+def test_abundances_units_row_marks_assumed_mrrf_as_relative(empty_db):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, formula, mass0, retention_time, "
+            "label_atoms, amount_in_std_mix, int_std_amount, mm_files) VALUES "
+            "('ISTD', 'C1', 100.0, 5.0, 1, 1.0, 1.0, '*MM*'), "
+            "('NoStandard', 'C1', 300.0, 7.0, 1, 1.0, 1.0, '*Nothing*')"
+        )
+    exporter = DataExporter(AnalysisMode.LABELLED)
+    exporter.set_internal_standard("ISTD")
+    output = BytesIO()
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    abundances.write(workbook, exporter, None, 0, 100)
+    workbook.close()
+    output.seek(0)
+    sheet = load_workbook(output)["Abundances"]
+    units = {sheet.cell(1, col).value: sheet.cell(5, col).value for col in range(3, 5)}
+    assert units == {"ISTD": "nmol", "NoStandard": "Relative"}
+    assert exporter.assumed_mrrf == {"NoStandard"}

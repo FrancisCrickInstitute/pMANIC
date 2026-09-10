@@ -26,6 +26,7 @@ def generate_changelog(
     internal_standard: Optional[str],
     use_legacy_integration: bool,
     analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
+    assumed_mrrf: Optional[set] = None,
 ) -> None:
     """
     Generate a comprehensive changelog file with timestamp detailing the export session.
@@ -106,7 +107,7 @@ def generate_changelog(
 - **Observed RT:** Raw Q-ion apex inside the shared window [tR - lOffset, tR + rOffset], not a fitted-centre time
 - **tR window:** Identity RT check uses the compound tR window. Offsets still set the integration window
 - **Natural Isotope Correction:** Not applied. Q and qualifier ions are diagnostic ions, not isotopologues
-- **Quantitative claim:** Peak Area without an internal standard. With an IS, nmol when Amount in StdMix is set, otherwise Relative. Single-point response factor, not a calibration curve"""
+- **Quantitative claim:** Peak Area without an internal standard. With an IS, nmol when Amount in StdMix is set, otherwise Relative. Compounds whose MRRF could not be computed are labelled Relative. Single-point response factor, not a calibration curve"""
         sheets_description = """1. **Raw Values** - One column per compound, Q-ion area only. `Mass` is the Q m/z. Qualifier-ion areas are on Qualifier QC
 2. **Abundances** - One column per compound, Q-ion response only. Units row is Peak Area, nmol, or Relative
 3. **Qualifier QC** - Q and qualifier raw areas, observed qualifier/Q, expected ratio, fractional tolerance, per-ion PASS / REVIEW / N/A, and an Outcome column (Pass / Partial / Fail / Not detected / No qualifiers) that colours each row. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
@@ -126,7 +127,14 @@ def generate_changelog(
 5. **Abundances** - Absolute metabolite concentrations via internal standard calibration"""
         key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values
 - Natural-isotope correction applied to labelled isotopologue channels
-- Peak-area validation uses the configured internal-standard reference isotopologue"""
+- Peak-area validation uses the configured internal-standard reference isotopologue
+- Compounds whose MRRF could not be computed are labelled Relative"""
+
+    if assumed_mrrf:
+        assumed_names = ", ".join(sorted(assumed_mrrf))
+        processing_description += (
+            f"\n- **Relative (assumed MRRF):** {assumed_names}"
+        )
 
     changelog_content = f"""# MANIC Export Session Changelog
 

@@ -1,4 +1,6 @@
 # In src/manic/utils/workers.py
+import threading
+
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from manic.constants import DEFAULT_MASS_TOLERANCE
@@ -125,15 +127,14 @@ class ExportWorker(QObject):
         self._path = path
         self._use_legacy_integration = use_legacy_integration
         self._include_carbon_enrichment = include_carbon_enrichment
-        self._cancelled = False
+        self._cancel_event = threading.Event()
 
-    @Slot()
     def cancel(self):
-        self._cancelled = True
+        self._cancel_event.set()
 
     def _progress_cb(self, value):
         self.progress.emit(value)
-        return not self._cancelled
+        return not self._cancel_event.is_set()
 
     @Slot()
     def run(self):

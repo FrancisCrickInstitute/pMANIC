@@ -8,9 +8,11 @@ import pytest
 from manic.io.compound_reader import Compound
 from manic.models import database
 from manic.processors.eic_calculator import EIC
+from manic.io.data_provider import DataProvider
 from manic.processors.eic_correction_manager import (
     _process_compound_batch_corrections,
     compute_corrected_intensity,
+    ensure_corrections_for_export,
 )
 from manic.processors.natural_abundance_correction import (
     NaturalAbundanceCorrectionError,
@@ -102,6 +104,73 @@ def test_batch_correction_skips_channel_shortfall_and_writes_valid_row(review_db
     stored = np.frombuffer(zlib.decompress(valid_corrected["y_axis_corrected"]), dtype=np.float64)
     assert stored.size == 10
     assert np.any(stored != np.arange(1, 11, dtype=np.float64))
+
+
+def test_ensure_corrections_for_export_raises_naming_uncorrectable(review_db):
+    with database.get_connection() as conn:
+        _insert_labelled_eic(
+            conn,
+            sample="S1",
+            compound="Short",
+            formula="C3H6O3",
+            label_atoms=3,
+            channels=2,
+        )
+        _insert_labelled_eic(
+            conn,
+            sample="S1",
+            compound="Valid",
+            formula="C1",
+            label_atoms=1,
+            channels=2,
+        )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "Natural abundance correction failed for: Short. "
+            "Fix the formula or label_atoms for these compounds, "
+            "or delete them, then export again."
+        ),
+    ):
+        ensure_corrections_for_export()
+
+
+def test_load_bulk_omits_labelled_without_corrected_keeps_unlabelled_raw(
+    review_db,
+):
+    time = np.linspace(0.0, 1.0, 5)
+    with database.get_connection() as conn:
+        conn.execute("INSERT INTO samples (sample_name) VALUES ('S1')")
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms, formula, label_type, deconvolution_level) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("Labeled", 1.0, 0.2, 0.2, 100.0, 1, "C1", "C", "off"),
+        )
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms, formula, label_type, deconvolution_level) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("Unlabeled", 1.0, 0.2, 0.2, 200.0, 0, "C1", "C", "off"),
+        )
+        conn.execute(
+            "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis) "
+            "VALUES (?, ?, ?, ?)",
+            ("S1", "Labeled", _blob(time), _blob(np.arange(1, 11, dtype=np.float64))),
+        )
+        conn.execute(
+            "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis) "
+            "VALUES (?, ?, ?, ?)",
+            ("S1", "Unlabeled", _blob(time), _blob(np.arange(1, 6, dtype=np.float64))),
+        )
+
+    provider = DataProvider()
+    corrected = provider.load_bulk_sample_data()
+    raw = provider.get_sample_raw_data("S1")
+    assert "Labeled" not in corrected["S1"]
+    assert "Unlabeled" in corrected["S1"]
+    assert corrected["S1"]["Unlabeled"] == raw["Unlabeled"]
 
 
 def test_ravelled_eic_matches_reshaped_time_series():

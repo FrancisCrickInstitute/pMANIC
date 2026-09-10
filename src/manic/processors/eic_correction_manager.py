@@ -409,29 +409,38 @@ def has_correction(sample_name: str, compound_name: str) -> bool:
         return row["count"] > 0 if row else False
 
 
-def ensure_corrections_for_export() -> None:
+_MISSING_CORRECTIONS_SQL = """
+    SELECT DISTINCT c.compound_name
+    FROM eic e
+    JOIN compounds c ON e.compound_name = c.compound_name
+    LEFT JOIN eic_corrected ec
+       ON ec.sample_name = e.sample_name
+      AND ec.compound_name = e.compound_name
+      AND ec.deleted = 0
+    WHERE e.deleted = 0
+      AND c.deleted = 0
+      AND c.label_atoms > 0
+      AND ec.id IS NULL
+    ORDER BY c.compound_name
+"""
+
+
+def compounds_missing_corrections() -> list[str]:
     with get_connection() as conn:
-        missing_corrections_count = conn.execute("""
-            SELECT COUNT(*)
-            FROM eic e
-            JOIN compounds c ON e.compound_name = c.compound_name
-            LEFT JOIN eic_corrected ec
-               ON ec.sample_name = e.sample_name
-              AND ec.compound_name = e.compound_name
-              AND ec.deleted = 0
-            WHERE e.deleted = 0
-              AND c.deleted = 0
-              AND c.label_atoms > 0
-              AND ec.id IS NULL
-        """).fetchone()[0]
+        return [row[0] for row in conn.execute(_MISSING_CORRECTIONS_SQL)]
 
-    if missing_corrections_count <= 0:
-        logger.debug("All required natural isotope corrections already applied")
+
+def ensure_corrections_for_export() -> None:
+    missing = compounds_missing_corrections()
+    if not missing:
         return
-
-    logger.info(
-        "Export requires natural isotope corrections. "
-        f"Applying corrections for {missing_corrections_count} labeled compounds..."
-    )
+    logger.info("Applying natural isotope corrections for %d compounds", len(missing))
     process_all_corrections(progress_cb=None)
-    logger.info("Successfully applied natural isotope corrections for export")
+    still_missing = compounds_missing_corrections()
+    if still_missing:
+        raise RuntimeError(
+            "Natural abundance correction failed for: "
+            + ", ".join(still_missing)
+            + ". Fix the formula or label_atoms for these compounds, "
+            "or delete them, then export again."
+        )

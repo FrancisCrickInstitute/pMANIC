@@ -155,7 +155,10 @@ class MainWindow(QMainWindow):
         self._update_worker = None
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
+        self._thread = None
         self._export_thread = None
+        self._export_worker = None
+        self._export_progress_dialog = None
         self._skip_close_guard = False
         self._recent_compounds = RecentFiles("compound_lists")
         self._recent_cdf = RecentFiles("cdf_folders")
@@ -708,15 +711,30 @@ class MainWindow(QMainWindow):
         if self._skip_close_guard:
             event.accept()
             return
-        if self._running_background_thread() is not None:
+        running = self._running_background_thread()
+        if running is not None:
+            if running == "_export_thread":
+                quit_text = (
+                    "An export is still running. Quitting now cancels the export."
+                )
+            else:
+                quit_text = (
+                    "An import or reload is still running. Quitting now leaves "
+                    "the database partly written."
+                )
             reply = self._show_question_dialog(
                 "Quit MANIC?",
-                "An import or reload is still running. Quitting now leaves the database partly written.",
+                quit_text,
                 default_button=QMessageBox.No,
             )
             if reply != QMessageBox.Yes:
                 event.ignore()
                 return
+            if running == "_export_thread":
+                if self._export_worker is not None:
+                    self._export_worker.cancel()
+                if self._export_thread is not None:
+                    self._export_thread.wait()
         elif self.compound_data_loaded or self.cdf_data_loaded:
             reply = self._show_question_dialog(
                 "Quit MANIC?",
@@ -738,6 +756,7 @@ class MainWindow(QMainWindow):
             action.triggered.connect(
                 lambda _checked=False, p=path: self._load_compound_list_from(p)
             )
+            action.setEnabled(self.load_compound_action.isEnabled())
             self.open_recent_menu.addAction(action)
         self.open_recent_menu.addSeparator()
         for path in folders:
@@ -746,6 +765,7 @@ class MainWindow(QMainWindow):
             action.triggered.connect(
                 lambda _checked=False, p=path: self._load_cdf_folder(p)
             )
+            action.setEnabled(self.load_cdf_action.isEnabled())
             self.open_recent_menu.addAction(action)
         self.open_recent_menu.addSeparator()
         clear_action = QAction("Clear Recent", self)
@@ -776,6 +796,8 @@ class MainWindow(QMainWindow):
         self._load_compound_list_from(file_path)
 
     def _load_compound_list_from(self, path: str) -> None:
+        if not self.load_compound_action.isEnabled():
+            return
         detected_mode = detect_compound_list_format(path)
         if detected_mode is not None and detected_mode is not self.analysis_mode:
             msg_box = self._create_message_box(
@@ -874,6 +896,8 @@ class MainWindow(QMainWindow):
         self._load_cdf_folder(directory)
 
     def _load_cdf_folder(self, path: str):
+        if not self.load_cdf_action.isEnabled():
+            return
         self._recent_cdf.add(path)
         self.open_recent_menu.setEnabled(True)
 
@@ -2712,6 +2736,7 @@ class MainWindow(QMainWindow):
             self._export_worker.finished.connect(self._export_thread.quit)
             self._export_worker.failed.connect(self._export_thread.quit)
             self._export_thread.started.connect(self._export_worker.run)
+            self._export_thread.finished.connect(self._clear_export_thread)
             self._export_thread.finished.connect(self._export_thread.deleteLater)
 
             progress_dialog.show()
@@ -2727,14 +2752,18 @@ class MainWindow(QMainWindow):
             )
             msg_box.exec()
 
-    def _export_finished(self, success: bool):
+    def _clear_export_thread(self):
         self._export_thread = None
-        progress_dialog = getattr(self, "_export_progress_dialog", None)
-        if progress_dialog is not None:
-            progress_dialog.close()
+
+    def _close_export_dialog(self):
+        if self._export_progress_dialog is not None:
+            self._export_progress_dialog.close()
             self._export_progress_dialog = None
-        file_path = getattr(self, "_export_path", "")
-        include_carbon_enrichment = getattr(self, "_export_include_carbon", False)
+
+    def _export_finished(self, success: bool):
+        self._close_export_dialog()
+        file_path = self._export_path
+        include_carbon_enrichment = self._export_include_carbon
         if success:
             if self.analysis_mode is AnalysisMode.UNLABELLED:
                 sheet_list = [
@@ -2769,20 +2798,16 @@ class MainWindow(QMainWindow):
             logger.info(f"Data exported successfully to {file_path}")
         else:
             msg_box = self._create_message_box(
-                "critical",
-                "Export Failed",
-                "Data export was cancelled or failed. Check logs for details.",
+                "information",
+                "Export Cancelled",
+                "Data export was cancelled.",
             )
             msg_box.exec()
-            logger.warning("Data export was cancelled or failed")
+            logger.info("Data export was cancelled")
         self._update_menu_states()
 
     def _export_failed(self, message: str):
-        self._export_thread = None
-        progress_dialog = getattr(self, "_export_progress_dialog", None)
-        if progress_dialog is not None:
-            progress_dialog.close()
-            self._export_progress_dialog = None
+        self._close_export_dialog()
         logger.error(f"Data export error: {message}")
         msg_box = self._create_message_box(
             "critical",

@@ -411,7 +411,8 @@ QDialog QLabel {
     padding: 10px;
 }
 
-QDialog#settingsWindow QLabel {
+QDialog#settingsWindow QLabel,
+QDialog#postLoadChecklistDialog QLabel {
     padding: 0px;
 }
 
@@ -481,7 +482,8 @@ QListWidget#documentationPageList::item:selected {
     color: #212529;
 }
 
-QDialog#settingsWindow QTableWidget {
+QDialog#settingsWindow QTableWidget,
+QDialog#postLoadChecklistDialog QTableWidget {
     background: white;
     border: 1px solid #dee2e6;
     border-radius: 4px;
@@ -493,7 +495,13 @@ QDialog#settingsWindow QTableWidget::item {
     padding: 4px;
 }
 
-QDialog#settingsWindow QHeaderView::section {
+QDialog#postLoadChecklistDialog QTableWidget::item {
+    color: #212529;
+    padding: 4px;
+}
+
+QDialog#settingsWindow QHeaderView::section,
+QDialog#postLoadChecklistDialog QHeaderView::section {
     background: #f8f9fa;
     border: none;
     border-bottom: 1px solid #dee2e6;

@@ -182,6 +182,8 @@ MANIC still imports a list that omits ratios, tolerances or the second qualifier
 | `Int Std amount` | | Amount of internal standard added to samples |
 | `MM Files` | | Pattern matching standard-mixture sample names (wildcards allowed, e.g. `*_MM_*`) |
 
+After you load CDF files, the **Check your data setup** dialog lists each compound's `MM Files` pattern and how many sample files it matched. A pattern that matches no files will produce empty calibration data at export. Run the same check later from **MANIC ▸ Check Data Setup...**.
+
 ### Minimal example
 
 ```csv

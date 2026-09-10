@@ -47,8 +47,13 @@ from manic.io.data_exporter import DataExporter, validate_internal_standard_meta
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
-from manic.io.compound_reader import read_compound, read_compound_with_session
+from manic.io.compound_reader import (
+    list_compound_mm_files,
+    read_compound,
+    read_compound_with_session,
+)
 from manic.models.analysis import AnalysisContext, AnalysisMode, IonChannel, IonRole
+from manic.models.mm_file_check import build_mm_file_report
 from manic.models.session_export import (
     InternalStandardRestore,
     InternalStandardRestoreKind,
@@ -75,10 +80,12 @@ from manic.validation.peak_verdict import PeakVerdict
 from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
+from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
 from manic.ui.settings_window import SettingsWindow
 from manic.ui.toast_notification import ToastNotification
+from manic.ui.window_placement import show_over_parent
 from manic.ui.total_abundance_widget import abundances_from_provider
-from manic.utils.paths import resource_path
+from manic.utils.paths import docs_path, resource_path
 from manic.utils.workers import (
     CdfImportWorker,
     EicRegenerationWorker,
@@ -141,6 +148,7 @@ class MainWindow(QMainWindow):
         self.preview_nat_abundance = False
         self.settings_window = None
         self.documentation_window = None
+        self._post_load_checklist = None
         self._update_worker = None
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
@@ -351,6 +359,11 @@ class MainWindow(QMainWindow):
         self.documentation_action.triggered.connect(self.open_documentation_window)
         manic_menu.addAction(self.documentation_action)
 
+        self.check_setup_action = QAction("Check Data Setup...", self)
+        self.check_setup_action.setMenuRole(QAction.NoRole)
+        self.check_setup_action.triggered.connect(self.show_post_load_checklist)
+        manic_menu.addAction(self.check_setup_action)
+
         self.check_updates_action = QAction("Check for Updates...", self)
         self.check_updates_action.setMenuRole(QAction.NoRole)
         self.check_updates_action.triggered.connect(self._check_for_updates)
@@ -487,6 +500,10 @@ class MainWindow(QMainWindow):
 
         # Export Data: enabled only if compound data, CDF data loaded
         self.export_data_action.setEnabled(
+            self.compound_data_loaded and self.cdf_data_loaded
+        )
+
+        self.check_setup_action.setEnabled(
             self.compound_data_loaded and self.cdf_data_loaded
         )
 
@@ -809,6 +826,7 @@ class MainWindow(QMainWindow):
         # Update state and menu
         self.cdf_data_loaded = True
         self._update_menu_states()
+        self.show_post_load_checklist()
 
     def _import_fail(self, msg: str):
         self.progress_dialog.close()
@@ -1947,6 +1965,47 @@ class MainWindow(QMainWindow):
         if self.documentation_window is None:
             self.documentation_window = DocumentationViewer(self)
         self.documentation_window.open()
+
+    def show_post_load_checklist(self) -> None:
+        rows = list_compound_mm_files()
+        compound_names = [name for name, _pattern in rows]
+        report = build_mm_file_report(rows, DataProvider().resolve_mm_samples)
+        if self._post_load_checklist is not None:
+            self._post_load_checklist.close()
+        dialog = PostLoadChecklistDialog(
+            compound_names,
+            self.toolbar.get_internal_standard(),
+            report,
+            self,
+        )
+        dialog.open_user_guide_requested.connect(self._open_checklist_guide)
+        dialog.accepted.connect(self._apply_checklist)
+        self._post_load_checklist = dialog
+        dialog.open()
+        show_over_parent(dialog)
+
+    def _apply_checklist(self) -> None:
+        dialog = self._post_load_checklist
+        if dialog is None:
+            return
+        chosen = dialog.selected_internal_standard()
+        if chosen == self.toolbar.get_internal_standard():
+            return
+        if chosen is None:
+            self.toolbar.on_internal_standard_cleared()
+        else:
+            self.toolbar.on_internal_standard_selected(chosen)
+
+    def _open_checklist_guide(self) -> None:
+        if self.documentation_window is None:
+            self.documentation_window = DocumentationViewer(self)
+        if self.analysis_mode is AnalysisMode.LABELLED:
+            path = Path(docs_path("01_user_guide.md"))
+            fragment = "step-3-configure-internal-standard"
+        else:
+            path = Path(docs_path("Unlabelled_Targeted_Analysis.md"))
+            fragment = "additional-columns"
+        self.documentation_window.open_at(path, fragment)
 
     def selected_compound_name(self) -> str | None:
         name = self.toolbar.get_selected_compound()

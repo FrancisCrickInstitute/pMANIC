@@ -484,11 +484,13 @@ def test_manic_menu_holds_settings_docs_updates_and_about(labelled_window):
     assert [a.text() for a in actions] == [
         "Settings...",
         "Documentation",
+        "Check Data Setup...",
         "Check for Updates...",
         "About MANIC...",
     ]
     assert [a.menuRole() for a in actions] == [
         QAction.PreferencesRole,
+        QAction.NoRole,
         QAction.NoRole,
         QAction.NoRole,
         QAction.AboutRole,

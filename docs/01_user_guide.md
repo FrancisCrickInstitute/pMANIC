@@ -84,6 +84,8 @@ Upon completion, verify the data loaded correctly:
 * The **Samples** list widget (left sidebar) will populate with the filenames of your imported samples.
 * Selecting a sample and a compound will display the chromatogram in the main view.
 
+After the import finishes, MANIC opens a **Check your data setup** dialog. The dialog shows whether an internal standard is set. Weak peaks are flagged red only when one is. It also shows whether each compound's `mmfiles` pattern matches any loaded sample. Click **Apply** to keep the internal standard chosen in the dialog. Click **Skip** to leave the current selection unchanged. You can run the same check later from **MANIC ▸ Check Data Setup...**. On macOS that command lives under **Help**.
+
 ---
 
 ## Step 3: Configure Internal Standard
@@ -101,7 +103,7 @@ The selected compound must meet specific criteria in your compound definition fi
 **Procedure**   
 1.  Locate the **Compounds** list widget in the left sidebar.
 2.  **Right-click** on the name of your internal standard compound.
-3.  Select **"Set as Internal Standard"** from the context menu.
+3.  Select **"Select as Internal Standard"** from the context menu.
 4.  To remove a selection, right-click anywhere in the list and select **"Clear Internal Standard"**.
 
 **Verification** * **Standard Selected:** The `Int Std` pill turns **green** and shows the compound name.

@@ -129,7 +129,7 @@ def generate_changelog(
 - Natural-isotope correction applied to labelled isotopologue channels
 - Peak-area validation uses the configured internal-standard reference isotopologue
 - Compounds whose MRRF could not be computed are labelled Relative
-- **Corrected Values differ from MANIC 4.x exports.** Correction is now a single solve of A x = b. Versions up to 4.x also divided the solution by the diagonal of A, inflating Corrected Values by roughly 15 to 40%. Isotope Ratio, % Label Incorporation and % Carbons Labelled change by no more than 0.5%, and MM-calibrated Abundances by under 2.5%. Abundances with an assumed MRRF fall by 15 to 35% and are labelled Relative. Fitted baselines are clamped at zero, so Raw Values can differ slightly from 4.x. Reprocess older data with this version before comparing Corrected Values"""
+- **Corrected Values differ from MANIC 4.x exports.** Correction is now a single solve of A x = b. Versions up to 4.x also divided the solution by the diagonal of A, inflating Corrected Values by roughly 15 to 40%. Isotope Ratio, % Label Incorporation and % Carbons Labelled move by less than half a percentage point (largest found: 45.30% to 45.78%), and MM-calibrated Abundances by under 2.5%. Abundances with an assumed MRRF fall by 15 to 35% and are labelled Relative. Fitted baselines are clamped at zero, so Raw Values can differ slightly from 4.x. Reprocess older data with this version before comparing Corrected Values"""
 
     if assumed_mrrf:
         assumed_names = ", ".join(sorted(assumed_mrrf))

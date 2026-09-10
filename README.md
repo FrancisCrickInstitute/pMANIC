@@ -35,7 +35,7 @@ export sheets, and scientific rationale) is in
 
 ## Upgrading to MANIC 5
 
-> **⚠️ The Corrected Values sheet changes in 5.0. Ratios, label incorporation and calibrated amounts move by no more than 0.5%.**
+> **⚠️ The Corrected Values sheet changes in 5.0. Ratio sheets move by less than half a percentage point; the largest change we found was 45.3% → 45.8%. Calibrated nmol amounts move by under 2.5%.**
 
 Two processing changes in 5.0 alter exported numbers. Both are measured below
 on two real lab datasets.
@@ -45,9 +45,9 @@ on two real lab datasets.
 - **Raw Values.** Unchanged by the correction fix. Changed slightly by the
   baseline clamp (next section). On dataset_1, 11.8% of channel areas moved,
   by a median of 0.12%, and 90% of those that moved did so by under 1.9%.
-- **Isotope Ratio, % Label Incorporation, % Carbons Labelled.** Change by no
-  more than 0.5%, measured as the change in the percentage shown on the sheet.
-  Your 4.x results stand.
+- **Isotope Ratio, % Label Incorporation, % Carbons Labelled.** Move by less
+  than half a percentage point. The largest change found anywhere was an
+  Isotope Ratio of 45.30% becoming 45.78%. Your 4.x results stand.
 - **Abundances (nmol) for compounds calibrated against MM files.** Change by
   under 2.5%, and typically by about 0.1%. Your 4.x results stand.
 - **Abundances for compounds with no MM-file calibration.** Drop by 15 to 35%.
@@ -100,20 +100,27 @@ the 5.0 number divided by the extra factor to ten decimal places (relative
 deviation 3.6e-10), all the way through deconvolution, baseline correction
 and integration. Then we measured how much each exported sheet moved.
 
+**Sheets that report amounts.** Change relative to the 4.x value.
+
 | Sheet | dataset_1 (522 pairs) | dataset_2 (2662 pairs) |
 |---|---|---|
 | Corrected Values | median 18.1%, max 26.2% | median 26.4%, max 39.1% |
-| Isotope Ratio | median 0.00%, max 0.30% | median 0.01%, max 0.48% |
-| % Label Incorporation | median 0.06%, max 0.29% | median 0.04%, max 0.47% |
-| % Carbons Labelled | median 0.02%, max 0.16% | median 0.02%, max 0.47% |
 | Abundances, MRRF from MM files | median 0.07%, max 2.5% | median 0.13%, max 2.1% |
 | Abundances, MRRF assumed 1.0 | none in this dataset | 15% to 34% (4 compounds) |
 
-Corrected Values and Abundances are relative changes. For the three ratio
-sheets the figure is the change in the percentage the sheet reports, so an
-Isotope Ratio of 40.0% becoming 40.3% counts as 0.3%. Medians are typical
-values; maxima are the worst case found. The assumed-MRRF row rests on four
-compounds in one dataset, so treat its range as indicative.
+Medians are typical values; maxima are the worst case found. The assumed-MRRF
+row rests on four compounds in one dataset, so treat its range as indicative.
+
+**Sheets that report percentages.** The largest single change we found, shown
+as the 4.x value becoming the 5.0 value.
+
+| Sheet | dataset_1 | dataset_2 |
+|---|---|---|
+| Isotope Ratio | 84.20% → 83.90% | 45.30% → 45.78% |
+| % Label Incorporation | 15.80% → 16.10% | 44.15% → 44.62% |
+| % Carbons Labelled | 43.84% → 44.06% | 42.34% → 42.82% |
+
+Every other value on these three sheets moved less than the worst case shown.
 
 The baseline clamp was measured on dataset_1 alone. 1325 of 11271 channel
 areas changed (11.8%), by a median of 0.12%; 90% of the changed areas moved

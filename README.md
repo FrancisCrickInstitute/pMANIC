@@ -10,7 +10,8 @@ Built with Python and PySide6, it serves as a successor to the legacy MATLAB [MA
 
 If MANIC is useful in your lab, star the
 [FrancisCrickInstitute/pMANIC](https://github.com/FrancisCrickInstitute/pMANIC)
-repository on GitHub. Stars show other groups that the tool is used.
+repository on GitHub. Stars are a public metric of usefulness and help
+justify the resources needed for further development.
 
 ## Analysis modes
 

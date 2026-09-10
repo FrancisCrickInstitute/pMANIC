@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterable
 from typing import List
 
@@ -26,6 +27,8 @@ from .sample_list_widget import SampleListWidget
 from .standard_indicator_widget import CompoundIndicator, StandardIndicator
 from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
+
+logger = logging.getLogger(__name__)
 
 
 def _deconvolution_on(compound_name: str) -> bool:
@@ -483,7 +486,7 @@ class Toolbar(QWidget):
             self.baseline_correction_changed.emit(compound_name, enabled)
 
         except Exception as e:
-            print(f"Failed to update baseline setting: {e}")
+            logger.exception("Failed to update baseline setting: %s", e)
             self._set_baseline_checkbox_from_compound(compound_name)
 
     def on_internal_standard_cleared(self):

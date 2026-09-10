@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QRubberBand,
     QSizePolicy,
     QVBoxLayout,
@@ -782,10 +783,7 @@ class GraphView(QWidget):
             logger.error(
                 f"Failed to show detailed view for {compound_name}/{sample_name}: {e}"
             )
-            # Show error message to user
-            error_msg = QLabel(f"Error opening detailed view: {str(e)}")
-            error_msg.setStyleSheet("color: red; padding: 10px;")
-            error_msg.show()
+            QMessageBox.warning(self, "Detailed view", str(e))
 
     def get_selected_samples(self) -> List[str]:
         """Get list of currently selected sample names"""

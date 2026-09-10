@@ -121,7 +121,7 @@ def generate_changelog(
 - **Internal Standard Handling:** Raw values copied directly for label_atoms = 0"""
         sheets_description = f"""1. **Raw Values** - Direct instrument signals (uncorrected peak areas using {"legacy unit-spacing" if use_legacy_integration else "time-based"} integration)
 2. **Corrected Values** - Natural isotope abundance corrected signals
-3. **Isotope Ratios** - Normalized corrected values (fractions sum to 1.0)
+3. **Isotope Ratio** - Normalized corrected values (fractions sum to 1.0)
 4. **% Label Incorporation** - Percentage of experimental label incorporation
 5. **Abundances** - Absolute metabolite concentrations via internal standard calibration"""
         key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values

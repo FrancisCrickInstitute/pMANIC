@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 import numpy as np
@@ -16,6 +17,8 @@ from PySide6.QtGui import QColor, QFont, QPainter, QMouseEvent
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from manic.io.eic_reader import EIC
+
+logger = logging.getLogger(__name__)
 
 
 def abundances_from_provider(provider, compound_name: str, sample_names: list[str]) -> np.ndarray:
@@ -274,4 +277,4 @@ class TotalAbundanceWidget(QWidget):
             dialog.exec()
             
         except Exception as e:
-            print(f"Failed to show popup chart: {e}")
+            logger.exception("Failed to show popup chart: %s", e)

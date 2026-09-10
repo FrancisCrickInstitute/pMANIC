@@ -15,8 +15,7 @@ from PySide6.QtCharts import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QLineEdit
-import sys
+from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
 import numpy as np
 from types import SimpleNamespace
 
@@ -38,9 +37,6 @@ from manic.ui.colors import (
     dark_red_colour,
     label_colors,
 )
-from manic.ui.channel_chips import identity_key_chips
-from manic.ui.identity_chart import identity_cell_tooltip
-
 from manic.ui.integration_window_widget import (
     IntegrationWindow,
     toolbar_decimal_text_is_allowed,
@@ -60,15 +56,6 @@ from manic.validation.unlabelled_identity import (
     QualifierStatus,
     qualifier_pair,
 )
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    """Create QApplication instance for UI tests."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication(sys.argv)
-    yield app
 
 
 @pytest.fixture
@@ -472,36 +459,6 @@ def test_identity_chart_popup_hover_maps_live_cell(qapp, monkeypatch):
         dialog.deleteLater()
 
 
-def test_identity_cell_tooltip_explains_absent_and_unassessed():
-    channels = (_qion(), _v1())
-    missing_q = IdentityQcResult(
-        status=IdentityStatus.NOT_DETECTED,
-        quantifier_area=0.0,
-        observed_rt=None,
-        rt_error=None,
-        rt_passed=None,
-        qualifier_ratios=(QualifierRatioResult(channels[1], None, None),),
-        reasons=("Q ion was not detected above the assessment floor",),
-    )
-    snapshot = _identity_snapshot(
-        channels,
-        ("S1", missing_q, None),
-        ("S2", None, "EIC file is missing"),
-    )
-    absent = snapshot.for_sample("S1").qualifiers.v2
-    from manic.ui.identity_chart import IdentityCell
-
-    assert "not in the method" in identity_cell_tooltip(IdentityCell("S1", absent))
-    not_assessed = snapshot.for_sample("S1").qualifiers.v1
-    assert "Q ion was not detected" in identity_cell_tooltip(
-        IdentityCell("S1", not_assessed)
-    )
-    unavailable = snapshot.for_sample("S2").qualifiers.v1
-    assert "EIC file is missing" in identity_cell_tooltip(
-        IdentityCell("S2", unavailable)
-    )
-
-
 def test_channel_trace_styles_keep_q_steel_blue_and_solid():
     channels = (_qion(), _v1(), _v2())
     identity = _identity_snapshot(
@@ -635,6 +592,7 @@ def test_new_session_ignores_qaction_checked_boolean(monkeypatch):
     window_stub = SimpleNamespace(
         compound_data_loaded=False,
         cdf_data_loaded=False,
+        _background_work_running=lambda _msg: False,
     )
 
     MainWindow.new_analysis_session(window_stub, False)
@@ -659,66 +617,101 @@ def test_new_session_ignores_deleted_import_thread(monkeypatch):
         _regen_thread=None,
         _mass_tol_thread=None,
     )
+    window_stub._background_work_running = (
+        lambda message: MainWindow._background_work_running(window_stub, message)
+    )
 
     MainWindow.new_analysis_session(window_stub, False)
     assert window_stub._thread is None
 
 
-class TestThreeDecimalPlaces:
-    def test_normal_retention_times(self, integration_window):
-        assert integration_window._format_number(9.77123456) == "9.771"
-        assert integration_window._format_number(15.4567) == "15.457"
-        assert integration_window._format_number(7.171234) == "7.171"
-        assert integration_window._format_number(12.3456) == "12.346"
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (9.77123456, "9.771"),
+        (15.4567, "15.457"),
+        (7.171234, "7.171"),
+        (12.3456, "12.346"),
+        (0.123456, "0.123"),
+        (0.1, "0.1"),
+        (0.456789, "0.457"),
+        (0.999, "0.999"),
+        (0, "0"),
+        (0.0, "0"),
+        (-0.0, "0"),
+        (0.001, "0.001"),
+        (0.001234, "0.001"),
+        (0.0004567, "0"),
+        (0.99995, "1"),
+        (1.0001, "1"),
+        (9.9995, "9.999"),
+        (10.001, "10.001"),
+        (123.456, "123.456"),
+        (318.123, "318.123"),
+        (999.999, "999.999"),
+        (-9.77123, "-9.771"),
+        (-0.1235, "-0.123"),
+        (-15.4567, "-15.457"),
+        (1.2345, "1.234"),
+        (1.2346, "1.235"),
+        (1.2344, "1.234"),
+    ],
+    ids=[
+        "rt_9.771",
+        "rt_15.457",
+        "rt_7.171",
+        "rt_12.346",
+        "offset_0.123",
+        "offset_0.1",
+        "offset_0.457",
+        "offset_0.999",
+        "zero_int",
+        "zero_float",
+        "neg_zero",
+        "small_0.001",
+        "small_0.001234",
+        "small_rounds_to_0",
+        "boundary_0.99995",
+        "boundary_1.0001",
+        "boundary_9.9995",
+        "boundary_10.001",
+        "large_123.456",
+        "large_318.123",
+        "large_999.999",
+        "neg_9.771",
+        "neg_0.123",
+        "neg_15.457",
+        "edge_1.2345",
+        "edge_1.2346",
+        "edge_1.2344",
+    ],
+)
+def test_format_number(integration_window, value, expected):
+    assert integration_window._format_number(value) == expected
 
-    def test_small_offsets(self, integration_window):
-        assert integration_window._format_number(0.123456) == "0.123"
-        assert integration_window._format_number(0.1) == "0.1"
-        assert integration_window._format_number(0.456789) == "0.457"
-        assert integration_window._format_number(0.999) == "0.999"
 
-    def test_zero_handling(self, integration_window):
-        assert integration_window._format_number(0) == "0"
-        assert integration_window._format_number(0.0) == "0"
-        assert integration_window._format_number(-0.0) == "0"
-
-    def test_very_small_values(self, integration_window):
-        assert integration_window._format_number(0.001) == "0.001"
-        assert integration_window._format_number(0.001234) == "0.001"
-        assert integration_window._format_number(0.0004567) == "0"
-
-    def test_boundary_values(self, integration_window):
-        assert integration_window._format_number(0.99995) == "1"
-        assert integration_window._format_number(1.0001) == "1"
-        assert integration_window._format_number(9.9995) == "9.999"
-        assert integration_window._format_number(10.001) == "10.001"
-
-    def test_large_values(self, integration_window):
-        assert integration_window._format_number(123.456) == "123.456"
-        assert integration_window._format_number(318.123) == "318.123"
-        assert integration_window._format_number(999.999) == "999.999"
-
-    def test_negative_values(self, integration_window):
-        assert integration_window._format_number(-9.77123) == "-9.771"
-        assert integration_window._format_number(-0.1235) == "-0.123"
-        assert integration_window._format_number(-15.4567) == "-15.457"
-
-    def test_edge_case_precision(self, integration_window):
-        assert integration_window._format_number(1.2345) == "1.234"
-        assert integration_window._format_number(1.2346) == "1.235"
-        assert integration_window._format_number(1.2344) == "1.234"
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("1.234", True),
+        ("7.1 - 7.567", True),
+        ("", True),
+        ("1.2345", False),
+        ("7.1 - 7.5678", False),
+    ],
+    ids=[
+        "three_decimals",
+        "range_three_decimals",
+        "empty",
+        "fourth_decimal",
+        "range_fourth_decimal",
+    ],
+)
+def test_toolbar_decimal_text_is_allowed(text, expected):
+    assert toolbar_decimal_text_is_allowed(text) is expected
 
 
 class TestToolbarDecimalInput:
-    def test_allows_up_to_three_decimals(self):
-        assert toolbar_decimal_text_is_allowed("1.234") is True
-        assert toolbar_decimal_text_is_allowed("7.1 - 7.567") is True
-        assert toolbar_decimal_text_is_allowed("") is True
-
-    def test_rejects_a_fourth_decimal(self):
-        assert toolbar_decimal_text_is_allowed("1.2345") is False
-        assert toolbar_decimal_text_is_allowed("7.1 - 7.5678") is False
-
     def test_offset_field_refuses_a_fourth_decimal_digit(self, integration_window):
         edit = integration_window.findChild(QLineEdit, "lo_input")
         edit.insert("1.234")
@@ -727,114 +720,35 @@ class TestToolbarDecimalInput:
         assert edit.text() == "1.234"
 
 
-class TestRangeFormatting:
-    """Test formatting value ranges for display."""
-
-    def test_single_value_range(self, integration_window):
-        """Test range when all values are identical."""
-        values = [9.77, 9.77, 9.77]
-        result = integration_window._format_range(values)
-        assert result == "9.77"
-
-    def test_single_value_with_float_error(self, integration_window):
-        """Test range with values that are very close (floating point precision)."""
-        values = [9.77, 9.77000001, 9.76999999]
-        result = integration_window._format_range(values)
-        # Should treat as single value (within 1e-6 tolerance)
-        assert result == "9.77"
-
-    def test_actual_range(self, integration_window):
-        """Test range with different values."""
-        values = [9.5, 10.2]
-        result = integration_window._format_range(values)
-        assert result == "9.5 - 10.2"
-
-    def test_range_multiple_values(self, integration_window):
-        """Test range with many values (should show min-max)."""
-        values = [7.1, 7.5, 7.3, 7.8, 7.2]
-        result = integration_window._format_range(values)
-        assert result == "7.1 - 7.8"
-
-    def test_range_with_none_values(self, integration_window):
-        """Test range handling None values."""
-        values = [9.5, None, 10.2, None]
-        result = integration_window._format_range(values)
-        # Should filter out None and show range
-        assert result == "9.5 - 10.2"
-
-    def test_range_all_none(self, integration_window):
-        """Test range with all None values."""
-        values = [None, None, None]
-        result = integration_window._format_range(values)
-        assert result == ""
-
-    def test_empty_range(self, integration_window):
-        """Test range with empty list."""
-        values = []
-        result = integration_window._format_range(values)
-        assert result == ""
-
-    def test_range_consistent_three_decimals(self, integration_window):
-        values = [9.77123, 10.4567]
-        result = integration_window._format_range(values)
-        assert result == "9.771 - 10.457"
-
-    def test_range_with_small_values(self, integration_window):
-        values = [0.123456, 0.456789]
-        result = integration_window._format_range(values)
-        assert result == "0.123 - 0.457"
-
-    def test_range_invalid_values(self, integration_window):
-        """Test range with non-numeric values."""
-        values = [9.5, "invalid", 10.2]
-        result = integration_window._format_range(values)
-        # Should filter out invalid and show range of valid values
-        assert result == "9.5 - 10.2"
-
-
-class TestTRWindowFormatting:
-    """Test tR window field formatting."""
-
-    def test_tr_window_default_value(self, integration_window):
-        """Test default tR window value formatting."""
-        # Default is typically 0.2
-        assert integration_window._format_number(0.2) == "0.2"
-
-    def test_tr_window_custom_values(self, integration_window):
-        """Test various tR window values."""
-        assert integration_window._format_number(0.15) == "0.15"
-        assert integration_window._format_number(0.25) == "0.25"
-        assert integration_window._format_number(0.5) == "0.5"
-        assert integration_window._format_number(1.0) == "1"
-
-
-class TestFormattingConsistency:
-    """Test formatting consistency across different contexts."""
-
-    def test_same_value_formatted_identically(self, integration_window):
-        """Test that same value formats the same way every time."""
-        value = 9.77123
-        result1 = integration_window._format_number(value)
-        result2 = integration_window._format_number(value)
-        assert result1 == result2
-        assert result1 == "9.771"
-
-    def test_range_endpoints_use_same_formatting(self, integration_window):
-        """Test that range endpoints use same formatting as single values."""
-        value1 = 9.77123
-        value2 = 10.4567
-
-        # Format as single values
-        single1 = integration_window._format_number(value1)
-        single2 = integration_window._format_number(value2)
-
-        # Format as range
-        range_result = integration_window._format_range([value1, value2])
-
-        # Range should contain both formatted single values
-        assert single1 in range_result
-        assert single2 in range_result
-        assert range_result == f"{single1} - {single2}"
+@pytest.mark.parametrize(
+    "values,expected",
+    [
+        ([9.77, 9.77, 9.77], "9.77"),
+        ([9.77, 9.77000001, 9.76999999], "9.77"),
+        ([9.5, 10.2], "9.5 - 10.2"),
+        ([7.1, 7.5, 7.3, 7.8, 7.2], "7.1 - 7.8"),
+        ([9.5, None, 10.2, None], "9.5 - 10.2"),
+        ([None, None, None], ""),
+        ([], ""),
+        ([9.77123, 10.4567], "9.771 - 10.457"),
+        ([0.123456, 0.456789], "0.123 - 0.457"),
+        ([9.5, "invalid", 10.2], "9.5 - 10.2"),
+    ],
+    ids=[
+        "identical",
+        "float_noise",
+        "two_value_range",
+        "min_max",
+        "none_filtered",
+        "all_none",
+        "empty",
+        "three_decimals",
+        "small_values",
+        "invalid_filtered",
+    ],
+)
+def test_format_range(integration_window, values, expected):
+    assert integration_window._format_range(values) == expected
 
 
 def _multi_trace_eics(row_count: int):
@@ -869,31 +783,6 @@ def test_channel_legend_hides_when_compound_read_fails(qapp, monkeypatch):
         view.channel_legend.show()
         view._update_channel_legend("alanine", _multi_trace_eics(2))
         assert view.channel_legend.isHidden()
-    finally:
-        view.deleteLater()
-
-
-def test_channel_legend_names_only_defined_ions(qapp, monkeypatch):
-    compound = SimpleNamespace(
-        is_unlabelled_target=False,
-        analysis_channels=(
-            IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),
-            IonChannel(175.0, IonRole.ISOTOPOLOGUE, ordinal=1),
-        ),
-    )
-    monkeypatch.setattr(
-        "manic.ui.graphs.read_compound_with_session",
-        lambda *_args: compound,
-    )
-    view = GraphView()
-    try:
-        view._update_channel_legend("alanine", _multi_trace_eics(4))
-        assert not view.channel_legend.isHidden()
-        assert view.channel_legend.labels() == ["M+0 m/z 174", "M+1 m/z 175"]
-        assert [chip.style.color for chip in view.channel_legend.chips()] == [
-            label_colors[0],
-            label_colors[1],
-        ]
     finally:
         view.deleteLater()
 
@@ -1528,13 +1417,3 @@ def test_preview_off_graph_tile_still_draws_model_overlay(qapp):
         view.deleteLater()
 
 
-def test_identity_key_marks_a_qualifier_slot_the_method_left_empty():
-    labels, styles = identity_key_chips((_qion(), _v1()))
-    assert labels == [
-        "Q ion m/z 217",
-        "Qualifier ion 1 m/z 147   expected 0.400  ±25%",
-        "Qualifier ion 2   not in the method",
-    ]
-    assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
-    assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
-    assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DotLine)

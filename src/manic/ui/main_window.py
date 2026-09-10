@@ -487,6 +487,26 @@ class MainWindow(QMainWindow):
         """Create and show an information/warning/critical message box."""
         self._create_message_box(msg_type, title, text, informative_text).exec()
 
+    def _background_work_running(self, before: str) -> bool:
+        """Import/reload workers still hold the database; refuse to wipe it under them."""
+        for thread_attr in ("_thread", "_regen_thread", "_mass_tol_thread"):
+            thread = getattr(self, thread_attr, None)
+            if thread is None:
+                continue
+            try:
+                running = thread.isRunning()
+            except RuntimeError:
+                setattr(self, thread_attr, None)
+                continue
+            if running:
+                self._show_message(
+                    "information",
+                    "Operation in progress",
+                    f"Wait for the current import or reload to finish before {before}.",
+                )
+                return True
+        return False
+
     def _update_menu_states(self):
         """Update menu item enabled/disabled states based on current data state."""
         # Load Compound Data: enabled only if not yet loaded
@@ -589,24 +609,8 @@ class MainWindow(QMainWindow):
         non-checkable action. Keep that signal argument separate from the
         optional mode selected by compound-list format detection.
         """
-        # Import/reload workers still hold the database; do not clear it.
-        for thread_attr in ("_thread", "_regen_thread", "_mass_tol_thread"):
-            thread = getattr(self, thread_attr, None)
-            if thread is None:
-                continue
-            try:
-                running = thread.isRunning()
-            except RuntimeError:
-                setattr(self, thread_attr, None)
-                continue
-            if running:
-                self._show_message(
-                    "information",
-                    "Operation in progress",
-                    "Wait for the current import or reload to finish "
-                    "before starting a new session.",
-                )
-                return
+        if self._background_work_running("starting a new session"):
+            return
 
         if self.compound_data_loaded or self.cdf_data_loaded:
             reply = self._show_question_dialog(
@@ -1501,7 +1505,7 @@ class MainWindow(QMainWindow):
 
         # Show success message
         msg = self._create_message_box(
-            "info",
+            "information",
             "Regeneration Complete",
             f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
         )
@@ -1526,13 +1530,7 @@ class MainWindow(QMainWindow):
 
     def _re_enable_ui_actions(self):
         """Re-enable UI actions after background operations"""
-        self.load_cdf_action.setEnabled(True)
-        self.load_compound_action.setEnabled(True)
-        # Re-enable export actions based on data state
-        self.export_method_action.setEnabled(self.compound_data_loaded)
-        self.export_data_action.setEnabled(
-            self.cdf_data_loaded and self.compound_data_loaded
-        )
+        self._update_menu_states()
 
     def _update_regeneration_progress(self, current: int, total: int):
         """Update regeneration progress dialog"""
@@ -2307,6 +2305,9 @@ class MainWindow(QMainWindow):
 
     def clear_session(self):
         """Clear all loaded data and reset application state with progress tracking."""
+        if self._background_work_running("clearing the session"):
+            return
+
         reply = self._show_question_dialog(
             "Clear Session",
             "This will clear all loaded data and reset the application.",
@@ -2316,11 +2317,12 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             # Create and show progress dialog
             progress = QProgressDialog(
-                "Preparing to clear session...", "Cancel", 0, 100, self
+                "Preparing to clear session...", None, 0, 100, self
             )
             progress.setWindowTitle("Clearing Session")
             progress.setWindowModality(Qt.WindowModal)
             progress.setMinimumDuration(0)  # Show immediately
+            progress.setCancelButton(None)
             progress.setValue(0)
             progress.show()
             QCoreApplication.processEvents()  # Ensure dialog appears
@@ -2373,9 +2375,6 @@ class MainWindow(QMainWindow):
 
                 # Define progress callback for database clearing
                 def db_progress_callback(current, total, operation):
-                    if progress.wasCanceled():
-                        return
-
                     # Map database progress to 40-90% of total progress
                     db_progress_percent = int(40 + (current / total) * 50)
                     progress.setValue(db_progress_percent)
@@ -2392,10 +2391,6 @@ class MainWindow(QMainWindow):
 
                 # Clear the database with progress tracking (fast mode enabled by default)
                 clear_database(progress_callback=db_progress_callback)
-
-                if progress.wasCanceled():
-                    progress.close()
-                    return
 
                 progress.setValue(90)
                 progress.setLabelText("Reconnecting signals...")
@@ -2508,7 +2503,7 @@ class MainWindow(QMainWindow):
             logger.error(f"Error ensuring corrections for export: {e}")
             # Show error dialog
             msg = self._create_message_box(
-                "error",
+                "critical",
                 "Export Preparation Failed",
                 "Failed to prepare corrected data for export.",
                 f"Error: {str(e)}\n\n"
@@ -2696,7 +2691,7 @@ class MainWindow(QMainWindow):
                     sheet_list = [
                         "• Raw Values - Direct instrument signals",
                         "• Corrected Values - Natural isotope corrected signals",
-                        "• Isotope Ratios - Normalized corrected values",
+                        "• Isotope Ratio - Normalized corrected values",
                         "• % Label Incorporation - Experimental label percentages",
                     ]
                     if include_carbon_enrichment:

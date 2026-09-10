@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -22,6 +23,8 @@ from manic.models.session_activity import PendingRegeneration, SessionActivitySe
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.utils.paths import resource_path
 from manic.utils.utils import load_stylesheet
+
+logger = logging.getLogger(__name__)
 
 _TOOLBAR_DECIMAL_RE = re.compile(
     r"^\s*[+-]?\d*\.?\d{0,3}(?:\s*-\s*[+-]?\d*\.?\d{0,3})?\s*$"
@@ -352,7 +355,7 @@ class IntegrationWindow(QGroupBox):
 
 
         except Exception as e:
-            print(f"Error populating tR window field: {e}")
+            logger.exception("Error populating tR window field: %s", e)
 
     def populate_fields(self, compound_dict):
         """Populate the line edit fields with compound data"""
@@ -515,7 +518,7 @@ class IntegrationWindow(QGroupBox):
                     line_edit.setText(str(value))
 
         except Exception as e:
-            print(f"Error calculating ranges: {e}")
+            logger.exception("Error calculating ranges: %s", e)
             self._clear_fields()
 
     def _format_range(self, values: list) -> str:

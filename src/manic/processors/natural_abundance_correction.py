@@ -22,6 +22,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+class NaturalAbundanceCorrectionError(ValueError):
+    pass
+
+
 class NaturalAbundances:
     """Natural isotope abundances for common elements."""
 
@@ -323,6 +327,17 @@ class NaturalAbundanceCorrector:
             label_purity = np.array([0.01, 0.99])  # 99% isotope purity
 
         elements = self.parse_formula(formula)
+        label_count = elements.get(label_element, 0)
+        if label_atoms > label_count:
+            raise NaturalAbundanceCorrectionError(
+                f"label_atoms={label_atoms} exceeds {label_element} count "
+                f"{label_count} in formula {formula}"
+            )
+        for element, count in elements.items():
+            if count > 0 and not hasattr(self.abundances, element):
+                raise NaturalAbundanceCorrectionError(
+                    f"No natural abundance vector for element {element}"
+                )
 
         # Determine matrix size
         n_isotopologues = label_atoms + 1
@@ -341,7 +356,7 @@ class NaturalAbundanceCorrector:
                 unlabeled_count = count
 
             # Convolve with element's isotope distribution
-            if unlabeled_count > 0 and hasattr(self.abundances, element):
+            if unlabeled_count > 0:
                 elem_dist = getattr(self.abundances, element)
                 for _ in range(unlabeled_count):
                     nat_dist = np.convolve(nat_dist, elem_dist)
@@ -458,7 +473,10 @@ class NaturalAbundanceCorrector:
                 f"Measured data has {n_isotopologues_measured} isotopologues but label_atoms={label_atoms} "
                 f"requires at least {n_isotopologues_expected}. Cannot perform correction."
             )
-            return intensity_2d  # Return uncorrected
+            raise NaturalAbundanceCorrectionError(
+                f"Measured data has {n_isotopologues_measured} isotopologues but "
+                f"label_atoms={label_atoms} requires at least {n_isotopologues_expected}"
+            )
 
         # Perform correction
         corrected_2d = self._correct_vectorized_direct(
@@ -550,9 +568,8 @@ class NaturalAbundanceCorrector:
             return corrected_2d
 
         except np.linalg.LinAlgError as e:
-            # If direct solver fails, return uncorrected data with warning
-            logger.error(f"Direct solver failed: {e}. Returning uncorrected data.")
-            return intensity_2d
+            logger.error(f"Direct solver failed: {e}")
+            raise NaturalAbundanceCorrectionError(f"Direct solver failed: {e}") from e
 
 
 

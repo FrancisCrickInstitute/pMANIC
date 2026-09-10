@@ -18,7 +18,10 @@ from manic.io.compound_reader import Compound, read_compound
 from manic.io.eic_reader import read_eic
 from manic.models.database import get_connection
 from manic.processors.eic_calculator import EIC
-from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
+from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
+    NaturalAbundanceCorrector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +32,23 @@ def make_time_series_corrector(compound: Compound):
     corrector = NaturalAbundanceCorrector()
 
     def apply(matrix: np.ndarray) -> np.ndarray:
-        return corrector.correct_time_series(
-            np.asarray(matrix, dtype=np.float64),
-            compound.formula,
-            compound.label_type,
-            compound.label_atoms,
-            compound.tbdms,
-            compound.meox,
-            compound.me,
-        )
+        raw = np.asarray(matrix, dtype=np.float64)
+        try:
+            return corrector.correct_time_series(
+                raw,
+                compound.formula,
+                compound.label_type,
+                compound.label_atoms,
+                compound.tbdms,
+                compound.meox,
+                compound.me,
+            )
+        except NaturalAbundanceCorrectionError:
+            logger.warning(
+                "Display correction failed for %s; using raw trace",
+                compound.compound_name,
+            )
+            return raw
 
     return apply
 
@@ -47,7 +58,11 @@ def compute_corrected_intensity(eic: EIC, compound: Compound) -> Optional[np.nda
         return None
     intensity = np.asarray(eic.intensity)
     if intensity.ndim == 1:
-        return None
+        n_channels = (compound.label_atoms or 0) + 1
+        if n_channels > 1 and intensity.size % n_channels == 0:
+            intensity = intensity.reshape(n_channels, -1)
+        else:
+            return None
     corrector = NaturalAbundanceCorrector()
     return corrector.correct_time_series(
         intensity,
@@ -333,6 +348,14 @@ def _process_compound_batch_corrections(
 
             successful += 1
 
+        except NaturalAbundanceCorrectionError as e:
+            logger.warning(
+                "Skipping correction for %s in %s: %s",
+                compound_name,
+                eic_row["sample_name"],
+                e,
+            )
+            failed += 1
         except Exception as e:
             logger.debug(
                 f"Correction failed for {compound_name} in {eic_row['sample_name']}: {e}"

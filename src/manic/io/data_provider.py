@@ -24,7 +24,10 @@ from manic.processors.integration import (
     calculate_peak_areas,
     integrate_bundle_areas,
 )
-from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
+from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
+    NaturalAbundanceCorrector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -799,19 +802,32 @@ class DataProvider:
         use_legacy: bool,
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
-        return integrate_bundle_areas(
-            time_data,
-            bundle,
-            raw_intensity,
-            correct_time_series=lambda matrix: self._correct_time_series(matrix, row),
-            baseline_correction=baseline_correction,
-            use_legacy=use_legacy,
-            retention_time=row["retention_time"],
-            loffset=row["loffset"],
-            roffset=row["roffset"],
-            label_atoms=row["label_atoms"] or 0,
-            channel_count=_row_channel_count(row),
-        )
+        def integrate(correct_time_series):
+            return integrate_bundle_areas(
+                time_data,
+                bundle,
+                raw_intensity,
+                correct_time_series=correct_time_series,
+                baseline_correction=baseline_correction,
+                use_legacy=use_legacy,
+                retention_time=row["retention_time"],
+                loffset=row["loffset"],
+                roffset=row["roffset"],
+                label_atoms=row["label_atoms"] or 0,
+                channel_count=_row_channel_count(row),
+            )
+
+        try:
+            return integrate(lambda matrix: self._correct_time_series(matrix, row))
+        except NaturalAbundanceCorrectionError as exc:
+            logger.warning(
+                "No corrected areas for %s in %s: %s",
+                row["compound_name"],
+                row["sample_name"],
+                exc,
+            )
+            raw_areas, _ = integrate(None)
+            return raw_areas, []
 
     def _calculate_corrected_areas_from_raw_component(
         self,

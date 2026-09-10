@@ -5,7 +5,10 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
+from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
+    NaturalAbundanceCorrector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,21 +59,9 @@ class InMemoryDataProvider:
                 continue
             # Build 2D vector with a single time point for reuse of corrector
             vec = np.array(areas, dtype=float).reshape(label_atoms + 1, 1)
-            # Force direct-solve path when numerically suitable to match DB-corrected behavior
-            cm, cond, use_direct = self._corrector._get_cached_correction_matrix(
-                comp.get('formula') or '',
-                comp.get('label_type') or 'C',
-                label_atoms,
-                int(comp.get('tbdms') or 0),
-                int(comp.get('meox') or 0),
-                int(comp.get('me') or 0),
-            )
-            if use_direct:
-                corr2d = self._corrector._correct_vectorized_direct(vec, cm)
-                corr_vec = corr2d[:, 0]
-            else:
-                corr = self._corrector.correct_time_series(
-                    vec,
+            try:
+                # Force direct-solve path when numerically suitable to match DB-corrected behavior
+                cm, cond, use_direct = self._corrector._get_cached_correction_matrix(
                     comp.get('formula') or '',
                     comp.get('label_type') or 'C',
                     label_atoms,
@@ -78,7 +69,23 @@ class InMemoryDataProvider:
                     int(comp.get('meox') or 0),
                     int(comp.get('me') or 0),
                 )
-                corr_vec = corr[:, 0]
+                if use_direct:
+                    corr2d = self._corrector._correct_vectorized_direct(vec, cm)
+                    corr_vec = corr2d[:, 0]
+                else:
+                    corr = self._corrector.correct_time_series(
+                        vec,
+                        comp.get('formula') or '',
+                        comp.get('label_type') or 'C',
+                        label_atoms,
+                        int(comp.get('tbdms') or 0),
+                        int(comp.get('meox') or 0),
+                        int(comp.get('me') or 0),
+                    )
+                    corr_vec = corr[:, 0]
+            except NaturalAbundanceCorrectionError as exc:
+                logger.warning("No corrected values for %s in %s: %s", name, sample_name, exc)
+                continue
 
             # Log if the approximate correction yields near-zero while raw has signal
             raw_total = float(np.sum(vec))

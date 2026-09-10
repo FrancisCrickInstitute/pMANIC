@@ -15,7 +15,7 @@ from PySide6.QtCharts import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
+from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QLineEdit
 import sys
 import numpy as np
 from types import SimpleNamespace
@@ -105,6 +105,36 @@ def test_labelled_toolbar_keeps_abundance_under_ratios(qapp):
         assert 0 <= ratio_index < abundance_index
     finally:
         toolbar.deleteLater()
+
+
+def test_y_scale_checkboxes_labelled_only_and_exclusive(qapp):
+    labelled = Toolbar(AnalysisMode.LABELLED)
+    unlabelled = Toolbar(AnalysisMode.UNLABELLED)
+    try:
+        selected = labelled.findChild(QCheckBox, "scale_selected_peak_checkbox")
+        assert selected is labelled.selected_peak_yscale_checkbox
+        assert selected is not None
+        layout = labelled.shared_yscale_checkbox.parentWidget().layout()
+        assert layout.indexOf(selected) == layout.indexOf(
+            labelled.shared_yscale_checkbox
+        ) + 1
+
+        assert unlabelled.findChild(QCheckBox, "scale_selected_peak_checkbox") is None
+        assert unlabelled.selected_peak_yscale_checkbox is None
+        assert unlabelled.shared_yscale_checkbox is not None
+
+        selected.setChecked(True)
+        assert selected.isChecked()
+        assert not labelled.shared_yscale_checkbox.isChecked()
+        labelled.shared_yscale_checkbox.setChecked(True)
+        assert labelled.shared_yscale_checkbox.isChecked()
+        assert not selected.isChecked()
+        labelled.shared_yscale_checkbox.setChecked(False)
+        assert not labelled.shared_yscale_checkbox.isChecked()
+        assert not selected.isChecked()
+    finally:
+        labelled.deleteLater()
+        unlabelled.deleteLater()
 
 
 def test_refresh_mode_charts_shares_one_provider(monkeypatch):

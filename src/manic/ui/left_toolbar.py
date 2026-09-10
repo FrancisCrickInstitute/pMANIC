@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from manic.io.compound_reader import read_compound
 from manic.models.analysis import AnalysisMode
+from manic.processors.tile_y_scale import YScalePolicy, available_y_scale_policies
 from manic.utils.paths import resource_path
 
 from .compound_list_widget import CompoundListWidget
@@ -51,7 +52,7 @@ class Toolbar(QWidget):
     # Signal emitted when baseline correction checkbox is toggled
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
-    shared_y_scale_toggled = Signal(bool)
+    y_scale_policy_changed = Signal(object)
 
     def __init__(
         self,
@@ -60,6 +61,10 @@ class Toolbar(QWidget):
         super().__init__()
         self.analysis_mode = AnalysisMode.coerce(analysis_mode)
         self.setObjectName("toolbar")  # Required for CSS targeting
+        self._y_scale_policy = YScalePolicy.PER_TILE_EXTRACT
+        self._available_y_scale_policies = available_y_scale_policies(
+            self.analysis_mode
+        )
         self._build_ui()
         self._connect_signals()
 
@@ -204,8 +209,6 @@ class Toolbar(QWidget):
         """)
         content_layout.addWidget(self.baseline_checkbox, stretch=0)
 
-        # Shared y-scale toggle: one common scale across all sample tiles so
-        # abundances are visually comparable (off = per-tile autoscaling).
         self.shared_yscale_checkbox = QCheckBox("Shared y-scale")
         self.shared_yscale_checkbox.setObjectName("shared_yscale_checkbox")
         self.shared_yscale_checkbox.setToolTip(
@@ -214,9 +217,28 @@ class Toolbar(QWidget):
         )
         self.shared_yscale_checkbox.setStyleSheet(self.baseline_checkbox.styleSheet())
         self.shared_yscale_checkbox.stateChanged.connect(
-            lambda state: self.shared_y_scale_toggled.emit(state != 0)
+            self._on_shared_yscale_toggled
         )
         content_layout.addWidget(self.shared_yscale_checkbox, stretch=0)
+
+        self.selected_peak_yscale_checkbox = None
+        if YScalePolicy.PER_TILE_SELECTED_PEAK in self._available_y_scale_policies:
+            self.selected_peak_yscale_checkbox = QCheckBox("Scale to selected peak")
+            self.selected_peak_yscale_checkbox.setObjectName(
+                "scale_selected_peak_checkbox"
+            )
+            self.selected_peak_yscale_checkbox.setToolTip(
+                "Scale each sample to its selected peak (component nearest tR).\n"
+                "Other peaks in the extract may clip.\n"
+                "Off: each plot autoscales to its extract."
+            )
+            self.selected_peak_yscale_checkbox.setStyleSheet(
+                self.baseline_checkbox.styleSheet()
+            )
+            self.selected_peak_yscale_checkbox.stateChanged.connect(
+                self._on_selected_peak_yscale_toggled
+            )
+            content_layout.addWidget(self.selected_peak_yscale_checkbox, stretch=0)
 
         self.isotopologue_ratios = IsotopologueRatioWidget()
         content_layout.addWidget(self.isotopologue_ratios, stretch=2)
@@ -380,6 +402,40 @@ class Toolbar(QWidget):
             self.baseline_checkbox.blockSignals(True)
             self.baseline_checkbox.setChecked(False)
             self.baseline_checkbox.blockSignals(False)
+
+    def _on_shared_yscale_toggled(self, state: int):
+        self._commit_y_scale_policy(
+            YScalePolicy.SHARED_EXTRACT
+            if state != 0
+            else YScalePolicy.PER_TILE_EXTRACT
+        )
+
+    def _on_selected_peak_yscale_toggled(self, state: int):
+        self._commit_y_scale_policy(
+            YScalePolicy.PER_TILE_SELECTED_PEAK
+            if state != 0
+            else YScalePolicy.PER_TILE_EXTRACT
+        )
+
+    def _commit_y_scale_policy(self, policy: YScalePolicy) -> None:
+        policy = YScalePolicy.coerce(policy)
+        if policy not in self._available_y_scale_policies:
+            policy = YScalePolicy.PER_TILE_EXTRACT
+        changed = policy is not self._y_scale_policy
+        self._y_scale_policy = policy
+        self.shared_yscale_checkbox.blockSignals(True)
+        self.shared_yscale_checkbox.setChecked(
+            policy is YScalePolicy.SHARED_EXTRACT
+        )
+        self.shared_yscale_checkbox.blockSignals(False)
+        if self.selected_peak_yscale_checkbox is not None:
+            self.selected_peak_yscale_checkbox.blockSignals(True)
+            self.selected_peak_yscale_checkbox.setChecked(
+                policy is YScalePolicy.PER_TILE_SELECTED_PEAK
+            )
+            self.selected_peak_yscale_checkbox.blockSignals(False)
+        if changed:
+            self.y_scale_policy_changed.emit(self._y_scale_policy)
 
     def _on_baseline_checkbox_toggled(self, state: int):
         """Handle baseline correction checkbox toggle - update DB and emit signal."""

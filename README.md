@@ -258,13 +258,15 @@ Developers: the performance suite lives in `bench/` and is documented in [bench/
 
 ### Building Executables
 
-To compile the application into a standalone Windows executable (.exe) and installer:
+To attach installers to a GitHub Release from any machine, follow
+[releases/README.md](releases/README.md). That path uses GitHub Actions
+(`Build Windows installer` and `Build macOS installer`) and does not need
+Windows or a Mac locally.
 
-1. Ensure you are on a Windows machine.
-2. Run the build script:
+To compile on your own machine instead:
 
-```DOS 
-scripts\build_windows.bat
-```
+**Windows.** Run `scripts\build_windows.bat` on a Windows computer with Inno
+Setup. The installer lands in `dist\MANIC-Setup.exe`.
 
-3. Artifacts will be generated in the dist/ and Output/ directories.
+**macOS.** Run `scripts/build_macos.sh` on a Mac. Install `create-dmg` with
+Homebrew if you want the styled disk image. The app lands in `dist/MANIC.app`.

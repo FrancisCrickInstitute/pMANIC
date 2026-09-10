@@ -6,6 +6,7 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
@@ -302,16 +303,22 @@ def test_deconvolution_unsaved_hint_names_the_compound_it_will_write(labelled_wi
 
 
 def test_manic_menu_holds_settings_docs_updates_and_about(labelled_window):
-    menus = [
-        m for m in labelled_window.menuBar().findChildren(QMenu) if m.title() == "MANIC"
-    ]
+    menu_bar = labelled_window.menuBar()
+    title = "Help" if menu_bar.isNativeMenuBar() else "MANIC"
+    menus = [m for m in menu_bar.findChildren(QMenu) if m.title() == title]
     assert len(menus) == 1
-    texts = [a.text() for a in menus[0].actions() if not a.isSeparator()]
-    assert texts == [
+    actions = [a for a in menus[0].actions() if not a.isSeparator()]
+    assert [a.text() for a in actions] == [
         "Settings...",
         "Documentation",
         "Check for Updates...",
         "About MANIC...",
+    ]
+    assert [a.menuRole() for a in actions] == [
+        QAction.PreferencesRole,
+        QAction.NoRole,
+        QAction.NoRole,
+        QAction.AboutRole,
     ]
 
 

@@ -2128,6 +2128,8 @@ class MainWindow(QMainWindow):
 
     def apply_use_legacy_integration(self, enabled: bool) -> None:
         self.use_legacy_integration = enabled
+        if self._validation_provider is not None:
+            self._validation_provider.set_use_legacy_integration(enabled)
         logger.info(f"Legacy integration mode toggled: {'ON' if enabled else 'OFF'}")
         self._replot_current_selection()
 

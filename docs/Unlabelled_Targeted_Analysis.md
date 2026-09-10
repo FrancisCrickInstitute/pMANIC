@@ -259,7 +259,8 @@ Verification:
 ### Step C — Load raw CDF data
 
 **File → Load Raw Data (CDF)** and select the **folder** containing NetCDF
-(`.cdf`) files.
+(`.cdf`) files. Convert vendor mass-spec files to CDF in
+[OpenChrom](https://www.openchrom.net/) first.
 
 MANIC extracts one multi-channel EIC per compound per sample: channel 0 is the
 Q ion, subsequent channels are qualifier ions in ordinal order. The extraction window

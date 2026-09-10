@@ -23,12 +23,37 @@ Use these steps for `v5.0.0-alpha` and for any later `-beta`.
 1. Put the version number in the code. Run `scripts/update_manic_version.sh 5.0.0` and commit that change to `main`. The script accepts only `X.Y.Z`. The `-alpha` part lives on the tag, not in this script.
 2. Mark that commit. Create a git tag named `v5.0.0-alpha` and push the tag.
 3. Make the download page. On GitHub, create a Release for that tag. The file list can start empty. Tick **Set as a pre-release**.
-4. Build both installers on GitHub. You do not need a Windows PC or a Mac for this.
-   1. Open the **Actions** tab.
-   2. Select **Build Windows installer**, click **Run workflow**, and type the tag (`v5.0.0-alpha`).
-   3. Select **Build macOS installer**, click **Run workflow**, and type the same tag.
-   4. Wait until both jobs show a green tick. The page should then list `MANIC-Setup-Windows.zip` and `MANIC-Setup-Mac.dmg.zip`.
+4. Build both installers. Follow the section **Build the Windows and Mac installers on GitHub** below.
 5. Stop. Do not run `scripts/publish_latest_version.sh`. Testers use the alpha page. Everyone else stays on 4.1.0.
+
+## Build the Windows and Mac installers on GitHub
+
+This is the step the lists above call "build both installers". GitHub starts a rented Windows PC and a rented Mac. Each job builds one installer and attaches the zip to the release page you already made. You stay on the computer in front of you.
+
+Do the Windows job first, then the Mac job. The clicks are the same. Only the name in the left list changes.
+
+You must be signed into GitHub on an account that can push to this repository. If **Run workflow** is missing, you are not signed in or you do not have that access.
+
+Create the release page for the tag before you start. The job uploads onto that page. If the page does not exist yet, the job fails.
+
+1. Open the [Actions tab of this repository](https://github.com/FrancisCrickInstitute/pMANIC/actions).
+2. In the left list, click **Build Windows installer**.
+3. Above the list of past runs, click **Run workflow**.
+4. A small form opens. Leave **Use workflow from** set to **main**. That field picks which copy of the recipe to use. It is not the version you are building.
+5. In the **tag** box, type the release tag, for example `v5.0.0-alpha`. That is the version GitHub builds and the page it attaches the zip to.
+6. Click the green **Run workflow** button.
+7. A new row appears in the list, usually within a few seconds. Click the row. A yellow dot means it is still working. A green tick means it finished. A red cross means it failed.
+8. Repeat steps 2 to 7. In the left list click **Build macOS installer**. Type the same tag.
+9. When both rows show a green tick, open the release page for that tag. Under **Assets** you should see `MANIC-Setup-Windows.zip` and `MANIC-Setup-Mac.dmg.zip`.
+
+The Windows job on `v5.0.0-alpha` took 7 minutes 33 seconds. The Mac job took 2 minutes 41 seconds. Those are measured on the first runs, not a promise.
+
+If a job fails, open the red row and read the last error. Fix that, then run that one job again. You do not need to rerun the job that already went green. Running the same job again replaces that zip on the release page.
+
+Direct links if you want to skip the left list:
+
+* [Build Windows installer](https://github.com/FrancisCrickInstitute/pMANIC/actions/workflows/build-windows.yml)
+* [Build macOS installer](https://github.com/FrancisCrickInstitute/pMANIC/actions/workflows/build-macos.yml)
 
 ## Tell the whole lab to upgrade
 

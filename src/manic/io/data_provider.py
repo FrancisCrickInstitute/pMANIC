@@ -374,31 +374,40 @@ class DataProvider:
             def consume(executor, worker) -> None:
                 nonlocal cancel_exc
                 processed = 0
-                for (
-                    kind,
-                    sample_name,
-                    compound_name,
-                    areas,
-                    corrected_areas,
-                ) in executor.map(worker, tasks):
-                    if kind == "raw":
-                        raw_data[sample_name][compound_name] = areas
-                    elif kind == "raw_and_corrected_deconvolved":
-                        raw_data[sample_name][compound_name] = areas
-                        if corrected_areas:
-                            corrected_data[sample_name][compound_name] = corrected_areas
-                    else:
-                        corrected_data[sample_name][compound_name] = areas
-                    processed += 1
-                    if (
-                        progress_callback
-                        and processed % 25 == 0
-                        and cancel_exc is None
-                    ):
-                        try:
-                            progress_callback(int(processed / total * 100))
-                        except Exception as exc:
-                            cancel_exc = exc
+                # Hold the map generator so it can be closed on cancel. Closing
+                # it runs its finally, which cancels every task that has not
+                # started, so a cancel does not sit through the whole queue.
+                # The exception is re-raised by the caller once the pool has
+                # shut down; raising here would trip the process-pool fallback
+                # and integrate everything a second time on threads.
+                results = executor.map(worker, tasks)
+                try:
+                    for (
+                        kind,
+                        sample_name,
+                        compound_name,
+                        areas,
+                        corrected_areas,
+                    ) in results:
+                        if kind == "raw":
+                            raw_data[sample_name][compound_name] = areas
+                        elif kind == "raw_and_corrected_deconvolved":
+                            raw_data[sample_name][compound_name] = areas
+                            if corrected_areas:
+                                corrected_data[sample_name][compound_name] = (
+                                    corrected_areas
+                                )
+                        else:
+                            corrected_data[sample_name][compound_name] = areas
+                        processed += 1
+                        if progress_callback and processed % 25 == 0:
+                            try:
+                                progress_callback(int(processed / total * 100))
+                            except Exception as exc:
+                                cancel_exc = exc
+                                break
+                finally:
+                    results.close()
 
             max_workers = min(os.cpu_count() or 1, 8)
             integration_start = time.perf_counter()

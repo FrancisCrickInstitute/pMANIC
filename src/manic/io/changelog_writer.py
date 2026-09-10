@@ -128,7 +128,8 @@ def generate_changelog(
         key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values
 - Natural-isotope correction applied to labelled isotopologue channels
 - Peak-area validation uses the configured internal-standard reference isotopologue
-- Compounds whose MRRF could not be computed are labelled Relative"""
+- Compounds whose MRRF could not be computed are labelled Relative
+- **Not comparable with MANIC 4.x exports.** Correction is now a single solve of A x = b. Versions up to 4.x divided the solution by the diagonal of A as well, which inflated each channel by a different factor. Corrected Values, Isotope Ratio, % Label Incorporation and % Carbons Labelled all changed, ratios included. Reprocess older data with this version before comparing"""
 
     if assumed_mrrf:
         assumed_names = ", ".join(sorted(assumed_mrrf))

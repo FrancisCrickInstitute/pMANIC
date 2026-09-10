@@ -33,6 +33,31 @@ export sheets, and scientific rationale) is in
 
 ---
 
+## Upgrading to MANIC 5
+
+> **⚠️ Corrected values changed. 5.0 exports are not comparable with 4.x exports.**
+
+Natural isotope correction is now a single solve of $A x = b$. Versions up to
+4.x performed that solve and then divided each isotopologue by the matching
+diagonal element of $A$ — an extra step carried over from the legacy MATLAB
+flow that has no basis in the linear model and inflated every channel by
+$1 / A_{jj}$.
+
+Because each channel was inflated by a different factor, this affects
+**ratios as well as absolute values**. The **Corrected Values**,
+**Isotope Ratio**, **% Label Incorporation** and **% Carbons Labelled** sheets
+all change, and the shift grows with the number of labelled atoms and with
+derivatisation. Raw Values are unaffected.
+
+The 5.0 numbers are the correct ones. If you need to compare against results
+produced by 4.x, reprocess that data with 5.0 first rather than comparing
+workbooks across versions. Every exported changelog records the MANIC version
+that produced it. See
+**[Natural Isotope Correction](docs/Reference_Natural_Isotope_Correction.md)**
+for the full derivation.
+
+---
+
 ## Documentation
 
 ### For Users

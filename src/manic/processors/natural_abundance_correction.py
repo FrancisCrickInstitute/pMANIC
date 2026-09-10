@@ -26,7 +26,15 @@ class NaturalAbundanceCorrectionError(ValueError):
 
 
 class NaturalAbundances:
-    """Natural isotope abundances for common elements."""
+    """Natural isotope abundances for common elements.
+
+    An element listed here is one the correction can account for. Anything
+    absent makes ``validate_formula`` refuse the compound, so the monoisotopic
+    elements below are listed deliberately: they contribute a delta function,
+    convolving with them is the identity, and dropping them from the
+    derivatised formula is exact. Leaving them out would block a correct
+    compound list over an element that cannot change the isotope pattern.
+    """
 
     def __init__(self):
         # Format: [mass0, mass+1, mass+2, ...]
@@ -38,9 +46,13 @@ class NaturalAbundances:
         self.S = np.array(
             [0.9493, 0.0076, 0.0429, 0, 0.0002]
         )  # 32S, 33S, 34S, 35S, 36S
-        self.P = np.array([1.0])  # 31P (monoisotopic)
         self.Cl = np.array([0.7576, 0.0, 0.2424])  # 35Cl, none at +1, 37Cl at +2
         self.Br = np.array([0.5069, 0.0, 0.4931])  # 79Br, 81Br
+        # Monoisotopic: a single stable isotope at 100%.
+        self.P = np.array([1.0])  # 31P
+        self.F = np.array([1.0])  # 19F
+        self.Na = np.array([1.0])  # 23Na
+        self.I = np.array([1.0])  # 127I
 
 
 class NaturalAbundanceCorrector:

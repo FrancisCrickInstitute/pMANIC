@@ -10,7 +10,10 @@ from manic.processors.integration import (
     calculate_peak_areas,
     compute_baseline_area,
 )
-from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
+from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
+    NaturalAbundanceCorrector,
+)
 from manic.sheet_generators import abundances
 
 
@@ -196,3 +199,42 @@ def test_assumed_mrrf_writes_relative_unit():
         "Assumed has amount_in_std_mix=1.0 but resolve_mm_samples returns none, "
         "so MRRF is assumed and Units is Relative"
     )
+
+
+@pytest.mark.parametrize(
+    ("formula", "label_element", "label_atoms", "tbdms"),
+    [
+        ("C1", "C", 1, 0),
+        ("C3H6O3", "C", 3, 2),
+        ("C6H12O6", "C", 6, 5),
+        ("C5H11NO2S", "C", 5, 2),
+        ("C4H7NO4", "N", 1, 2),
+        ("C2H3Cl", "C", 2, 0),
+    ],
+)
+def test_correction_matrices_are_invertible_and_well_conditioned(
+    formula, label_element, label_atoms, tbdms
+):
+    """The direct solve is the only path, so the matrix must never be singular.
+
+    The optimisation fallback and the ``use_direct`` conditioning branch were
+    both removed, which is only safe if real compounds stay far from singular.
+    """
+    corrector = NaturalAbundanceCorrector()
+    derivatised, _ = corrector.calculate_derivative_formula(formula, tbdms, 0, 0)
+    matrix = corrector.build_correction_matrix(derivatised, label_element, label_atoms)
+
+    assert matrix.shape == (label_atoms + 1, label_atoms + 1)
+    assert np.all(np.diag(matrix) > 0), "a zero on the diagonal would be singular"
+    assert abs(np.linalg.det(matrix)) > 1e-6
+    assert np.linalg.cond(matrix) < 10.0, "ill-conditioned matrix would amplify noise"
+
+
+def test_singular_matrix_raises_instead_of_returning_uncorrected_data():
+    """A failed solve must be loud; it used to return the raw data silently."""
+    corrector = NaturalAbundanceCorrector()
+    singular = np.array([[1.0, 1.0], [1.0, 1.0]])
+    measured = np.array([[100.0, 90.0], [10.0, 9.0]])
+
+    with pytest.raises(NaturalAbundanceCorrectionError, match="Direct solver failed"):
+        corrector._correct_vectorized_direct(measured, singular)

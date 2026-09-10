@@ -27,6 +27,22 @@ $$x = A^{-1} \cdot b$$
 
 This is a single solve of $A x = b$. There is no later scaling by the diagonal of $A$.
 
+> **⚠️ Changed in MANIC 5.0 — corrected numbers differ from 4.x**
+> Versions up to 4.x performed the solve and then divided each isotopologue by
+> the matching diagonal element of $A$, an extra step inherited from the legacy
+> MATLAB flow. That step has no basis in $A x = b$ and inflated every channel by
+> $1 / A_{jj}$.
+>
+> **What this means for you:** if you reprocess data that was previously exported
+> with MANIC 4.x, the **Corrected Values**, **Isotope Ratio**,
+> **% Label Incorporation** and **% Carbons Labelled** sheets will all change.
+> Because each channel was inflated by a different amount, ratios shift too —
+> not just absolute values. The size of the shift grows with the number of
+> labelled atoms and with derivatisation.
+>
+> The new values are the correct ones. Do not compare a 4.x export against a 5.0
+> export in the same analysis; reprocess the older data with 5.0 first.
+
 MANIC treats the tracer as 99% isotopically pure. One percent of labelled positions still carry the light isotope. That is a fixed constant, typical of commercial ¹³C tracers. Get in touch if your tracer differs.
 
 ### Why this matters

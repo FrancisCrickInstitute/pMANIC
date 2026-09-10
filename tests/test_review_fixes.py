@@ -220,6 +220,32 @@ def test_unknown_element_survives_derivatisation():
         corrector._get_cached_correction_matrix("C3Se1", "C", 3, tbdms=1, meox=0, me=0)
 
 
+@pytest.mark.parametrize("formula", ["C6H11FO5", "C6H4I2NO", "C6H5NaO7", "C10H16N5O13P3"])
+def test_monoisotopic_elements_do_not_block_correction(formula):
+    """F, I, Na and P cannot change the isotope pattern, so they must not raise.
+
+    The unknown-element guard exists to catch elements whose distribution would
+    be silently dropped. A single stable isotope contributes a delta function,
+    so refusing these would block a correct compound list, and because
+    ensure_corrections_for_export refuses the whole workbook that would make
+    the export impossible.
+    """
+    NaturalAbundanceCorrector()._get_cached_correction_matrix(
+        formula, "C", 2, tbdms=0, meox=0, me=0
+    )
+
+
+def test_monoisotopic_element_leaves_the_matrix_unchanged():
+    corrector = NaturalAbundanceCorrector()
+    without = corrector.build_correction_matrix("C6H12O6", "C", 6)
+    with_fluorine = corrector.build_correction_matrix("C6H12O6F1", "C", 6)
+    np.testing.assert_array_equal(
+        without,
+        with_fluorine,
+        err_msg="19F is 100% abundant, so convolving with it is the identity",
+    )
+
+
 def test_c1_correction_matrix_columns():
     matrix = NaturalAbundanceCorrector().build_correction_matrix("C1", "C", 1)
     np.testing.assert_allclose(matrix[:, 0], [0.9893, 0.0107], atol=5e-5)
@@ -268,3 +294,76 @@ def test_regeneration_worker_uses_the_session_mass_tolerance(monkeypatch):
     worker = workers.EicRegenerationWorker("Glucose", 0.2, ["s1"], 7.1, mass_tol=0.15)
     worker.run()
     assert seen["mass_tol"] == 0.15
+
+
+def test_bulk_load_cancel_stops_pulling_and_closes_the_task_stream(
+    review_db, monkeypatch
+):
+    """A cancel must abandon the remaining tasks, not drain the whole queue.
+
+    Closing the map generator is what cancels the not-yet-started futures on a
+    real executor, so the fake here asserts both halves: the loop stops pulling
+    at the first refusal, and the stream is closed on the way out.
+    """
+    time = np.linspace(0.0, 1.0, 5)
+    intensity = np.arange(1, 6, dtype=np.float64)
+    task_count = 40
+    with database.get_connection() as conn:
+        conn.execute("INSERT INTO samples (sample_name) VALUES ('S1')")
+        for index in range(task_count):
+            name = f"C{index:02d}"
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, "
+                "roffset, mass0, label_atoms, formula, label_type, "
+                "deconvolution_level) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, 1.0, 0.2, 0.2, 100.0, 0, "C1", "C", "off"),
+            )
+            conn.execute(
+                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis) "
+                "VALUES (?, ?, ?, ?)",
+                ("S1", name, _blob(time), _blob(intensity)),
+            )
+
+    pulled: list = []
+    closed: list = []
+
+    class LazyExecutor:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def map(self, worker, tasks):
+            def stream():
+                try:
+                    for task in tasks:
+                        pulled.append(task)
+                        yield worker(task)
+                finally:
+                    closed.append(True)
+
+            return stream()
+
+    monkeypatch.setattr(
+        "manic.io.data_provider.ThreadPoolExecutor", LazyExecutor
+    )
+
+    class Cancelled(Exception):
+        pass
+
+    def refuse(_value):
+        raise Cancelled()
+
+    provider = DataProvider()
+    with pytest.raises(Cancelled):
+        provider.load_bulk_sample_data(progress_callback=refuse)
+
+    assert closed == [True], "the task stream must be closed so pending work is cancelled"
+    assert len(pulled) == 25, (
+        f"expected the loop to stop at the first refused progress tick, "
+        f"pulled {len(pulled)} of {task_count}"
+    )

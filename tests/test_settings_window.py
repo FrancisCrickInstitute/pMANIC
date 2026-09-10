@@ -201,9 +201,8 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
         _select_page(settings, "Qualifier Ratios")
         page = settings.page_named("Qualifier Ratios")
         assert page.compound_label.text() == "Compound: Target"
-        assert page._labels[1].text() == (
-            "Qualifier 1  ·  m/z 147  ·  expected ratio 0.4"
-        )
+        assert page._labels[1].text() == "Qualifier 1 (m/z 147)"
+        assert page._ratio_labels[1].text() == "expected ratio 0.4"
         assert page._spins[1].isVisible()
         assert page._spins[2].isVisible()
         page._spins[1].setValue(0.3)

@@ -29,6 +29,10 @@ from manic.ui.window_placement import show_over_parent
 
 _ALL_MODES = frozenset(AnalysisMode)
 
+
+def _count_samples(names: list[str]) -> str:
+    return "1 sample" if len(names) == 1 else f"{len(names)} samples"
+
 _SPIN_STYLE = (
     "QDoubleSpinBox { background-color: white; color: #212529; }"
     "QDoubleSpinBox:disabled { background-color: #f8f9fa; color: #adb5bd; "
@@ -220,6 +224,7 @@ class QualifierRatioPage(SettingsPage):
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
         self._compound_name: str | None = None
+        self._present_ordinals: tuple[int, ...] = ()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
@@ -237,10 +242,10 @@ class QualifierRatioPage(SettingsPage):
 
         form = _form_layout()
         self._labels: dict[int, QLabel] = {}
+        self._ratio_labels: dict[int, QLabel] = {}
         self._spins: dict[int, QDoubleSpinBox] = {}
         for ordinal in self._ORDINALS:
             label = QLabel()
-            label.setWordWrap(True)
             spin = QDoubleSpinBox()
             spin.setObjectName(f"qualifier{ordinal}ToleranceSpin")
             spin.setRange(0.0, 10.0)
@@ -250,8 +255,16 @@ class QualifierRatioPage(SettingsPage):
             spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
             spin.setStyleSheet(_SPIN_STYLE)
             spin.valueChanged.connect(self._mark_dirty)
-            form.addRow(label, spin)
+            ratio_label = QLabel()
+            ratio_label.setStyleSheet(_HINT_STYLE)
+            field = QWidget()
+            field_layout = QHBoxLayout(field)
+            field_layout.setContentsMargins(0, 0, 0, 0)
+            field_layout.addWidget(spin, stretch=1)
+            field_layout.addWidget(ratio_label)
+            form.addRow(label, field)
             self._labels[ordinal] = label
+            self._ratio_labels[ordinal] = ratio_label
             self._spins[ordinal] = spin
             self._inputs.append(spin)
         layout.addLayout(form)
@@ -287,12 +300,13 @@ class QualifierRatioPage(SettingsPage):
             channel.ordinal: channel
             for channel in self.host.qualifier_channels(self._compound_name)
         }
+        self._present_ordinals = tuple(sorted(channels))
         for ordinal, spin in self._spins.items():
             label = self._labels[ordinal]
             channel = channels.get(ordinal)
             visible = channel is not None
             label.setVisible(visible)
-            spin.setVisible(visible)
+            spin.parentWidget().setVisible(visible)
             if channel is None:
                 continue
             ratio = (
@@ -300,10 +314,8 @@ class QualifierRatioPage(SettingsPage):
                 if channel.expected_ratio is not None
                 else "not set"
             )
-            label.setText(
-                f"Qualifier {channel.ordinal}  ·  m/z {channel.mz:g}  ·  "
-                f"expected ratio {ratio}"
-            )
+            label.setText(f"Qualifier {channel.ordinal} (m/z {channel.mz:g})")
+            self._ratio_labels[ordinal].setText(f"expected ratio {ratio}")
             with QSignalBlocker(spin):
                 spin.setValue(
                     0.0 if channel.ratio_tolerance is None else channel.ratio_tolerance
@@ -316,7 +328,7 @@ class QualifierRatioPage(SettingsPage):
         tolerances = {
             ordinal: None if spin.value() == 0.0 else spin.value()
             for ordinal, spin in self._spins.items()
-            if spin.isVisible()
+            if ordinal in self._present_ordinals
         }
         self.host.apply_qualifier_tolerances(self._compound_name, tolerances)
 
@@ -574,11 +586,11 @@ class DeconvolutionPage(SettingsPage):
             )
         current_samples = list(self.host.selected_sample_names())
         if current_samples != self._sample_names:
-            snap = (
-                ", ".join(self._sample_names) if self._sample_names else "no samples"
+            hint += (
+                f" The plot area now selects {_count_samples(current_samples)}; "
+                f"Save still writes to the {_count_samples(self._sample_names)} "
+                "selected when this page loaded."
             )
-            now = ", ".join(current_samples) if current_samples else "nothing"
-            hint += f" The plot area now selects {now}; Save still writes to {snap}."
         return hint
 
     def _on_level_changed(self, _index: int) -> None:
@@ -595,14 +607,12 @@ class DeconvolutionPage(SettingsPage):
         self._mark_dirty()
 
     def _sync_sample_section(self, page_enabled: bool) -> None:
-        has_samples = bool(self._sample_names)
-        self.sample_group.setEnabled(page_enabled and has_samples)
+        self.sample_group.setEnabled(page_enabled)
+        self.sample_fit_combo.setEnabled(page_enabled and bool(self._sample_names))
         overrides = (
             get_sample_fit_types(self._compound_name) if self._compound_name else {}
         )
-        self.clear_overrides.setEnabled(
-            page_enabled and has_samples and bool(overrides)
-        )
+        self.clear_overrides.setEnabled(page_enabled and bool(overrides))
 
     def _fill_sample_fit_combo(self, values: set) -> None:
         combo = self.sample_fit_combo
@@ -626,7 +636,7 @@ class DeconvolutionPage(SettingsPage):
             f"Compound: {self._compound_name or 'none selected'}"
         )
         self.sample_scope_label.setText(
-            f"Applies to the {len(self._sample_names)} samples selected in the plot area"
+            f"Applies to the {_count_samples(self._sample_names)} selected in the plot area"
         )
         overrides = (
             get_sample_fit_types(self._compound_name) if self._compound_name else {}

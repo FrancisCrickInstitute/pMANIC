@@ -380,7 +380,7 @@ class MainWindow(QMainWindow):
         # Connect the graph view's selection signal
         self.graph_view.selection_changed.connect(self.on_plot_selection_changed)
         self.graph_view.peak_review_changed.connect(self.on_peak_review_changed)
-        self.graph_view.sample_fit_type_changed.connect(self.on_sample_fit_type_changed)
+        self.graph_view.sample_fit_type_changed.connect(self.apply_sample_fit_type)
 
         # Connect the integration window's session data signals
         self.toolbar.integration.session_data_applied.connect(
@@ -845,14 +845,6 @@ class MainWindow(QMainWindow):
             set_peak_review(compound_name, sample_name, review)
         samples = self.graph_view.get_current_samples()
         self.graph_view.apply_peak_verdicts(self._peak_verdicts(compound_name, samples))
-
-    def on_sample_fit_type_changed(
-        self, compound_name: str, sample_names: list, fit_type
-    ):
-        set_sample_fit_type(compound_name, sample_names, fit_type)
-        if self._validation_provider is not None:
-            self._validation_provider.invalidate_cache()
-        self._replot_current_selection()
 
     def on_plot_button(self, compound_name, samples):
         # Validate inputs before plotting

@@ -308,7 +308,7 @@ The left toolbar contains two summary charts: **Label Incorporation** and **Tota
 
 ## 8. Settings & Configuration
 
-Open **Settings**, **Documentation**, **Check for Updates** and **About** from the **MANIC** menu (on macOS these sit in the application menu), or use the book and gear icons at the top right of the plot area.
+Open **Settings**, **Documentation**, **Check for Updates** and **About** from the **MANIC** menu (on macOS, About and Settings sit in the application menu and the other two under **Help**), or use the book and gear icons at the top right of the plot area.
 
 These settings control the global behavior of the application. Changing them usually requires re-processing your data.
 

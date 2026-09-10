@@ -329,10 +329,13 @@ class MainWindow(QMainWindow):
         self.update_old_data_action.triggered.connect(self.update_old_data)
         file_menu.addAction(self.update_old_data_action)
 
-        # One "MANIC" menu. On macOS the roles move every entry into the native
-        # application menu and Qt hides the emptied menu, which is that platform's
-        # convention; elsewhere the menu shows as-is.
-        manic_menu = menu_bar.addMenu("MANIC")
+        # About and Settings carry roles so a native macOS menubar moves them
+        # into the application menu (Qt relabels Settings as "Preferences..."
+        # there). Documentation and Check for Updates stay put; giving them
+        # ApplicationSpecificRole made Qt list them twice. On macOS the menu
+        # that keeps them is therefore titled Help, elsewhere it is MANIC.
+        native = menu_bar.isNativeMenuBar()
+        manic_menu = menu_bar.addMenu("Help" if native else "MANIC")
 
         self.settings_action = QAction("Settings...", self)
         self.settings_action.setMenuRole(QAction.PreferencesRole)
@@ -343,13 +346,13 @@ class MainWindow(QMainWindow):
         manic_menu.addAction(self.settings_action)
 
         self.documentation_action = QAction("Documentation", self)
-        self.documentation_action.setMenuRole(QAction.ApplicationSpecificRole)
+        self.documentation_action.setMenuRole(QAction.NoRole)
         self.documentation_action.setShortcut(QKeySequence.HelpContents)
         self.documentation_action.triggered.connect(self.open_documentation_window)
         manic_menu.addAction(self.documentation_action)
 
         self.check_updates_action = QAction("Check for Updates...", self)
-        self.check_updates_action.setMenuRole(QAction.ApplicationSpecificRole)
+        self.check_updates_action.setMenuRole(QAction.NoRole)
         self.check_updates_action.triggered.connect(self._check_for_updates)
         manic_menu.addAction(self.check_updates_action)
 

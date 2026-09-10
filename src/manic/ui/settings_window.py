@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QSignalBlocker, QSize, Signal
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QAbstractSpinBox,
     QButtonGroup,
     QCheckBox,
@@ -10,7 +11,6 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -18,7 +18,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -476,6 +479,7 @@ class DeconvolutionPage(SettingsPage):
         super().__init__(host, parent)
         self._compound_name: str | None = None
         self._sample_names: list[str] = []
+        self._loaded_overrides: dict[str, str] = {}
         self._sample_section_touched = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -535,29 +539,68 @@ class DeconvolutionPage(SettingsPage):
         self._inputs.append(self.apply_all)
         layout.addWidget(self.apply_all)
 
-        self.sample_group = QGroupBox("Per-sample curve fit")
-        sample_layout = QVBoxLayout(self.sample_group)
-        self.sample_scope_label = QLabel(
-            "Applies to the 0 samples selected in the plot area"
+        sample_heading = QLabel("Per-sample curve fit")
+        sample_heading.setStyleSheet("font-weight: 600; margin-top: 8px;")
+        layout.addWidget(sample_heading)
+        layout.addWidget(
+            _hint(
+                "Overrides replace the compound fit type for individual samples. "
+                "Choose Use compound setting to remove one."
+            )
         )
-        self.sample_scope_label.setWordWrap(True)
-        sample_layout.addWidget(self.sample_scope_label)
 
         sample_form = _form_layout()
         self.sample_fit_combo = QComboBox()
         self.sample_fit_combo.setObjectName("sampleFitCombo")
         self.sample_fit_combo.setStyleSheet(_COMBO_STYLE)
-        self.sample_fit_combo.currentIndexChanged.connect(self._mark_sample_section_dirty)
-        sample_form.addRow("Fit type", self.sample_fit_combo)
-        sample_layout.addLayout(sample_form)
-
-        self.clear_overrides = QCheckBox(
-            "Clear all per-sample overrides for this compound (0)"
+        self.sample_fit_combo.currentIndexChanged.connect(
+            self._mark_sample_section_dirty
         )
-        self.clear_overrides.setObjectName("clearSampleFitCheck")
-        self.clear_overrides.toggled.connect(self._mark_sample_section_dirty)
-        sample_layout.addWidget(self.clear_overrides)
-        layout.addWidget(self.sample_group)
+        sample_field = QWidget()
+        sample_field_layout = QVBoxLayout(sample_field)
+        sample_field_layout.setContentsMargins(0, 0, 0, 0)
+        sample_field_layout.setSpacing(4)
+        sample_field_layout.addWidget(self.sample_fit_combo)
+        self.sample_scope_label = QLabel(
+            "Select tiles in the plot area to set their fit here"
+        )
+        self.sample_scope_label.setWordWrap(True)
+        self.sample_scope_label.setStyleSheet(_HINT_STYLE)
+        sample_field_layout.addWidget(self.sample_scope_label)
+        sample_form.addRow("Selected samples", sample_field)
+        layout.addLayout(sample_form)
+
+        self.sample_fit_table = QTableWidget(0, 2)
+        self.sample_fit_table.setObjectName("sampleFitTable")
+        self.sample_fit_table.setHorizontalHeaderLabels(["Sample", "Fit type"])
+        self.sample_fit_table.verticalHeader().setVisible(False)
+        self.sample_fit_table.horizontalHeader().setStretchLastSection(True)
+        self.sample_fit_table.horizontalHeader().setHighlightSections(False)
+        self.sample_fit_table.setShowGrid(False)
+        self.sample_fit_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.sample_fit_table.setFocusPolicy(Qt.NoFocus)
+        self.sample_fit_table.setAlternatingRowColors(False)
+        self.sample_fit_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.sample_fit_table.verticalHeader().setDefaultSectionSize(32)
+        self.sample_fit_table.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed
+        )
+        layout.addWidget(self.sample_fit_table)
+
+        self.empty_overrides_label = _hint(
+            "No per-sample overrides for this compound."
+        )
+        layout.addWidget(self.empty_overrides_label)
+
+        remove_row = QHBoxLayout()
+        remove_row.addStretch()
+        self.remove_all_button = QPushButton("Remove all overrides")
+        self.remove_all_button.setObjectName("removeAllOverridesButton")
+        self.remove_all_button.setAutoDefault(False)
+        self.remove_all_button.setDefault(False)
+        self.remove_all_button.clicked.connect(self._stage_remove_all_overrides)
+        remove_row.addWidget(self.remove_all_button)
+        layout.addLayout(remove_row)
         layout.addStretch()
 
     def editable(self) -> tuple[bool, str]:
@@ -607,26 +650,90 @@ class DeconvolutionPage(SettingsPage):
         self._mark_dirty()
 
     def _sync_sample_section(self, page_enabled: bool) -> None:
-        self.sample_group.setEnabled(page_enabled)
         self.sample_fit_combo.setEnabled(page_enabled and bool(self._sample_names))
-        overrides = (
-            get_sample_fit_types(self._compound_name) if self._compound_name else {}
-        )
-        self.clear_overrides.setEnabled(page_enabled and bool(overrides))
+        has_rows = self.sample_fit_table.rowCount() > 0
+        self.remove_all_button.setEnabled(page_enabled and has_rows)
+        for row in range(self.sample_fit_table.rowCount()):
+            combo = self.sample_fit_table.cellWidget(row, 1)
+            if combo is not None:
+                combo.setEnabled(page_enabled)
 
-    def _fill_sample_fit_combo(self, values: set) -> None:
-        combo = self.sample_fit_combo
+    def _fill_fit_options(self, combo: QComboBox, current: str | None) -> None:
         combo.clear()
         combo.addItem("Use compound setting", None)
         for value, label in FIT_TYPE_LABELS.items():
             combo.addItem(label, value)
+        index = combo.findData(current)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def _fill_sample_fit_combo(self, values: set) -> None:
+        combo = self.sample_fit_combo
         if not self._sample_names or len(values) <= 1:
             common = next(iter(values), None) if self._sample_names else None
-            index = combo.findData(common)
-            combo.setCurrentIndex(index if index >= 0 else 0)
+            self._fill_fit_options(combo, common)
             return
+        self._fill_fit_options(combo, None)
         combo.addItem("(mixed)", self._MIXED)
         combo.setCurrentIndex(combo.findData(self._MIXED))
+
+    def _fit_override_table_height(self) -> None:
+        header = max(self.sample_fit_table.horizontalHeader().sizeHint().height(), 24)
+        row_h = self.sample_fit_table.verticalHeader().defaultSectionSize()
+        frame = 2 * self.sample_fit_table.frameWidth()
+        cap = header + 6 * row_h + frame
+        rows = self.sample_fit_table.rowCount()
+        height = header + min(max(rows, 1), 6) * row_h + frame
+        self.sample_fit_table.setMaximumHeight(cap)
+        self.sample_fit_table.setFixedHeight(min(height, cap))
+
+    def _rebuild_override_table(self, overrides: dict[tuple[str, str], str]) -> None:
+        self._loaded_overrides = {
+            sample: fit_type for (_, sample), fit_type in overrides.items()
+        }
+        rows = sorted(self._loaded_overrides.items())
+        table = self.sample_fit_table
+        table.setRowCount(len(rows))
+        for row, (sample, fit_type) in enumerate(rows):
+            item = QTableWidgetItem(sample)
+            item.setFlags(Qt.ItemIsEnabled)
+            table.setItem(row, 0, item)
+            combo = QComboBox()
+            combo.setStyleSheet(_COMBO_STYLE)
+            self._fill_fit_options(combo, fit_type)
+            combo.currentIndexChanged.connect(self._mark_dirty)
+            table.setCellWidget(row, 1, combo)
+        table.resizeColumnToContents(0)
+        empty = not rows
+        table.setVisible(not empty)
+        self.empty_overrides_label.setVisible(empty)
+        self._fit_override_table_height()
+
+    def _stage_remove_all_overrides(self) -> None:
+        for row in range(self.sample_fit_table.rowCount()):
+            combo = self.sample_fit_table.cellWidget(row, 1)
+            if combo is None:
+                continue
+            with QSignalBlocker(combo):
+                combo.setCurrentIndex(combo.findData(None))
+        self._mark_dirty()
+
+    def _staged_sample_changes(self) -> dict[str, str | None]:
+        changes: dict[str, str | None] = {}
+        for row in range(self.sample_fit_table.rowCount()):
+            item = self.sample_fit_table.item(row, 0)
+            combo = self.sample_fit_table.cellWidget(row, 1)
+            if item is None or combo is None:
+                continue
+            sample = item.text()
+            value = combo.currentData()
+            if value != self._loaded_overrides.get(sample):
+                changes[sample] = value
+        if self._sample_section_touched:
+            fit_type = self.sample_fit_combo.currentData()
+            if fit_type != self._MIXED:
+                for sample in self._sample_names:
+                    changes[sample] = fit_type
+        return changes
 
     def load(self) -> None:
         self._compound_name = self.host.selected_compound_name()
@@ -635,14 +742,17 @@ class DeconvolutionPage(SettingsPage):
         self.compound_label.setText(
             f"Compound: {self._compound_name or 'none selected'}"
         )
-        self.sample_scope_label.setText(
-            f"Applies to the {_count_samples(self._sample_names)} selected in the plot area"
-        )
+        if self._sample_names:
+            self.sample_scope_label.setText(
+                f"Sets the fit for the {_count_samples(self._sample_names)} "
+                "selected in the plot area"
+            )
+        else:
+            self.sample_scope_label.setText(
+                "Select tiles in the plot area to set their fit here"
+            )
         overrides = (
             get_sample_fit_types(self._compound_name) if self._compound_name else {}
-        )
-        self.clear_overrides.setText(
-            f"Clear all per-sample overrides for this compound ({len(overrides)})"
         )
         level, fit, gate = self.host.deconvolution_settings(self._compound_name)
         values = {
@@ -654,39 +764,29 @@ class DeconvolutionPage(SettingsPage):
             QSignalBlocker(self.gate_combo),
             QSignalBlocker(self.apply_all),
             QSignalBlocker(self.sample_fit_combo),
-            QSignalBlocker(self.clear_overrides),
         ):
             _fill_combo(self.level_combo, _DECONVOLUTION_LEVEL_OPTIONS, level)
             _fill_combo(self.fit_combo, _DECONVOLUTION_FIT_OPTIONS, fit)
             _fill_combo(self.gate_combo, _DECONVOLUTION_GATE_OPTIONS, gate)
             self.apply_all.setChecked(False)
             self._fill_sample_fit_combo(values)
-            self.clear_overrides.setChecked(False)
+        self._rebuild_override_table(overrides)
         self._sync_fit_enabled()
         self._sync_sample_section(self.editable()[0])
         self._clear_dirty()
 
     def save(self) -> None:
-        fit_type = self.sample_fit_combo.currentData()
-        will_write_samples = self._sample_section_touched and (
-            self.clear_overrides.isChecked() or fit_type != self._MIXED
-        )
+        changes = self._staged_sample_changes()
         self.host.apply_deconvolution(
             self._compound_name,
             self.level_combo.currentData(),
             self.fit_combo.currentData(),
             self.gate_combo.currentData(),
             self.apply_all.isChecked(),
-            replot=not will_write_samples,
+            replot=not changes,
         )
-        if not will_write_samples:
-            return
-        if self.clear_overrides.isChecked():
-            self.host.clear_sample_fit_types(self._compound_name)
-            return
-        self.host.apply_sample_fit_type(
-            self._compound_name, self._sample_names, fit_type
-        )
+        if changes:
+            self.host.apply_sample_fit_types(self._compound_name, changes)
 
 
 SETTINGS_PAGES: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] = (
@@ -708,7 +808,7 @@ class SettingsWindow(QDialog):
         self._host = host
         self.setObjectName("settingsWindow")
         self.setWindowTitle("Settings")
-        self.resize(880, 600)
+        self.resize(880, 720)
         self.setMinimumSize(720, 480)
 
         self._pages: list[SettingsPage] = [

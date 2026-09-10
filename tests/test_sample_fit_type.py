@@ -16,7 +16,6 @@ from manic.models import database
 from manic.models import session_export
 from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import (
-    clear_sample_fit_types,
     get_sample_fit_types,
     set_sample_fit_type,
 )
@@ -214,10 +213,10 @@ def test_written_override_appears_on_the_tile_caption(fit_db):
     assert tile_caption("S2", overrides.get(("Target", "S2"))) == "S2"
 
 
-def test_clear_sample_fit_types_removes_every_override(fit_db):
+def test_set_sample_fit_type_none_removes_every_named_sample(fit_db):
     _insert_compound("Target")
     _insert_eic("S1", "Target")
     _insert_eic("S2", "Target")
     set_sample_fit_type("Target", ["S1", "S2"], "auto")
-    clear_sample_fit_types("Target")
+    set_sample_fit_type("Target", ["S1", "S2"], None)
     assert get_sample_fit_types("Target") == {}

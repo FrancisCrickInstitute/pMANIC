@@ -49,11 +49,3 @@ def get_sample_fit_types(
     return {
         (row["compound_name"], row["sample_name"]): row["fit_type"] for row in rows
     }
-
-
-def clear_sample_fit_types(compound_name: str) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            "DELETE FROM sample_fit_type WHERE compound_name = ?",
-            (compound_name,),
-        )

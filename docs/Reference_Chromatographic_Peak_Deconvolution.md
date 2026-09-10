@@ -87,7 +87,7 @@ The Deconvolution page includes an **"Apply to all compounds"** checkbox. When t
 
 ### Per-sample curve fit
 
-A sample can override the compound fit type without changing resolution or the noise gate. Right-click selected plot tiles and choose **Curve fit**, or use **Settings → Deconvolution → Per-sample curve fit** for the tiles currently selected in the plot area. An override shows on the tile caption as `Sample  ·  Gaussian` (or Auto, Bi-Gaussian, EMG). Tiles that inherit the compound setting keep the sample name only. Export, session export, and the changelog use the same override. Clearing the override, or choosing **Use compound setting**, returns that sample to the compound fit type.
+A sample can override the compound fit type without changing resolution or the noise gate. Right-click selected plot tiles and choose **Curve fit**, or use **Settings → Deconvolution → Per-sample curve fit** for the tiles currently selected in the plot area. The same settings section lists every override for the compound. Each row is editable. **Remove all overrides** sets every row to **Use compound setting**. Nothing is written until Save. An override shows on the tile caption as `Sample  ·  Gaussian` (or Auto, Bi-Gaussian, EMG). Tiles that inherit the compound setting keep the sample name only. Export, session export, and the changelog use the same override. Choosing **Use compound setting** returns that sample to the compound fit type.
 
 ## Resolution Levels
 

@@ -480,3 +480,24 @@ QListWidget#documentationPageList::item:selected {
     background-color: #e9ecef;
     color: #212529;
 }
+
+QDialog#settingsWindow QTableWidget {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+QDialog#settingsWindow QTableWidget::item {
+    background: white;
+    color: #212529;
+    padding: 4px;
+}
+
+QDialog#settingsWindow QHeaderView::section {
+    background: #f8f9fa;
+    border: none;
+    border-bottom: 1px solid #dee2e6;
+    padding: 4px;
+    font-weight: 600;
+    color: #212529;
+}

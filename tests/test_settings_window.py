@@ -78,6 +78,15 @@ def _select_page(settings_window, title: str) -> None:
     raise KeyError(title)
 
 
+def _override_row_combo(page, sample: str):
+    table = page.sample_fit_table
+    for row in range(table.rowCount()):
+        item = table.item(row, 0)
+        if item is not None and item.text() == sample:
+            return table.cellWidget(row, 1)
+    raise AssertionError(f"no override row for {sample}")
+
+
 @pytest.fixture
 def labelled_window(qapp, empty_db, monkeypatch):
     window = _make_window(AnalysisMode.LABELLED, monkeypatch)
@@ -397,9 +406,14 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     _select_page(settings, "Deconvolution")
     page = settings.page_named("Deconvolution")
     assert page.sample_scope_label.text() == (
-        "Applies to the 2 samples selected in the plot area"
+        "Sets the fit for the 2 samples selected in the plot area"
     )
-    assert page.sample_group.isEnabled()
+    assert page.sample_fit_combo.isEnabled()
+    assert not page.sample_fit_table.isVisible()
+    assert page.empty_overrides_label.isVisible()
+    assert page.empty_overrides_label.text() == (
+        "No per-sample overrides for this compound."
+    )
     page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData("gaussian"))
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {
@@ -407,11 +421,23 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
         ("Alanine", "S2"): "gaussian",
     }
     assert replots == [1]
+    assert page.sample_fit_table.isVisible()
+    assert not page.empty_overrides_label.isVisible()
 
-    page.clear_overrides.setChecked(True)
+    s1_combo = _override_row_combo(page, "S1")
+    s1_combo.setCurrentIndex(s1_combo.findData("emg"))
+    s2_combo = _override_row_combo(page, "S2")
+    s2_combo.setCurrentIndex(s2_combo.findData(None))
+    settings.save_button.click()
+    assert get_sample_fit_types("Alanine") == {("Alanine", "S1"): "emg"}
+    assert replots == [1, 1]
+
+    page.remove_all_button.click()
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {}
-    assert replots == [1, 1]
+    assert replots == [1, 1, 1]
+    assert not page.sample_fit_table.isVisible()
+    assert page.empty_overrides_label.isVisible()
 
 
 def test_deconvolution_unsaved_hint_names_the_compound_it_will_write(labelled_window):

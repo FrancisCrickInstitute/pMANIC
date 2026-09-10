@@ -12,6 +12,9 @@ from PySide6.QtWidgets import (
 
 from manic.io.compound_reader import read_compound
 from manic.models.analysis import AnalysisMode
+from manic.processors.chromatographic_peak_deconvolution import (
+    chromatographic_peak_deconvolution_enabled,
+)
 from manic.processors.tile_y_scale import YScalePolicy, available_y_scale_policies
 from manic.utils.paths import resource_path
 
@@ -229,6 +232,7 @@ class Toolbar(QWidget):
             )
             self.selected_peak_yscale_checkbox.setToolTip(
                 "Scale each sample to its selected peak (component nearest tR).\n"
+                "Needs deconvolution on for this compound (Settings > Deconvolution).\n"
                 "Other peaks in the extract may clip.\n"
                 "Off: each plot autoscales to its extract."
             )
@@ -314,6 +318,7 @@ class Toolbar(QWidget):
             self.fill_integration_window(selected_text)
             # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
+            self.sync_selected_peak_checkbox(selected_text)
         else:
             self.compound_selected.emit("")
             self.compound_indicator.set_compound("")
@@ -403,6 +408,23 @@ class Toolbar(QWidget):
             self.baseline_checkbox.setChecked(False)
             self.baseline_checkbox.blockSignals(False)
 
+    def sync_selected_peak_checkbox(self, compound_name: str):
+        checkbox = self.selected_peak_yscale_checkbox
+        if checkbox is None:
+            return
+        enabled = False
+        if compound_name and not compound_name.startswith("- No"):
+            try:
+                compound = read_compound(compound_name)
+                enabled = chromatographic_peak_deconvolution_enabled(
+                    compound.deconvolution_level
+                )
+            except LookupError:
+                enabled = False
+        checkbox.setEnabled(enabled)
+        if not enabled and checkbox.isChecked():
+            self._commit_y_scale_policy(YScalePolicy.PER_TILE_EXTRACT)
+
     def _on_shared_yscale_toggled(self, state: int):
         self._commit_y_scale_policy(
             YScalePolicy.SHARED_EXTRACT
@@ -418,7 +440,6 @@ class Toolbar(QWidget):
         )
 
     def _commit_y_scale_policy(self, policy: YScalePolicy) -> None:
-        policy = YScalePolicy.coerce(policy)
         if policy not in self._available_y_scale_policies:
             policy = YScalePolicy.PER_TILE_EXTRACT
         changed = policy is not self._y_scale_policy

@@ -488,7 +488,6 @@ class GraphView(QWidget):
         return False
 
     def set_y_scale_policy(self, policy: YScalePolicy):
-        policy = YScalePolicy.coerce(policy)
         if policy is self._y_scale_policy:
             return
         self._y_scale_policy = policy
@@ -503,27 +502,6 @@ class GraphView(QWidget):
                 self._last_validation_data,
                 identity=self._identity,
             )
-
-    def _y_axis_for_tile(
-        self,
-        eic,
-        compound,
-        prepared,
-        axis_scale: YAxisScale | None,
-    ) -> YAxisScale:
-        if axis_scale is not None:
-            return axis_scale
-        axes = axes_for_tiles(
-            self._y_scale_policy,
-            (
-                TileScaleInput(
-                    prepared=prepared,
-                    raw_intensity=eic.intensity,
-                    independent_channels=compound.is_unlabelled_target,
-                ),
-            ),
-        )
-        return axes[0]
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:
         """One chip per plotted channel above the grid, in both analysis modes."""
@@ -994,7 +972,8 @@ class GraphView(QWidget):
         self,
         eic,
         verdict: PeakVerdict = PeakVerdict.PASS,
-        axis_scale: YAxisScale | None = None,
+        *,
+        axis_scale: YAxisScale,
     ) -> QWidget:
         """
         Retrieve a complete plot container from the pool or create a new one.
@@ -1027,7 +1006,8 @@ class GraphView(QWidget):
         self,
         eic,
         verdict: PeakVerdict = PeakVerdict.PASS,
-        axis_scale: YAxisScale | None = None,
+        *,
+        axis_scale: YAxisScale,
     ) -> QWidget:
         """
         Create a new plot container with chart view and caption.
@@ -1095,7 +1075,8 @@ class GraphView(QWidget):
         container: QWidget,
         eic,
         verdict: PeakVerdict = PeakVerdict.PASS,
-        axis_scale: YAxisScale | None = None,
+        *,
+        axis_scale: YAxisScale,
     ):
         """
         Update an existing container with new EIC data.
@@ -1178,7 +1159,8 @@ class GraphView(QWidget):
         self,
         chart_view: ClickableChartView,
         eic,
-        axis_scale: YAxisScale | None = None,
+        *,
+        axis_scale: YAxisScale,
     ):
         """
         Update an existing chart with new EIC data without recreating Qt objects.
@@ -1213,10 +1195,9 @@ class GraphView(QWidget):
             prepared = self._plot_display_for(eic, compound)
 
             eic_intensity = eic.intensity
-            axis = self._y_axis_for_tile(eic, compound, prepared, axis_scale)
-            scale_factor = axis.scale_factor
-            scale_exp = axis.scale_exp
-            scaled_y_max = axis.scaled_max
+            scale_factor = axis_scale.scale_factor
+            scale_exp = axis_scale.scale_exp
+            scaled_y_max = axis_scale.scaled_max
 
             # Reuse existing axes
             axes = chart.axes()
@@ -1354,14 +1335,15 @@ class GraphView(QWidget):
         self,
         eic,
         verdict: PeakVerdict = PeakVerdict.PASS,
-        axis_scale: YAxisScale | None = None,
+        *,
+        axis_scale: YAxisScale,
     ) -> QWidget:
         """Create a widget containing a plot with sample name caption below."""
         # Create the plot container using pooling for performance
         return self._get_container_from_pool(eic, verdict, axis_scale=axis_scale)
 
     def _build_plot(
-        self, eic, axis_scale: YAxisScale | None = None
+        self, eic, axis_scale: YAxisScale
     ) -> ClickableChartView:
         """Create a ClickableChartView with EIC data and guide lines."""
         # Use session data if available, otherwise use default compound data
@@ -1376,10 +1358,9 @@ class GraphView(QWidget):
         chart.legend().hide()
 
         eic_intensity = eic.intensity
-        axis = self._y_axis_for_tile(eic, compound, prepared, axis_scale)
-        scale_factor = axis.scale_factor
-        scale_exp = axis.scale_exp
-        scaled_y_max = axis.scaled_max
+        scale_factor = axis_scale.scale_factor
+        scale_exp = axis_scale.scale_exp
+        scaled_y_max = axis_scale.scaled_max
 
         font = create_font(8)
 

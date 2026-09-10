@@ -18,12 +18,6 @@ class YScalePolicy(StrEnum):
     SHARED_EXTRACT = "shared_extract"
     PER_TILE_SELECTED_PEAK = "per_tile_selected_peak"
 
-    @classmethod
-    def coerce(cls, value: YScalePolicy | str) -> YScalePolicy:
-        if isinstance(value, cls):
-            return value
-        return cls(str(value).strip().lower())
-
 
 @dataclass(frozen=True, slots=True)
 class TileScaleInput:
@@ -92,22 +86,14 @@ def selected_peak_scale_intensity(
         and bundle.shows_model_overlays(independent_channels=independent_channels)
     ):
         return np.asarray(prepared.intensity, dtype=np.float64)
-    rows: list[np.ndarray] = []
-    for model in models:
-        t_left, t_right = model.integration_left, model.integration_right
-        if not (t_right > t_left):
-            t_left, t_right = model.fit_left, model.fit_right
-        if not (t_right > t_left):
-            continue
-        grid = np.linspace(t_left, t_right, MODEL_OVERLAY_GRID_POINTS)
-        rows.append(
-            np.ravel(np.asarray(model.evaluate_selected(grid), dtype=np.float64))
-        )
-    if not rows:
+    model = models[0]
+    t_left, t_right = model.integration_left, model.integration_right
+    if not (t_right > t_left):
+        t_left, t_right = model.fit_left, model.fit_right
+    if not (t_right > t_left):
         return None
-    if len(rows) == 1:
-        return rows[0]
-    return np.vstack(rows)
+    grid = np.linspace(t_left, t_right, MODEL_OVERLAY_GRID_POINTS)
+    return bundle.evaluate_selected_stack(grid)
 
 
 def tile_y_max(policy: YScalePolicy, tile: TileScaleInput) -> float:
@@ -149,7 +135,6 @@ def axes_for_tiles(
     policy: YScalePolicy,
     tiles: Sequence[TileScaleInput],
 ) -> tuple[YAxisScale, ...]:
-    policy = YScalePolicy.coerce(policy)
     if not tiles:
         return ()
     maxima = tuple(tile_y_max(policy, tile) for tile in tiles)

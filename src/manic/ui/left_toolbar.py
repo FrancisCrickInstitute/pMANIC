@@ -28,6 +28,16 @@ from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
 
 
+def _deconvolution_on(compound_name: str) -> bool:
+    if not compound_name or compound_name.startswith("- No"):
+        return False
+    try:
+        compound = read_compound(compound_name)
+    except LookupError:
+        return False
+    return chromatographic_peak_deconvolution_enabled(compound.deconvolution_level)
+
+
 class Toolbar(QWidget):
     # Signal for the currently selected samples
     samples_selected = Signal(list)
@@ -412,17 +422,8 @@ class Toolbar(QWidget):
         checkbox = self.selected_peak_yscale_checkbox
         if checkbox is None:
             return
-        enabled = False
-        if compound_name and not compound_name.startswith("- No"):
-            try:
-                compound = read_compound(compound_name)
-                enabled = chromatographic_peak_deconvolution_enabled(
-                    compound.deconvolution_level
-                )
-            except LookupError:
-                enabled = False
-        checkbox.setEnabled(enabled)
-        if not enabled and checkbox.isChecked():
+        checkbox.setEnabled(_deconvolution_on(compound_name))
+        if not checkbox.isEnabled() and checkbox.isChecked():
             self._commit_y_scale_policy(YScalePolicy.PER_TILE_EXTRACT)
 
     def _on_shared_yscale_toggled(self, state: int):

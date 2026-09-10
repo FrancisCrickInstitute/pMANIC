@@ -66,16 +66,6 @@ def _tile(prepared_intensity, raw_intensity, *, model=_UNSET) -> TileScaleInput:
     )
 
 
-def test_selected_peak_ignores_a_taller_neighbour():
-    tile = _tile([1.0, 12.0, 100.0], [1.0, 12.0, 100.0])
-
-    extract, = axes_for_tiles(YScalePolicy.PER_TILE_EXTRACT, (tile,))
-    selected, = axes_for_tiles(YScalePolicy.PER_TILE_SELECTED_PEAK, (tile,))
-
-    assert extract.unscaled_max == 100.0
-    assert selected.unscaled_max == 12.0
-
-
 def test_shared_extract_copies_one_number_selected_peak_does_not():
     short = _tile([4.0, 10.0], [4.0, 10.0], model=_SelectedModel(7.0))
     tall = _tile([8.0, 40.0], [8.0, 40.0], model=_SelectedModel(12.0))

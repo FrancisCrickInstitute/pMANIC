@@ -47,7 +47,7 @@ $$
 
 The **Metabolite Response Ratio Factor (MRRF)** is a calibration slope calculated globally for the entire session. It determines how "loud" a metabolite's signal is compared to the internal standard.
 
-MANIC scans all files matching your `mm_files` pattern (Standard Mixtures) to derive this factor.
+MANIC scans all files matching your `mm_files` pattern (MM files (standard mixture)) to derive this factor.
 
 ### Formula
 
@@ -87,8 +87,8 @@ Changing the internal standard compound resets the reference peak back to **M+0*
 
 | Column | Requirement | Usage in Formula |
 | :--- | :--- | :--- |
-| `int_std_amount` | **Sample Dose.** | Used as Amount_{IS} for normal samples. |
-| `amount_in_std_mix` | **Calibration Dose.** | Used to calculate MRRF. If 0, the metabolite uses "Relative" mode. |
+| `int_std_amount` | **Sample Dose.** | Used as Amount_{IS} for normal samples. The value is used as written. There is no unit conversion. The **Abundances** sheet labels the result nmol. |
+| `amount_in_std_mix` | **Calibration Dose.** | Used to calculate MRRF. The value is used as written. There is no unit conversion. If 0 or missing, the metabolite uses Relative mode. |
 
 ### Dynamic Amount Switching
 MANIC is "context-aware" regarding the Internal Standard amount:
@@ -109,3 +109,6 @@ If you clear the internal standard selection, MANIC will export the sum of corre
 
 ### Missing Calibration
 If a metabolite has no `amount_in_std_mix` defined, it is treated as **Relative**. It is normalized to the Internal Standard signal but is not scaled by an MRRF.
+
+### No matching MM files (standard mixture)
+If a compound has no `mm_files` pattern, or the pattern matches no loaded samples, or the MRRF inputs are incomplete, MANIC sets MRRF to 1.0. A compound whose MRRF could not be computed is reported as Relative.

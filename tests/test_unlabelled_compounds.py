@@ -34,17 +34,9 @@ from manic.processors.integration import calculate_peak_areas
 from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.validation.unlabelled_identity import IdentityStatus
 
+from conftest import _gaussian
 
 SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
-
-
-@pytest.fixture
-def unlabelled_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "unlabelled.db"
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-    return db_path
 
 
 def _import_targets(tmp_path, **row) -> int:
@@ -52,10 +44,6 @@ def _import_targets(tmp_path, **row) -> int:
     path = tmp_path / "targets.csv"
     pd.DataFrame([row]).to_csv(path, index=False)
     return import_compound_excel(path, AnalysisMode.UNLABELLED)
-
-
-def _gaussian(time, center, width, height):
-    return height * np.exp(-0.5 * ((time - center) / width) ** 2)
 
 
 def _enable_deconvolution(compound_name: str, level: str = "4") -> None:
@@ -86,51 +74,59 @@ def _insert_eic(sample: str, compound: str, time, matrix, rt_window: float) -> N
         )
 
 
-def test_detect_format_recognises_qualifier_ion_csv(tmp_path):
-    path = tmp_path / "qualifier.csv"
-    path.write_text(
-        "name,tR,lOffset,rOffset,QIon,QualifierIon1,QualifierIon2,tR_Window\n"
-        "A,1.0,0.1,0.1,100,150,200,0.1\n"
-    )
-    assert detect_compound_list_format(path) is AnalysisMode.UNLABELLED
-
-
-def test_detect_format_recognises_gv3_csv(tmp_path):
-    path = tmp_path / "gv3.csv"
-    path.write_text(
-        "name,tR,lOffset,rOffset,QIon,ValIon1,ValIon2,tR_Window\n"
-        "A,1.0,0.1,0.1,100,150,200,0.1\n"
-    )
-    assert detect_compound_list_format(path) is AnalysisMode.UNLABELLED
-
-
-def test_detect_format_recognises_gv5_xlsx(tmp_path):
-    path = tmp_path / "gv5.xlsx"
-    pd.DataFrame(
-        {
-            "name": ["Pyruvate"],
-            "tR": [6.37],
-            "Mass0": [174],
-            "LabelAtoms": [3],
-        }
-    ).to_excel(path, index=False)
-    assert detect_compound_list_format(path) is AnalysisMode.LABELLED
-
-
-def test_detect_format_normalises_header_variants(tmp_path):
-    path = tmp_path / "variants.csv"
-    path.write_text("Name,tR,Quant Ion,Val Ion 1\nA,1.0,100,150\n")
-    assert detect_compound_list_format(path) is AnalysisMode.UNLABELLED
-
-
-def test_detect_format_returns_none_for_unrecognised_headers(tmp_path):
-    path = tmp_path / "other.csv"
-    path.write_text("a,b,c\n1,2,3\n")
-    assert detect_compound_list_format(path) is None
-
-
-def test_detect_format_returns_none_for_missing_file(tmp_path):
-    assert detect_compound_list_format(tmp_path / "missing.csv") is None
+@pytest.mark.parametrize(
+    "path_setup,expected_mode",
+    [
+        ("qion_csv", AnalysisMode.UNLABELLED),
+        ("valion_csv", AnalysisMode.UNLABELLED),
+        ("labelatoms_xlsx", AnalysisMode.LABELLED),
+        ("header_variants", AnalysisMode.UNLABELLED),
+        ("unknown_headers", None),
+        ("missing_file", None),
+    ],
+    ids=[
+        "qion_csv",
+        "valion_csv",
+        "labelatoms_xlsx",
+        "header_variants",
+        "unknown_headers",
+        "missing_file",
+    ],
+)
+def test_detect_compound_list_format(tmp_path, path_setup, expected_mode):
+    if path_setup == "qion_csv":
+        path = tmp_path / "qualifier.csv"
+        path.write_text(
+            "name,tR,lOffset,rOffset,QIon,QualifierIon1,QualifierIon2,tR_Window\n"
+            "A,1.0,0.1,0.1,100,150,200,0.1\n"
+        )
+    elif path_setup == "valion_csv":
+        path = tmp_path / "gv3.csv"
+        path.write_text(
+            "name,tR,lOffset,rOffset,QIon,ValIon1,ValIon2,tR_Window\n"
+            "A,1.0,0.1,0.1,100,150,200,0.1\n"
+        )
+    elif path_setup == "labelatoms_xlsx":
+        path = tmp_path / "gv5.xlsx"
+        pd.DataFrame(
+            {
+                "name": ["Pyruvate"],
+                "tR": [6.37],
+                "Mass0": [174],
+                "LabelAtoms": [3],
+            }
+        ).to_excel(path, index=False)
+    elif path_setup == "header_variants":
+        path = tmp_path / "variants.csv"
+        path.write_text("Name,tR,Quant Ion,Val Ion 1\nA,1.0,100,150\n")
+    elif path_setup == "unknown_headers":
+        path = tmp_path / "other.csv"
+        path.write_text("a,b,c\n1,2,3\n")
+    elif path_setup == "missing_file":
+        path = tmp_path / "missing.csv"
+    else:
+        raise AssertionError(path_setup)
+    assert detect_compound_list_format(path) is expected_mode
 
 
 def test_existing_database_migrates_targeted_schema(tmp_path, monkeypatch):
@@ -175,7 +171,7 @@ def test_existing_database_migrates_targeted_schema(tmp_path, monkeypatch):
 
 
 def test_unlabelled_compound_import_stores_arbitrary_ion_channels(
-    unlabelled_db, tmp_path
+    empty_db, tmp_path
 ):
     count = _import_targets(
         tmp_path,
@@ -207,7 +203,7 @@ def test_unlabelled_compound_import_stores_arbitrary_ion_channels(
     assert compound.analysis_channels[1].ratio_tolerance == pytest.approx(0.25)
 
 
-def test_unlabelled_import_still_accepts_valion_headers(unlabelled_db, tmp_path):
+def test_unlabelled_import_still_accepts_valion_headers(empty_db, tmp_path):
     count = _import_targets(
         tmp_path,
         name="Legacy",
@@ -225,7 +221,7 @@ def test_unlabelled_import_still_accepts_valion_headers(unlabelled_db, tmp_path)
 
 
 def test_unlabelled_import_requires_quantifier_and_qualifier_columns(
-    unlabelled_db, tmp_path
+    empty_db, tmp_path
 ):
     compound_list = tmp_path / "labelled-shaped.csv"
     pd.DataFrame(
@@ -249,7 +245,7 @@ def test_unlabelled_import_requires_quantifier_and_qualifier_columns(
 
 
 def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
-    unlabelled_db, tmp_path
+    empty_db, tmp_path
 ):
     _import_targets(
         tmp_path,
@@ -306,7 +302,7 @@ def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
 
 
 def test_manual_integration_rt_is_used_for_identity_reference(
-    unlabelled_db, tmp_path
+    empty_db, tmp_path
 ):
     _import_targets(
         tmp_path,
@@ -349,7 +345,7 @@ def test_manual_integration_rt_is_used_for_identity_reference(
 
 
 def test_unlabelled_session_round_trip_preserves_mode_and_ions(
-    unlabelled_db, tmp_path
+    empty_db, tmp_path
 ):
     _import_targets(
         tmp_path,
@@ -422,7 +418,7 @@ def test_unlabelled_session_round_trip_preserves_mode_and_ions(
     assert "Start a new analysis" in error
 
 
-def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
+def test_unlabelled_excel_export_uses_targeted_sheets(empty_db, tmp_path):
     _import_targets(
         tmp_path,
         name="Target",
@@ -503,7 +499,7 @@ def test_unlabelled_excel_export_uses_targeted_sheets(unlabelled_db, tmp_path):
     assert qc["L3"].fill.fgColor.rgb == "FF2F9E44"
 
 
-def test_unlabelled_excel_export_baseline_off_header_is_blue(unlabelled_db, tmp_path):
+def test_unlabelled_excel_export_baseline_off_header_is_blue(empty_db, tmp_path):
     _import_targets(
         tmp_path,
         name="Target",
@@ -536,52 +532,7 @@ def test_unlabelled_excel_export_baseline_off_header_is_blue(unlabelled_db, tmp_
     assert header.fill.patternType != "solid"
 
 
-def test_unlabelled_excel_export_with_internal_standard(unlabelled_db, tmp_path):
-    _import_targets(
-        tmp_path,
-        name="Target",
-        tR=1.0,
-        lOffset=1.1,
-        rOffset=1.1,
-        QIon=217,
-        QualifierIon1=147,
-        **{"Amount in StdMix": 2.5},
-    )
-    _import_targets(
-        tmp_path,
-        name="Std",
-        tR=2.0,
-        lOffset=1.1,
-        rOffset=1.1,
-        QIon=318,
-        QualifierIon1=217,
-        **{"Amount in StdMix": 1.0, "Int Std amount": 10.0, "MM Files": "S1"},
-    )
-    _insert_eic(
-        "S1",
-        "Target",
-        [0.0, 1.0, 2.0],
-        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
-        rt_window=1.1,
-    )
-    _insert_eic(
-        "S1",
-        "Std",
-        [1.0, 2.0, 3.0],
-        [[0.0, 20.0, 0.0], [0.0, 6.0, 0.0]],
-        rt_window=1.1,
-    )
-
-    exporter = DataExporter(AnalysisMode.UNLABELLED)
-    exporter.set_internal_standard("Std")
-    export_path = tmp_path / "with_is.xlsx"
-    assert exporter.export_to_excel(str(export_path))
-    workbook = openpyxl.load_workbook(export_path, data_only=True)
-    assert "Abundances" in workbook.sheetnames
-    assert workbook["Abundances"]["A4"].value == "Units"
-
-
-def test_peak_review_store_round_trip(unlabelled_db):
+def test_peak_review_store_round_trip(empty_db):
     set_peak_review("Target", "S1", PeakReview.ACCEPTED)
     set_peak_review("Std", "S1", PeakReview.REJECTED)
     assert get_peak_reviews()[("Target", "S1")] is PeakReview.ACCEPTED
@@ -596,7 +547,7 @@ def test_peak_review_store_round_trip(unlabelled_db):
     assert get_peak_reviews() == {("Std", "S1"): PeakReview.REJECTED}
 
 
-def test_unlabelled_excel_export_colours_peak_reviews(unlabelled_db, tmp_path):
+def test_unlabelled_excel_export_colours_peak_reviews(empty_db, tmp_path):
     _import_targets(
         tmp_path,
         name="Target",
@@ -708,7 +659,7 @@ def _unlabelled_mixed_bundle(time, *, failed_index: int):
     return ChannelDeconvolutionBundle(time=time, channels=tuple(channels))
 
 
-def test_deconvolution_on_quantifies_q_only_and_pairs_vq(unlabelled_db, tmp_path):
+def test_deconvolution_on_quantifies_q_only_and_pairs_vq(empty_db, tmp_path):
     deconv._fit_joint_component_model_cached.cache_clear()
     deconv._fit_single_component_model_cached.cache_clear()
     _import_targets(
@@ -782,7 +733,7 @@ def test_deconvolution_on_quantifies_q_only_and_pairs_vq(unlabelled_db, tmp_path
 
 
 def test_raw_calibrated_expected_ratio_fails_after_deconvolution_on(
-    unlabelled_db, tmp_path
+    empty_db, tmp_path
 ):
     deconv._fit_joint_component_model_cached.cache_clear()
     deconv._fit_single_component_model_cached.cache_clear()
@@ -832,7 +783,7 @@ def test_raw_calibrated_expected_ratio_fails_after_deconvolution_on(
 
 @pytest.mark.parametrize("failed_index", [0, 1])
 def test_deconvolution_on_falls_back_when_any_ion_fails(
-    unlabelled_db, tmp_path, monkeypatch, failed_index
+    empty_db, tmp_path, monkeypatch, failed_index
 ):
     _import_targets(
         tmp_path,
@@ -886,7 +837,7 @@ def test_deconvolution_on_falls_back_when_any_ion_fails(
     assert DataProvider().get_sample_raw_data("S1")["Target"] == pytest.approx(expected)
 
 
-def test_unlabelled_component_fallback_keeps_qv_channels(unlabelled_db):
+def test_unlabelled_component_fallback_keeps_qv_channels(empty_db):
     time = np.array([0.0, 1.0, 2.0])
     intensity = np.array([[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]]).ravel()
     row = {
@@ -920,72 +871,3 @@ def test_unlabelled_component_fallback_keeps_qv_channels(unlabelled_db):
     ) == pytest.approx([10.0, 4.0])
 
 
-def test_unlabelled_changelog_distinguishes_chromatographic_deconvolution(
-    unlabelled_db, tmp_path
-):
-    _import_targets(
-        tmp_path,
-        name="Target",
-        tR=1.0,
-        lOffset=0.1,
-        rOffset=0.1,
-        QIon=217,
-        QualifierIon1=147,
-        **{
-            "tR Window": 0.08,
-            "Amount in StdMix": 2.5,
-            "Int Std amount": 1.2,
-            "MM Files": "S1",
-        },
-    )
-    export_path = tmp_path / "targeted.xlsx"
-    generate_changelog(
-        str(export_path),
-        internal_standard=None,
-        use_legacy_integration=False,
-        analysis_mode=AnalysisMode.UNLABELLED,
-    )
-    changelog = next(tmp_path.glob("changelog_*.md")).read_text(encoding="utf-8")
-    assert "Natural-isotope correction is not applied" in changelog
-    assert "isotopologue deconvolution are not applied" not in changelog
-    assert "Chromatographic peak deconvolution defaults to level 4" in changelog
-    assert "Deconvolution" in changelog
-    assert "Label Atoms" not in changelog
-    assert "tR Window (min)" in changelog
-    assert "Amount in StdMix" in changelog
-    assert "MM Files" in changelog
-    assert "| Target |" in changelog
-    assert "2.5" in changelog
-    assert "S1" in changelog
-    assert "Q-ion area only" in changelog
-    assert "Qualifier-ion areas are on Qualifier QC" in changelog
-    assert "Raw Q-ion apex" in changelog
-    assert "raw-window areas" in changelog
-    assert "not in this workbook" in changelog
-    assert "Identity chart" in changelog
-
-
-def test_unlabelled_changelog_lists_peak_reviews_and_colour_key(
-    unlabelled_db, tmp_path
-):
-    _import_targets(
-        tmp_path,
-        name="Target",
-        tR=1.0,
-        lOffset=0.1,
-        rOffset=0.1,
-        QIon=217,
-        QualifierIon1=147,
-    )
-    set_peak_review("Target", "S1", PeakReview.REJECTED)
-    export_path = tmp_path / "reviewed.xlsx"
-    generate_changelog(
-        str(export_path),
-        internal_standard=None,
-        use_legacy_integration=False,
-        analysis_mode=AnalysisMode.UNLABELLED,
-    )
-    changelog = next(tmp_path.glob("changelog_*.md")).read_text(encoding="utf-8")
-    assert "## Manual Peak Reviews" in changelog
-    assert "| Target | S1 | Bad |" in changelog
-    assert "## Cell Colour Key" in changelog

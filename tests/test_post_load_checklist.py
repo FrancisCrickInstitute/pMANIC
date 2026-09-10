@@ -1,44 +1,19 @@
-import os
-import sys
 from pathlib import Path
 from unittest import mock
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 import pytest
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QTableWidget
+from PySide6.QtWidgets import QComboBox, QLabel, QTableWidget
 
 from manic.models import database
-from manic.models.analysis import AnalysisContext, AnalysisMode
+from manic.models.analysis import AnalysisMode
 from manic.models.mm_file_check import MmFileStatus
 from manic.ui.main_window import MainWindow
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
 
-SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
+from conftest import _make_window
+
 WARNING = QColor(255, 243, 205)
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication(sys.argv)
-    yield app
-
-
-@pytest.fixture
-def empty_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "checklist.db"
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-    with database.get_connection() as conn:
-        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-    return db_path
-
-
-def _make_window(mode: AnalysisMode, monkeypatch) -> MainWindow:
-    monkeypatch.setattr(MainWindow, "_check_for_updates", lambda self: None)
-    return MainWindow(AnalysisContext(mode))
 
 
 def _insert_compound(name: str, mm_files: str | None = None) -> None:
@@ -116,7 +91,7 @@ def test_dialog_table_sorts_problems_first_and_warns(qapp):
 def test_apply_sets_internal_standard_on_toolbar(qapp, empty_db, monkeypatch):
     _insert_compound("Alanine")
     _insert_compound("Norvaline")
-    window = _make_window(AnalysisMode.LABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
         window.toolbar.update_compound_list(["Alanine", "Norvaline"])
         window.show_post_load_checklist()
@@ -134,7 +109,7 @@ def test_apply_sets_internal_standard_on_toolbar(qapp, empty_db, monkeypatch):
 def test_skip_leaves_internal_standard_unchanged(qapp, empty_db, monkeypatch):
     _insert_compound("Alanine")
     _insert_compound("Norvaline")
-    window = _make_window(AnalysisMode.LABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
         window.toolbar.update_compound_list(["Alanine", "Norvaline"])
         window.toolbar.on_internal_standard_selected("Alanine")
@@ -154,7 +129,7 @@ def test_import_ok_opens_checklist_dialog(qapp, empty_db, monkeypatch):
     _insert_compound("Citrate", "*MM*")
     _insert_sample("S1_MM")
     _insert_sample("S2")
-    window = _make_window(AnalysisMode.LABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     window.progress_dialog = mock.Mock()
     monkeypatch.setattr(window, "on_plot_button", lambda *args, **kwargs: None)
     try:
@@ -177,7 +152,7 @@ def test_import_ok_opens_checklist_dialog(qapp, empty_db, monkeypatch):
 def test_guide_link_opens_labelled_user_guide(qapp, empty_db, monkeypatch):
     pytest.importorskip("PySide6.QtWebEngineWidgets")
     _insert_compound("Alanine")
-    window = _make_window(AnalysisMode.LABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
         window.show_post_load_checklist()
         dialog = window._post_load_checklist
@@ -192,7 +167,7 @@ def test_guide_link_opens_labelled_user_guide(qapp, empty_db, monkeypatch):
 
 def test_guide_opens_unlabelled_mm_files_heading(qapp, empty_db, monkeypatch):
     pytest.importorskip("PySide6.QtWebEngineWidgets")
-    window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
     try:
         window._open_checklist_guide()
         viewer = window.documentation_window
@@ -217,7 +192,7 @@ def test_checklist_guide_fragments_exist_in_rendered_docs():
 
 
 def test_check_setup_action_requires_loaded_data(qapp, empty_db, monkeypatch):
-    window = _make_window(AnalysisMode.LABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
         assert window.check_setup_action.isEnabled() is False
         window.compound_data_loaded = True

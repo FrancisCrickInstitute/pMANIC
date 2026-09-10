@@ -47,9 +47,9 @@ For a detected mass $m$ and a tolerance offset $\tau$:
 
 * **Default:** `0.20 Da`
 * **Range:** `0.01` to `1.00` Da
-* **Impact:** This setting is applied during the **Import Raw Data (CDF)** step.
-    * If you change this setting, you **must** re-import your CDF files for the change to take effect.
-    * Plots and integrations will not update automatically until the underlying data is re-extracted.
+* **Impact:** This setting is applied when EICs are extracted.
+    * If CDFs are already loaded, changing the value regenerates every EIC. You do not re-import the folder.
+    * Plots and integrations refresh after that regeneration finishes.
 
 ---
 

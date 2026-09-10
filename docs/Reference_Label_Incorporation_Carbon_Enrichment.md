@@ -9,7 +9,7 @@ MANIC produces two distinct metrics to quantify isotopic labelling. While they a
 
 **Important:** These metrics are calculated using data that has already undergone **Theoretical Natural Isotope Correction**.
 
-In addition to that theoretical correction, both metrics rely on **Empirical Background Correction** using your Standard Mixture (MM) files to remove residual instrument noise and impurity.
+In addition to that theoretical correction, both metrics rely on **Empirical Background Correction** using your MM files (standard mixture) to remove residual instrument noise and impurity.
 
 ---
 

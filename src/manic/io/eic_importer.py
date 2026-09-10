@@ -1,3 +1,4 @@
+import gc
 import logging
 import time
 import zlib
@@ -8,7 +9,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from manic.constants import minimum_extract_rt_window
+from manic.constants import DEFAULT_MASS_TOLERANCE, minimum_extract_rt_window
 from manic.io.cdf_reader import read_cdf_file
 from manic.io.compound_reader import Compound, read_compound
 from manic.models.database import get_connection
@@ -340,7 +341,7 @@ def _extract_ms_at_retention_times(cdf, retention_times, tolerance=0.1):
 # ─────────────────────── Public API Functions ─────────────────
 def import_eics(
     directory: str | Path,
-    mass_tol: float = 0.25,
+    mass_tol: float = DEFAULT_MASS_TOLERANCE,
     rt_window: float = 0.2,
     progress_cb: Optional[Callable[[int, int], None]] = None,
 ) -> int:
@@ -372,7 +373,7 @@ def import_eics(
     directory : str | Path
         Folder containing CDF files for mass spectrometry data import.
     mass_tol : float
-        Mass tolerance offset for MANIC's asymmetric matching method (Da). Default: 0.25
+        Mass tolerance offset for MANIC's asymmetric matching method (Da). Default: 0.2
     rt_window : float
         Retention time search window (±min). Default: 0.2
     progress_cb : Callable[[done, total], None] | None
@@ -437,8 +438,6 @@ def import_eics(
     # Memory efficient: loads one CDF file at a time, processes all compounds,
     # then explicitly clears data before loading the next file.
     # ============================================================================
-
-    import gc  # Required for explicit memory management
 
     for cdf_path in cdf_files:
         # Load CDF file once per file, then process all compounds
@@ -537,7 +536,7 @@ def regenerate_compound_eics(
     compound_name: str,
     tr_window: float,
     sample_names: list,
-    mass_tol: float = 0.25,
+    mass_tol: float = DEFAULT_MASS_TOLERANCE,
     progress_cb: Optional[Callable[[int, int], None]] = None,
     retention_time: float | Mapping[str, float] | None = None,
     pending_regeneration: PendingRegeneration | None = None,
@@ -859,8 +858,6 @@ def regenerate_all_eics_with_mass_tolerance(
     total_work = len(sample_rows) * len(compounds) + corrections_needed
     done = 0
     regenerated = 0
-
-    import gc  # For memory management
 
     # Process each sample file
     for sample_row in sample_rows:

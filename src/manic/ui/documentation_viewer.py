@@ -42,13 +42,17 @@ def _documentation_title(path: Path) -> str:
 
 
 def _documentation_group(name: str) -> int:
-    if name == "01_user_guide.md":
+    if name == "00_quick_start.md":
         return 0
-    if name.startswith("Workflow_"):
+    if name == "01_user_guide.md":
         return 1
-    if name.startswith("Reference_"):
+    if name == "Unlabelled_Targeted_Analysis.md":
         return 2
-    return 3
+    if name.startswith("Workflow_"):
+        return 3
+    if name.startswith("Reference_"):
+        return 4
+    return 5
 
 
 def documentation_index(docs_dir: Path) -> list[tuple[str, Path]]:

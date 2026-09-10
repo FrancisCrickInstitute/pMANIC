@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QWidget
 
 from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import (
@@ -26,18 +24,6 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.ui.add_compound_dialog import AddCompoundDialog
 from manic.ui.compound_list_widget import CompoundListWidget
 from manic.ui.main_window import MainWindow
-
-
-SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
-
-
-@pytest.fixture
-def compound_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "add_compound.db"
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-    with database.get_connection() as conn:
-        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-    return db_path
 
 
 def _labelled_row(**overrides) -> CompoundRow:
@@ -97,7 +83,7 @@ def _fetch_compound(name: str) -> dict:
     return dict(row)
 
 
-def test_labelled_insert_matches_import_column_set(compound_db, tmp_path):
+def test_labelled_insert_matches_import_column_set(empty_db, tmp_path):
     path = tmp_path / "labelled.csv"
     pd.DataFrame(
         [
@@ -133,7 +119,7 @@ def test_labelled_insert_matches_import_column_set(compound_db, tmp_path):
         assert inserted[key] == imported[key]
 
 
-def test_unlabelled_insert_writes_compound_ions_and_rt_tolerance(compound_db):
+def test_unlabelled_insert_writes_compound_ions_and_rt_tolerance(empty_db):
     insert_unlabelled_compound(_unlabelled_record())
 
     row = _fetch_compound("Citrate 4TMS")
@@ -162,20 +148,20 @@ def test_unlabelled_insert_writes_compound_ions_and_rt_tolerance(compound_db):
     assert compound.analysis_channels[1].ratio_tolerance == pytest.approx(0.25)
 
 
-def test_unlabelled_insert_defaults_rt_window_to_max_offset(compound_db):
+def test_unlabelled_insert_defaults_rt_window_to_max_offset(empty_db):
     insert_unlabelled_compound(_unlabelled_record(rt_window=None, loffset=0.15, roffset=0.2))
     row = _fetch_compound("Citrate 4TMS")
     assert row["rt_tolerance"] == pytest.approx(0.2)
 
 
-def test_duplicate_name_raises_value_error(compound_db):
+def test_duplicate_name_raises_value_error(empty_db):
     insert_compound(_labelled_row())
     with pytest.raises(ValueError, match="Pyruvate") as excinfo:
         insert_compound(_labelled_row())
     assert "recover deleted compounds" in str(excinfo.value)
 
 
-def test_soft_deleted_name_raises_value_error(compound_db):
+def test_soft_deleted_name_raises_value_error(empty_db):
     insert_compound(_labelled_row())
     assert soft_delete_compound("Pyruvate")
     with pytest.raises(ValueError, match="Pyruvate") as excinfo:
@@ -203,14 +189,6 @@ def test_unlabelled_duplicate_nominal_mass_rejected():
     )
     with pytest.raises(ValueError, match="nominal masses"):
         insert_unlabelled_compound(record)
-
-
-@pytest.fixture
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication(sys.argv)
-    yield app
 
 
 def _fill_labelled(dialog: AddCompoundDialog) -> None:
@@ -343,7 +321,7 @@ def test_zero_mass0_rejected(qapp):
     assert shown and "Mass0" in shown[0]
 
 
-def test_taken_compound_names_includes_soft_deleted(compound_db):
+def test_taken_compound_names_includes_soft_deleted(empty_db):
     insert_compound(_labelled_row())
     assert soft_delete_compound("Pyruvate")
     assert "Pyruvate" in taken_compound_names()

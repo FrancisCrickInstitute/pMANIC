@@ -335,4 +335,4 @@ class IsotopologueRatioWidget(QWidget):
             dialog.exec()
 
         except Exception as e:
-            print(f"Failed to show popup chart: {e}")
+            logger.exception("Failed to show popup chart: %s", e)

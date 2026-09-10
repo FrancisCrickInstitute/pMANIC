@@ -4,6 +4,8 @@ from pathlib import Path
 
 from manic.models.database import clear_database, init_db
 
+logger = logging.getLogger(__name__)
+
 
 def configure_logging() -> None:
     log_dir = Path.home() / ".manic_app"
@@ -27,10 +29,10 @@ def main():
     from manic.ui.main_window import MainWindow
     from manic.utils.utils import apply_app_stylesheet
 
-    logger = logging.getLogger(__name__)
-
     configure_logging()
     app = QApplication(sys.argv)
+    app.setApplicationName("MANIC")
+    app.setOrganizationName("Francis Crick Institute")
     # App-wide, not on MainWindow: the mode chooser below runs before any window exists.
     apply_app_stylesheet(app)
 
@@ -41,7 +43,7 @@ def main():
 
     init_db()
     clear_database()
-    print("Database initialized")
+    logger.info("Database initialized")
 
     manic = MainWindow(AnalysisContext(selected_mode))
     manic.showMaximized()

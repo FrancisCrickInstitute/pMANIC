@@ -10,7 +10,6 @@ from manic.models.analysis import (
 )
 from manic.ui.channel_labels import (
     channel_legend_label,
-    channel_legend_text,
     has_defined_channel,
 )
 
@@ -83,33 +82,6 @@ def test_unlabelled_channels_order_quantifier_before_arbitrary_qualifiers():
 def test_invalid_unlabelled_channel_definitions_are_rejected(channels, message):
     with pytest.raises(ValueError, match=message):
         validate_unlabelled_channels(channels)
-
-
-def test_detailed_plot_uses_diagnostic_ion_labels_in_unlabelled_mode():
-    class Target:
-        is_unlabelled_target = True
-        analysis_channels = (
-            IonChannel(217.0, IonRole.QUANTIFIER),
-            IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
-        )
-        channel_count = len(analysis_channels)
-
-    assert channel_legend_label(Target(), 0) == "Q ion m/z 217"
-    assert channel_legend_label(Target(), 1) == "Qualifier ion 1 m/z 147"
-    assert (
-        channel_legend_text(Target.analysis_channels)
-        == "Q ion m/z 217  Qualifier ion 1 m/z 147"
-    )
-    assert "●" not in channel_legend_text(Target.analysis_channels)
-
-
-def test_detailed_plot_preserves_isotopologue_labels_in_labelled_mode():
-    class Labelled:
-        is_unlabelled_target = False
-        analysis_channels = labelled_channels(174.0, 3)
-        channel_count = len(analysis_channels)
-
-    assert channel_legend_label(Labelled(), 2) == "M+2 m/z 176"
 
 
 def test_channel_legend_label_rejects_out_of_range_index():

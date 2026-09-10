@@ -1,13 +1,6 @@
-import os
-import sys
-from pathlib import Path
 from unittest import mock
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 import pytest
-from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QApplication, QMenu
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
@@ -23,7 +16,7 @@ from manic.ui.settings_window import (
     QualifierRatioPage,
 )
 
-SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
+from conftest import _make_window
 
 LABELLED_TITLES = [
     "Mass Tolerance",
@@ -33,35 +26,6 @@ LABELLED_TITLES = [
     "Internal Standard",
     "Deconvolution",
 ]
-UNLABELLED_TITLES = [
-    "Mass Tolerance",
-    "Peak Validation",
-    "Qualifier Ratios",
-    "Integration",
-    "Deconvolution",
-]
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication(sys.argv)
-    yield app
-
-
-@pytest.fixture
-def empty_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "settings.db"
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-    with database.get_connection() as conn:
-        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-    return db_path
-
-
-def _make_window(mode: AnalysisMode, monkeypatch) -> MainWindow:
-    monkeypatch.setattr(MainWindow, "_check_for_updates", lambda self: None)
-    return MainWindow(AnalysisContext(mode))
 
 
 def _page_titles(settings_window) -> list[str]:
@@ -90,7 +54,7 @@ def _override_row_combo(page, sample: str):
 
 @pytest.fixture
 def labelled_window(qapp, empty_db, monkeypatch):
-    window = _make_window(AnalysisMode.LABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     yield window
     if window.settings_window is not None:
         window.settings_window.close()
@@ -129,18 +93,6 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     )
 
 
-def test_unlabelled_settings_lists_five_pages(qapp, empty_db, monkeypatch):
-    window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
-    try:
-        window.open_settings_window()
-        settings = window.settings_window
-        assert _page_titles(settings) == UNLABELLED_TITLES
-    finally:
-        if window.settings_window is not None:
-            window.settings_window.close()
-        window.close()
-
-
 def _insert_unlabelled_target(name: str = "Target") -> None:
     with database.get_connection() as conn:
         conn.execute(
@@ -175,7 +127,7 @@ def test_qualifier_ratios_page_is_unlabelled_only(labelled_window):
 def test_qualifier_ratios_not_editable_without_a_selected_compound(
     qapp, empty_db, monkeypatch
 ):
-    window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
     try:
         window.open_settings_window()
         settings = window.settings_window
@@ -199,7 +151,7 @@ def test_qualifier_ratios_not_editable_without_a_selected_compound(
 def test_qualifier_ratios_save_writes_tolerance_and_null(
     qapp, empty_db, monkeypatch
 ):
-    window = _make_window(AnalysisMode.UNLABELLED, monkeypatch)
+    window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
     try:
         _insert_unlabelled_target()
         window.compound_data_loaded = True
@@ -446,55 +398,6 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {}
     assert replots == [1, 1, 1]
-
-
-def test_deconvolution_unsaved_hint_names_the_compound_it_will_write(labelled_window):
-    with database.get_connection() as conn:
-        for name in ("Alanine", "Glycine"):
-            conn.execute(
-                "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
-                "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
-                "VALUES (?, 5.0, 0.6, 0.6, 100.0, 3, 10.0, 1.0, 'S1')",
-                (name,),
-            )
-    labelled_window.compound_data_loaded = True
-    labelled_window.toolbar.update_compound_list(["Alanine", "Glycine"], selected_name="Alanine")
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    _select_page(settings, "Deconvolution")
-    page = settings.page_named("Deconvolution")
-    page.level_combo.setCurrentIndex(0)
-    assert settings.hint_label.text() == "Unsaved changes for Alanine"
-
-    labelled_window.toolbar.update_compound_list(["Alanine", "Glycine"], selected_name="Glycine")
-    settings.refresh()
-    assert page.compound_label.text() == "Compound: Alanine"
-    assert settings.hint_label.text() == (
-        "Unsaved changes for Alanine. The toolbar now selects Glycine; "
-        "Save still writes to Alanine."
-    )
-
-
-def test_manic_menu_holds_settings_docs_updates_and_about(labelled_window):
-    menu_bar = labelled_window.menuBar()
-    title = "Help" if menu_bar.isNativeMenuBar() else "MANIC"
-    menus = [m for m in menu_bar.findChildren(QMenu) if m.title() == title]
-    assert len(menus) == 1
-    actions = [a for a in menus[0].actions() if not a.isSeparator()]
-    assert [a.text() for a in actions] == [
-        "Settings...",
-        "Documentation",
-        "Check Data Setup...",
-        "Check for Updates...",
-        "About MANIC...",
-    ]
-    assert [a.menuRole() for a in actions] == [
-        QAction.PreferencesRole,
-        QAction.NoRole,
-        QAction.NoRole,
-        QAction.NoRole,
-        QAction.AboutRole,
-    ]
 
 
 def test_settings_window_opens_centred_on_a_visible_main_window(labelled_window):

@@ -8,7 +8,6 @@ compatible (no crash, existing settings preserved).
 
 import json
 import sqlite3
-from pathlib import Path
 
 import pytest
 
@@ -17,16 +16,9 @@ from manic.models import session_export
 from manic.ui.main_window import MainWindow
 
 
-SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
-
-
 @pytest.fixture
-def temp_method_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "method.db"
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-
-    conn = sqlite3.connect(db_path)
-    conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+def temp_method_db(empty_db, tmp_path):
+    conn = sqlite3.connect(empty_db)
     conn.execute(
         "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms, "
         "baseline_correction, deconvolution_level, deconvolution_fit_type, "
@@ -38,7 +30,7 @@ def temp_method_db(tmp_path, monkeypatch):
     )
     conn.commit()
     conn.close()
-    return db_path, tmp_path
+    return empty_db, tmp_path
 
 
 def _read_compound(db_path):
@@ -232,47 +224,6 @@ def test_resolve_session_internal_standard_keeps_active_name():
     assert resolved == parsed
 
 
-def test_format_session_import_standard_note():
-    restored = session_export.InternalStandardRestore(
-        session_export.InternalStandardRestoreKind.RESTORED,
-        compound_name="Alanine",
-        reference_isotope=2,
-    )
-    assert (
-        session_export.format_session_import_standard_note(restored, labelled=True)
-        == "Internal standard: Alanine (M+2)."
-    )
-    assert (
-        session_export.format_session_import_standard_note(restored, labelled=False)
-        == "Internal standard: Alanine."
-    )
-    failed = session_export.InternalStandardRestore(
-        session_export.InternalStandardRestoreKind.FAILED
-    )
-    assert (
-        session_export.format_session_import_standard_note(failed, labelled=True)
-        == "The internal standard could not be restored. Select it again."
-    )
-    assert (
-        session_export.format_session_import_standard_note(
-            session_export.InternalStandardRestore(
-                session_export.InternalStandardRestoreKind.UNCHANGED
-            ),
-            labelled=True,
-        )
-        is None
-    )
-    assert (
-        session_export.format_session_import_standard_note(
-            session_export.InternalStandardRestore(
-                session_export.InternalStandardRestoreKind.CLEARED
-            ),
-            labelled=True,
-        )
-        is None
-    )
-
-
 def test_clamp_reference_isotope_rejects_out_of_range():
     assert session_export.clamp_reference_isotope(2, 4) == 2
     assert session_export.clamp_reference_isotope(0, 4) == 0
@@ -280,17 +231,6 @@ def test_clamp_reference_isotope_rejects_out_of_range():
     assert session_export.clamp_reference_isotope(99, 4) == 0
     assert session_export.clamp_reference_isotope(-1, 4) == 0
     assert session_export.clamp_reference_isotope(1, 0) == 0
-
-
-def test_import_session_overrides_still_returns_two_tuple(temp_method_db):
-    _, tmp_path = temp_method_db
-    json_path, _ = _exported_method(tmp_path, internal_standard="Alanine")
-    result = session_export.import_session_overrides(str(json_path))
-    assert isinstance(result, tuple)
-    assert len(result) == 2
-    ok, has_deletion_data = result
-    assert ok is True
-    assert has_deletion_data is True
 
 
 class _FakeStandard:

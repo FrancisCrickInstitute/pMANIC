@@ -1,11 +1,10 @@
 """
 Natural isotope abundance correction for isotopologue analysis.
 
-Implements the MATLAB GVISO-equivalent correction using a vectorized direct
+Implements natural abundance correction using a vectorized direct
 linear solve. The algorithm builds a convolution-based correction matrix using
-natural isotope abundances (and MATLAB-matched derivatization stoichiometry),
-normalizes the measured data, solves for corrected fractions, rescales by the
-total intensity, and finally divides by the diagonal of the correction matrix.
+natural isotope abundances (and MATLAB-matched derivatization stoichiometry)
+and solves measured = C @ true, then clamps negatives to zero.
 
 Notes:
 - Optimization (SLSQP/fmincon-style) fallback has been removed; only the
@@ -22,8 +21,20 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+class NaturalAbundanceCorrectionError(ValueError):
+    pass
+
+
 class NaturalAbundances:
-    """Natural isotope abundances for common elements."""
+    """Natural isotope abundances for common elements.
+
+    An element listed here is one the correction can account for. Anything
+    absent makes ``validate_formula`` refuse the compound, so the monoisotopic
+    elements below are listed deliberately: they contribute a delta function,
+    convolving with them is the identity, and dropping them from the
+    derivatised formula is exact. Leaving them out would block a correct
+    compound list over an element that cannot change the isotope pattern.
+    """
 
     def __init__(self):
         # Format: [mass0, mass+1, mass+2, ...]
@@ -35,7 +46,13 @@ class NaturalAbundances:
         self.S = np.array(
             [0.9493, 0.0076, 0.0429, 0, 0.0002]
         )  # 32S, 33S, 34S, 35S, 36S
-        self.P = np.array([1.0])  # 31P (monoisotopic)
+        self.Cl = np.array([0.7576, 0.0, 0.2424])  # 35Cl, none at +1, 37Cl at +2
+        self.Br = np.array([0.5069, 0.0, 0.4931])  # 79Br, 81Br
+        # Monoisotopic: a single stable isotope at 100%.
+        self.P = np.array([1.0])  # 31P
+        self.F = np.array([1.0])  # 19F
+        self.Na = np.array([1.0])  # 23Na
+        self.I = np.array([1.0])  # 127I
 
 
 class NaturalAbundanceCorrector:
@@ -172,6 +189,12 @@ class NaturalAbundanceCorrector:
         s = counts.get("S", 0)
         si = counts.get("Si", 0)
         formula_str = f"C{c}H{h}O{o}N{n}S{s}Si{si}"
+        cl = counts.get("Cl", 0)
+        br = counts.get("Br", 0)
+        if cl:
+            formula_str += f"Cl{cl}"
+        if br:
+            formula_str += f"Br{br}"
 
         return formula_str, counts
 
@@ -227,7 +250,9 @@ class NaturalAbundanceCorrector:
         # Cache miss - compute new matrix
         self._cache_misses += 1
 
-        # Calculate derivative formula (accounts for derivatization)
+        # Validate against the base formula. Derivatisation adds carbons that
+        # cannot carry label and drops elements it does not know about.
+        self.validate_formula(formula, label_element, label_atoms)
         deriv_formula, _ = self.calculate_derivative_formula(formula, tbdms, meox, me)
 
         # Build correction matrix using existing algorithm
@@ -291,6 +316,20 @@ class NaturalAbundanceCorrector:
             "total_corrections": self._direct_solves + self._optimization_fallbacks,
         }
 
+    def validate_formula(self, formula: str, label_element: str, label_atoms: int) -> None:
+        elements = self.parse_formula(formula)
+        label_count = elements.get(label_element, 0)
+        if label_atoms > label_count:
+            raise NaturalAbundanceCorrectionError(
+                f"label_atoms={label_atoms} exceeds {label_element} count "
+                f"{label_count} in formula {formula}"
+            )
+        for element, count in elements.items():
+            if count > 0 and not hasattr(self.abundances, element):
+                raise NaturalAbundanceCorrectionError(
+                    f"No natural abundance vector for element {element}"
+                )
+
     def build_correction_matrix(
         self,
         formula: str,
@@ -322,6 +361,7 @@ class NaturalAbundanceCorrector:
         if label_purity is None:
             label_purity = np.array([0.01, 0.99])  # 99% isotope purity
 
+        self.validate_formula(formula, label_element, label_atoms)
         elements = self.parse_formula(formula)
 
         # Determine matrix size
@@ -341,7 +381,7 @@ class NaturalAbundanceCorrector:
                 unlabeled_count = count
 
             # Convolve with element's isotope distribution
-            if unlabeled_count > 0 and hasattr(self.abundances, element):
+            if unlabeled_count > 0:
                 elem_dist = getattr(self.abundances, element)
                 for _ in range(unlabeled_count):
                     nat_dist = np.convolve(nat_dist, elem_dist)
@@ -458,7 +498,10 @@ class NaturalAbundanceCorrector:
                 f"Measured data has {n_isotopologues_measured} isotopologues but label_atoms={label_atoms} "
                 f"requires at least {n_isotopologues_expected}. Cannot perform correction."
             )
-            return intensity_2d  # Return uncorrected
+            raise NaturalAbundanceCorrectionError(
+                f"Measured data has {n_isotopologues_measured} isotopologues but "
+                f"label_atoms={label_atoms} requires at least {n_isotopologues_expected}"
+            )
 
         # Perform correction
         corrected_2d = self._correct_vectorized_direct(
@@ -505,54 +548,12 @@ class NaturalAbundanceCorrector:
                     with natural abundance contributions removed
         """
         try:
-            # Match MATLAB workflow exactly:
-            # 1. Normalize each time point
-            # 2. Solve for normalized fractions (cordist)
-            # 3. Scale back by total intensity (corRaw = cordist * sum(raw))
-            # 4. Divide by diagonal elements
-
-            n_isotopologues, n_timepoints = intensity_2d.shape
-            corrected_2d = np.zeros_like(intensity_2d)
-
-            # Store total intensity for each time point
-            totals = np.sum(intensity_2d, axis=0)
-
-            # Special-case 1×1 matrices (unlabeled compounds):
-            # Under MATLAB's sum-to-one constraint, cordist = [1]. Then corRaw = totals.
-            # Finally divide by diagonal once. Avoid double division by C seen in naive solve.
-            if n_isotopologues == 1 and correction_matrix.shape == (1, 1):
-                corrected_2d[0, :] = totals  # cordist=1 → corRaw = totals
-            else:
-                # Normalize all time points in one broadcasted divide
-                totals_broadcast = totals.reshape(1, -1)
-                intensity_normalized = np.divide(
-                    intensity_2d,
-                    totals_broadcast,
-                    out=np.zeros_like(intensity_2d),
-                    where=totals_broadcast > 1e-10,
-                )
-
-                # Vectorized linear solve on normalized data: C × cordist = measured_normalized
-                cordist_2d = np.linalg.solve(correction_matrix, intensity_normalized)
-
-                # Scale back by total intensity (corRaw = cordist * total)
-                corrected_2d = cordist_2d * totals_broadcast
-
-            # Apply diagonal division (MATLAB: corRaw(:, kIon) = corRaw(:, kIon) ./ cormat(kIon, kIon))
-            diagonal_elements = np.diag(correction_matrix)
-            for i in range(len(diagonal_elements)):
-                if diagonal_elements[i] > 0:
-                    corrected_2d[i, :] = corrected_2d[i, :] / diagonal_elements[i]
-
-            # Apply non-negativity constraint
-            corrected_2d = np.maximum(corrected_2d, 0.0)
-
-            return corrected_2d
+            corrected_2d = np.linalg.solve(correction_matrix, intensity_2d)
+            return np.maximum(corrected_2d, 0.0)
 
         except np.linalg.LinAlgError as e:
-            # If direct solver fails, return uncorrected data with warning
-            logger.error(f"Direct solver failed: {e}. Returning uncorrected data.")
-            return intensity_2d
+            logger.error(f"Direct solver failed: {e}")
+            raise NaturalAbundanceCorrectionError(f"Direct solver failed: {e}") from e
 
 
 

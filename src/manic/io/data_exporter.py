@@ -48,6 +48,10 @@ from manic.sheet_generators import unlabelled_results as sheet_unlabelled_result
 logger = logging.getLogger(__name__)
 
 
+class ExportCancelled(Exception):
+    pass
+
+
 def validate_internal_standard_metadata(
     provider: DataProvider, internal_standard_compound: Optional[str]
 ) -> tuple[bool, list[str]]:
@@ -112,6 +116,7 @@ class DataExporter:
         """Initialize the data exporter."""
         self.analysis_mode = AnalysisMode.coerce(analysis_mode)
         self.internal_standard_compound = None  # Set by UI before export
+        self.assumed_mrrf: set = set()
         # Time-based by default (matches app/UI defaults and docs)
         self.use_legacy_integration = False
         # Centralized data provider for DB access and caching. Per-compound
@@ -211,6 +216,7 @@ class DataExporter:
             internal_standard=self.internal_standard_compound,
             use_legacy_integration=self.use_legacy_integration,
             analysis_mode=self.analysis_mode,
+            assumed_mrrf=self.assumed_mrrf,
         )
 
     def export_to_excel(
@@ -235,6 +241,7 @@ class DataExporter:
         Raises:
             Exception: If export fails due to database or file system errors
         """
+        workbook = None
         try:
             start_time = time.time()
             logger.info(f"Starting Excel export to {filepath}")
@@ -257,7 +264,10 @@ class DataExporter:
                         v = max(0, min(100, int(value)))
                     except (TypeError, ValueError):
                         v = 0
-                    return progress_callback(int(lo + (v / 100.0) * (hi - lo)))
+                    result = progress_callback(int(lo + (v / 100.0) * (hi - lo)))
+                    if result is False:
+                        raise ExportCancelled()
+                    return result
 
                 return _cb
 
@@ -438,6 +448,19 @@ class DataExporter:
 
             return True
 
+        except ExportCancelled:
+            if workbook is not None:
+                try:
+                    workbook.close()
+                except Exception:
+                    pass
+            try:
+                Path(filepath).unlink(missing_ok=True)
+            except Exception:
+                pass
+            logger.info("Excel export cancelled: %s", filepath)
+            return False
+
         except Exception as e:
             logger.error(f"Excel export failed: {str(e)}")
             # Clean up partial file if it exists
@@ -512,16 +535,19 @@ class DataExporter:
         return self._provider.get_background_ratios(compounds)
 
     def _calculate_mrrf_values(
-        self, compounds, internal_standard_compound: Optional[str]
+        self,
+        compounds,
+        internal_standard_compound: Optional[str],
+        assumed=None,
     ) -> Dict[str, float]:
         """Delegate to provider for cached MRRF calculation."""
-        # Return empty results if no internal standard is provided
         if not internal_standard_compound:
             return {}
         return self._provider.get_mrrf_values(
             compounds,
             internal_standard_compound,
             internal_standard_isotope_index=self.internal_standard_reference_isotope,
+            assumed=assumed,
         )
 
     def _calculate_peak_areas(

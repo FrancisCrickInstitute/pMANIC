@@ -24,7 +24,10 @@ from manic.processors.integration import (
     calculate_peak_areas,
     integrate_bundle_areas,
 )
-from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
+from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
+    NaturalAbundanceCorrector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -366,25 +369,45 @@ class DataProvider:
             total = max(1, len(tasks))
             use_legacy = self.use_legacy_integration
 
+            cancel_exc = None
+
             def consume(executor, worker) -> None:
+                nonlocal cancel_exc
                 processed = 0
-                for (
-                    kind,
-                    sample_name,
-                    compound_name,
-                    areas,
-                    corrected_areas,
-                ) in executor.map(worker, tasks):
-                    if kind == "raw":
-                        raw_data[sample_name][compound_name] = areas
-                    elif kind == "raw_and_corrected_deconvolved":
-                        raw_data[sample_name][compound_name] = areas
-                        corrected_data[sample_name][compound_name] = corrected_areas or []
-                    else:
-                        corrected_data[sample_name][compound_name] = areas
-                    processed += 1
-                    if progress_callback and processed % 25 == 0:
-                        progress_callback(int(processed / total * 100))
+                # Hold the map generator so it can be closed on cancel. Closing
+                # it runs its finally, which cancels every task that has not
+                # started, so a cancel does not sit through the whole queue.
+                # The exception is re-raised by the caller once the pool has
+                # shut down; raising here would trip the process-pool fallback
+                # and integrate everything a second time on threads.
+                results = executor.map(worker, tasks)
+                try:
+                    for (
+                        kind,
+                        sample_name,
+                        compound_name,
+                        areas,
+                        corrected_areas,
+                    ) in results:
+                        if kind == "raw":
+                            raw_data[sample_name][compound_name] = areas
+                        elif kind == "raw_and_corrected_deconvolved":
+                            raw_data[sample_name][compound_name] = areas
+                            if corrected_areas:
+                                corrected_data[sample_name][compound_name] = (
+                                    corrected_areas
+                                )
+                        else:
+                            corrected_data[sample_name][compound_name] = areas
+                        processed += 1
+                        if progress_callback and processed % 25 == 0:
+                            try:
+                                progress_callback(int(processed / total * 100))
+                            except Exception as exc:
+                                cancel_exc = exc
+                                break
+                finally:
+                    results.close()
 
             max_workers = min(os.cpu_count() or 1, 8)
             integration_start = time.perf_counter()
@@ -423,6 +446,8 @@ class DataProvider:
             if not ran_with_processes:
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     consume(executor, functools.partial(_run_integration, self, use_legacy))
+            if cancel_exc is not None:
+                raise cancel_exc
             integration_time = time.perf_counter() - integration_start
             fit_cache_after = get_deconvolution_fit_cache_info()
             logger.info(
@@ -433,15 +458,6 @@ class DataProvider:
                 integration_time,
             )
 
-            # For compounds without corrected data, fall back to their raw integrated areas
-            # 
-            # IMPORTANT: This fallback exists for two scenarios:
-            # 1. Unlabeled compounds (label_atoms=0): These legitimately use raw data
-            # 2. Labeled compounds missing corrections: This should NOT happen in normal use
-            #    because export_data() ensures all corrections are applied before export
-            #
-            # If you see warnings about labeled compounds using raw data as fallback,
-            # this indicates the correction application step failed or was bypassed.
             fallback_start = time.perf_counter()
             fallback_count = 0
             labeled_fallback_count = 0
@@ -449,20 +465,16 @@ class DataProvider:
                 corrected_map = corrected_data.setdefault(sample_name, {})
                 for compound_name, areas in compounds_map.items():
                     if compound_name not in corrected_map:
-                        # Use the label map captured during the raw load instead of
-                        # opening a fresh DB connection per compound.
                         is_labeled = compound_labels.get(compound_name, 0) > 0
-
                         if is_labeled:
                             labeled_fallback_count += 1
-                            # Labeled compound without corrected data - this should not happen
-                            # if export was triggered through the UI (which applies corrections first)
-                            logger.warning(
-                                f"Labeled compound '{compound_name}' in sample '{sample_name}' "
-                                f"has no corrected data available. Using raw data as fallback. "
-                                f"This may indicate the correction step was skipped or failed."
+                            logger.error(
+                                "Labeled compound '%s' in sample '%s' "
+                                "has no corrected data available",
+                                compound_name,
+                                sample_name,
                             )
-                        # For both labeled and unlabeled compounds, fall back to raw data
+                            continue
                         corrected_map[compound_name] = areas
                         fallback_count += 1
             fallback_time = time.perf_counter() - fallback_start
@@ -799,19 +811,32 @@ class DataProvider:
         use_legacy: bool,
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
-        return integrate_bundle_areas(
-            time_data,
-            bundle,
-            raw_intensity,
-            correct_time_series=lambda matrix: self._correct_time_series(matrix, row),
-            baseline_correction=baseline_correction,
-            use_legacy=use_legacy,
-            retention_time=row["retention_time"],
-            loffset=row["loffset"],
-            roffset=row["roffset"],
-            label_atoms=row["label_atoms"] or 0,
-            channel_count=_row_channel_count(row),
-        )
+        def integrate(correct_time_series):
+            return integrate_bundle_areas(
+                time_data,
+                bundle,
+                raw_intensity,
+                correct_time_series=correct_time_series,
+                baseline_correction=baseline_correction,
+                use_legacy=use_legacy,
+                retention_time=row["retention_time"],
+                loffset=row["loffset"],
+                roffset=row["roffset"],
+                label_atoms=row["label_atoms"] or 0,
+                channel_count=_row_channel_count(row),
+            )
+
+        try:
+            return integrate(lambda matrix: self._correct_time_series(matrix, row))
+        except NaturalAbundanceCorrectionError as exc:
+            logger.warning(
+                "No corrected areas for %s in %s: %s",
+                row["compound_name"],
+                row["sample_name"],
+                exc,
+            )
+            raw_areas, _ = integrate(None)
+            return raw_areas, []
 
     def _calculate_corrected_areas_from_raw_component(
         self,

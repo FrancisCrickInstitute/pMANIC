@@ -5,7 +5,10 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
+from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
+    NaturalAbundanceCorrector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,7 @@ class InMemoryDataProvider:
         self._corrected_cache: Dict[str, Dict[str, List[float]]] = {}
         self._corrector = NaturalAbundanceCorrector()
         self._mrrf_cache: Dict[str, Dict[str, float]] = {}
+        self._mrrf_assumed: Dict[str, set] = {}
         self._bg_cache: Dict[str, Dict[str, float]] = {}
 
     def get_all_compounds(self) -> List[dict]:
@@ -56,21 +60,9 @@ class InMemoryDataProvider:
                 continue
             # Build 2D vector with a single time point for reuse of corrector
             vec = np.array(areas, dtype=float).reshape(label_atoms + 1, 1)
-            # Force direct-solve path when numerically suitable to match DB-corrected behavior
-            cm, cond, use_direct = self._corrector._get_cached_correction_matrix(
-                comp.get('formula') or '',
-                comp.get('label_type') or 'C',
-                label_atoms,
-                int(comp.get('tbdms') or 0),
-                int(comp.get('meox') or 0),
-                int(comp.get('me') or 0),
-            )
-            if use_direct:
-                corr2d = self._corrector._correct_vectorized_direct(vec, cm)
-                corr_vec = corr2d[:, 0]
-            else:
-                corr = self._corrector.correct_time_series(
-                    vec,
+            try:
+                # Force direct-solve path when numerically suitable to match DB-corrected behavior
+                cm, _cond, _use_direct = self._corrector._get_cached_correction_matrix(
                     comp.get('formula') or '',
                     comp.get('label_type') or 'C',
                     label_atoms,
@@ -78,7 +70,11 @@ class InMemoryDataProvider:
                     int(comp.get('meox') or 0),
                     int(comp.get('me') or 0),
                 )
-                corr_vec = corr[:, 0]
+                corr2d = self._corrector._correct_vectorized_direct(vec, cm)
+                corr_vec = corr2d[:, 0]
+            except NaturalAbundanceCorrectionError as exc:
+                logger.warning("No corrected values for %s in %s: %s", name, sample_name, exc)
+                continue
 
             # Log if the approximate correction yields near-zero while raw has signal
             raw_total = float(np.sum(vec))
@@ -118,11 +114,20 @@ class InMemoryDataProvider:
         self._bg_cache[key] = vals
         return vals
 
-    def get_mrrf_values(self, compounds: List[dict], internal_standard_compound: str) -> Dict[str, float]:
-        # Compute MRRF using only in-memory compounds and corrected data (no DB)
-        key = f"mrrf_{len(compounds)}_{internal_standard_compound}"
+    def get_mrrf_values(
+        self,
+        compounds: List[dict],
+        internal_standard_compound: str,
+        internal_standard_isotope_index: Optional[int] = None,
+        assumed: Optional[set] = None,
+    ) -> Dict[str, float]:
+        idx = int(internal_standard_isotope_index or 0)
+        key = f"mrrf_{len(compounds)}_{internal_standard_compound}_{idx}"
         if key in self._mrrf_cache:
+            if assumed is not None:
+                assumed.update(self._mrrf_assumed.get(key, set()))
             return self._mrrf_cache[key]
+        assumed_here: set = set()
 
         # Helper to read fields from dict-like rows
         def _get(row, key, default=None):
@@ -149,6 +154,7 @@ class InMemoryDataProvider:
             comp_mm_samples = self.resolve_mm_samples(comp_mm_field)
             if not comp_mm_samples or not internal_std_mm_samples:
                 mrrf_values[cmp_name] = 1.0
+                assumed_here.add(cmp_name)
                 continue
 
             # Numerator: mean metabolite signal over its own MM set
@@ -163,18 +169,26 @@ class InMemoryDataProvider:
             internal_std_signals: list[float] = []
             for s in internal_std_mm_samples:
                 sd = self.get_sample_corrected_data(s)
-                sig = float(sum(sd.get(internal_standard_compound, [])))
+                iso_data = sd.get(internal_standard_compound, [0.0])
+                if 0 <= idx < len(iso_data):
+                    sig = float(iso_data[idx])
+                else:
+                    sig = 0.0
                 internal_std_signals.append(sig)
 
             if metabolite_signals and internal_std_signals and internal_std_concentration > 0 and metabolite_std_conc > 0:
                 mean_met = sum(metabolite_signals) / len(metabolite_signals)
                 mean_is = sum(internal_std_signals) / len(internal_std_signals)
-                if mean_is > 0:
+                if mean_is > 0 and mean_met > 0:
                     mrrf = (mean_met / metabolite_std_conc) / (mean_is / internal_std_concentration)
                     mrrf_values[cmp_name] = mrrf
                     continue
 
             mrrf_values[cmp_name] = 1.0
+            assumed_here.add(cmp_name)
 
         self._mrrf_cache[key] = mrrf_values
+        self._mrrf_assumed[key] = assumed_here
+        if assumed is not None:
+            assumed.update(assumed_here)
         return mrrf_values

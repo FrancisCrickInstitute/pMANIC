@@ -108,10 +108,18 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
             label_atoms = compound_row['label_atoms'] or 0
             num_isotopologues = label_atoms + 1
 
-            isotopologue_data = sample_data.get(compound_name, [0.0] * num_isotopologues)
+            if compound_name not in sample_data:
+                isotopologue_data = (
+                    [0.0] * num_isotopologues if label_atoms == 0 else [None] * num_isotopologues
+                )
+            else:
+                isotopologue_data = sample_data[compound_name]
 
             for isotope_idx in range(num_isotopologues):
-                area_value = isotopologue_data[isotope_idx] if isotope_idx < len(isotopologue_data) else 0.0
+                if isotopologue_data is None or isotope_idx >= len(isotopologue_data):
+                    area_value = None if label_atoms > 0 else 0.0
+                else:
+                    area_value = isotopologue_data[isotope_idx]
                 
                 fmt = None
                 if validation_data and sample_name in validation_data:

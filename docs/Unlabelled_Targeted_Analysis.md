@@ -15,8 +15,8 @@ Use this mode for targeted GC-MS profiling of known compounds when you are
 In unlabelled mode MANIC answers two questions for each target compound in each
 sample:
 
-1. **How much signal is there?** — quantified from one chosen ion (the Q ion).
-2. **Is that signal consistent with the intended compound?** — checked with
+1. **How much signal is there?** Quantified from one chosen ion (the Q ion).
+2. **Is that signal consistent with the intended compound?** Checked with
    retention time and one or more qualifier ions.
 
 It does **not**:
@@ -76,7 +76,7 @@ least one.
 
 Chromatographic retention time (RT) is a second, independent identity check.
 MANIC compares the **observed Q-ion apex** inside the integration window with
-the **current tR** — the same value used to centre the window. Changing tR
+the **current tR**, the same value used to centre the window. Changing tR
 updates integration and identity QC together, as in labelled mode. Reset
 restores the compound-list default.
 
@@ -144,7 +144,7 @@ headers and offers to start a matching session instead of misinterpreting the
 file.
 
 The window title always shows the active mode
-(e.g. `MANIC v… — Unlabelled analysis`).
+(e.g. `MANIC v… Unlabelled analysis`).
 
 ---
 
@@ -179,8 +179,8 @@ MANIC still imports a list that omits ratios, tolerances or the second qualifier
 | :--- | :--- | :--- |
 | `tR Window` | `tR_Window` | Extract half-width and RT identity tolerance (minutes). If omitted, defaults to `max(lOffset, rOffset)`. A value inside the offsets is raised to `max(lOffset, rOffset) + DEFAULT_RT_WINDOW_BUFFER` when EICs are extracted. |
 | `Amount in StdMix` | | Concentration of the compound in the standard mixture (for semi-quant) |
-| `Int Std amount` | | Amount of internal standard added to samples |
-| `MM Files` | | Pattern matching standard-mixture sample names (wildcards allowed, e.g. `*_MM_*`) |
+| `Int Std amount` | | Amount of internal standard added to samples. Right-click the compound and choose **Select as Internal Standard**. |
+| `MM Files` | | Pattern that matches MM files (standard mixture). Wildcards allowed, e.g. `*_MM_*`. |
 
 After you load CDF files, the **Check your data setup** dialog lists each compound's `MM Files` pattern and how many sample files it matched. A pattern that matches no files will produce empty calibration data at export. Run the same check later from **MANIC ▸ Check Data Setup...**.
 
@@ -224,7 +224,7 @@ Typical practice:
    \]
 
    Example: expected `0.40`, tolerance `0.25` → allowed range
-   \(0.40 \pm 0.10\) i.e. 0.30–0.50.
+   \(0.40 \pm 0.10\) i.e. 0.30 to 0.50.
 
 Regulatory guidance for pesticide residues often cites relative ion-ratio
 tolerances around ±30%; many metabolomics methods use similar or wider windows
@@ -239,12 +239,12 @@ analyst.
 
 ## 5. End-to-end workflow
 
-### Step A — Start an unlabelled session
+### Step A. Start an unlabelled session
 
 Launch MANIC (or use **File → New Analysis Session…**) and choose
 **Unlabelled targeted analysis**.
 
-### Step B — Load the compound list
+### Step B. Load the compound list
 
 **File → Load Compounds/Parameter List** and select a list with `QIon` and
 `QualifierIon1`. Lists that still use `ValIon1` / `ValIon2` load without a
@@ -256,7 +256,7 @@ Verification:
 - The compound list populates
 - Selecting a compound shows its Q/qualifier *m/z* in the sidebar indicator
 
-### Step C — Load raw CDF data
+### Step C. Load raw CDF data
 
 **File → Load Raw Data (CDF)** and select the **folder** containing NetCDF
 (`.cdf`) files. Convert vendor mass-spec files to CDF in
@@ -268,7 +268,7 @@ is widened if needed so configured `lOffset` / `rOffset` are not clipped.
 
 Natural-abundance correction is **not** applied in this mode.
 
-### Step D — Review compounds
+### Step D. Review compounds
 
 1. Select a compound and the samples of interest.
 2. Inspect the EIC tiles and the **Identity** chart in the left sidebar.
@@ -277,7 +277,7 @@ Natural-abundance correction is **not** applied in this mode.
 4. Use **Shared y-scale** if you want one intensity scale across all sample
    tiles. Off: each tile autoscales to its own tallest peak.
 
-### Step E — Export
+### Step E. Export
 
 Export the Excel workbook when review is complete. Unlabelled sessions write
 Raw Values and Abundances in the labelled matrix layout, plus Qualifier QC
@@ -323,23 +323,33 @@ For each sample × compound, MANIC assesses:
 3. For each qualifier ion with both expected ratio and tolerance: does the observed
    qualifier/Q ratio pass?
 
+These layers use different words. Do not mix them.
+
+**Sample Identity Status** (SUPPORTED, REVIEW_REQUIRED, NOT_DETECTED, NOT_ASSESSED). There is no sample-level Unavailable.
+
 | Status | Meaning |
 | :--- | :--- |
-| **Supported** | Q detected; every configured RT and ratio check passed |
-| **Review required** | Q detected, but at least one configured check failed |
-| **Not detected** | Q-ion area at or below the assessment floor |
-| **Not assessed** | Q detected, but identity references are incomplete (e.g. missing expected ratios), so MANIC reports signal without confirmation |
-| **Unavailable** | QC could not be computed (missing EIC / compound data) |
+| **Supported** | Q detected. Every configured RT and ratio check passed. |
+| **Review required** | Q detected. At least one configured check failed. |
+| **Not detected** | Q-ion area at or below the assessment floor. |
+| **Not assessed** | Q detected. Identity references are incomplete (for example a missing expected ratio), so MANIC reports signal without confirmation. |
+
+**Identity chart** (one cell per qualifier). Statuses are Validated, Failed, Absent, Not assessed, and Unavailable.
+
+| Chart | Meaning |
+| :--- | :--- |
+| **Validated** | That qualifier's ratio check passed. |
+| **Failed** | That qualifier's ratio check failed. |
+| **Absent** | That qualifier is not in the method. |
+| **Not assessed** | Q was not detected, or the expected ratio or tolerance is missing. |
+| **Unavailable** | Identity could not be computed for that qualifier (missing EIC or compound data). |
+
+The enlarged chart legend uses **Validated**, **Failed**, and **No verdict**. Grey cells (Absent, Not assessed, Unavailable) share **No verdict**.
+
+**Qualifier QC Outcome** on the Excel sheet uses **Pass**, **Partial**, **Fail**, **Not detected**, and **No qualifiers**. Those words are not Identity chart statuses.
 
 The Identity chart encodes **qualifier/Q only**. Export **Identity Status** also includes
 tR and whether Q was found.
-
-| Chart | Meaning | Typical export status |
-| :--- | :--- | :--- |
-| **Validated** (green) | Every qualifier ion has a ratio check and all passed | **Supported** if tR also passed; **Review required** if tR failed |
-| **Partial** (orange) | At least one qualifier ion passed and at least one did not | **Review required** if a qualifier ion failed; **Not assessed** if the other qualifier has no ratio |
-| **Fail** (red) | A qualifier/Q check failed and none passed | **Review required** |
-| **No ratio** (grey) | Nothing was scored | **Not assessed** if Q is present; **Not detected** if Q is missing |
 
 Hover a bar for expected ratio, tolerance, and observed ratio. Click a bar to
 highlight that sample's plot. Double-click to enlarge the chart. A green bar
@@ -370,7 +380,7 @@ isotope row: unlabelled amount is not a sum of isotopologues.
 
 Semi-quantitative amounts are **not** multi-point calibration-curve results.
 
-There is no Corrected Values, Isotope Ratios, or label-incorporation sheet.
+There is no Corrected Values, Isotope Ratio, or label-incorporation sheet.
 Those describe an isotopologue envelope that this mode does not have.
 
 ### Qualifier QC
@@ -436,18 +446,18 @@ Right-click a tile for the detail view:
 
 ## 10. Practical review checklist
 
-1. **Validated / Supported** — spot-check a few; confirm the Q peak sits on tR
+1. **Validated** / **Supported**. Spot-check a few. Confirm the Q peak sits on tR
    and qualifier traces share the same apex shape. A green bar with a tR miss is still
    **Review required** in the export.
-2. **Partial / Fail / Review required** — hover the bar, then read Identity
+2. **Failed** / **Review required**. Hover the bar, then read Identity
    Reasons. RT failures often need a shifted tR so the window covers the peak.
    Ratio failures often indicate co-elution, wrong qualifier ion, or an outdated
    expected ratio.
-3. **No ratio / Not detected** — confirm absence vs. window missed the peak vs.
+3. **Absent** / **Not detected**. Confirm absence vs. window missed the peak vs.
    wrong Q *m/z*.
-4. **No ratio / Not assessed** — add expected ratios / tolerances for every
+4. **Not assessed**. Add expected ratios and tolerances for every
    qualifier ion (and a sensible `tR Window`) if you want automated confirmation.
-5. Before trusting amounts — confirm the internal standard, `MM Files`
+5. Before trusting amounts, confirm the internal standard, `MM Files`
    patterns, and whether Result Type says *semi-quantitative* or
    *uncalibrated*.
 
@@ -477,8 +487,8 @@ added to enable automated identity QC that old MANIC did not perform.
   when your SOP requires it.
 - Fixed-window integration assumes the peak lies inside
   centre ± offsets. Large RT drift needs per-sample centre adjustment.
-- Co-elution that affects Q and qualifier ions proportionally can still pass ratio checks —
-  visual review of shapes remains important.
+- Co-elution that affects Q and qualifier ions proportionally can still pass ratio checks.
+  Visual review of shapes remains important.
 - Imported expected qualifier/Q ratios are usually raw-window values. Turning
   deconvolution on can move observed ratios even when every non-empty ion fitted;
   remeasure expected ratios and tolerances on standards with the same setting.
@@ -491,9 +501,9 @@ added to enable automated identity QC that old MANIC did not perform.
 
 ## Related documentation
 
-- [User Guide](01_user_guide.md) — general application workflow (labelled-oriented steps still apply for CDF import mechanics)
-- [Peak Validation](Reference_Peak_Validation.md) — internal-standard height checks (unlabelled uses Q-ion area)
-- [Integration Methods](Reference_Integration_Methods.md) — time-based vs legacy unit-spacing integration
-- [Baseline Correction](Reference_Baseline_Correction.md) — optional linear baseline subtraction
-- [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md) — independent per-ion fitting and the all-or-nothing fallback
-- [Mass Tolerance](Reference_Mass_Tolerance.md) — how *m/z* values are binned on import
+- [User Guide](01_user_guide.md). General application workflow. Labelled-oriented steps still apply for CDF import mechanics.
+- [Peak Validation](Reference_Peak_Validation.md). Internal-standard height checks. Unlabelled uses Q-ion area.
+- [Integration Methods](Reference_Integration_Methods.md). Time-based vs legacy unit-spacing integration.
+- [Baseline Correction](Reference_Baseline_Correction.md). Optional linear baseline subtraction.
+- [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md). Independent per-ion fitting and the all-or-nothing fallback.
+- [Mass Tolerance](Reference_Mass_Tolerance.md). How *m/z* values are binned on import.

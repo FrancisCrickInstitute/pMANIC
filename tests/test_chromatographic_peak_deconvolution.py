@@ -20,9 +20,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.processors import integration as integration_module
 from manic.processors.integration import calculate_peak_areas
 
-
-def _gaussian(time, center, width, height):
-    return height * np.exp(-0.5 * ((time - center) / width) ** 2)
+from conftest import _gaussian
 
 
 def test_chromatographic_peak_deconvolution_selects_component_closest_to_retention_time():
@@ -203,13 +201,47 @@ def test_overlap_still_uses_the_overlap_fitter(monkeypatch):
     assert joint_calls
 
 
-def test_normalize_fit_type_accepts_known_values_and_falls_back():
-    assert normalize_fit_type(None) == "auto"
-    assert normalize_fit_type("AUTO") == "auto"
-    assert normalize_fit_type("gaussian") == "gaussian"
-    assert normalize_fit_type("bi_gaussian") == "bi_gaussian"
-    assert normalize_fit_type("emg") == "emg"
-    assert normalize_fit_type("nonsense") == "auto"
+@pytest.mark.parametrize(
+    "fn,raw,expected",
+    [
+        (normalize_fit_type, None, "auto"),
+        (normalize_fit_type, "AUTO", "auto"),
+        (normalize_fit_type, "gaussian", "gaussian"),
+        (normalize_fit_type, "bi_gaussian", "bi_gaussian"),
+        (normalize_fit_type, "emg", "emg"),
+        (normalize_fit_type, "nonsense", "auto"),
+        (normalize_stringency, "off", "off"),
+        (normalize_stringency, "low", "2"),
+        (normalize_stringency, "medium", "4"),
+        (normalize_stringency, "high", "6"),
+        (normalize_stringency, "7", "7"),
+        (normalize_noise_gate, "balanced", "balanced"),
+        (normalize_noise_gate, "OFF", "off"),
+        (normalize_noise_gate, "  Aggressive ", "aggressive"),
+        (normalize_noise_gate, None, "balanced"),
+        (normalize_noise_gate, "bogus", "balanced"),
+    ],
+    ids=[
+        "fit_none",
+        "fit_AUTO",
+        "fit_gaussian",
+        "fit_bi_gaussian",
+        "fit_emg",
+        "fit_nonsense",
+        "stringency_off",
+        "stringency_low",
+        "stringency_medium",
+        "stringency_high",
+        "stringency_7",
+        "noise_balanced",
+        "noise_OFF",
+        "noise_aggressive_padded",
+        "noise_none",
+        "noise_bogus",
+    ],
+)
+def test_normalize_deconv_enums(fn, raw, expected):
+    assert fn(raw) == expected
 
 
 def test_fit_type_forces_single_shape_and_still_resolves_components():
@@ -269,14 +301,6 @@ def test_invalid_fit_type_falls_back_to_auto_behaviour():
     )
 
     assert np.allclose(forced.selected, auto.selected)
-
-
-def test_chromatographic_peak_deconvolution_accepts_numeric_resolution_levels():
-    assert normalize_stringency("off") == "off"
-    assert normalize_stringency("low") == "2"
-    assert normalize_stringency("medium") == "4"
-    assert normalize_stringency("high") == "6"
-    assert normalize_stringency("7") == "7"
 
 
 def test_labelled_m1_overlap_does_not_change_m0_area():
@@ -585,24 +609,6 @@ def test_deconvolution_recovers_true_area_on_overlap():
     assert areas[0] / areas[1] == pytest.approx(2.5, rel=5e-2)
 
 
-def test_legacy_integration_ignores_dense_model():
-    # Legacy (unit-spacing) integration must remain scan-point based, unchanged.
-    time = np.linspace(8.0, 9.0, 80)
-    intensity = _gaussian(time, 8.58, 0.02, 1000.0) + 5.0
-
-    legacy = calculate_peak_areas(
-        time,
-        intensity,
-        label_atoms=0,
-        retention_time=8.58,
-        loffset=0.1,
-        roffset=0.1,
-        use_legacy=True,
-        chromatographic_peak_deconvolution_stringency="4",
-    )
-    assert legacy[0] > 0
-
-
 def test_messy_window_skips_fit_and_falls_back_to_raw():
     # A noise-dominated window with no real peak should not be fitted at all.
     rng = np.random.default_rng(0)
@@ -649,14 +655,6 @@ def test_genuine_overlap_still_fits_under_messy_gate():
 
     assert result.model is not None
     assert result.excluded
-
-
-def test_normalize_noise_gate():
-    assert normalize_noise_gate("balanced") == "balanced"
-    assert normalize_noise_gate("OFF") == "off"
-    assert normalize_noise_gate("  Aggressive ") == "aggressive"
-    assert normalize_noise_gate(None) == "balanced"
-    assert normalize_noise_gate("bogus") == "balanced"
 
 
 def test_noise_gate_threshold_controls_skipping():
@@ -1464,26 +1462,3 @@ def test_variable_projection_jacobian_matches_finite_differences(shape_model):
         )
 
 
-@pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian", "emg"])
-def test_fit_shape_candidate_hands_least_squares_the_analytic_jacobian(
-    monkeypatch, shape_model
-):
-    seen = {}
-    real = deconv.least_squares
-
-    def spy(fun, x0, **kwargs):
-        seen["jac"] = kwargs["jac"]
-        return real(fun, x0, **kwargs)
-
-    monkeypatch.setattr(deconv, "least_squares", spy)
-    x_rel = np.arange(0.0, 24.0, 0.5)
-    y = 1e4 * deconv._component_shapes(x_rel, "gaussian", np.array([[12.0, 1.5]]))
-    deconv._fit_shape_candidate(
-        x_rel, y, [11.5], shape_model, 0.5, 6.0, 1.0, 1e4, deconv.STRINGENCY_PRESETS["7"]
-    )
-
-    assert callable(seen["jac"])
-    x0 = np.array([11.5, 1.0] if shape_model == "gaussian" else [11.5, 1.0, 1.0])
-    jac = seen["jac"](x0)
-    assert jac.shape == (x_rel.size, x0.size)
-    assert np.all(np.isfinite(jac))

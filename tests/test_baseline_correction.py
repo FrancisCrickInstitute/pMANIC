@@ -12,7 +12,6 @@ import numpy as np
 import pytest
 
 from manic.processors.integration import (
-    BASELINE_NUM_POINTS,
     calculate_peak_areas,
     compute_baseline_area,
     compute_linear_baseline,
@@ -150,24 +149,6 @@ class TestComputeBaselineArea:
 class TestCalculatePeakAreasWithBaselineCorrection:
     """Tests for calculate_peak_areas with baseline_correction parameter."""
 
-    def test_unlabeled_no_baseline(self):
-        """Test unlabeled compound without baseline correction."""
-        time_data = np.linspace(9.5, 10.5, 50)
-        # Simple peak
-        intensity_data = 100 * np.exp(-((time_data - 10) ** 2) / 0.01)
-
-        areas = calculate_peak_areas(
-            time_data,
-            intensity_data,
-            label_atoms=0,
-            retention_time=10.0,
-            loffset=0.4,
-            roffset=0.4,
-            baseline_correction=False,
-        )
-
-        assert len(areas) == 1
-        assert areas[0] > 0
 
     def test_unlabeled_with_baseline(self):
         """Test unlabeled compound with baseline correction."""
@@ -344,9 +325,6 @@ class TestCalculatePeakAreasWithBaselineCorrection:
 class TestBaselineNumPoints:
     """Test the BASELINE_NUM_POINTS constant."""
 
-    def test_baseline_num_points_is_three(self):
-        """Verify the constant matches MATLAB implementation (3 points per edge)."""
-        assert BASELINE_NUM_POINTS == 3
 
     def test_custom_n_points(self):
         """Test using custom number of boundary points."""

@@ -90,6 +90,25 @@ def _baseline_endpoints(
     return first, last
 
 
+def _clamped_line_area(
+    first: np.ndarray, last: np.ndarray, width: float
+) -> np.ndarray:
+    first = np.asarray(first, dtype=np.float64)
+    last = np.asarray(last, dtype=np.float64)
+    pos_first = np.maximum(first, 0.0)
+    pos_last = np.maximum(last, 0.0)
+    simple = 0.5 * (pos_first + pos_last) * width
+    span = np.abs(last - first)
+    crossing = np.zeros_like(simple)
+    np.divide(
+        0.5 * np.maximum(pos_first, pos_last) ** 2 * width,
+        span,
+        out=crossing,
+        where=span > 0,
+    )
+    return np.where(first * last >= 0.0, simple, crossing)
+
+
 def _baseline_width(time_data: np.ndarray, use_legacy: bool) -> float:
     """Compute the baseline width for geometric area calculations."""
     if len(time_data) < 2:
@@ -182,8 +201,8 @@ def compute_baseline_area(
     slopes, intercepts = coeffs
     first, last = _baseline_endpoints(td, slopes, intercepts)
     width = _baseline_width(td, use_legacy)
-    area = 0.5 * (float(np.asarray(first).flat[0]) + float(np.asarray(last).flat[0])) * width
-    return float(area)
+    area = _clamped_line_area(first, last, width)
+    return float(np.asarray(area).flat[0])
 
  
 def _compute_baseline_areas_vectorized(
@@ -207,8 +226,8 @@ def _compute_baseline_areas_vectorized(
     slopes, intercepts = coeffs
     first, last = _baseline_endpoints(td, slopes, intercepts)
     width = _baseline_width(td, use_legacy)
-    areas = 0.5 * (first + last) * width
-    return np.asarray(areas, dtype=np.float64)
+    areas = _clamped_line_area(first, last, width)
+    return np.asarray(areas, dtype=np.float64).reshape(-1)
 
  
 def calculate_peak_areas(

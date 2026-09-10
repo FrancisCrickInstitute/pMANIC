@@ -60,8 +60,7 @@ Optionally, if your internal standard is labelled, you can choose which isotopol
 **Settings → Internal Standard**
 
 * **Default:** `0.005` (0.5%)
-* **Range:** `0.0` to `1.0`
+* **Range:** `0.001` to `1.0` (the **Settings → Peak Validation** spin box)
 * **Usage:**
     * Increase this value (e.g., to `0.05`) to be stricter and flag more peaks.
     * Decrease this value (e.g., to `0.001`) to accept weaker signals.
-    * Set to `0.0` to disable validation warnings entirely.

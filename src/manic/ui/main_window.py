@@ -38,6 +38,7 @@ from manic.constants import (
 )
 from manic.io.compounds_import import (
     UnlabelledCompoundRecord,
+    detect_compound_list_format,
     import_compound_excel,
     insert_compound,
     insert_unlabelled_compound,
@@ -86,9 +87,11 @@ from manic.ui.toast_notification import ToastNotification
 from manic.ui.window_placement import show_over_parent
 from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.utils.paths import docs_path, resource_path
+from manic.utils.recent_files import RecentFiles
 from manic.utils.workers import (
     CdfImportWorker,
     EicRegenerationWorker,
+    ExportWorker,
     MassToleranceReloadWorker,
     UpdateCheckWorker,
 )
@@ -152,6 +155,13 @@ class MainWindow(QMainWindow):
         self._update_worker = None
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
+        self._thread = None
+        self._export_thread = None
+        self._export_worker = None
+        self._export_progress_dialog = None
+        self._skip_close_guard = False
+        self._recent_compounds = RecentFiles("compound_lists")
+        self._recent_cdf = RecentFiles("cdf_folders")
 
         # Cached DataProvider for validation (reused to avoid repeated bulk loads)
         self._validation_provider = None
@@ -284,9 +294,11 @@ class MainWindow(QMainWindow):
 
         # Initiate the file menu
         file_menu = menu_bar.addMenu("File")
+        self.file_menu = file_menu
 
         # Create the actions/logic for loading compound list data
         self.load_compound_action = QAction("Load Compounds/Parameter List", self)
+        self.load_compound_action.setShortcut(QKeySequence.Open)
         self.load_compound_action.triggered.connect(self.load_compound_list_data)
         # Add the load compound action/logic to the file menu
         file_menu.addAction(self.load_compound_action)
@@ -297,9 +309,14 @@ class MainWindow(QMainWindow):
 
         # Create the actions/logic for loading CDF files
         self.load_cdf_action = QAction("Load Raw Data (CDF)", self)
+        self.load_cdf_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
         self.load_cdf_action.triggered.connect(self.load_cdf_files)
         # Add the load CDF action/logic to the file menu
         file_menu.addAction(self.load_cdf_action)
+
+        self.open_recent_menu = file_menu.addMenu("Open Recent")
+        self.open_recent_menu.aboutToShow.connect(self._rebuild_open_recent_menu)
+        self._rebuild_open_recent_menu()
 
         # Add a separator to the file menu
         file_menu.addSeparator()
@@ -310,6 +327,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.export_method_action)
 
         self.import_session_action = QAction("Import Session...", self)
+        self.import_session_action.setShortcut(QKeySequence("Ctrl+I"))
         self.import_session_action.triggered.connect(self.import_session)
         file_menu.addAction(self.import_session_action)
 
@@ -328,6 +346,7 @@ class MainWindow(QMainWindow):
 
         # Create export data action
         self.export_data_action = QAction("Export Data...", self)
+        self.export_data_action.setShortcut(QKeySequence("Ctrl+E"))
         self.export_data_action.triggered.connect(self.export_data)
         file_menu.addAction(self.export_data_action)
 
@@ -336,6 +355,18 @@ class MainWindow(QMainWindow):
         self.update_old_data_action = QAction("Process External Data...", self)
         self.update_old_data_action.triggered.connect(self.update_old_data)
         file_menu.addAction(self.update_old_data_action)
+
+        file_menu.addSeparator()
+        self.quit_action = QAction("Quit", self)
+        # QKeySequence.Quit has no Windows entry in Qt's standard-key table
+        # (KB_X11 | KB_Gnome | KB_KDE | KB_Mac), so on its own it would leave
+        # Windows with no shortcut at all. Pair it with the literal, as
+        # Settings does for QKeySequence.Preferences. On macOS both resolve to
+        # Cmd+Q and the duplicate is harmless.
+        self.quit_action.setShortcuts([QKeySequence.Quit, QKeySequence("Ctrl+Q")])
+        self.quit_action.setMenuRole(QAction.QuitRole)
+        self.quit_action.triggered.connect(self.close)
+        file_menu.addAction(self.quit_action)
 
         # About and Settings carry roles so a native macOS menubar moves them
         # into the application menu (Qt relabels Settings as "Preferences..."
@@ -473,12 +504,19 @@ class MainWindow(QMainWindow):
         return msg_box
 
     def _show_question_dialog(
-        self, title: str, text: str, informative_text: str = "", parent=None
+        self,
+        title: str,
+        text: str,
+        informative_text: str = "",
+        parent=None,
+        default_button=None,
     ) -> int:
         """Show a question dialog and return the result (QMessageBox.Yes or QMessageBox.No)."""
         msg_box = self._create_message_box(
             "question", title, text, informative_text, parent
         )
+        if default_button is not None:
+            msg_box.setDefaultButton(default_button)
         return msg_box.exec()
 
     def _show_message(
@@ -487,14 +525,50 @@ class MainWindow(QMainWindow):
         """Create and show an information/warning/critical message box."""
         self._create_message_box(msg_type, title, text, informative_text).exec()
 
+    def _running_background_thread(self) -> str | None:
+        for thread_attr in (
+            "_thread",
+            "_regen_thread",
+            "_mass_tol_thread",
+            "_export_thread",
+        ):
+            thread = getattr(self, thread_attr, None)
+            if thread is None:
+                continue
+            try:
+                running = thread.isRunning()
+            except RuntimeError:
+                setattr(self, thread_attr, None)
+                continue
+            if running:
+                return thread_attr
+        return None
+
+    def _background_work_running(self, before: str) -> bool:
+        """Import/reload workers still hold the database; refuse to wipe it under them."""
+        if self._running_background_thread() is None:
+            return False
+        self._show_message(
+            "information",
+            "Operation in progress",
+            f"Wait for the current import or reload to finish before {before}.",
+        )
+        return True
+
     def _update_menu_states(self):
         """Update menu item enabled/disabled states based on current data state."""
+        export_running = self._running_background_thread() == "_export_thread"
+
         # Load Compound Data: enabled only if not yet loaded
-        self.load_compound_action.setEnabled(not self.compound_data_loaded)
+        self.load_compound_action.setEnabled(
+            not self.compound_data_loaded and not export_running
+        )
 
         # Load CDF Data: enabled only if compound data loaded but CDF not loaded
         self.load_cdf_action.setEnabled(
-            self.compound_data_loaded and not self.cdf_data_loaded
+            self.compound_data_loaded
+            and not self.cdf_data_loaded
+            and not export_running
         )
 
         # Export Session: enabled if compound data loaded
@@ -502,7 +576,9 @@ class MainWindow(QMainWindow):
 
         # Export Data: enabled only if compound data, CDF data loaded
         self.export_data_action.setEnabled(
-            self.compound_data_loaded and self.cdf_data_loaded
+            self.compound_data_loaded
+            and self.cdf_data_loaded
+            and not export_running
         )
 
         self.check_setup_action.setEnabled(
@@ -516,8 +592,10 @@ class MainWindow(QMainWindow):
 
         # Clear Session: enabled if any data loaded
         self.clear_session_action.setEnabled(
-            self.compound_data_loaded or self.cdf_data_loaded
+            (self.compound_data_loaded or self.cdf_data_loaded)
+            and not export_running
         )
+        self.new_session_action.setEnabled(not export_running)
 
         # Add tooltips to disabled items
         if self.compound_data_loaded:
@@ -589,24 +667,8 @@ class MainWindow(QMainWindow):
         non-checkable action. Keep that signal argument separate from the
         optional mode selected by compound-list format detection.
         """
-        # Import/reload workers still hold the database; do not clear it.
-        for thread_attr in ("_thread", "_regen_thread", "_mass_tol_thread"):
-            thread = getattr(self, thread_attr, None)
-            if thread is None:
-                continue
-            try:
-                running = thread.isRunning()
-            except RuntimeError:
-                setattr(self, thread_attr, None)
-                continue
-            if running:
-                self._show_message(
-                    "information",
-                    "Operation in progress",
-                    "Wait for the current import or reload to finish "
-                    "before starting a new session.",
-                )
-                return
+        if self._background_work_running("starting a new session"):
+            return
 
         if self.compound_data_loaded or self.cdf_data_loaded:
             reply = self._show_question_dialog(
@@ -645,8 +707,81 @@ class MainWindow(QMainWindow):
         # Parent-less widgets need a live Python reference or GC destroys them
         QApplication.instance()._manic_main_window = window
         window.showMaximized()
+        # Already confirmed the session wipe; close must not ask again.
+        self._skip_close_guard = True
         self.close()
         logger.info(f"New analysis session started in {mode.display_name} mode")
+
+    def closeEvent(self, event):
+        if self._skip_close_guard:
+            event.accept()
+            return
+        running = self._running_background_thread()
+        if running is not None:
+            if running == "_export_thread":
+                quit_text = (
+                    "An export is still running. Quitting now cancels the export."
+                )
+            else:
+                quit_text = (
+                    "An import or reload is still running. Quitting now leaves "
+                    "the database partly written."
+                )
+            reply = self._show_question_dialog(
+                "Quit MANIC?",
+                quit_text,
+                default_button=QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                event.ignore()
+                return
+            if running == "_export_thread":
+                if self._export_worker is not None:
+                    self._export_worker.cancel()
+                if self._export_thread is not None:
+                    self._export_thread.wait()
+        elif self.compound_data_loaded or self.cdf_data_loaded:
+            reply = self._show_question_dialog(
+                "Quit MANIC?",
+                "This session is not saved. Use File > Export Method... to keep the compound settings before quitting.",
+                default_button=QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                event.ignore()
+                return
+        event.accept()
+
+    def _rebuild_open_recent_menu(self) -> None:
+        self.open_recent_menu.clear()
+        compounds = self._recent_compounds.paths()
+        folders = self._recent_cdf.paths()
+        for path in compounds:
+            action = QAction(Path(path).name, self)
+            action.setToolTip(str(Path(path).parent))
+            action.triggered.connect(
+                lambda _checked=False, p=path: self._load_compound_list_from(p)
+            )
+            action.setEnabled(self.load_compound_action.isEnabled())
+            self.open_recent_menu.addAction(action)
+        self.open_recent_menu.addSeparator()
+        for path in folders:
+            action = QAction(Path(path).name, self)
+            action.setToolTip(str(Path(path).parent))
+            action.triggered.connect(
+                lambda _checked=False, p=path: self._load_cdf_folder(p)
+            )
+            action.setEnabled(self.load_cdf_action.isEnabled())
+            self.open_recent_menu.addAction(action)
+        self.open_recent_menu.addSeparator()
+        clear_action = QAction("Clear Recent", self)
+        clear_action.triggered.connect(self._clear_recent_files)
+        self.open_recent_menu.addAction(clear_action)
+        self.open_recent_menu.setEnabled(bool(compounds or folders))
+
+    def _clear_recent_files(self) -> None:
+        self._recent_compounds.clear()
+        self._recent_cdf.clear()
+        self.open_recent_menu.setEnabled(False)
 
     def load_compound_list_data(self: QMainWindow) -> None:
         """
@@ -663,12 +798,12 @@ class MainWindow(QMainWindow):
         )
         if not file_path:
             return
+        self._load_compound_list_from(file_path)
 
-        # A QIon/QualifierIon list in a labelled session (or vice versa)
-        # can only be misinterpreted. Offer to restart in the right mode.
-        from manic.io.compounds_import import detect_compound_list_format
-
-        detected_mode = detect_compound_list_format(file_path)
+    def _load_compound_list_from(self, path: str) -> None:
+        if not self.load_compound_action.isEnabled():
+            return
+        detected_mode = detect_compound_list_format(path)
         if detected_mode is not None and detected_mode is not self.analysis_mode:
             msg_box = self._create_message_box(
                 "warning",
@@ -684,9 +819,11 @@ class MainWindow(QMainWindow):
                 self.new_analysis_session(preset_mode=detected_mode)
             return
 
+        self._recent_compounds.add(path)
+        self.open_recent_menu.setEnabled(True)
         try:
             self.compounds_data_storage = import_compound_excel(
-                file_path,
+                path,
                 analysis_mode=self.analysis_mode,
             )
             self.toolbar.update_label_colours(False, True)
@@ -761,13 +898,20 @@ class MainWindow(QMainWindow):
         )
         if not directory:
             return
+        self._load_cdf_folder(directory)
+
+    def _load_cdf_folder(self, path: str):
+        if not self.load_cdf_action.isEnabled():
+            return
+        self._recent_cdf.add(path)
+        self.open_recent_menu.setEnabled(True)
 
         # build dialog & worker
         self.progress_dialog = self._build_progress_dialog("Importing CDF data…")
         self.progress_dialog.show()
 
         self._thread = QThread(self)  # background thread
-        self._worker = CdfImportWorker(directory, self.mass_tolerance)  # heavy lifting
+        self._worker = CdfImportWorker(path, self.mass_tolerance)  # heavy lifting
         self._worker.moveToThread(self._thread)
 
         # progress updates
@@ -1386,6 +1530,7 @@ class MainWindow(QMainWindow):
                 sample_names,
                 retention_time,
                 pending_regeneration,
+                mass_tol=self.mass_tolerance,
             )
             self._regen_worker.moveToThread(self._regen_thread)
 
@@ -1501,7 +1646,7 @@ class MainWindow(QMainWindow):
 
         # Show success message
         msg = self._create_message_box(
-            "info",
+            "information",
             "Regeneration Complete",
             f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
         )
@@ -1526,13 +1671,7 @@ class MainWindow(QMainWindow):
 
     def _re_enable_ui_actions(self):
         """Re-enable UI actions after background operations"""
-        self.load_cdf_action.setEnabled(True)
-        self.load_compound_action.setEnabled(True)
-        # Re-enable export actions based on data state
-        self.export_method_action.setEnabled(self.compound_data_loaded)
-        self.export_data_action.setEnabled(
-            self.cdf_data_loaded and self.compound_data_loaded
-        )
+        self._update_menu_states()
 
     def _update_regeneration_progress(self, current: int, total: int):
         """Update regeneration progress dialog"""
@@ -2307,6 +2446,9 @@ class MainWindow(QMainWindow):
 
     def clear_session(self):
         """Clear all loaded data and reset application state with progress tracking."""
+        if self._background_work_running("clearing the session"):
+            return
+
         reply = self._show_question_dialog(
             "Clear Session",
             "This will clear all loaded data and reset the application.",
@@ -2316,11 +2458,12 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             # Create and show progress dialog
             progress = QProgressDialog(
-                "Preparing to clear session...", "Cancel", 0, 100, self
+                "Preparing to clear session...", None, 0, 100, self
             )
             progress.setWindowTitle("Clearing Session")
             progress.setWindowModality(Qt.WindowModal)
             progress.setMinimumDuration(0)  # Show immediately
+            progress.setCancelButton(None)
             progress.setValue(0)
             progress.show()
             QCoreApplication.processEvents()  # Ensure dialog appears
@@ -2373,9 +2516,6 @@ class MainWindow(QMainWindow):
 
                 # Define progress callback for database clearing
                 def db_progress_callback(current, total, operation):
-                    if progress.wasCanceled():
-                        return
-
                     # Map database progress to 40-90% of total progress
                     db_progress_percent = int(40 + (current / total) * 50)
                     progress.setValue(db_progress_percent)
@@ -2392,10 +2532,6 @@ class MainWindow(QMainWindow):
 
                 # Clear the database with progress tracking (fast mode enabled by default)
                 clear_database(progress_callback=db_progress_callback)
-
-                if progress.wasCanceled():
-                    progress.close()
-                    return
 
                 progress.setValue(90)
                 progress.setLabelText("Reconnecting signals...")
@@ -2447,77 +2583,6 @@ class MainWindow(QMainWindow):
                 )
                 msg_box.exec()
 
-    def _ensure_corrections_applied_for_export(self):
-        """
-        Ensure natural isotope corrections are applied before data export.
-
-        This method is called automatically before any export operation to guarantee
-        that the Corrected Values sheet contains properly corrected data. This is
-        completely independent of the UI visualization toggle state.
-
-        If corrections are missing (user never toggled correction on in UI), they are
-        applied automatically with a progress dialog. This is safe because:
-        - Correction application is idempotent (INSERT OR REPLACE)
-        - Only missing corrections are computed
-        - Original raw data is never modified
-        """
-        if self.analysis_mode is AnalysisMode.UNLABELLED:
-            return
-
-        try:
-            from manic.models.database import get_connection
-            from manic.processors.eic_correction_manager import process_all_corrections
-
-            # Check if there are any labeled compounds that lack corrected data
-            with get_connection() as conn:
-                missing_corrections_count = conn.execute("""
-                    SELECT COUNT(*)
-                    FROM eic e
-                    JOIN compounds c ON e.compound_name = c.compound_name
-                    LEFT JOIN eic_corrected ec
-                       ON ec.sample_name = e.sample_name
-                      AND ec.compound_name = e.compound_name
-                      AND ec.deleted = 0
-                    WHERE e.deleted = 0
-                      AND c.deleted = 0
-                      AND c.label_atoms > 0
-                      AND ec.id IS NULL
-                """).fetchone()[0]
-
-            # If corrections are missing, apply them silently
-            if missing_corrections_count > 0:
-                logger.info(
-                    f"Export requires natural isotope corrections. "
-                    f"Applying corrections for {missing_corrections_count} labeled compounds..."
-                )
-
-                try:
-                    corrections_count = process_all_corrections(progress_cb=None)
-                    logger.info(
-                        f"Successfully applied {corrections_count} natural isotope corrections for export"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to apply natural isotope corrections for export: {e}"
-                    )
-                    raise  # Re-raise to prevent export with incorrect data
-            else:
-                logger.debug("All required natural isotope corrections already applied")
-
-        except Exception as e:
-            logger.error(f"Error ensuring corrections for export: {e}")
-            # Show error dialog
-            msg = self._create_message_box(
-                "error",
-                "Export Preparation Failed",
-                "Failed to prepare corrected data for export.",
-                f"Error: {str(e)}\n\n"
-                "The export cannot proceed without properly corrected data. "
-                "Please check the logs for details.",
-            )
-            msg.exec()
-            raise  # Prevent export from continuing
-
     def export_data(self):
         """
         Export processed data to Excel with 6 worksheets.
@@ -2551,10 +2616,6 @@ class MainWindow(QMainWindow):
             # Ensure .xlsx extension
             if not file_path.lower().endswith(".xlsx"):
                 file_path += ".xlsx"
-
-            # CRITICAL: Ensure natural isotope corrections are applied before export
-            # This is independent of the UI visualization toggle state
-            self._ensure_corrections_applied_for_export()
 
             # Export options popup: choose integration mode
             options_dialog = QDialog(self)
@@ -2646,16 +2707,14 @@ class MainWindow(QMainWindow):
                         return
                     internal_standard_for_export = None
 
-            # Create progress dialog
             progress_dialog = QProgressDialog(
                 "Exporting data to Excel...", "Cancel", 0, 100, self
             )
             progress_dialog.setWindowTitle("Data Export")
-            progress_dialog.setMinimumDuration(0)  # Show immediately
+            progress_dialog.setMinimumDuration(0)
             progress_dialog.setModal(True)
             progress_dialog.setValue(0)
 
-            # Create exporter and set internal standard and integration mode
             exporter = DataExporter(self.analysis_mode)
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
@@ -2664,70 +2723,39 @@ class MainWindow(QMainWindow):
                 self.internal_standard_reference_isotope
             )
 
-            # Progress callback function
-            def update_progress(value):
-                progress_dialog.setValue(value)
-                QCoreApplication.processEvents()  # Keep UI responsive
-                return not progress_dialog.wasCanceled()  # Return False if cancelled
-
-            # Show progress dialog
-            progress_dialog.show()
-            QCoreApplication.processEvents()
-
-            # Perform export
-            success = exporter.export_to_excel(
+            self._export_path = file_path
+            self._export_include_carbon = include_carbon_enrichment
+            self._export_progress_dialog = progress_dialog
+            self._export_thread = QThread(self)
+            self._export_worker = ExportWorker(
+                exporter,
                 file_path,
-                update_progress,
                 use_legacy_integration=self.use_legacy_integration,
                 include_carbon_enrichment=include_carbon_enrichment,
             )
+            self._export_worker.moveToThread(self._export_thread)
+            # The worker thread is busy inside run(), so a queued call to
+            # cancel() would never be delivered. Direct connections let
+            # cancel() and quit() cross threads without an event loop.
+            progress_dialog.canceled.connect(
+                self._export_worker.cancel, Qt.DirectConnection
+            )
+            self._export_worker.progress.connect(progress_dialog.setValue)
+            self._export_worker.finished.connect(self._export_finished)
+            self._export_worker.failed.connect(self._export_failed)
+            self._export_worker.finished.connect(
+                self._export_thread.quit, Qt.DirectConnection
+            )
+            self._export_worker.failed.connect(
+                self._export_thread.quit, Qt.DirectConnection
+            )
+            self._export_thread.started.connect(self._export_worker.run)
+            self._export_thread.finished.connect(self._clear_export_thread)
+            self._export_thread.finished.connect(self._export_thread.deleteLater)
 
-            # Close progress dialog
-            progress_dialog.close()
-
-            if success:
-                if self.analysis_mode is AnalysisMode.UNLABELLED:
-                    sheet_list = [
-                        "• Raw Values - Quantifier ion areas",
-                        "• Abundances - Quantifier-only amounts",
-                        "• Qualifier QC - qualifier/Q ratio pass or review",
-                    ]
-                else:
-                    sheet_list = [
-                        "• Raw Values - Direct instrument signals",
-                        "• Corrected Values - Natural isotope corrected signals",
-                        "• Isotope Ratios - Normalized corrected values",
-                        "• % Label Incorporation - Experimental label percentages",
-                    ]
-                    if include_carbon_enrichment:
-                        sheet_list.append(
-                            "• % Carbons Labelled - Average fractional carbon enrichment"
-                        )
-                    sheet_list.append(
-                        "• Abundances - Absolute metabolite concentrations"
-                    )
-                sheet_count = len(sheet_list)
-                sheets_text = "\n".join(sheet_list)
-
-                # Show success message
-                msg_box = self._create_message_box(
-                    "information",
-                    "Data Export Successful",
-                    f"Data exported successfully to:\n{file_path}\n\n"
-                    f"The Excel file contains {sheet_count} worksheets:\n"
-                    f"{sheets_text}",
-                )
-                msg_box.exec()
-                logger.info(f"Data exported successfully to {file_path}")
-            else:
-                # Show error message
-                msg_box = self._create_message_box(
-                    "critical",
-                    "Export Failed",
-                    "Data export was cancelled or failed. Check logs for details.",
-                )
-                msg_box.exec()
-                logger.warning("Data export was cancelled or failed")
+            progress_dialog.show()
+            self._export_thread.start()
+            self._update_menu_states()
 
         except Exception as e:
             logger.error(f"Data export error: {e}")
@@ -2737,3 +2765,68 @@ class MainWindow(QMainWindow):
                 f"An error occurred during data export:\n{str(e)}",
             )
             msg_box.exec()
+
+    def _clear_export_thread(self):
+        self._export_thread = None
+
+    def _close_export_dialog(self):
+        if self._export_progress_dialog is not None:
+            self._export_progress_dialog.close()
+            self._export_progress_dialog = None
+
+    def _export_finished(self, success: bool):
+        self._close_export_dialog()
+        file_path = self._export_path
+        include_carbon_enrichment = self._export_include_carbon
+        if success:
+            if self.analysis_mode is AnalysisMode.UNLABELLED:
+                sheet_list = [
+                    "• Raw Values - Quantifier ion areas",
+                    "• Abundances - Quantifier-only amounts",
+                    "• Qualifier QC - qualifier/Q ratio pass or review",
+                ]
+            else:
+                sheet_list = [
+                    "• Raw Values - Direct instrument signals",
+                    "• Corrected Values - Natural isotope corrected signals",
+                    "• Isotope Ratio - Normalized corrected values",
+                    "• % Label Incorporation - Experimental label percentages",
+                ]
+                if include_carbon_enrichment:
+                    sheet_list.append(
+                        "• % Carbons Labelled - Average fractional carbon enrichment"
+                    )
+                sheet_list.append(
+                    "• Abundances - Absolute metabolite concentrations"
+                )
+            sheet_count = len(sheet_list)
+            sheets_text = "\n".join(sheet_list)
+            msg_box = self._create_message_box(
+                "information",
+                "Data Export Successful",
+                f"Data exported successfully to:\n{file_path}\n\n"
+                f"The Excel file contains {sheet_count} worksheets:\n"
+                f"{sheets_text}",
+            )
+            msg_box.exec()
+            logger.info(f"Data exported successfully to {file_path}")
+        else:
+            msg_box = self._create_message_box(
+                "information",
+                "Export Cancelled",
+                "Data export was cancelled.",
+            )
+            msg_box.exec()
+            logger.info("Data export was cancelled")
+        self._update_menu_states()
+
+    def _export_failed(self, message: str):
+        self._close_export_dialog()
+        logger.error(f"Data export error: {message}")
+        msg_box = self._create_message_box(
+            "critical",
+            "Export Error",
+            f"An error occurred during data export:\n{message}",
+        )
+        msg_box.exec()
+        self._update_menu_states()

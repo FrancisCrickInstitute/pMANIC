@@ -94,7 +94,22 @@ def write(workbook, exporter, progress_callback, start_progress: int, end_progre
                 logger.error(f"Error accessing compound_name for compound {col}: {e}")
                 continue
 
-            isotopologue_data = sample_data.get(compound_name, [0.0])
+            label_atoms = compound_row["label_atoms"] or 0
+            if compound_name not in sample_data:
+                if label_atoms == 0:
+                    isotopologue_data = [0.0]
+                else:
+                    fmt = None
+                    if validation_data and sample_name in validation_data:
+                        fmt = verdict_formats[
+                            validation_data[sample_name].get(
+                                compound_name, PeakVerdict.PASS
+                            )
+                        ]
+                    worksheet.write(row, col + 2, None, fmt)
+                    continue
+            else:
+                isotopologue_data = sample_data[compound_name]
 
             if len(isotopologue_data) > 1:
                 m0_signal = isotopologue_data[0]

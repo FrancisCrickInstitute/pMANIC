@@ -46,7 +46,7 @@ $$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times 1$$
 
 ### Why use this?
 * **Reproducibility:** Use this *only* if you are comparing new results against a dataset processed years ago with the MATLAB version and need the raw numbers to match exactly.
-* **Scale:** Values are significantly larger (typically **60–100× larger** than time-based integration) because they are not scaled down by the small time step (e.g., $0.01$ min).
+* **Scale:** Values are significantly larger (typically **60 to 100× larger** than time-based integration) because they are not scaled down by the small time step (e.g., $0.01$ min).
 
 > **Warning:** Do not mix methods within a single study. The numerical values are not directly comparable.
 
@@ -54,10 +54,12 @@ $$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times 1$$
 
 ## Configuration
 
-**Settings → Integration**   
+**Settings → Integration** has two radios.
 
-* **Unchecked (Default):** Uses **Time-Based** integration.
-* **Checked:** Uses **Legacy** integration.
+* **Time-based (recommended)** (default): uses time-based integration on screen.
+* **Legacy**: uses unit-spacing integration on screen.
+
+Export asks again in **Export Options**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
 
 ### Boundary Handling (Technical Note)
 Both methods utilize the same "Strict Boundary" logic to determine which points are included in the sum:

@@ -1,6 +1,4 @@
-import sqlite3
 import zlib
-from pathlib import Path
 
 import numpy as np
 import openpyxl
@@ -11,18 +9,6 @@ from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.models.peak_review import set_peak_review
 from manic.validation.peak_verdict import PeakReview
-
-SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
-
-
-@pytest.fixture
-def labelled_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "labelled.db"
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-    return db_path
-
 
 def _insert_compound(name: str, rt: float, mass0: float) -> None:
     with database.get_connection() as conn:
@@ -61,7 +47,7 @@ def _cells_for(sheet, sample: str, compound: str):
     raise AssertionError(f"{sample} not found")
 
 
-def test_labelled_raw_values_fill_a_rejected_peak(labelled_db, tmp_path):
+def test_labelled_raw_values_fill_a_rejected_peak(empty_db, tmp_path):
     _insert_compound("Target", 1.0, 100.0)
     _insert_compound("Std", 2.0, 200.0)
     time = [0.0, 1.0, 2.0, 3.0]

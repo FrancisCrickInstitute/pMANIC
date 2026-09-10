@@ -14,6 +14,8 @@ from manic.processors.display_deconvolution import (
 )
 from manic.processors.integration import calculate_peak_areas, integrate_bundle_areas
 
+from conftest import _gaussian
+
 FIT = dict(
     retention_time=7.0,
     loffset=4.0,
@@ -22,10 +24,6 @@ FIT = dict(
     fit_type="auto",
     noise_gate="balanced",
 )
-
-
-def _gaussian(time, center, width, height):
-    return height * np.exp(-0.5 * ((time - center) / width) ** 2)
 
 
 def _raw_labelled_pair():

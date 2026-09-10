@@ -1,12 +1,16 @@
 # In src/manic/utils/workers.py
+import threading
+
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
+from manic.constants import DEFAULT_MASS_TOLERANCE
 from manic.io.eic_importer import (
     import_eics,
     regenerate_all_eics_with_mass_tolerance,
     regenerate_compound_eics,
 )
 from manic.models.session_activity import PendingRegeneration
+from manic.processors.eic_correction_manager import ensure_corrections_for_export
 from manic.utils.update_check import check_for_update
 
 
@@ -56,8 +60,10 @@ class EicRegenerationWorker(QObject):
         sample_names: list,
         retention_time: float | dict[str, float],
         pending_regeneration: PendingRegeneration | None = None,
+        mass_tol: float = DEFAULT_MASS_TOLERANCE,
     ):
         super().__init__()
+        self._mass_tol = mass_tol
         self._compound_name = compound_name
         self._tr_window = tr_window
         self._sample_names = sample_names
@@ -71,6 +77,7 @@ class EicRegenerationWorker(QObject):
                 compound_name=self._compound_name,
                 tr_window=self._tr_window,
                 sample_names=self._sample_names,
+                mass_tol=self._mass_tol,
                 progress_cb=self.progress.emit,
                 retention_time=self._retention_time,
                 pending_regeneration=self._pending_regeneration,
@@ -99,5 +106,46 @@ class MassToleranceReloadWorker(QObject):
                 progress_cb=self.progress.emit,
             )
             self.finished.emit(count)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class ExportWorker(QObject):
+    progress = Signal(int)
+    finished = Signal(bool)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        exporter,
+        path: str,
+        use_legacy_integration: bool = False,
+        include_carbon_enrichment: bool = False,
+    ):
+        super().__init__()
+        self._exporter = exporter
+        self._path = path
+        self._use_legacy_integration = use_legacy_integration
+        self._include_carbon_enrichment = include_carbon_enrichment
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        self._cancel_event.set()
+
+    def _progress_cb(self, value):
+        self.progress.emit(value)
+        return not self._cancel_event.is_set()
+
+    @Slot()
+    def run(self):
+        try:
+            ensure_corrections_for_export()
+            success = self._exporter.export_to_excel(
+                self._path,
+                self._progress_cb,
+                use_legacy_integration=self._use_legacy_integration,
+                include_carbon_enrichment=self._include_carbon_enrichment,
+            )
+            self.finished.emit(success)
         except Exception as exc:
             self.failed.emit(str(exc))

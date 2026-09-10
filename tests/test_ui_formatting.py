@@ -616,6 +616,10 @@ def test_new_session_ignores_deleted_import_thread(monkeypatch):
         _thread=DeadThread(),
         _regen_thread=None,
         _mass_tol_thread=None,
+        _export_thread=None,
+    )
+    window_stub._running_background_thread = (
+        lambda: MainWindow._running_background_thread(window_stub)
     )
     window_stub._background_work_running = (
         lambda message: MainWindow._background_work_running(window_stub, message)

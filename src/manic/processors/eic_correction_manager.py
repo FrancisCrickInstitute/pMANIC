@@ -407,3 +407,31 @@ def has_correction(sample_name: str, compound_name: str) -> bool:
     with get_connection() as conn:
         row = conn.execute(sql, (sample_name, compound_name)).fetchone()
         return row["count"] > 0 if row else False
+
+
+def ensure_corrections_for_export() -> None:
+    with get_connection() as conn:
+        missing_corrections_count = conn.execute("""
+            SELECT COUNT(*)
+            FROM eic e
+            JOIN compounds c ON e.compound_name = c.compound_name
+            LEFT JOIN eic_corrected ec
+               ON ec.sample_name = e.sample_name
+              AND ec.compound_name = e.compound_name
+              AND ec.deleted = 0
+            WHERE e.deleted = 0
+              AND c.deleted = 0
+              AND c.label_atoms > 0
+              AND ec.id IS NULL
+        """).fetchone()[0]
+
+    if missing_corrections_count <= 0:
+        logger.debug("All required natural isotope corrections already applied")
+        return
+
+    logger.info(
+        "Export requires natural isotope corrections. "
+        f"Applying corrections for {missing_corrections_count} labeled compounds..."
+    )
+    process_all_corrections(progress_cb=None)
+    logger.info("Successfully applied natural isotope corrections for export")

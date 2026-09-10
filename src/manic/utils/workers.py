@@ -8,6 +8,7 @@ from manic.io.eic_importer import (
     regenerate_compound_eics,
 )
 from manic.models.session_activity import PendingRegeneration
+from manic.processors.eic_correction_manager import ensure_corrections_for_export
 from manic.utils.update_check import check_for_update
 
 
@@ -103,5 +104,47 @@ class MassToleranceReloadWorker(QObject):
                 progress_cb=self.progress.emit,
             )
             self.finished.emit(count)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class ExportWorker(QObject):
+    progress = Signal(int)
+    finished = Signal(bool)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        exporter,
+        path: str,
+        use_legacy_integration: bool = False,
+        include_carbon_enrichment: bool = False,
+    ):
+        super().__init__()
+        self._exporter = exporter
+        self._path = path
+        self._use_legacy_integration = use_legacy_integration
+        self._include_carbon_enrichment = include_carbon_enrichment
+        self._cancelled = False
+
+    @Slot()
+    def cancel(self):
+        self._cancelled = True
+
+    def _progress_cb(self, value):
+        self.progress.emit(value)
+        return not self._cancelled
+
+    @Slot()
+    def run(self):
+        try:
+            ensure_corrections_for_export()
+            success = self._exporter.export_to_excel(
+                self._path,
+                self._progress_cb,
+                use_legacy_integration=self._use_legacy_integration,
+                include_carbon_enrichment=self._include_carbon_enrichment,
+            )
+            self.finished.emit(success)
         except Exception as exc:
             self.failed.emit(str(exc))

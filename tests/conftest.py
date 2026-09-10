@@ -38,7 +38,9 @@ def _make_window(monkeypatch, mode=None):
     if mode is None:
         mode = AnalysisMode.LABELLED
     monkeypatch.setattr(MainWindow, "_check_for_updates", lambda self: None)
-    return MainWindow(AnalysisContext(mode))
+    window = MainWindow(AnalysisContext(mode))
+    window._skip_close_guard = True
+    return window
 
 
 def _gaussian(time, center, width, height):

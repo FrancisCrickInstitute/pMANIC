@@ -1,0 +1,48 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach the installer to
+        required: true
+        default: v5.0.0-alpha
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build app with PyInstaller
+        shell: pwsh
+        run: |
+          uv sync
+          uv pip install pyinstaller pyinstaller-hooks-contrib
+          uv run pyinstaller -y --clean MANIC.spec
+          if (-not (Test-Path dist\MANIC\MANIC.exe)) { throw "dist\MANIC\MANIC.exe not produced" }
+
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\MANIC.iss
+          if (-not (Test-Path dist\MANIC-Setup.exe)) { throw "dist\MANIC-Setup.exe not produced" }
+          Compress-Archive -Path dist\MANIC-Setup.exe -DestinationPath dist\MANIC-Setup-Windows.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MANIC-Setup-Windows
+          path: dist/MANIC-Setup-Windows.zip
+
+      - name: Attach to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" dist\MANIC-Setup-Windows.zip --clobber

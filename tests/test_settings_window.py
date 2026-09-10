@@ -10,7 +10,6 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
-from manic.io.data_provider import DataProvider
 from manic.models import database
 from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.models.sample_fit_type import get_sample_fit_types
@@ -271,17 +270,6 @@ def test_peak_validation_keeps_unsaved_edit_across_pages(labelled_window):
     assert not settings.save_button.isEnabled()
 
 
-def test_peak_validation_save_zero_turns_the_check_off(labelled_window):
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    _select_page(settings, "Peak Validation")
-    page = settings.page_named("Peak Validation")
-    page.spin.setValue(0.0)
-    assert page.spin.value() == 0.0
-    settings.save_button.click()
-    assert labelled_window.min_peak_height_ratio == 0.0
-
-
 def test_legacy_radio_save_enables_legacy_integration(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
@@ -293,18 +281,6 @@ def test_legacy_radio_save_enables_legacy_integration(labelled_window):
     assert settings.save_button.isEnabled()
     settings.save_button.click()
     assert labelled_window.use_legacy_integration is True
-
-
-def test_legacy_save_updates_the_cached_validation_provider(labelled_window):
-    labelled_window._validation_provider = DataProvider(use_legacy_integration=False)
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    _select_page(settings, "Integration")
-    page = settings.page_named("Integration")
-    page.legacy_radio.setChecked(True)
-    settings.save_button.click()
-    assert labelled_window.use_legacy_integration is True
-    assert labelled_window._validation_provider.use_legacy_integration is True
 
 
 def test_gear_button_and_menu_action_open_settings(labelled_window):

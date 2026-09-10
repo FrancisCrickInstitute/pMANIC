@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -10,6 +9,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+
+from manic.ui.combo_box import ComboBox
 
 
 class UpdateOldDataDialog(QDialog):
@@ -49,7 +50,7 @@ class UpdateOldDataDialog(QDialog):
         # Internal standard dropdown (optional)
         is_row = QHBoxLayout()
         is_row.addWidget(QLabel("Internal Standard (optional):"))
-        self.is_combo = QComboBox()
+        self.is_combo = ComboBox()
         self.is_combo.addItem("(None)")
         self.is_combo.currentIndexChanged.connect(self._on_is_changed)
         is_row.addWidget(self.is_combo)

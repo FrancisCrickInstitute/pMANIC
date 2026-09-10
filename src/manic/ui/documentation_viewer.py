@@ -137,6 +137,7 @@ class DocumentationViewer(QDialog):
 
         self.docs_dir = Path(docs_path())
         self.current_file = None
+        self.current_fragment = None
 
         self.setup_ui()
 
@@ -168,6 +169,10 @@ class DocumentationViewer(QDialog):
         if self.current_file is None and self.page_list.count():
             self.page_list.setCurrentRow(0)
         show_over_parent(self)
+
+    def open_at(self, file_path: Path, fragment: str | None = None) -> None:
+        self.load_markdown_file(Path(file_path), fragment)
+        self.open()
 
     def _on_page_selected(self, row: int) -> None:
         if row < 0:
@@ -307,6 +312,7 @@ class DocumentationViewer(QDialog):
             
             # Store current file for relative link resolution BEFORE loading HTML
             self.current_file = file_path
+            self.current_fragment = fragment or None
             self._sync_page_list(file_path)
 
             # Convert markdown to HTML

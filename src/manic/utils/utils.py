@@ -10,4 +10,6 @@ def load_stylesheet(filename):
 
 def apply_app_stylesheet(app: QApplication) -> None:
     """Style every window and dialog, parented or not, from one place."""
-    app.setStyleSheet(load_stylesheet(resource_path("resources", "style.qss")))
+    stylesheet = load_stylesheet(resource_path("resources", "style.qss"))
+    resources_dir = resource_path("resources").replace("\\", "/")
+    app.setStyleSheet(stylesheet.replace("RESOURCES_DIR", resources_dir))

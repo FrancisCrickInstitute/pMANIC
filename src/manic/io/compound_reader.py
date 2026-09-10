@@ -192,3 +192,15 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
         deconvolution_noise_gate=base_compound.deconvolution_noise_gate,
         channels=base_compound.channels,
     )
+
+
+def list_compound_mm_files() -> list[tuple[str, str | None]]:
+    sql = """
+        SELECT compound_name, mm_files
+        FROM   compounds
+        WHERE  deleted = 0
+        ORDER  BY id
+    """
+    with get_connection() as conn:
+        rows = conn.execute(sql).fetchall()
+    return [(row["compound_name"], row["mm_files"]) for row in rows]

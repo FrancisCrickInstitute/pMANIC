@@ -98,7 +98,7 @@ def test_focus_selected_then_show_all(qapp, empty_db, monkeypatch):
         window.graph_view.show_all_samples_requested.emit()
         assert window.toolbar.get_selected_samples() == ["S1", "S2", "S3"]
         assert window.graph_view.get_current_samples() == ["S1", "S2", "S3"]
-        assert window.graph_view.get_selected_samples() == ["S1", "S2", "S3"]
-        assert window.toolbar.integration.title() == "Selected Plots: 3 samples"
+        assert window.graph_view.get_selected_samples() == []
+        assert window.toolbar.integration.title() == "Selected Plots: All"
     finally:
         window.close()

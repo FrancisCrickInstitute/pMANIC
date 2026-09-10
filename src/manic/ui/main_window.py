@@ -1194,7 +1194,6 @@ class MainWindow(QMainWindow):
 
     def show_all_samples(self) -> None:
         self.toolbar.select_all_samples()
-        self.graph_view.select_all_plots()
 
     def on_internal_standard_selected(self, internal_standard):
         """

@@ -12,27 +12,25 @@ MANIC uses a **linear baseline subtraction** algorithm that fits a straight line
 
 ### Algorithm Steps
 
-1. **Identify Edge Points:** Take the first 3 and last 3 data points within the integration window.
-2. **Calculate Edge Averages:** Compute the mean intensity at each edge.
-3. **Fit Linear Baseline:** Draw a straight line connecting these two averaged edge points.
-4. **Calculate Baseline Area:** Integrate the area under this line using the trapezoidal rule.
-5. **Subtract from Peak:** The baseline area is subtracted from the total integrated peak area.
+1. **Need six points.** If the window has fewer than 6 points, baseline correction is skipped.
+2. **Collect edge samples.** Take the first 3 and last 3 points in the window (time and intensity).
+3. **Fit one line.** Fit a degree-1 polynomial (`np.polyfit`) through those six points together. This is not a mean of each edge joined by a line.
+4. **Trapezoid under the line.** Baseline area is $0.5 \times (B(t_{\mathrm{first}}) + B(t_{\mathrm{last}})) \times \mathrm{width}$, where $B(t)$ is the fitted line.
+5. **Subtract and clamp.** Subtract that area from the peak area. A negative result is set to 0.
 
 ### Mathematical Formulation
 
-Given an integration window from $t_{left}$ to $t_{right}$:
+Let $(t_1, I_1), (t_2, I_2), (t_3, I_3)$ be the first three points and $(t_{n-2}, I_{n-2}), (t_{n-1}, I_{n-1}), (t_n, I_n)$ the last three. Fit
 
-$$I_{left} = \frac{1}{3}\sum_{i=1}^{3} I_i$$
+$$B(t) = st + c$$
 
-$$I_{right} = \frac{1}{3}\sum_{i=n-2}^{n} I_i$$
+so that the six points lie nearest that line in the least-squares sense.
 
-The baseline is a linear function:
+$$\text{Area}_{baseline} = \tfrac{1}{2}\left(B(t_1) + B(t_n)\right) \times w$$
 
-$$B(t) = I_{left} + \frac{(I_{right} - I_{left})}{(t_{right} - t_{left})} \times (t - t_{left})$$
+$w$ is the time span (time-based) or the unit-spacing width (legacy).
 
-The corrected area is:
-
-$$\text{Area}_{corrected} = \text{Area}_{total} - \text{Area}_{baseline}$$
+$$\text{Area}_{corrected} = \max\left(0,\ \text{Area}_{total} - \text{Area}_{baseline}\right)$$
 
 ### Negative Value Handling
 
@@ -107,4 +105,4 @@ Baseline correction works with both integration methods:
 
 ### Algorithm Origin
 
-This implementation matches the baseline correction algorithm used in the legacy MATLAB GVISO tool, ensuring numerical compatibility with historical analyses.
+The fit uses the same six edge points for time-based and legacy integration. Only the width used in the trapezoid changes.

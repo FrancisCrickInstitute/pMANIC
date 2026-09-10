@@ -36,9 +36,10 @@ export sheets, and scientific rationale) is in
 ## Documentation
 
 ### For Users
+* **[Quick Start](docs/00_quick_start.md)** - *Mode, compound list, CDF folder, review, and export.*
 * **[Getting Started / User Guide](docs/01_user_guide.md)** - *The primary manual. Step-by-step instructions for import, integration, and export.*
 * **[Unlabelled Targeted Analysis](docs/Unlabelled_Targeted_Analysis.md)** - *Q and qualifier ions, compound lists, identity QC, review UI, and unlabelled exports.*
-* **[Understanding the Output](/docs/Workflow_Data_Interpretation.md)** - *How to interpret the results exported in the excel workbook.*
+* **[Understanding the Output](docs/Workflow_Data_Interpretation.md)** - *How to interpret the results exported in the excel workbook.*
 * **[Process External Data](docs/Workflow_Process_External_Data.md)** - *How to re-process results files without raw CDF data.*
 
 ### Technical Reference
@@ -49,7 +50,7 @@ export sheets, and scientific rationale) is in
 * **[Abundance Calculation](docs/Reference_Abundance_Calculation.md)** - *Metabolite Response Ratio Factor calculations.*
 * **[Peak Validation](docs/Reference_Peak_Validation.md)** - *Criteria for automatic red/green quality indicators.*
 * **[Mass Tolerance](docs/Reference_Mass_Tolerance.md)** - *Details on the asymmetric mass binning logic.*
-* **[Label Incorperation & Carbon Enrichment](docs/Reference_Label_Incorperation_Carbon_Enrichment.md)** - *Derivation of the fractional carbon contribution formula.*
+* **[Label Incorporation and Carbon Enrichment](docs/Reference_Label_Incorporation_Carbon_Enrichment.md)** - *Derivation of the fractional carbon contribution formula.*
 
 ---
 
@@ -58,7 +59,7 @@ export sheets, and scientific rationale) is in
 ### Option 1: Standalone Installer (Recommended)
 For most users, simply download the latest compiled executable. This requires no Python knowledge or external dependencies.
 
-1.  Navigate to the **[latest release](../../releases/latest)** page of this repository.
+1.  Navigate to the **[latest release](https://github.com/FrancisCrickInstitute/pMANIC/releases/latest)** page of this repository.
 2.  Click on the `Assets` drop-down.
 3.  Download the installer named `MANIC_Setup.zip` (either the Windows or Mac version).
 4. Unzip the downloaded file.
@@ -76,8 +77,8 @@ If you prefer to run the raw Python code, use the provided execution script.
 
 1.  Clone the repository:
     ```bash
-    git clone [https://github.com/your-org/clone_pmanic.git](https://github.com/your-org/clone_pmanic.git)
-    cd clone_pmanic
+    git clone https://github.com/FrancisCrickInstitute/pMANIC.git
+    cd pMANIC
     ```
 
 2.  Run the application using the helper script:
@@ -90,7 +91,7 @@ If you prefer to run the raw Python code, use the provided execution script.
 
 ## Support & Issues
 
-If something doesn't work as expected or you have an idea to make MANIC better, you can let us know. The easiest way is to use our simple forms on GitHub — no technical knowledge required.
+If something doesn't work as expected or you have an idea to make MANIC better, you can let us know. The easiest way is to use our simple forms on GitHub. No technical knowledge is required.
 
 ### Report a Bug or Request a Feature
 

@@ -34,7 +34,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 
 ---
 
-## 3. Isotope Ratios
+## 3. Isotope Ratio
 **Description:** The normalized distribution of isotopologues for each compound.
 
 * **Calculation:** Each isotopologue's corrected area divided by the total corrected area for that compound.
@@ -49,8 +49,8 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 ## 4. % Label Incorporation
 **Description:** The percentage of the total metabolite pool that contains the experimental label.
 
-* **Correction:** Includes a background subtraction derived from your Standard Mixture (MM) files to account for impurities.
-* **Units:** Percentage (0–100%).
+* **Correction:** Includes a background subtraction derived from your MM files (standard mixture) to account for impurities.
+* **Units:** Percentage (0 to 100%).
 * **Formula:**
 
     $$\% \text{Label} = \frac{\text{Labelled}_{corrected}}{\text{Total}_{original}} \times 100$$
@@ -59,14 +59,14 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 
 ---
 
-## 5. % Carbons Labelled
-**Description:** The percentage of *excess* label incorporated into the carbon pool, relative to the Standard Mixture (MM) background. This is also known as **Atom Percent Excess**.
+## 5. % Carbons Labelled (optional)
+**Description:** Off by default. Tick **Include % Carbons Labelled sheet** in **Export Options** to write this sheet. It is the percentage of *excess* label incorporated into the carbon pool, relative to the MM files (standard mixture) background. This is also known as **Atom Percent Excess**.
 
-* **Units:** Percentage (0–100%).
+* **Units:** Percentage (0 to 100%).
 * **Calculation:**
     1. Calculate weighted enrichment of the sample:
        $$\text{Enrichment}_{sample} = \frac{\sum (i \times \text{Area}_i)}{N \times \sum \text{Area}_{total}} \times 100$$
-    2. Calculate weighted enrichment of Standard Mixture (MM) files (averaged if multiple).
+    2. Calculate weighted enrichment of MM files (standard mixture), averaged if there are several.
     3. Subtract the background:
        $$\text{% Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
 
@@ -77,15 +77,15 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 
 * **Use Case:** Answers "How much of the carbon in this pool came from my labelled substrate?" by removing any natural or background enrichment present in the standards.
 
-> **Note:** Standard Mixture (MM) samples will display 0% carbon labelled since their enrichment equals the baseline. This is expected behaviour.
+> **Note:** MM files (standard mixture) display 0% carbon labelled because their enrichment equals the baseline. This is expected behaviour.
 
 ---
 
 ## 6. Abundances
 **Description:** The absolute amount of metabolite present in the sample.
 
-* **Units:** **nmol**.
-* **Calculation:** Derived relative to the **Internal Standard** using the **MRRF** (Metabolite Response Ratio Factor) determined from your standard curves.
+* **Units:** **nmol** when an internal standard and `amount_in_std_mix` are set. **Relative** when an internal standard is set but `amount_in_std_mix` is missing or 0. **Peak Area** when no internal standard is selected.
+* **Calculation:** Derived relative to the **Internal Standard** using the **MRRF** (Metabolite Response Ratio Factor) determined from MM files (standard mixture).
 * **Requirements:**
     * An Internal Standard must be selected.
     * `int_std_amount` and `amount_in_std_mix` must be defined in your Compound List.
@@ -100,7 +100,7 @@ MANIC automatically validates every peak during export. You may see coloured cel
 
 * **⚪ White (Normal):** No warning/flag applied.
 * **🔴 Light Red (Warning):** **Low Intensity.**
-    * The peak area was less than **5%** (default) of the Internal Standard reference peak area.
+    * The peak area was less than **0.5%** (default) of the Internal Standard reference peak area.
     * *Action:* Check the raw chromatogram. This data may be noise.
 * **🟣 Light Purple (Reviewed):** **Accepted below threshold.** You right-clicked this peak in the EIC grid and chose *Accept peak*. The value is kept and the colour records the manual decision. The colour stays until you clear the review.
 * **🟤 Tan (Reviewed):** **Marked as bad.** You right-clicked this peak and chose *Mark peak as bad*. The value is still exported; the colour flags it for exclusion downstream.

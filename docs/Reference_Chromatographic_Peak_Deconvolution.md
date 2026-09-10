@@ -56,7 +56,7 @@ Imported expected qualifier/Q ratios are almost always measured on raw-window ar
 For a labeled compound, each channel's **selected chromatographic component** feeds every export sheet. When deconvolution is warranted, MANIC deconvolves each raw isotopologue channel independently and then:
 
 - integrates the selected component to produce the **Raw Values**, and
-- applies natural isotope correction to that *same* selected component (not to the full unresolved trace) before integrating it for the **Corrected Values** (and therefore the **Isotope Ratios**, **% Label Incorporation**, and **Abundances** that derive from them).
+- applies natural isotope correction to that *same* selected component (not to the full unresolved trace) before integrating it for the **Corrected Values** (and therefore the **Isotope Ratio**, **% Label Incorporation**, and **Abundances** that derive from them).
 
 In the time-based (non-legacy) path, the selected component is integrated by the same routine for both sheets, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together.
 

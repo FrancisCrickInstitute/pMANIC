@@ -98,10 +98,10 @@ The algorithm enforces a non-negativity constraint. If noise causes the mathemat
 
 ## 5. Empirical Background Correction (MM Files)
 
-In addition to the theoretical matrix correction described above, MANIC applies an **Empirical Background Correction** to the final "% Label Incorporation" and "% Carbon Labelled" results.
+In addition to the theoretical matrix correction described above, MANIC applies an **Empirical Background Correction** to the final "% Label Incorporation" and "% Carbon Labelled" results. MM files (standard mixture) supply that background.
 
 ### Why is this needed?
-Even after theoretical correction, "unlabelled" standards (MM files) often show a small residual amount of "labelled" signal due to:
+Even after theoretical correction, unlabelled MM files (standard mixture) often show a small residual amount of labelled signal due to:
 * Impurities in the standard.
 * Imperfections in the theoretical natural abundance constants.
 * Instrument noise or baseline integration errors.

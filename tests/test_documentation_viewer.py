@@ -42,7 +42,11 @@ def _write_docs(docs_dir: Path) -> None:
     docs_dir.mkdir(exist_ok=True)
     (docs_dir / "Reference_Z.md").write_text("# Ref Z\n", encoding="utf-8")
     (docs_dir / "Workflow_B.md").write_text("# Flow B\n", encoding="utf-8")
+    (docs_dir / "00_quick_start.md").write_text("# Quick Start\n", encoding="utf-8")
     (docs_dir / "01_user_guide.md").write_text("# Guide\n", encoding="utf-8")
+    (docs_dir / "Unlabelled_Targeted_Analysis.md").write_text(
+        "# Unlabelled Targeted Analysis\n", encoding="utf-8"
+    )
     (docs_dir / "alpha.md").write_text("# Alpha\n", encoding="utf-8")
     (docs_dir / "zzz_other.md").write_text("no heading here\n", encoding="utf-8")
     (docs_dir / "Reference_A.md").write_text("# Ref A\n", encoding="utf-8")
@@ -53,7 +57,9 @@ def test_documentation_index_orders_groups_and_titles(tmp_path):
     _write_docs(tmp_path)
     index = documentation_index(tmp_path)
     assert [path.name for _, path in index] == [
+        "00_quick_start.md",
         "01_user_guide.md",
+        "Unlabelled_Targeted_Analysis.md",
         "Workflow_A.md",
         "Workflow_B.md",
         "Reference_A.md",
@@ -62,7 +68,9 @@ def test_documentation_index_orders_groups_and_titles(tmp_path):
         "zzz_other.md",
     ]
     assert [title for title, _ in index] == [
+        "Quick Start",
         "Guide",
+        "Unlabelled Targeted Analysis",
         "Flow A",
         "Flow B",
         "Ref A",
@@ -90,7 +98,9 @@ def test_documentation_window_loads_first_file(qapp, empty_db, tmp_path, monkeyp
             viewer.page_list.item(i).text() for i in range(viewer.page_list.count())
         ]
         assert titles == [
+            "Quick Start",
             "Guide",
+            "Unlabelled Targeted Analysis",
             "Flow A",
             "Flow B",
             "Ref A",
@@ -98,7 +108,7 @@ def test_documentation_window_loads_first_file(qapp, empty_db, tmp_path, monkeyp
             "Alpha",
             "Zzz Other",
         ]
-        assert viewer.current_file == docs_dir / "01_user_guide.md"
+        assert viewer.current_file == docs_dir / "00_quick_start.md"
         assert viewer.windowTitle() == "MANIC Documentation"
     finally:
         if window.documentation_window is not None:
@@ -121,7 +131,7 @@ def test_documentation_sidebar_selection_changes_file(
     try:
         window.open_documentation_window()
         viewer = window.documentation_window
-        viewer.page_list.setCurrentRow(1)
+        viewer.page_list.setCurrentRow(3)
         assert viewer.current_file == docs_dir / "Workflow_A.md"
     finally:
         if window.documentation_window is not None:

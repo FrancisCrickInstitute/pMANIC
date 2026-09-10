@@ -467,13 +467,13 @@ QComboBox::drop-down {
 }
 
 QComboBox::down-arrow {
-    image: url(RESOURCES_DIR/chevron_down.svg);
+    image: url("RESOURCES_DIR/chevron_down.svg");
     width: 12px;
     height: 12px;
 }
 
 QComboBox::down-arrow:disabled {
-    image: url(RESOURCES_DIR/chevron_down_disabled.svg);
+    image: url("RESOURCES_DIR/chevron_down_disabled.svg");
 }
 
 QComboBox QAbstractItemView {

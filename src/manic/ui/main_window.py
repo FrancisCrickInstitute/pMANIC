@@ -1351,6 +1351,11 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
 
+        compound = self.graph_view.get_current_compound()
+        samples = self.graph_view.get_current_samples()
+        if compound and samples:
+            self.graph_view.apply_peak_verdicts(self._peak_verdicts(compound, samples))
+
         # Update menu states to enable/disable Export Data based on internal standard selection
         self._update_menu_states()
         if self.settings_window is not None:
@@ -2789,7 +2794,7 @@ class MainWindow(QMainWindow):
                 sheet_list = [
                     "• Raw Values - Direct instrument signals",
                     "• Corrected Values - Natural isotope corrected signals",
-                    "• Isotope Ratio - Normalized corrected values",
+                    "• Isotope Ratios - Normalized corrected values",
                     "• % Label Incorporation - Experimental label percentages",
                 ]
                 if include_carbon_enrichment:

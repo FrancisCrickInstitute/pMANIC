@@ -90,7 +90,6 @@ class SampleListWidget(QListWidget):
         ]
         if not matches:
             return
-        # Block so itemSelectionChanged fires once after the whole edit.
         with QSignalBlocker(self):
             self.clearSelection()
             for item in matches:

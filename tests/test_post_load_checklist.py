@@ -95,7 +95,6 @@ def test_dialog_table_sorts_problems_first_and_warns(qapp):
     ]
     dialog = PostLoadChecklistDialog(["Has", "None", "Miss"], None, report, None)
     table = dialog.findChild(QTableWidget, "mmFileTable")
-    assert table.objectName() == "mmFileTable"
     assert table.rowCount() == 3
     assert [table.item(row, 0).text() for row in range(3)] == [
         "None",
@@ -169,7 +168,7 @@ def test_import_ok_opens_checklist_dialog(qapp, empty_db, monkeypatch):
         assert table.item(0, 0).text() == "Alanine"
         assert table.item(0, 1).text() == "Not set"
         assert table.item(1, 0).text() == "Citrate"
-        assert table.item(1, 2).text() == "1 files: S1_MM"
+        assert table.item(1, 2).text() == "1 file: S1_MM"
         assert window.check_setup_action.isEnabled()
     finally:
         _close_window(window)

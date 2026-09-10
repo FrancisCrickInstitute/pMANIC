@@ -31,7 +31,9 @@ def _matched_cell_text(status: MmFileStatus) -> str:
     if status.state == "no_match":
         return "No files matched"
     preview = ", ".join(status.matched[:3])
-    return f"{len(status.matched)} files: {preview}"
+    count = len(status.matched)
+    noun = "file" if count == 1 else "files"
+    return f"{count} {noun}: {preview}"
 
 
 def _pattern_cell_text(status: MmFileStatus) -> str:

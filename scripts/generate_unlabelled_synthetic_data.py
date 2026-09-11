@@ -58,7 +58,6 @@ KO_PROFILE = {
 
 
 class SampleKind(Enum):
-    BLANK = "blank"
     MM = "mm"
     QC = "qc"
     BIO = "bio"
@@ -98,7 +97,6 @@ class SampleSpec:
     v_scale: dict[str, dict[int, float]] = field(default_factory=dict)
     overlap_frac: float | None = None
     profile: dict[str, float] = field(default_factory=dict)
-    carryover: float = 0.0
 
 
 COMPOUNDS = [
@@ -121,7 +119,20 @@ COMPOUNDS = [
     CompoundSpec("Valine", 5.45, 0.12, 0.12, 144.0, 218.0, 0.35, 4.0, 0.030, 0.020),
     CompoundSpec("Leucine", 5.85, 0.12, 0.12, 158.0, 102.0, 0.45, 4.2, 0.031, 0.021),
     CompoundSpec("Isoleucine", 6.10, 0.12, 0.12, 158.0, 218.0, 0.40, 3.8, 0.031, 0.021),
-    CompoundSpec("Lactate", 6.50, 0.12, 0.12, 117.0, 147.0, 0.35, 8.0, 0.038, 0.030),
+    CompoundSpec(
+        "Lactate",
+        6.50,
+        0.12,
+        0.12,
+        117.0,
+        147.0,
+        0.35,
+        8.0,
+        0.038,
+        0.030,
+        overlap_dt=0.10,
+        overlap_frac=0.65,
+    ),
     CompoundSpec("Proline", 6.90, 0.12, 0.12, 142.0, 216.0, 0.30, 3.6, 0.032, 0.022),
     CompoundSpec("Glycine", 7.20, 0.12, 0.12, 174.0, 248.0, None, 4.0, 0.032, 0.022),
     CompoundSpec("Succinate", 7.55, 0.12, 0.12, 247.0, 147.0, 0.55, 3.8, 0.036, 0.028),
@@ -141,7 +152,20 @@ COMPOUNDS = [
     ),
     CompoundSpec("Threonine", 8.45, 0.12, 0.12, 117.0, 218.0, 0.35, 3.4, 0.034, 0.024),
     CompoundSpec("Malate", 8.85, 0.12, 0.12, 233.0, 245.0, 0.40, 3.6, 0.038, 0.030),
-    CompoundSpec("Methionine", 9.15, 0.12, 0.12, 176.0, 128.0, 0.38, 2.8, 0.033, 0.023),
+    CompoundSpec(
+        "Methionine",
+        9.15,
+        0.12,
+        0.12,
+        176.0,
+        128.0,
+        0.38,
+        2.8,
+        0.033,
+        0.023,
+        overlap_dt=0.09,
+        overlap_frac=0.60,
+    ),
     CompoundSpec(
         "Phenylethanol",
         9.40,
@@ -179,7 +203,7 @@ COMPOUNDS = [
         q2_ratio=0.20,
     ),
     CompoundSpec("Uncalibrated", 13.20, 0.12, 0.12, 156.0, 99.0, 0.33, None, 0.033, 0.021),
-    CompoundSpec("Glucose", 13.70, 0.12, 0.12, 319.0, 205.0, 0.50, 10.0, 0.042, 0.032),
+    CompoundSpec("Glucose", 13.70, 0.12, 0.12, 319.0, 205.0, 0.50, 10.0, 0.042, 0.055),
     CompoundSpec("Tyrosine", 14.10, 0.12, 0.12, 218.0, 280.0, 0.35, 2.8, 0.036, 0.026),
     CompoundSpec(
         "scyllo-Inositol",
@@ -207,13 +231,12 @@ COMPOUNDS = [
 
 
 SAMPLES = [
-    SampleSpec("Blank_01", "solvent blank", SampleKind.BLANK, 1),
-    SampleSpec("MM_01", "standard mixture replicate 1", SampleKind.MM, 2),
+    SampleSpec("MM_01", "standard mixture replicate 1", SampleKind.MM, 1),
     SampleSpec(
         "MM_02",
         "standard mixture replicate 2",
         SampleKind.MM,
-        3,
+        2,
         rt_shift=0.01,
         quant_scale=1.05,
     ),
@@ -221,138 +244,149 @@ SAMPLES = [
         "MM_03",
         "standard mixture replicate 3",
         SampleKind.MM,
-        4,
+        3,
         rt_shift=-0.008,
         quant_scale=0.97,
     ),
-    SampleSpec("QC_pool_01", "pooled QC early in the sequence", SampleKind.QC, 5),
-    SampleSpec("WT_01", "wild-type biological replicate 1", SampleKind.BIO, 6),
+    SampleSpec("QC_pool_01", "pooled QC, clean early reference", SampleKind.QC, 4),
+    SampleSpec("WT_01", "wild-type, clean reference vial", SampleKind.BIO, 5),
     SampleSpec(
         "WT_02",
-        "wild-type biological replicate 2",
+        "Valine both qualifier to Q checks fail",
         SampleKind.BIO,
-        7,
+        6,
         quant_scale=0.92,
+        v_scale={"Valine": {1: 1.85}},
     ),
     SampleSpec(
         "WT_03",
-        "wild-type biological replicate 3",
+        "Glycine absent",
         SampleKind.BIO,
-        8,
+        7,
         quant_scale=1.08,
+        omit=frozenset({"Glycine"}),
     ),
     SampleSpec(
         "WT_04",
-        "wild-type biological replicate 4",
+        "global tR +0.14, Alanine window 0.08 misses",
         SampleKind.BIO,
-        9,
+        8,
         quant_scale=0.86,
+        rt_shift=0.14,
     ),
     SampleSpec(
         "WT_05",
-        "wild-type biological replicate 5",
+        "IS almost gone",
         SampleKind.BIO,
-        10,
+        9,
         quant_scale=1.14,
+        is_scale=0.04,
     ),
     SampleSpec(
         "WT_06",
-        "wild-type biological replicate 6",
+        "stronger Lactate, Methionine, and Phenylethanol neighbours",
         SampleKind.BIO,
-        11,
+        10,
         quant_scale=0.97,
+        overlap_frac=1.25,
     ),
     SampleSpec(
         "KO_01",
-        "knockout biological replicate 1",
+        "knockout abundance shift only",
         SampleKind.BIO,
-        12,
+        11,
         profile=dict(KO_PROFILE),
     ),
     SampleSpec(
         "KO_02",
-        "knockout biological replicate 2",
+        "knockout plus Glutamate qualifier 1 fail",
         SampleKind.BIO,
-        13,
+        12,
         profile=dict(KO_PROFILE),
+        v_scale={"Glutamate": {1: 1.90}},
     ),
     SampleSpec(
         "KO_03",
-        "knockout biological replicate 3",
+        "knockout plus Serine absent",
         SampleKind.BIO,
-        14,
+        13,
         profile=dict(KO_PROFILE),
+        omit=frozenset({"Serine"}),
     ),
     SampleSpec(
         "KO_04",
-        "knockout biological replicate 4",
+        "knockout plus global tR -0.13",
         SampleKind.BIO,
-        15,
+        14,
         profile=dict(KO_PROFILE),
+        rt_shift=-0.13,
     ),
     SampleSpec(
         "KO_05",
-        "knockout biological replicate 5",
+        "knockout, Glucose absent, Phenylalanine qualifier fail",
         SampleKind.BIO,
-        16,
+        15,
         profile=dict(KO_PROFILE),
+        omit=frozenset({"Glucose"}),
+        v_scale={"Phenylalanine": {1: 1.80}},
     ),
     SampleSpec(
         "KO_06",
-        "knockout biological replicate 6",
+        "knockout, Citrate qualifier 2 fail, strong neighbours",
         SampleKind.BIO,
-        17,
+        16,
         profile=dict(KO_PROFILE),
+        v_scale={"Citrate": {2: 2.50}},
+        overlap_frac=1.20,
     ),
-    SampleSpec("QC_pool_02", "pooled QC late in the sequence", SampleKind.QC, 18),
+    SampleSpec(
+        "QC_pool_02",
+        "late QC, Proline qualifier 1 fail",
+        SampleKind.QC,
+        17,
+        v_scale={"Proline": {1: 1.75}},
+    ),
     SampleSpec(
         "Sample_04_ratio_fail",
         "Alanine both qualifier to Q checks fail",
         SampleKind.DEFECT,
-        19,
+        18,
         v_scale={"Alanine": {1: 1.80, 2: 1.80}},
     ),
     SampleSpec(
         "Sample_05_rt_shift",
         "tR miss on Alanine. Qualifier to Q still good",
         SampleKind.DEFECT,
-        20,
+        19,
         rt_shift=0.16,
     ),
     SampleSpec(
         "Sample_06_partial",
         "Citrate qualifier 2 fail, qualifier 1 pass",
         SampleKind.DEFECT,
-        21,
+        20,
         v_scale={"Citrate": {2: 2.40}},
     ),
     SampleSpec(
         "Sample_07_missing",
         "Alanine absent",
         SampleKind.DEFECT,
-        22,
+        21,
         omit=frozenset({"Alanine"}),
     ),
     SampleSpec(
         "Sample_08_low_is",
         "IS almost gone. Tile validation fails if IS is set",
         SampleKind.DEFECT,
-        23,
+        22,
         is_scale=0.03,
     ),
     SampleSpec(
         "Sample_09_overlap",
         "Stronger Phenylethanol neighbour",
         SampleKind.DEFECT,
-        24,
+        23,
         overlap_frac=1.10,
-    ),
-    SampleSpec(
-        "Blank_02",
-        "solvent blank with Citrate carryover",
-        SampleKind.BLANK,
-        25,
-        carryover=0.04,
     ),
 ]
 
@@ -377,10 +411,6 @@ def _target_mzs() -> set[float]:
 
 def _targets_for(sample: SampleSpec) -> tuple[list[CompoundSpec], float]:
     match sample.kind:
-        case SampleKind.BLANK:
-            if sample.carryover <= 0.0:
-                return [], 0.0
-            return [c for c in COMPOUNDS if c.name == "Citrate"], sample.carryover
         case SampleKind.MM | SampleKind.QC | SampleKind.BIO | SampleKind.DEFECT:
             return [c for c in COMPOUNDS if c.name not in sample.omit], 1.0
         case _:
@@ -628,11 +658,6 @@ def _compound_note(compound: CompoundSpec) -> str:
     ]
     if shared:
         bits.append(f"shares Q {compound.quant:.0f} with {shared[0]}")
-    if any(
-        sample.kind is SampleKind.BLANK and sample.carryover > 0
-        for sample in SAMPLES
-    ) and compound.name == "Citrate":
-        bits.append("blank carryover")
     return "; ".join(bits)
 
 
@@ -692,8 +717,9 @@ Injection order is the sequence number. Retention time also drifts by
 WT and KO biological samples differ in abundance. KO raises Citrate,
 Glutamate, Lactate, and Succinate, and lowers Glucose and Alanine.
 
-Blank_01 is a solvent blank with no target compounds. Blank_02 is a solvent
-blank with Citrate carryover at 4 percent.
+`MM_*` and `QC_pool_01` plus `WT_01` are the clean references. Most other
+vials plant a review problem. Lactate, Methionine, and Phenylethanol have
+a neighbour on Q. Glucose tails harder than the rest.
 
 {chr(10).join(sample_lines)}
 

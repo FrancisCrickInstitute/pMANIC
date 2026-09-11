@@ -45,6 +45,7 @@ RT_DRIFT_PER_INJECTION = 0.003
 WRITE_LEFT_MIN = 1.0
 WRITE_RIGHT_MIN = 2.5
 N_BACKGROUND_PEAKS = 80
+BACKGROUND_RT_CLEARANCE_MIN = 0.5
 
 KO_PROFILE = {
     "Citrate": 2.2,
@@ -396,6 +397,18 @@ def _slice_bounds(time_min: np.ndarray, lo: float, hi: float) -> tuple[int, int]
     return start, stop
 
 
+def _background_hits_target(
+    mz: float, rt: float, target_mzs: set[float], target_rts: list[float]
+) -> bool:
+    nominal = _nominal(mz)
+    return any(
+        _nominal(target_mz) == nominal
+        and abs(rt - comp_rt) < BACKGROUND_RT_CLEARANCE_MIN
+        for target_mz in target_mzs
+        for comp_rt in target_rts
+    )
+
+
 def _background_peaks(
     rng: np.random.Generator,
 ) -> list[tuple[float, float, float, float, float]]:
@@ -407,13 +420,7 @@ def _background_peaks(
         attempts += 1
         mz = float(rng.uniform(60.0, 400.0))
         rt = float(rng.uniform(1.5, 24.5))
-        # Keep designed QC ions clear: no background on a target nominal m/z near any target RT.
-        nominal = _nominal(mz)
-        if any(
-            _nominal(target_mz) == nominal and abs(rt - comp_rt) < 0.5
-            for target_mz in target_mzs
-            for comp_rt in target_rts
-        ):
+        if _background_hits_target(mz, rt, target_mzs, target_rts):
             continue
         amp = float(np.exp(rng.uniform(np.log(300.0), np.log(9000.0))))
         sigma = float(rng.uniform(0.02, 0.06))
@@ -597,21 +604,36 @@ def write_compound_list(path: Path) -> None:
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
-_COMPOUND_NOTES = {
-    "Alanine": "Validated. RT fail in Sample_05. Both qualifier ratios fail in Sample_04. Lowered in KO",
-    "Lactate": "Single-qualifier Validated. Raised in KO",
-    "Glycine": "No ratio, not assessed",
-    "Serine": "Partial even when qualifier 1 passes",
-    "Phenylethanol": "Deconvolution split. Sample_09 strengthens the neighbour",
-    "Citrate": "Partial when only qualifier 2 is off. Raised in KO. Blank_02 carryover",
-    "Uncalibrated": "No Amount in StdMix. Relative or assumed-RF abundance",
-    "scyllo-Inositol": "Internal standard, istd_amt 10. Sample_08 tanks its height",
-    "Leucine": "Shares Q 158 with Isoleucine",
-    "Isoleucine": "Near Leucine",
-    "Succinate": "Raised in KO",
-    "Glutamate": "Raised in KO",
-    "Glucose": "Lowered in KO",
-}
+def _compound_note(compound: CompoundSpec) -> str:
+    bits: list[str] = []
+    if compound.tr_window is not None:
+        bits.append(f"tR window {compound.tr_window}")
+    if compound.q1_ratio is None:
+        bits.append("no expected ratio")
+    if compound.q2 is not None and compound.q2_ratio is None:
+        bits.append("qualifier 2 has no ratio")
+    if compound.overlap_dt is not None:
+        bits.append("neighbour on Q")
+    if compound.amount is None:
+        bits.append("no Amount in StdMix")
+    if compound.istd_amt is not None:
+        bits.append(f"internal standard {compound.istd_amt}")
+    ko = KO_PROFILE.get(compound.name)
+    if ko is not None:
+        bits.append(f"KO ×{ko}")
+    shared = [
+        other.name
+        for other in COMPOUNDS
+        if other.name != compound.name and _nominal(other.quant) == _nominal(compound.quant)
+    ]
+    if shared:
+        bits.append(f"shares Q {compound.quant:.0f} with {shared[0]}")
+    if any(
+        sample.kind is SampleKind.BLANK and sample.carryover > 0
+        for sample in SAMPLES
+    ) and compound.name == "Citrate":
+        bits.append("blank carryover")
+    return "; ".join(bits)
 
 
 def write_readme(path: Path) -> None:
@@ -623,9 +645,8 @@ def write_readme(path: Path) -> None:
         ions = f"Q {compound.quant:.0f}, qualifier 1 {compound.q1:.0f}"
         if compound.q2 is not None:
             ions += f", qualifier 2 {compound.q2:.0f}"
-        note = _COMPOUND_NOTES.get(compound.name, "Named polar TMS metabolite")
         compound_lines.append(
-            f"| {compound.name} | {compound.rt:.2f} | {ions} | {note} |"
+            f"| {compound.name} | {compound.rt:.2f} | {ions} | {_compound_note(compound)} |"
         )
 
     sample_lines = [

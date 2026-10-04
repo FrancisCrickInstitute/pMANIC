@@ -2,7 +2,7 @@
 name = "manic"
 version = "5.0.0"
 description = "MANIC software for GC-MS analysis written in Python."
-authors = [{ name = "Your Name", email = "you@example.com" }]
+authors = [{ name = "Jack Coutts" }]
 requires-python = "==3.12.8"
 readme = "README.md"
 dependencies = [

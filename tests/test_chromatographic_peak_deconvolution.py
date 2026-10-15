@@ -267,6 +267,26 @@ def test_fit_type_forces_single_shape_and_still_resolves_components():
     )
 
 
+@pytest.mark.parametrize("stringency, shape", [("4", "bi_gaussian"), ("7", "emg")])
+def test_auto_fit_tries_every_level_shape_on_a_single_tailing_peak(stringency, shape):
+    from scipy.stats import exponnorm
+
+    time = np.arange(9.5, 10.5, 0.005)
+    intensity = exponnorm.pdf(time, 3.0, loc=10.0, scale=0.007)
+    intensity = 1e5 * intensity / intensity.max()
+    window = dict(retention_time=10.0, loffset=0.1, roffset=0.15)
+
+    result = deconvolve_eic(
+        time, intensity, stringency=stringency, fit_type="auto", **window
+    )
+    forced = deconvolve_eic(
+        time, intensity, stringency=stringency, fit_type=shape, **window
+    )
+
+    assert result.model.shape_model == shape
+    assert np.allclose(result.selected, forced.selected)
+
+
 def test_calculate_peak_areas_accepts_per_compound_fit_type():
     time = np.linspace(0.0, 10.0, 201)
     early_peak = _gaussian(time, 4.0, 0.25, 10.0)

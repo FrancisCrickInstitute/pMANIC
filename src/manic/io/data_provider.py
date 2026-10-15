@@ -1005,7 +1005,7 @@ class DataProvider:
         Returns:
             True if compound total area >= (internal standard reference peak × min_ratio)
             True if validation is disabled (min_ratio <= 0 or no internal standard)
-            True if the reference peak has no signal (cannot validate)
+            False if the reference peak has no signal (the sample cannot be quantified)
             False otherwise (compound fails validation)
             
         Example:
@@ -1030,7 +1030,7 @@ class DataProvider:
         )
 
         if is_ref <= 0:
-            return True
+            return False
 
         threshold = is_ref * min_ratio
         return compound_total >= threshold

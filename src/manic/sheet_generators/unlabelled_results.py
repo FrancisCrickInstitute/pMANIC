@@ -204,13 +204,14 @@ def _write_abundances(
                 and compound.compound_name == exporter.internal_standard_compound
             ):
                 value = std_amount if std_amount > 0 else value
-            elif (
-                exporter.internal_standard_compound
-                and internal_area > 0
-                and _positive(internal_meta["int_std_amount"] if internal_meta else None)
-                and _positive(mrrf)
-            ):
-                value = value * std_amount / internal_area / float(mrrf)
+            elif exporter.internal_standard_compound:
+                calibrated = (
+                    internal_area > 0
+                    and _positive(internal_meta["int_std_amount"] if internal_meta else None)
+                    and _positive(mrrf)
+                )
+                # An uncalibrated area under the nmol/Relative header would read as a real amount.
+                value = value * std_amount / internal_area / float(mrrf) if calibrated else None
             fmt = verdict_formats[sample_verdicts.get(compound.compound_name, PeakVerdict.PASS)]
             worksheet.write(row, col + 2, value, fmt)
 

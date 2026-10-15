@@ -269,14 +269,15 @@ def write(
                                 * (sample_internal_std_amount / internal_std_signal)
                                 * (1 / mrrf)
                             )
+                            logger.debug(
+                                f"Abundance for {compound_name}: total_signal={total_signal:.1f}, "
+                                f"mrrf={mrrf:.3f}, result={calibrated_abundance:.3f} nmol"
+                            )
                         else:
-                            calibrated_abundance = 0.0
-                        logger.debug(
-                            f"Abundance for {compound_name}: total_signal={total_signal:.1f}, "
-                            f"mrrf={mrrf:.3f}, result={calibrated_abundance:.3f} nmol"
-                        )
+                            calibrated_abundance = None
                 else:
-                    calibrated_abundance = 0.0
+                    # Empty, not 0.0: a missing IS signal is not a measured zero.
+                    calibrated_abundance = None
                     logger.debug(
                         f"No valid calibration for {compound_name} (int_std_signal={internal_std_signal:.3f})"
                     )

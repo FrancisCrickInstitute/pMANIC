@@ -214,6 +214,7 @@ You can delete samples or compounds directly from their respective list widgets.
 **Important Notes**
 *   You cannot delete *all* samples or *all* compounds. At least one must remain.
 *   Deleted items are excluded from plots, calculations, and exports.
+*   Deleting the internal standard compound clears the internal standard. Recovering that compound does not select it again; select it again from the context menu.
 *   Deletion is reversible. See below.
 
 ### Recovering Deleted Items

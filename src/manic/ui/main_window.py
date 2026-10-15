@@ -1256,6 +1256,9 @@ class MainWindow(QMainWindow):
             if self._validation_provider:
                 self._validation_provider.invalidate_cache()
 
+            if self.toolbar.get_internal_standard() in compound_names:
+                self.toolbar.on_internal_standard_cleared()
+
             logger.info(f"Deleted {len(compound_names)} compound(s)")
 
         except Exception as e:

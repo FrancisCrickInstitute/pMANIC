@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from manic.io.data_provider import DataProvider
@@ -15,6 +16,7 @@ from manic.validation.unlabelled_identity import (
     assess_identity,
     qualifier_outcome,
     qualifier_pair,
+    quantifier_apex_time,
 )
 
 
@@ -69,6 +71,26 @@ def test_identity_requires_review_when_any_reference_fails(channels):
     assert result.rt_passed is False
     assert result.qualifier_ratios[0].passed is False
     assert len(result.reasons) == 2
+
+
+def test_rt_fails_when_window_holds_only_a_neighbouring_peak_slope(channels):
+    time = np.arange(9.5, 10.5, 0.005)
+    quantifier = 1e5 * np.exp(-0.5 * ((time - 9.80) / 0.03) ** 2) + 100
+    trace = np.concatenate([quantifier, 0.4 * quantifier, 0.2 * quantifier])
+
+    observed_rt = quantifier_apex_time(
+        time, trace, 3, expected_rt=10.0, loffset=0.1, roffset=0.1
+    )
+    result = assess_identity(
+        [100.0, 40.0, 20.0],
+        channels,
+        expected_rt=10.0,
+        observed_rt=observed_rt,
+        rt_tolerance=0.1,
+    )
+
+    assert result.rt_passed is False
+    assert result.status is IdentityStatus.REVIEW_REQUIRED
 
 
 def test_identity_is_not_assessed_without_reference_ratios():

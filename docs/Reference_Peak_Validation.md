@@ -17,8 +17,8 @@ A peak is considered **Invalid/Weak** (and flagged red) if its total integrated 
 ### Formula
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 
-* **$\text{Area}_{metabolite}$**: The total raw area of the target peak.
-* **$\text{Area}_{IS}$**: The internal standard reference peak area (M+N, default M+0) in the current sample.
+* **$\text{Area}_{metabolite}$**: The total area of the target peak, taken from the **Corrected Values** sheet. For a labelled compound this is the sum of its natural-isotope-corrected isotopologue areas (M+0 to M+N). A compound with no label atoms is not corrected, so its area is the raw area. In unlabelled targeted analysis it is the quantifier-ion area only.
+* **$\text{Area}_{IS}$**: The internal standard reference peak area (M+N, default M+0) in the current sample, from the same **Corrected Values** data.
 * **$\text{Threshold}$**: The configurable percentage limit (Default: **0.005** or 0.5%).
 
 ### Example

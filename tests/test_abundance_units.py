@@ -19,16 +19,7 @@ class TestAbundanceExportLogic:
             "Cmp_Absolute": [500.0],
             "Cmp_Relative": [500.0],
         }
-        return workbook, worksheet, provider
-
-    def test_abundance_with_internal_standard(self, setup_base_mocks):
-        """Tests 'nmol' and 'Relative' headers and math."""
-        workbook, worksheet, provider = setup_base_mocks
-        exporter = MagicMock()
-        exporter.internal_standard_compound = "ISTD"
-        exporter.internal_standard_reference_isotope = 0
-
-        compounds = [
+        provider.get_all_compounds.return_value = [
             {
                 "compound_name": "ISTD",
                 "amount_in_std_mix": 1.0,
@@ -49,8 +40,15 @@ class TestAbundanceExportLogic:
                 "retention_time": 6.0,
             },
         ]
-        provider.get_all_compounds.return_value = compounds
         provider.get_mrrf_values.return_value = {"Cmp_Absolute": 2.0, "ISTD": 1.0}
+        return workbook, worksheet, provider
+
+    def test_abundance_with_internal_standard(self, setup_base_mocks):
+        """Tests 'nmol' and 'Relative' headers and math."""
+        workbook, worksheet, provider = setup_base_mocks
+        exporter = MagicMock()
+        exporter.internal_standard_compound = "ISTD"
+        exporter.internal_standard_reference_isotope = 0
 
         write(workbook, exporter, None, 0, 100, provider=provider)
 
@@ -85,30 +83,6 @@ class TestAbundanceExportLogic:
             "Cmp_Absolute": [500.0],
             "Cmp_Relative": [500.0],
         }
-
-        compounds = [
-            {
-                "compound_name": "ISTD",
-                "amount_in_std_mix": 1.0,
-                "int_std_amount": 10.0,
-                "mass0": 100,
-                "retention_time": 5.0,
-            },
-            {
-                "compound_name": "Cmp_Absolute",
-                "amount_in_std_mix": 5.0,
-                "mass0": 110,
-                "retention_time": 5.5,
-            },
-            {
-                "compound_name": "Cmp_Relative",
-                "amount_in_std_mix": 0.0,
-                "mass0": 120,
-                "retention_time": 6.0,
-            },
-        ]
-        provider.get_all_compounds.return_value = compounds
-        provider.get_mrrf_values.return_value = {"Cmp_Absolute": 2.0, "ISTD": 1.0}
 
         write(workbook, exporter, None, 0, 100, provider=provider)
 
@@ -166,3 +140,71 @@ class TestAbundanceExportLogic:
         ]
         assert val_calls[0] == 500.0  # Sum of corrected areas for Cmp_Absolute
         assert val_calls[1] == 500.0  # Sum of corrected areas for Cmp_Relative
+
+    def test_missing_internal_standard_signal_leaves_cells_empty(self, setup_base_mocks):
+        """A sample with no IS signal cannot be calibrated, so it must not read as 0."""
+        workbook, worksheet, provider = setup_base_mocks
+        exporter = MagicMock()
+        exporter.internal_standard_compound = "ISTD"
+        exporter.internal_standard_reference_isotope = 0
+        provider.get_sample_corrected_data.return_value = {
+            "ISTD": [0.0],
+            "Cmp_Absolute": [500.0],
+            "Cmp_Relative": [500.0],
+        }
+
+        write(workbook, exporter, None, 0, 100, provider=provider)
+
+        val_calls = [
+            c.args[2]
+            for c in worksheet.write.call_args_list
+            if c.args[0] == 5 and c.args[1] >= 2
+        ]
+        assert val_calls == [10.0, None, None]
+
+
+def _unlabelled_abundance_rows(bulk, int_std_amount=5.0):
+    from io import BytesIO
+    from types import SimpleNamespace
+
+    import xlsxwriter
+    from openpyxl import load_workbook
+
+    from manic.sheet_generators import unlabelled_results
+
+    provider = MagicMock()
+    provider.get_mrrf_values.return_value = {"ISTD": 1.0, "Met": 2.0}
+    provider.resolve_mm_samples.return_value = []
+    exporter = SimpleNamespace(_provider=provider, internal_standard_compound="ISTD")
+    compounds = [
+        SimpleNamespace(
+            compound_name=name,
+            baseline_correction=True,
+            retention_time=1.0,
+            analysis_channels=[SimpleNamespace(mz=100.0)],
+        )
+        for name in ("ISTD", "Met")
+    ]
+    meta = {
+        name: {"amount_in_std_mix": 1.0, "int_std_amount": int_std_amount, "mm_files": ""}
+        for name in ("ISTD", "Met")
+    }
+    out = BytesIO()
+    workbook = xlsxwriter.Workbook(out, {"in_memory": True})
+    unlabelled_results._write_abundances(
+        workbook, exporter, list(bulk), compounds, list(meta.values()), meta, bulk, None
+    )
+    workbook.close()
+    out.seek(0)
+    sheet = load_workbook(out)["Abundances"]
+    return list(sheet.iter_rows(min_row=5, values_only=True))
+
+
+def test_unlabelled_missing_internal_standard_signal_leaves_cells_empty():
+    rows = _unlabelled_abundance_rows(
+        {
+            "S_ok": {"ISTD": [1000.0], "Met": [4000.0]},
+            "S_noIS": {"ISTD": [0.0], "Met": [4000.0]},
+        }
+    )
+    assert rows == [(None, "S_ok", 5, 10), (None, "S_noIS", 5, None)]

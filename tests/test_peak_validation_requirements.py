@@ -9,6 +9,7 @@ import pytest
 
 from manic.io.data_provider import DataProvider
 from manic.validation.peak_area import is_valid
+from manic.validation.peak_verdict import PeakVerdict
 
 
 def test_peak_area_validation_math():
@@ -124,3 +125,15 @@ def test_peak_validation_uses_quantification_total_not_all_channels(monkeypatch)
     )
 
 
+
+
+def test_peak_validation_fails_when_internal_standard_has_no_signal():
+    """No IS reference peak means the sample cannot be quantified, so it must not Pass."""
+    provider = DataProvider()
+    provider._bulk_sample_data_cache = {
+        "Sample1": {"CompoundA": [50.0], "ISTD": [0.0]},
+    }
+    provider._cache_valid = True
+
+    assert provider.peak_verdict("Sample1", "CompoundA", "ISTD", 0.05) is PeakVerdict.FAIL
+    assert provider.peak_verdict("Sample1", "CompoundA", None, 0.05) is PeakVerdict.PASS

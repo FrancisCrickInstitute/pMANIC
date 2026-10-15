@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 
 import pandas as pd
@@ -238,6 +239,7 @@ def test_labelled_dialog_builds_record(qapp):
 def test_unlabelled_dialog_builds_record(qapp):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
     _fill_unlabelled(dialog)
+    dialog.qualifier1_tolerance.setText("0")
     record = dialog.build_record()
     assert isinstance(record, UnlabelledCompoundRecord)
     assert record.compound_name == "Citrate"
@@ -251,7 +253,7 @@ def test_unlabelled_dialog_builds_record(qapp):
         IonRole.QUALIFIER,
     ]
     assert record.channels[1].expected_ratio == pytest.approx(0.42)
-    assert record.channels[1].ratio_tolerance == pytest.approx(0.25)
+    assert record.channels[1].ratio_tolerance == 0.0
 
 
 def test_blank_optional_numeric_maps_to_none(qapp):
@@ -418,3 +420,94 @@ def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
     assert regen[0][0] == "New"
     assert regen[0][2] == ["S1"]
     assert regen[0][3] == 5.5
+
+
+@pytest.mark.parametrize(
+    "label_type, label_atoms, message",
+    [
+        ("O", 3, "label type 'O' is not supported"),
+        ("c", 3, "label type 'c' is not supported"),
+        ("C", 4, "label_atoms=4 exceeds C count 3"),
+    ],
+)
+def test_labelled_dialog_rejects_impossible_label(qapp, label_type, label_atoms, message):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
+    _fill_labelled(dialog)
+    dialog.label_type.setText(label_type)
+    dialog.label_atoms.setValue(label_atoms)
+    shown = _warning_capture(dialog)
+    dialog._on_ok()
+    assert dialog.record is None
+    assert len(shown) == 1 and message in shown[0]
+
+
+@pytest.mark.parametrize(
+    "field, message",
+    [
+        ("qualifier1_ratio", "Qualifier 1 expected ratio cannot be negative"),
+        ("rt_window", "tR window cannot be negative"),
+        ("int_std_amount", "Int std amount cannot be negative"),
+    ],
+)
+def test_unlabelled_dialog_rejects_negative_values_before_closing(qapp, field, message):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
+    _fill_unlabelled(dialog)
+    getattr(dialog, field).setText("-1")
+    shown = _warning_capture(dialog)
+    dialog._on_ok()
+    assert dialog.record is None
+    assert shown == [message]
+    assert getattr(dialog, field).text() == "-1"
+
+
+def test_dialog_parses_numbers_in_the_user_locale(qapp):
+    from PySide6.QtCore import QLocale
+
+    previous = QLocale()
+    QLocale.setDefault(QLocale("de_DE"))
+    try:
+        dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
+        _fill_unlabelled(dialog)
+        dialog.qualifier1_ratio.setText("0,25")
+        dialog.int_std_amount.setText("1.000,5")
+        record = dialog.build_record()
+    finally:
+        QLocale.setDefault(previous)
+    assert record.channels[1].expected_ratio == 0.25
+    assert record.int_std_amount == 1000.5
+
+
+def _write_labelled_list(path, **overrides):
+    row = {
+        "name": "Water",
+        "tR": 1.2,
+        "Mass0": 18,
+        "lOffset": 0.1,
+        "rOffset": 0.1,
+        "LabelAtoms": 1,
+        "Formula": "H2O",
+        "LabelType": "C",
+        "TBDMS": 0,
+        "MeOX": 0,
+        "Me": 0,
+        "Amount in StdMix": None,
+        "Int Std amount": None,
+        "MM Files": None,
+    }
+    row.update(overrides)
+    pd.DataFrame([row]).to_csv(path, index=False)
+    return path
+
+
+@pytest.mark.parametrize(
+    "overrides, message",
+    [
+        ({"LabelType": "O"}, "row 2 (Water): label type 'O' is not supported"),
+        ({"LabelType": "H", "LabelAtoms": 3}, "row 2 (Water): label_atoms=3 exceeds H count 2"),
+    ],
+)
+def test_import_rejects_impossible_label(empty_db, tmp_path, overrides, message):
+    path = _write_labelled_list(tmp_path / "labelled.csv", **overrides)
+    with pytest.raises(ValueError, match=re.escape(message)):
+        import_compound_excel(path, AnalysisMode.LABELLED)
+    assert taken_compound_names() == set()

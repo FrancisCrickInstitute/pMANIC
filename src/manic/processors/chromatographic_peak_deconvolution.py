@@ -617,7 +617,6 @@ def _fit_single_component_model_cached(
     cheap = dataclasses.replace(
         params,
         max_components=1,
-        shape_models=(params.shape_models[0],),
         max_nfev=min(80, params.max_nfev),
     )
     return _fit_joint_component_model(time, matrix, cheap, target_rt=target_rt)

@@ -225,7 +225,7 @@ Deleted items are not permanently removed. They are "soft deleted" and can be re
 3.  In the recovery dialog, select the items you wish to restore (multi-select is supported).
 4.  Click **"Restore Selected"**.
 
-Restored items will immediately reappear in their respective lists and be included in subsequent analyses and exports.
+Restored items will immediately reappear in their respective lists and be included in subsequent analyses and exports. Their EICs use the current mass tolerance, even if you changed it while they were deleted.
 
 ### Deleted Items in Exports
 

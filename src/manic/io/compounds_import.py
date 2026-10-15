@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-from pydantic import BaseModel, ValidationError, validator
+from pydantic import BaseModel, ValidationError, model_validator, validator
 
 from manic.models.analysis import (
     AnalysisMode,
@@ -28,9 +28,13 @@ from manic.models.database import get_connection
 from manic.processors.chromatographic_peak_deconvolution import (
     DEFAULT_DECONVOLUTION_LEVEL,
 )
+from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
 
 logger = logging.getLogger(__name__)
 
+# Extraction reads consecutive masses and the correction matrix assumes each
+# label adds 1 Da, so only tracers whose heavy isotope is +1 Da are supported.
+SUPPORTED_LABEL_TYPES = ("C", "N", "H")
 
 # 1.  Pydantic model – row-level validation & coercion
 class CompoundRow(BaseModel):
@@ -58,6 +62,24 @@ class CompoundRow(BaseModel):
         if not v:
             raise ValueError("compound_name is blank")
         return v
+
+    @validator("label_type")
+    def _supported_label_type(cls, v: str) -> str:
+        v = v.strip()
+        if v not in SUPPORTED_LABEL_TYPES:
+            raise ValueError(
+                f"label type '{v}' is not supported; use "
+                f"{', '.join(SUPPORTED_LABEL_TYPES)} (each label must add 1 Da)"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _label_fits_formula(self) -> "CompoundRow":
+        if self.formula:
+            NaturalAbundanceCorrector().validate_formula(
+                self.formula, self.label_type, self.label_atoms
+            )
+        return self
     
     @validator("formula")
     def _normalize_formula(cls, v: Optional[str]) -> Optional[str]:
@@ -252,6 +274,7 @@ def import_compound_excel(
     # ---- validate & prepare parameter list -----------------------
     # iterable of tuples required format for sqlite
     params: list[tuple] = []
+    validation_errors: list[str] = []
     for idx, row in df.iterrows():
         try:
             # Get optional fields with defaults using pandas Series safe access
@@ -306,8 +329,15 @@ def import_compound_excel(
                 )
             )
         except ValidationError as exc:
-            logger.warning("Row %d skipped: %s", idx + 2, exc.errors())
+            reasons = "; ".join(
+                e["msg"].removeprefix("Value error, ") for e in exc.errors()
+            )
+            validation_errors.append(f"row {idx + 2} ({row['name']}): {reasons}")
 
+    if validation_errors:
+        raise ValueError(
+            f"{path.name}: invalid compound data:\n" + "\n".join(validation_errors)
+        )
     if not params:
         logger.warning("%s contained no valid rows; nothing imported", path.name)
         return 0

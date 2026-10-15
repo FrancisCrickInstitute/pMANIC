@@ -106,6 +106,8 @@ def validate_unlabelled_channels(
     for channel in ordered:
         if channel.mz <= 0:
             raise ValueError("Ion m/z values must be positive")
+        if channel.expected_ratio is not None and channel.expected_ratio < 0:
+            raise ValueError("Qualifier expected ratios cannot be negative")
         if channel.ratio_tolerance is not None and channel.ratio_tolerance < 0:
             raise ValueError("Qualifier ratio tolerances cannot be negative")
     return ordered

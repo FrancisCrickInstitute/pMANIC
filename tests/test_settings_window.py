@@ -429,6 +429,9 @@ class _StuckWorker:
     def isRunning(self):
         return self.started
 
+    def wait(self):
+        return True
+
 
 def test_check_for_updates_does_not_start_a_second_worker_while_one_runs(
     qapp, empty_db, monkeypatch

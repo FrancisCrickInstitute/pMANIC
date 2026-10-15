@@ -1378,6 +1378,10 @@ class MainWindow(QMainWindow):
                 skip_qc=self._qc_link_guard,
             )
 
+        # open() refreshes a hidden window, so only a visible one needs it here.
+        if self.settings_window is not None and self.settings_window.isVisible():
+            self.settings_window.refresh()
+
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")
 

@@ -1,6 +1,8 @@
 from unittest import mock
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
@@ -93,7 +95,9 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     )
 
 
-def _insert_unlabelled_target(name: str = "Target") -> None:
+def _insert_unlabelled_target(
+    name: str = "Target", qualifier1_tolerance: float = 0.25
+) -> None:
     with database.get_connection() as conn:
         conn.execute(
             "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
@@ -107,8 +111,8 @@ def _insert_unlabelled_target(name: str = "Target") -> None:
         )
         conn.execute(
             "INSERT INTO compound_ions (compound_name, role, ordinal, mz, expected_ratio, "
-            "ratio_tolerance) VALUES (?, 'qualifier', 1, 147.0, 0.4, 0.25)",
-            (name,),
+            "ratio_tolerance) VALUES (?, 'qualifier', 1, 147.0, 0.4, ?)",
+            (name, qualifier1_tolerance),
         )
         conn.execute(
             "INSERT INTO compound_ions (compound_name, role, ordinal, mz, expected_ratio, "
@@ -148,12 +152,16 @@ def test_qualifier_ratios_not_editable_without_a_selected_compound(
         window.close()
 
 
+@pytest.mark.parametrize(
+    ("qualifier1_tolerance", "clear_first", "saved_first"),
+    [(0.25, True, None), (0.0, False, 0.0)],
+)
 def test_qualifier_ratios_save_writes_tolerance_and_null(
-    qapp, empty_db, monkeypatch
+    qapp, empty_db, monkeypatch, qualifier1_tolerance, clear_first, saved_first
 ):
     window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
     try:
-        _insert_unlabelled_target()
+        _insert_unlabelled_target(qualifier1_tolerance=qualifier1_tolerance)
         window.compound_data_loaded = True
         window.toolbar.update_compound_list(["Target"], selected_name="Target")
         replots = []
@@ -167,8 +175,11 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
         assert page._ratio_labels[1].text() == "expected ratio 0.4"
         assert page._spins[1].isVisible()
         assert page._spins[2].isVisible()
-        page._spins[1].setValue(0.3)
-        page._spins[2].setValue(0.0)
+        if clear_first:
+            page._spins[1].lineEdit().selectAll()
+            QTest.keyClick(page._spins[1].lineEdit(), Qt.Key_Delete)
+            assert page._spins[1].value() == page._spins[1].minimum()
+        page._spins[2].setValue(0.3)
         settings.save_button.click()
         with database.get_connection() as conn:
             rows = conn.execute(
@@ -176,10 +187,7 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
                 "WHERE compound_name = 'Target' AND role = 'qualifier' "
                 "ORDER BY ordinal"
             ).fetchall()
-        assert rows[0]["ordinal"] == 1
-        assert rows[0]["ratio_tolerance"] == pytest.approx(0.3)
-        assert rows[1]["ordinal"] == 2
-        assert rows[1]["ratio_tolerance"] is None
+        assert [tuple(row) for row in rows] == [(1, saved_first), (2, 0.3)]
         assert replots == [1]
     finally:
         if window.settings_window is not None:

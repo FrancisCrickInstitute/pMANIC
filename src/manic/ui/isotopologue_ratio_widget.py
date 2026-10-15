@@ -116,7 +116,7 @@ class IsotopologueRatioWidget(QWidget):
         ordered_eics, ordered_ratios = self._order_like_graph_window(eics, ratios)
 
         # Reverse order so top graph corresponds to top bar
-        ordered_eics.reverse()
+        ordered_eics = ordered_eics[::-1]  # copy: eics is the caller's list
         ordered_ratios = np.flipud(ordered_ratios)  # Flip array upside down
 
         # Store current data for popup

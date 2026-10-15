@@ -361,11 +361,11 @@ class ChartPopupDialog(QDialog):
         if sample_name is None:
             return
 
-        scaled_value = float(bar_set.at(index))
+        value = float(bar_set.at(index)) * self._total_abundance_scale_factor
 
         QToolTip.showText(
             QCursor.pos(),
-            f"{sample_name}\nTotal: {scaled_value:.3g}",
+            f"{sample_name}\nTotal: {value:.3g}",
             self.chart_view,
         )
 
@@ -394,9 +394,8 @@ class ChartPopupDialog(QDialog):
         
         # Y-axis (vertical): Sample names - NOW VISIBLE
         y_axis = QBarCategoryAxis()
-        # Add sample names in reverse order to match QtCharts bottom-to-top display
-        reversed_names = list(reversed(self.sample_names))
-        y_axis.append(reversed_names)
+        # The toolbar widget already ordered sample_names bottom-to-top with data
+        y_axis.append(self.sample_names)
         y_axis.setLabelsFont(QFont("Arial", 10))
         y_axis.setGridLineVisible(False)
         y_axis.setLabelsVisible(True)  # Show sample names
@@ -405,7 +404,7 @@ class ChartPopupDialog(QDialog):
         self.chart.addAxis(x_axis, Qt.AlignBottom)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
 
-        self._hover_categories = list(reversed_names)
+        self._hover_categories = list(self.sample_names)
     
     def _setup_isotopologue_axes(self):
         """Setup axes for isotopologue chart."""

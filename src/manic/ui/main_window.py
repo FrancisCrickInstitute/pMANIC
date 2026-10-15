@@ -64,6 +64,7 @@ from manic.models.session_export import (
     get_method_info,
     import_session_overrides,
     read_session_internal_standard,
+    read_session_processing_settings,
     resolve_session_internal_standard,
     validate_method_file,
 )
@@ -1835,6 +1836,8 @@ class MainWindow(QMainWindow):
                 self.analysis_mode,
                 internal_standard=self.toolbar.get_internal_standard(),
                 internal_standard_reference_isotope=self.internal_standard_reference_isotope,
+                mass_tolerance=self.mass_tolerance,
+                min_peak_height_ratio=self.min_peak_height_ratio,
             )
 
             if success:
@@ -1999,6 +2002,7 @@ class MainWindow(QMainWindow):
                 msg_box.exec()
                 logger.info(f"Session overrides imported from {file_path}")
                 self._refresh_after_session_import()
+                self._apply_imported_processing_settings(file_path)
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -2112,6 +2116,14 @@ class MainWindow(QMainWindow):
                 "Failed to restore internal standard from session import"
             )
             return InternalStandardRestore(InternalStandardRestoreKind.FAILED)
+
+    def _apply_imported_processing_settings(self, import_path: str) -> None:
+        # Same setters as the Settings window, so a changed tolerance regenerates EICs.
+        settings = read_session_processing_settings(import_path)
+        if settings.mass_tolerance is not None:
+            self.apply_mass_tolerance(settings.mass_tolerance)
+        if settings.min_peak_height_ratio is not None:
+            self.apply_min_peak_area_ratio(settings.min_peak_height_ratio)
 
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""
@@ -2748,6 +2760,7 @@ class MainWindow(QMainWindow):
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
+            exporter.set_mass_tolerance(self.mass_tolerance)
             exporter.set_internal_standard_reference_isotope(
                 self.internal_standard_reference_isotope
             )

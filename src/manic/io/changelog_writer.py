@@ -13,6 +13,7 @@ from manic.io.changelog_sections import (
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
     format_peak_reviews_section,
+    format_peak_validation_threshold,
     format_sample_fit_types_section,
     format_unlabelled_compounds_table_for_data_export,
 )
@@ -25,6 +26,8 @@ def generate_changelog(
     *,
     internal_standard: Optional[str],
     use_legacy_integration: bool,
+    mass_tolerance: float,
+    min_peak_area_ratio: float,
     analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
     assumed_mrrf: Optional[set] = None,
 ) -> None:
@@ -148,6 +151,8 @@ def generate_changelog(
 
 ## Processing Settings
 - **Mass Tolerance Method:** Asymmetric offset + rounding (MANIC original method)
+- **Mass Tolerance:** {mass_tolerance:g} Da
+- **Peak Validation Threshold:** {format_peak_validation_threshold(min_peak_area_ratio)}
 - **Integration Method:** {"Legacy Unit-Spacing (MATLAB Compatible)" if use_legacy_integration else "Time-based integration (scientifically accurate)"}
 - **Expected Value Scale:** {"~100× larger than time-based method" if use_legacy_integration else "Physically meaningful units"}
 {processing_description}

@@ -2,7 +2,7 @@ import dataclasses
 
 import numpy as np
 import pytest
-from scipy.special import erfcx
+from scipy.stats import exponnorm
 
 from manic.processors import chromatographic_peak_deconvolution as deconv
 from manic.processors.chromatographic_peak_deconvolution import (
@@ -1392,9 +1392,7 @@ def _reference_shape(x_rel, shape_model, values):
         sigma = np.where(x_rel < center, sigma_left, sigma_right)
         return np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
     center, sigma, tau = values
-    offset = x_rel - center
-    z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
-    return np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
+    return exponnorm.pdf(x_rel, tau / sigma, loc=center, scale=sigma)
 
 
 @pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian", "emg"])
@@ -1410,8 +1408,11 @@ def test_component_shapes_match_single_component_evaluation(shape_model):
         )
         raw = [_reference_shape(x_rel, shape_model, row) for row in values]
         expected = np.asarray([shape / np.max(shape) for shape in raw])
-        np.testing.assert_array_equal(
-            deconv._component_shapes(x_rel, shape_model, values), expected
+        np.testing.assert_allclose(
+            deconv._component_shapes(x_rel, shape_model, values),
+            expected,
+            rtol=1e-9,
+            atol=1e-12,
         )
 
 
@@ -1462,3 +1463,24 @@ def test_variable_projection_jacobian_matches_finite_differences(shape_model):
         )
 
 
+
+
+@pytest.mark.parametrize("tau", [0.05, 0.1])
+def test_emg_shape_gradients_match_finite_differences_in_long_tail(tau):
+    x_rel = np.linspace(-0.05, 1.0, 421)
+    values = np.array([[0.0, 0.005, tau]])
+
+    _, analytic = deconv._component_shape_gradients(x_rel, "emg", values)
+
+    numeric = np.empty_like(analytic)
+    for column in range(values.shape[1]):
+        bump = np.zeros_like(values)
+        bump[0, column] = 1e-6 * values[0, 1]
+        plus = deconv._component_shapes(x_rel, "emg", values + bump)
+        minus = deconv._component_shapes(x_rel, "emg", values - bump)
+        numeric[:, column] = (plus - minus) / (2 * bump[0, column])
+
+    assert np.all(numeric[0, 2, -10:] > 0.0)
+    np.testing.assert_allclose(
+        analytic, numeric, rtol=1e-5, atol=1e-6 * np.max(np.abs(numeric))
+    )

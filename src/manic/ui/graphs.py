@@ -1519,6 +1519,10 @@ class GraphView(QWidget):
 
         logger.debug(f"Drawing baseline lines for {compound.compound_name}")
 
+        l_boundary = compound.retention_time - compound.loffset
+        r_boundary = compound.retention_time + compound.roffset
+        mask = (eic_time > l_boundary) & (eic_time < r_boundary)
+
         display = prepared.display
         if display is not None and display.bundle.shows_model_overlays(
             independent_channels=getattr(compound, "is_unlabelled_target", False)
@@ -1530,13 +1534,24 @@ class GraphView(QWidget):
                 if baseline_intensity.ndim > 1
                 else baseline_intensity.reshape(1, -1)
             )
+            raw_matrix = np.asarray(eic_intensity, dtype=np.float64).reshape(
+                draw_matrix.shape
+            )
+            # One failed ion sends every non-empty ion to raw in-window scans in integration.
+            model_areas = display.bundle.uses_model_areas()
             for channel in display.bundle.channels:
-                if channel.result.model is None:
+                if channel.result.empty:
                     continue
-                selected_trace = np.asarray(
-                    draw_matrix[channel.index], dtype=np.float64
-                ).reshape(-1)
-                trace_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                if not model_areas:
+                    selected_trace = raw_matrix[channel.index]
+                    trace_mask = mask
+                else:
+                    selected_trace = np.asarray(
+                        draw_matrix[channel.index], dtype=np.float64
+                    ).reshape(-1)
+                    trace_mask = np.asarray(
+                        channel.result.selected_mask, dtype=bool
+                    ).reshape(-1)
                 if not np.any(trace_mask):
                     continue
                 baseline_result = compute_linear_baseline(
@@ -1567,10 +1582,6 @@ class GraphView(QWidget):
             if drew_baseline:
                 return
 
-        l_boundary = compound.retention_time - compound.loffset
-        r_boundary = compound.retention_time + compound.roffset
-
-        mask = (eic_time > l_boundary) & (eic_time < r_boundary)
         if not np.any(mask):
             return
 

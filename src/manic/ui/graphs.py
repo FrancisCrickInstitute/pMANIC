@@ -53,7 +53,7 @@ from .colors import (
     ChannelTraceStyle,
     channel_trace_styles,
     dark_red_colour,
-    label_colors,
+    label_color,
     legend_trace_styles,
     peak_verdict_qcolor,
     selection_color,
@@ -1698,9 +1698,7 @@ class GraphView(QWidget):
         if channel_styles is not None and 0 <= index < len(channel_styles):
             return channel_styles[index]
         if multi_trace:
-            return ChannelTraceStyle(
-                label_colors[index % len(label_colors)], Qt.SolidLine
-            )
+            return ChannelTraceStyle(label_color(index), Qt.SolidLine)
         return ChannelTraceStyle(dark_red_colour, Qt.SolidLine)
 
     def _plot_display_for(self, eic, compound):

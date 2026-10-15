@@ -26,7 +26,7 @@ from manic.ui.colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
     QUALIFIER_RED,
-    label_colors,
+    label_color,
 )
 from manic.ui.identity_chart import (
     IdentityGridBinding,
@@ -233,9 +233,7 @@ class ChartPopupDialog(QDialog):
         for i in range(num_isotopologues):
             bar_set = QBarSet(f"M+{i}")
             
-            # Set color from palette
-            if i < len(label_colors):
-                bar_set.setColor(QColor(label_colors[i]))
+            bar_set.setColor(label_color(i))
             
             # Add ratio values for this isotopologue across all samples
             for sample_idx in range(len(self.sample_names)):

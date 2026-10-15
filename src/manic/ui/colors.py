@@ -37,6 +37,29 @@ label_colors = [
     QColor(23, 190, 207),    # cyan - M+9
 ]
 
+# Lighter partners of label_colors, for M+10 to M+19
+_light_label_colors = [
+    QColor(174, 199, 232),
+    QColor(255, 187, 120),
+    QColor(152, 223, 138),
+    QColor(255, 152, 150),
+    QColor(197, 176, 213),
+    QColor(196, 156, 148),
+    QColor(247, 182, 210),
+    QColor(199, 199, 199),
+    QColor(219, 219, 141),
+    QColor(158, 218, 229),
+]
+
+
+def label_color(index: int) -> QColor:
+    """Colour for isotopologue M+index; no two isotopologues share one."""
+    palette = label_colors + _light_label_colors
+    if index < len(palette):
+        return palette[index]
+    # Golden-angle hue steps keep later hues apart without a fixed list.
+    return QColor.fromHsv(round(index * 137.508) % 360, 255, 150)
+
 QUALIFIER_GREEN = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.PASS])
 QUALIFIER_RED = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.FAIL])
 QUALIFIER_GREY = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.NO_QUALIFIERS])
@@ -98,7 +121,7 @@ def channel_trace_styles(
 ) -> tuple[ChannelTraceStyle, ...]:
     if identity is None:
         return tuple(
-            ChannelTraceStyle(label_colors[index % len(label_colors)], Qt.SolidLine)
+            ChannelTraceStyle(label_color(index), Qt.SolidLine)
             for index, _channel in enumerate(channels)
         )
 

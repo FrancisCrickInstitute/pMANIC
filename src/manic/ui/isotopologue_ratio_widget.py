@@ -20,7 +20,7 @@ from manic.io.compound_reader import read_compound_with_session
 from manic.io.eic_reader import EIC
 from manic.processors.display_deconvolution import integrated_display_areas
 
-from .colors import label_colors
+from .colors import label_color
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.setPlotAreaBackgroundVisible(True)
         self.chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
         self.chart.legend().setVisible(False)
-        self.chart.setTitle("Label Incorporation")
+        self.chart.setTitle("Isotopologue Ratio")
         self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
         self.chart.setTitleBrush(QColor("black"))
         self.chart.setMargins(QMargins(2, 1, 5, 1))
@@ -221,7 +221,7 @@ class IsotopologueRatioWidget(QWidget):
         bar_sets = []
         for i in range(n_isotopologues):
             bar_set = QBarSet(f"M+{i}")
-            bar_set.setColor(label_colors[i % len(label_colors)])
+            bar_set.setColor(label_color(i))
 
             # Add ratio values for this isotopologue across all samples
             for j in range(n_samples):
@@ -327,7 +327,7 @@ class IsotopologueRatioWidget(QWidget):
 
             dialog = ChartPopupDialog(
                 chart_type="isotopologue_ratios",
-                title="Label Incorporation",
+                title="Isotopologue Ratio",
                 data=self._current_ratios,
                 sample_names=self._current_sample_names,
                 parent=self,

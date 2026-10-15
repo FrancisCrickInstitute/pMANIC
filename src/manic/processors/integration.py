@@ -401,7 +401,7 @@ def calculate_peak_areas(
                 channel.result.empty for channel in bundle.channels
             ):
                 return [0.0] * num_channels
-            if bundle.uses_model_areas() and not use_legacy:
+            if bundle.uses_model_areas():
                 td = np.asarray(time_data, dtype=np.float64)
                 areas: List[float] = []
                 for channel in bundle.channels:
@@ -410,6 +410,17 @@ def calculate_peak_areas(
                         continue
                     selected = np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)
                     selected_mask = np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+                    if use_legacy:
+                        areas.append(
+                            _integrate_deconvolved_trace(
+                                td,
+                                selected,
+                                selected_mask,
+                                use_legacy=True,
+                                baseline_correction=baseline_correction,
+                            )
+                        )
+                        continue
                     areas.append(
                         _integrate_model_component(
                             channel.result.model,
@@ -482,7 +493,33 @@ def integrate_bundle_areas(
             return np.asarray(matrix, dtype=np.float64)
         return np.asarray(correct_time_series(matrix), dtype=np.float64)
 
-    if not use_legacy and bundle.uses_model_areas():
+    if bundle.uses_model_areas():
+        td = np.asarray(time_data, dtype=np.float64)
+        masks = [
+            np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
+            for channel in bundle.channels
+        ]
+        if use_legacy:
+            # Correct the selected stack before integrating so cross-ion correction sees every ion.
+            selected_stack = bundle.selected_scan_stack()
+
+            def legacy_areas(matrix: np.ndarray) -> List[float]:
+                return [
+                    _integrate_deconvolved_trace(
+                        td,
+                        row,
+                        mask,
+                        use_legacy=True,
+                        baseline_correction=baseline_correction,
+                    )
+                    for row, mask in zip(matrix, masks)
+                ]
+
+            return (
+                legacy_areas(selected_stack),
+                legacy_areas(apply_correction(selected_stack)),
+            )
+
         fitted = next(
             channel
             for channel in bundle.channels
@@ -498,11 +535,6 @@ def integrate_bundle_areas(
             max(65, scans_in_window * 16),
         )
         raw_dense = np.asarray(bundle.evaluate_selected_stack(grid), dtype=np.float64)
-        td = np.asarray(time_data, dtype=np.float64)
-        masks = [
-            np.asarray(channel.result.selected_mask, dtype=bool).reshape(-1)
-            for channel in bundle.channels
-        ]
         selected_matrix = np.vstack(
             [
                 np.asarray(channel.result.selected, dtype=np.float64).reshape(-1)

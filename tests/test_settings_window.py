@@ -1,5 +1,7 @@
+import zlib
 from unittest import mock
 
+import numpy as np
 import pytest
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
@@ -233,6 +235,54 @@ def test_legacy_radio_save_enables_legacy_integration(labelled_window):
     assert settings.save_button.isEnabled()
     settings.save_button.click()
     assert labelled_window.use_legacy_integration is True
+
+
+def test_legacy_radio_save_reintegrates_labelled_toolbar_charts(labelled_window):
+    # Irregular scans separate the methods: time-based weights each step by
+    # its width, Legacy treats every step as one unit.
+    time = np.array([0.0, 0.25, 2.0])
+    with database.get_connection() as conn:
+        for name, label_atoms, intensity in (
+            ("Labelled", 1, [[2.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+            ("Single", 0, [2.0, 0.0, 1.0]),
+        ):
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, "
+                "roffset, mass0, label_atoms) VALUES (?, 1.0, 2.0, 2.0, 100.0, ?)",
+                (name, label_atoms),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO samples (sample_name, file_name) "
+                "VALUES ('S', 'S.cdf')"
+            )
+            conn.execute(
+                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, "
+                "rt_window) VALUES ('S', ?, ?, ?, 0.5)",
+                (
+                    name,
+                    zlib.compress(time.tobytes()),
+                    zlib.compress(np.asarray(intensity, dtype=np.float64).tobytes()),
+                ),
+            )
+    window = labelled_window
+    window.compound_data_loaded = window.cdf_data_loaded = True
+    window.toolbar.update_sample_list(["S"])
+    window.toolbar.update_compound_list(["Labelled", "Single"])
+
+    window.open_settings_window()
+    settings = window.settings_window
+    _select_page(settings, "Integration")
+    settings.page_named("Integration").legacy_radio.setChecked(True)
+    settings.save_button.click()
+
+    window.on_plot_button("Labelled", ["S"])
+    assert window.toolbar.isotopologue_ratios._current_ratios.tolist() == [
+        [2 / 3, 1 / 3]
+    ]
+    assert window.toolbar.total_abundance._current_abundances.tolist() == [1.5]
+
+    window.on_plot_button("Single", ["S"])
+    assert window.toolbar.total_abundance._current_abundances.tolist() == [1.5]
 
 
 def test_gear_button_and_menu_action_open_settings(labelled_window):

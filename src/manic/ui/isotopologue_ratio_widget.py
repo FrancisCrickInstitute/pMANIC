@@ -40,6 +40,7 @@ class IsotopologueRatioWidget(QWidget):
         self.setObjectName("isotopologueRatioWidget")
 
         self.use_corrected = False
+        self.use_legacy = False
 
         # Create chart and chart view
         self.chart = QChart()
@@ -140,6 +141,7 @@ class IsotopologueRatioWidget(QWidget):
                 eic.intensity,
                 compound,
                 use_corrected=self.use_corrected,
+                use_legacy=self.use_legacy,
             )
             total_area = sum(isotope_areas)
             total_abundances.append(total_area)

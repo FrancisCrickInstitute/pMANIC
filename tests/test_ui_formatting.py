@@ -95,6 +95,78 @@ def test_labelled_toolbar_keeps_abundance_under_ratios(qapp):
         toolbar.deleteLater()
 
 
+def _abundance_bars(chart):
+    names = chart.axes(Qt.Vertical)[0].categories()
+    bars = chart.series()[0].barSets()[0]
+    return [(names[i], round(bars.at(i), 6)) for i in range(bars.count())]
+
+
+@pytest.mark.parametrize(
+    "mode, label_atoms, multi_trace",
+    [
+        (AnalysisMode.LABELLED, 1, True),
+        (AnalysisMode.LABELLED, 0, False),
+        (AnalysisMode.UNLABELLED, 0, False),
+    ],
+    ids=["labelled-multi-trace", "labelled-single-trace", "unlabelled"],
+)
+def test_total_abundance_bars_keep_each_sample_value(
+    qapp, monkeypatch, mode, label_atoms, multi_trace
+):
+    from conftest import _make_window
+    from manic.io.eic_reader import EIC
+    from manic.models import database
+
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms,"
+            " loffset, roffset, baseline_correction, deconvolution_level)"
+            " VALUES ('X', 1, 100, ?, 2, 2, 0, 'off')",
+            (label_atoms,),
+        )
+    totals = {"A": 120.0, "B": 240.0, "C": 360.0}
+    time = np.array([0.0, 1.0, 2.0])
+    eics = []
+    for name, total in totals.items():
+        if multi_trace:
+            intensity = np.array([[0, total * 5 / 6, 0], [0, total / 6, 0]])
+        else:
+            intensity = np.array([0, total, 0])
+        eics.append(EIC(name, "X", time, intensity))
+    provider = SimpleNamespace(
+        get_compound_total_area=lambda sample, compound: totals[sample]
+    )
+    popups = []
+    monkeypatch.setattr(ChartPopupDialog, "exec", lambda self: popups.append(self))
+    tooltips = []
+    monkeypatch.setattr(
+        "manic.ui.chart_popup_dialog.QToolTip.showText",
+        lambda _pos, text, _widget: tooltips.append(text),
+    )
+
+    window = _make_window(monkeypatch, mode)
+    try:
+        window._get_current_eics = lambda: eics
+        window._update_total_abundance("X", provider)
+        widget = window.toolbar.total_abundance
+        widget._show_popup_chart()
+
+        # Bottom-to-top, so sample A sits in the top bar; values are /10^2.
+        expected = [("C", 3.6), ("B", 2.4), ("A", 1.2)]
+        assert _abundance_bars(widget.chart) == expected
+        assert _abundance_bars(popups[0].chart) == expected
+        assert [eic.sample_name for eic in eics] == ["A", "B", "C"]
+
+        bar_set = popups[0].chart.series()[0].barSets()[0]
+        for index in range(3):
+            bar_set.hovered.emit(True, index)
+        assert tooltips == ["C\nTotal: 360", "B\nTotal: 240", "A\nTotal: 120"]
+    finally:
+        for popup in popups:
+            popup.deleteLater()
+        window.close()
+
+
 def test_y_scale_checkboxes_labelled_only_and_exclusive(qapp):
     labelled = Toolbar(AnalysisMode.LABELLED)
     unlabelled = Toolbar(AnalysisMode.UNLABELLED)

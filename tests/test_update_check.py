@@ -1,5 +1,10 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from manic.utils import update_check
 from manic.utils.update_check import (
@@ -49,3 +54,48 @@ def test_committed_manifest_matches_the_worker_schema():
     assert outcome.success
     assert outcome.has_update
     assert outcome.url.startswith("https://github.com/FrancisCrickInstitute/pMANIC/releases/")
+
+
+CLOSE_DURING_CHECK = """
+import sys, time
+from pathlib import Path
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication
+from manic.models import database
+from manic.models.analysis import AnalysisContext, AnalysisMode
+from manic.ui.main_window import MainWindow
+from manic.utils import update_check
+
+database.DB_FILE = Path(sys.argv[1])
+with database.get_connection() as conn:
+    conn.executescript(Path(sys.argv[2]).read_text(encoding="utf-8"))
+update_check.fetch_manifest = lambda: (time.sleep(2), {"version": "99.0.0"})[1]
+MainWindow._on_update_check_finished = lambda self, *args: print("late result", flush=True)
+app = QApplication([])
+window = MainWindow(AnalysisContext(AnalysisMode.LABELLED))
+window._skip_close_guard = sys.argv[3] == "new-session"
+window.show()
+QTimer.singleShot(100, window.close)
+app.exec()
+del window
+print("exited", flush=True)
+"""
+
+
+@pytest.mark.parametrize("close_path", ["user-close", "new-session"])
+def test_closing_during_update_check_exits_cleanly(tmp_path, close_path):
+    script = tmp_path / "close_during_check.py"
+    script.write_text(CLOSE_DURING_CHECK)
+    schema = REPO_ROOT / "src" / "manic" / "models" / "schema.sql"
+    env = {
+        **os.environ,
+        "QT_QPA_PLATFORM": "offscreen",
+        "PYTHONPATH": str(REPO_ROOT / "src"),
+    }
+    args = [str(script), str(tmp_path / "test.db"), str(schema), close_path]
+    proc = subprocess.run(
+        [sys.executable, *args], capture_output=True, text=True, timeout=60, env=env
+    )
+    assert "Destroyed while thread" not in proc.stderr
+    assert proc.returncode == 0
+    assert proc.stdout.splitlines() == ["exited"]

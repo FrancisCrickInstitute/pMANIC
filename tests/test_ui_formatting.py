@@ -988,7 +988,7 @@ def test_unlabelled_mixed_bundle_draws_fitted_ion_overlay(qapp, monkeypatch):
     intensity = np.vstack(
         [
             12.0 * np.exp(-0.5 * ((time - 5.0) / 0.08) ** 2),
-            np.full(time.size, 3.0),
+            1.0 + 2.0 * (time - 4.0),
         ]
     )
     monkeypatch.setattr(
@@ -998,6 +998,8 @@ def test_unlabelled_mixed_bundle_draws_fitted_ion_overlay(qapp, monkeypatch):
     view = GraphView()
     try:
         compound = _deconvolution_plot_compound(is_unlabelled_target=True)
+        compound.baseline_correction = 1
+        compound.loffset = compound.roffset = 0.41
         prepared = plot_display(time, intensity, compound, use_corrected=False)
         chart = QChart()
         x_axis = QValueAxis()
@@ -1014,8 +1016,23 @@ def test_unlabelled_mixed_bundle_draws_fitted_ion_overlay(qapp, monkeypatch):
             1.0,
             prepared,
         )
-        widths = {series.pen().widthF() for series in chart.series()}
+        eic_series = chart.series()
+        widths = {series.pen().widthF() for series in eic_series}
         assert 2.2 in widths
+
+        view._add_baseline_lines(
+            chart, x_axis, y_axis, time, intensity, compound, 1.0, prepared
+        )
+        lines = [
+            [(point.x(), point.y()) for point in series.points()]
+            for series in chart.series()[len(eic_series) :]
+        ]
+        assert len(lines) == 2
+        assert [line[0][0] for line in lines] == pytest.approx([4.6, 4.6])
+        assert lines[1] == [
+            (pytest.approx(4.6), pytest.approx(2.2)),
+            (pytest.approx(5.4), pytest.approx(3.8)),
+        ]
     finally:
         view.deleteLater()
 

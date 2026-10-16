@@ -1378,6 +1378,14 @@ def test_regenerate_reads_only_the_scans_inside_the_window(tmp_path, monkeypatch
             {"mass_values": {"_FillValue": -1.0, "valid_range": [99.95, 200.0]}},
             [1.0, 0.0, 3.0],
         ),
+        # A masked scan_index keeps its stored offset, which the window read
+        # must shift like every other offset.
+        (
+            [54.0, 60.0, 66.0, 72.0],
+            [100.0, 100.0, 100.0, 100.0],
+            {"scan_index": {"missing_value": 2}},
+            [2.0, 3.0, 4.0],
+        ),
     ],
 )
 def test_window_read_extracts_the_same_eic_as_the_full_read(

@@ -2,18 +2,25 @@ from collections.abc import Iterable
 from typing import List
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QListWidget,
     QListWidgetItem,
     QMenu,
     QMessageBox,
+    QStyle,
 )
 
 from manic.constants import FONT
+from manic.io.sample_reader import list_stale_samples
 from manic.models.database import get_deleted_samples, soft_delete_samples
 from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
+
+STALE_TOOLTIP = (
+    "EICs use an older mass tolerance: the CDF file was missing or unreadable "
+    "at the last tolerance change"
+)
 
 
 class SampleListWidget(QListWidget):
@@ -75,9 +82,19 @@ class SampleListWidget(QListWidget):
         else:
             for s in samples:
                 self.addItem(QListWidgetItem(s))
+            self.mark_stale_samples()
             self.selectAll()
 
         self._center_current_item_if_single_selected()
+
+    def mark_stale_samples(self) -> None:
+        stale = set(list_stale_samples())
+        warning = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
+        for i in range(self.count()):
+            item = self.item(i)
+            is_stale = item.text() in stale
+            item.setIcon(warning if is_stale else QIcon())
+            item.setToolTip(STALE_TOOLTIP if is_stale else "")
 
     def set_selected_samples(self, names: Iterable[str]) -> None:
         wanted = set(names)

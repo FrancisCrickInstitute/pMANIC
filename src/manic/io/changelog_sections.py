@@ -217,11 +217,24 @@ def format_sample_fit_types_section(overrides: Iterable[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+def format_stale_samples_section(sample_names: list[str]) -> str:
+    lines = [
+        "## Stale Samples",
+        "These samples kept EICs from an older mass tolerance because their CDF "
+        "file was missing or unreadable at the last tolerance change. Their "
+        f"cells are filled light gold ({PEAK_VERDICT_FILL[PeakVerdict.STALE]}).",
+        "",
+    ]
+    lines += [f"- {name}" for name in sample_names]
+    return "\n".join(lines) + "\n"
+
+
 def format_cell_colour_key() -> str:
     return (
         "## Cell Colour Key\n"
         f"- Light red ({PEAK_VERDICT_FILL[PeakVerdict.FAIL]}) = below internal-standard threshold\n"
         f"- Light purple ({PEAK_VERDICT_FILL[PeakVerdict.ACCEPTED]}) = accepted by the analyst\n"
         f"- Tan ({PEAK_VERDICT_FILL[PeakVerdict.REJECTED]}) = marked bad by the analyst\n"
+        f"- Light gold ({PEAK_VERDICT_FILL[PeakVerdict.STALE]}) = EICs from an older mass tolerance\n"
         f"- Blue compound name ({BASELINE_OFF_FONT_COLOR}) = baseline correction off\n"
     )

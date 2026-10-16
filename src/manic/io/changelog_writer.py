@@ -8,12 +8,14 @@ from typing import Optional
 from manic.__version__ import __version__
 from manic.models.analysis import AnalysisMode
 from manic.models.database import get_connection
+from manic.io.sample_reader import list_stale_samples
 from manic.io.changelog_sections import (
     format_cell_colour_key,
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
     format_peak_reviews_section,
     format_sample_fit_types_section,
+    format_stale_samples_section,
     format_unlabelled_compounds_table_for_data_export,
 )
 
@@ -177,6 +179,10 @@ def generate_changelog(
             for sample in deleted_samples:
                 changelog_content += f"- {sample['sample_name']}\n"
             changelog_content += "\n"
+
+    stale_samples = list_stale_samples()
+    if stale_samples:
+        changelog_content += format_stale_samples_section(stale_samples) + "\n"
 
     # Compounds table
     if mode is AnalysisMode.UNLABELLED:

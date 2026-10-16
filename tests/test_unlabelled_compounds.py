@@ -632,6 +632,44 @@ def test_unlabelled_excel_export_colours_peak_reviews(empty_db, tmp_path):
     }
 
 
+def test_unlabelled_excel_export_marks_stale_sample_qualifier_qc_gold(
+    empty_db, tmp_path
+):
+    _import_targets(
+        tmp_path,
+        name="Passed",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+        **{"Qualifier 1 Ratio": 0.4, "Qualifier 1 Tolerance": 0.25},
+    )
+    for sample in ("S1", "S2"):
+        _insert_eic(
+            sample,
+            "Passed",
+            [0.0, 1.0, 2.0],
+            [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+            rt_window=1.1,
+        )
+    with database.get_connection() as conn:
+        conn.execute("UPDATE samples SET eics_stale = 1 WHERE sample_name = 'S2'")
+
+    export_path = tmp_path / "stale.xlsx"
+    assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
+
+    qc = openpyxl.load_workbook(export_path, data_only=True)["Qualifier QC"]
+    rows = {
+        row[0].value: ([c.value for c in row[10:]], {c.fill.fgColor.rgb for c in row})
+        for row in qc.iter_rows(min_row=2)
+    }
+    assert rows == {
+        "S1": (["PASS", "Pass"], {"FF2F9E44"}),
+        "S2": (["PASS", "Pass"], {"FFFFE699"}),
+    }
+
+
 def _unlabelled_mixed_bundle(time, *, failed_index: int):
     fitted = deconvolve_eic(
         time,

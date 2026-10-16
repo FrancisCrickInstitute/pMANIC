@@ -50,6 +50,7 @@ For a detected mass $m$ and a tolerance offset $\tau$:
 * **Impact:** This setting is applied when EICs are extracted.
     * If CDFs are already loaded, changing the value regenerates every EIC. You do not re-import the folder.
     * Plots and integrations refresh after that regeneration finishes.
+    * If a sample's CDF file is missing or unreadable, that sample keeps its EICs from the old tolerance. MANIC marks it as stale until a later tolerance change rebuilds it. A stale sample has a warning icon in the sample list, "old mass tolerance" in its plot captions, light gold cells in the exported workbook, and a **Stale Samples** section in the export changelog. To clear the mark, put the CDF file back and change the tolerance again.
 
 ---
 

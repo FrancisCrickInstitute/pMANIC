@@ -22,6 +22,7 @@ import xlsxwriter
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.io.changelog_writer import generate_changelog
 from manic.io.data_provider import DataProvider
+from manic.io.sample_reader import list_stale_samples
 from manic.models.analysis import AnalysisMode
 from manic.models.peak_review import get_peak_reviews
 from manic.validation.peak_verdict import PeakVerdict
@@ -180,11 +181,17 @@ class DataExporter:
         validation_disabled = (
             not self.internal_standard_compound or self.min_peak_area_ratio <= 0
         )
-        if validation_disabled and not reviews:
-            return {}
+        stale = set(list_stale_samples())
 
         validation_data = {}
         for sample in samples:
+            if sample in stale:
+                validation_data[sample] = {
+                    compound["compound_name"]: PeakVerdict.STALE for compound in compounds
+                }
+                continue
+            if validation_disabled and not reviews:
+                continue
             validation_data[sample] = {}
             for compound in compounds:
                 compound_name = compound["compound_name"]

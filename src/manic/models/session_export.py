@@ -594,7 +594,7 @@ def _apply_compound_method_settings(compounds: list) -> None:
             values.append(name)
             cursor = conn.execute(
                 f"UPDATE compounds SET {', '.join(assignments)} "
-                "WHERE compound_name = ? AND deleted = 0",
+                "WHERE compound_name = ?",
                 values,
             )
             if cursor.rowcount:

@@ -1213,7 +1213,6 @@ class TestRegenerationCompletion:
         messages = []
         window = SimpleNamespace(
             toolbar=SimpleNamespace(integration=integration),
-            _list_compound_awaiting_eics=lambda **_kwargs: None,
             graph_view=graph_view,
             _validation_provider=None,
             min_peak_height_ratio=0,
@@ -1247,7 +1246,6 @@ class TestRegenerationCompletion:
         messages = []
         window = SimpleNamespace(
             toolbar=SimpleNamespace(integration=integration),
-            _list_compound_awaiting_eics=lambda **_kwargs: None,
             graph_view=SimpleNamespace(
                 get_current_compound=lambda: "Glucose",
                 get_selected_samples=lambda: ["s1"],
@@ -1289,7 +1287,6 @@ class TestRegenerationCompletion:
         message = SimpleNamespace(exec=lambda: shown.append("shown"))
         window = SimpleNamespace(
             toolbar=SimpleNamespace(integration=integration),
-            _list_compound_awaiting_eics=lambda **_kwargs: None,
             graph_view=SimpleNamespace(
                 get_current_compound=lambda: "Glucose",
                 get_selected_samples=lambda: ["s1"],

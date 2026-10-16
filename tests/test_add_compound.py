@@ -417,7 +417,7 @@ def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
         cdf_data_loaded=True,
         _validation_provider=None,
         toolbar=SimpleNamespace(update_compound_list=lambda *args, **kwargs: None),
-        on_data_regeneration_requested=lambda *args: regen.append(args),
+        on_data_regeneration_requested=lambda *args, **_kwargs: regen.append(args),
         _show_message=lambda *args: None,
     )
 

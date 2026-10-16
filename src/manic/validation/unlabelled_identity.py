@@ -278,7 +278,11 @@ def quantifier_apex_time(
     loffset: float | None = None,
     roffset: float | None = None,
 ) -> float | None:
-    """Return the quantifier apex inside the integration window."""
+    """Return the quantifier apex inside the integration window.
+
+    A maximum on the first or last in-window scan is the slope of a peak
+    outside the window, not an apex, so it returns ``None``.
+    """
 
     time_array = np.asarray(time, dtype=np.float64)
     intensity_array = np.asarray(intensity, dtype=np.float64)
@@ -300,6 +304,8 @@ def quantifier_apex_time(
 
     candidate_indices = np.flatnonzero(mask)
     apex_index = candidate_indices[int(np.argmax(matrix[0, mask]))]
+    if apex_index in (candidate_indices[0], candidate_indices[-1]):
+        return None
     if matrix[0, apex_index] <= 0:
         return None
     return float(time_array[apex_index])
@@ -340,18 +346,18 @@ def assess_identity(
     reasons: list[str] = []
     rt_error: float | None = None
     rt_passed: bool | None = None
-    if (
-        expected_rt is not None
-        and observed_rt is not None
-        and rt_tolerance is not None
-    ):
-        rt_error = float(observed_rt) - float(expected_rt)
-        rt_passed = abs(rt_error) <= float(rt_tolerance)
-        if not rt_passed:
-            reasons.append(
-                f"Retention-time error {rt_error:+.3f} min exceeds "
-                f"±{float(rt_tolerance):.3f} min"
-            )
+    if expected_rt is not None and rt_tolerance is not None:
+        if observed_rt is None:
+            rt_passed = False
+            reasons.append("No Q-ion apex inside the integration window")
+        else:
+            rt_error = float(observed_rt) - float(expected_rt)
+            rt_passed = abs(rt_error) <= float(rt_tolerance)
+            if not rt_passed:
+                reasons.append(
+                    f"Retention-time error {rt_error:+.3f} min exceeds "
+                    f"±{float(rt_tolerance):.3f} min"
+                )
 
     ratio_results: list[QualifierRatioResult] = []
     for index, channel in enumerate(channels_tuple[1:], start=1):

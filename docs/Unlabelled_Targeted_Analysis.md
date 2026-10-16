@@ -292,7 +292,7 @@ Two times appear in the UI. They use the same tR that labelled mode uses.
 | Concept | Source | Role |
 | :--- | :--- | :--- |
 | **tR** | Compound list, then any per-sample override you Apply | Centre of the integration window and expected RT for identity QC |
-| **Observed Q apex** | Maximum of the Q-ion trace inside the window | Measured peak position |
+| **Observed Q apex** | Maximum of the Q-ion trace inside the window, if it is not on the first or last scan | Measured peak position |
 
 Integration boundaries are:
 
@@ -309,8 +309,10 @@ the default above) as tolerance:
 \Delta\mathrm{RT} = \mathrm{RT}_{\text{observed}} - \mathrm{tR}
 \]
 
-passes when \(|\Delta\mathrm{RT}| \le \mathrm{RT\ tolerance}\). Reset restores
-the compound-list tR.
+passes when \(|\Delta\mathrm{RT}| \le \mathrm{RT\ tolerance}\). A maximum on the
+first or last scan of the window is the slope of a peak outside the window, not
+an apex. MANIC then reports no observed Q apex and the RT check fails. Reset
+restores the compound-list tR.
 
 ---
 

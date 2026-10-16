@@ -71,6 +71,22 @@ def _read_compounds_as_dicts(filepath: str) -> list[dict]:
     return out
 
 
+def _check_isotopologue_counts(compounds: list[dict], raw_data: dict) -> None:
+    """Raise naming every compound whose workbook columns differ from label_atoms + 1."""
+    mismatched = []
+    for comp in compounds:
+        name = comp['compound_name']
+        found = next((len(areas[name]) for areas in raw_data.values() if name in areas), None)
+        expected = comp['label_atoms'] + 1
+        if found is not None and found != expected:
+            mismatched.append(f"{name} (expected {expected}, found {found})")
+    if mismatched:
+        raise ValueError(
+            "Isotopologue columns in the Raw Values workbook do not match label atoms + 1 "
+            f"in the compounds file: {', '.join(mismatched)}"
+        )
+
+
 def rebuild_export_from_files(
     compounds_file: str,
     raw_values_file: str,
@@ -86,6 +102,7 @@ def rebuild_export_from_files(
     # Parse inputs
     compounds = _read_compounds_as_dicts(compounds_file)
     samples, raw_data = read_raw_values_workbook(raw_values_file)
+    _check_isotopologue_counts(compounds, raw_data)
 
     provider = InMemoryDataProvider(compounds, samples, raw_data, use_legacy_integration=use_legacy_integration)
 

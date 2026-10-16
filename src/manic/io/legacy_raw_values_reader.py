@@ -20,6 +20,9 @@ def read_raw_values_workbook(path: str) -> tuple[List[str], Dict[str, Dict[str, 
       Row 4: 'tR'            | None | [retention time repeated]
       Row 5+: None           | sample_name | [values]
     """
+    if not path.lower().endswith('.xlsx'):
+        raise ValueError(f"Raw Values file must be an Excel workbook (.xlsx): {path}")
+
     # Read without headers to preserve positions
     df = pd.read_excel(path, sheet_name='Raw Values', header=None, engine='openpyxl')
 

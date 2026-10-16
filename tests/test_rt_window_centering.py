@@ -249,15 +249,13 @@ class TestPerSampleReloadChecking:
             ("cmpd", "s2"): (19.0, 21.0),
         }
 
-        sample_rts = {"s1": 10.0, "s2": 20.0}
-
-        need_reload = w._get_samples_needing_reload_with_sample_rts(
-            sample_rts, new_loffset=0.5, new_roffset=0.5, samples_to_check=["s1", "s2"]
+        need_reload = w._get_samples_needing_reload(
+            {"s1": (10.0, 0.5, 0.5), "s2": (20.0, 0.5, 0.5)}
         )
         assert need_reload == []
 
-        need_reload = w._get_samples_needing_reload_with_sample_rts(
-            sample_rts, new_loffset=2.0, new_roffset=2.0, samples_to_check=["s1", "s2"]
+        need_reload = w._get_samples_needing_reload(
+            {"s1": (10.0, 2.0, 2.0), "s2": (20.0, 2.0, 2.0)}
         )
         assert set(need_reload) == {"s1", "s2"}
 
@@ -278,10 +276,8 @@ class TestPerSampleReloadChecking:
             _current_compound="Glucose",
             _selected_samples=["s1", "s2"],
             _all_samples=["s1", "s2"],
-            _get_validated_inputs=lambda: (7.1, 2.0, 2.0),
-            _get_samples_needing_reload_with_sample_rts=(
-                lambda *_args: ["s1", "s2"]
-            ),
+            _get_validated_inputs=lambda: (None, 2.0, 2.0),
+            _get_samples_needing_reload=lambda *_args: ["s1", "s2"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
                 emit=lambda *args: emitted.append(args)
@@ -650,7 +646,7 @@ class TestRecoveryAfterEmptyExtract:
         w.refresh_data_window_bounds("cmpd", ["s1"])
 
         assert ("cmpd", "s1") not in w._data_window_bounds
-        assert w._get_samples_needing_reload(7.17, 0.1, 0.1, ["s1"]) == ["s1"]
+        assert w._get_samples_needing_reload({"s1": (7.17, 0.1, 0.1)}) == ["s1"]
 
     def test_failed_extract_rejects_change_and_keeps_existing_eic(
         self, tmp_path, monkeypatch

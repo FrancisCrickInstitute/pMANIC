@@ -1,3 +1,6 @@
+from PySide6.QtCharts import QLineSeries
+from PySide6.QtWidgets import QLineEdit
+
 from manic.models import database
 from manic.ui.left_toolbar import Toolbar
 
@@ -67,5 +70,51 @@ def test_focus_selected_then_show_all(qapp, empty_db, monkeypatch):
         assert window.graph_view.get_current_samples() == ["S1", "S2", "S3"]
         assert window.graph_view.get_selected_samples() == []
         assert window.toolbar.integration.title() == "Selected Plots: All"
+    finally:
+        window.close()
+
+
+def test_deleting_final_compound_clears_dependent_widgets(
+    qapp, empty_db, monkeypatch, caplog
+):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms) VALUES ('Alanine', 1.0, 0.1, 0.1, 217.0, 0)"
+        )
+    window = _make_window(monkeypatch)
+    _install_plot_stub(window)
+    toolbar = window.toolbar
+    charts = [toolbar.isotopologue_ratios.chart, toolbar.total_abundance.chart]
+    fields = ["lo_input", "tr_input", "ro_input", "tr_window_input"]
+    try:
+        window.on_plot_button("Alanine", ["S1", "S2"])
+        for chart in charts:
+            chart.addSeries(QLineSeries())
+        toolbar.integration.populate_fields(
+            {"loffset": 0.1, "retention_time": 1.0, "roffset": 0.1, "tr_window": 0.2}
+        )
+        assert toolbar.integration.findChild(QLineEdit, "tr_input").text() != ""
+        refreshed: list[str] = []
+        original_refresh = window._refresh_mode_charts
+        monkeypatch.setattr(
+            window,
+            "_refresh_mode_charts",
+            lambda compound, *a, **k: (
+                refreshed.append(compound),
+                original_refresh(compound, *a, **k),
+            ),
+        )
+
+        database.soft_delete_compound("Alanine")
+        window.on_compounds_deleted(["Alanine"])
+
+        assert refreshed == []
+        assert "Compound not found for Alanine" not in caplog.text
+        assert window.graph_view.get_current_compound() == ""
+        assert [len(chart.series()) for chart in charts] == [0, 0]
+        assert [
+            toolbar.integration.findChild(QLineEdit, name).text() for name in fields
+        ] == ["", "", "", ""]
     finally:
         window.close()

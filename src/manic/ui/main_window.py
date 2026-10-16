@@ -103,6 +103,29 @@ from manic.utils.timer import measure_time
 logger = logging.getLogger("manic_logger")
 
 
+class _WorkerProgressDialog(QProgressDialog):
+    """Stays up until its worker finishes: the workers behind it cannot stop
+    midway, and dismissing it unblocks the window for a second run."""
+
+    _closing = False
+
+    # Only the completion handlers call close() from Python; the title-bar
+    # close reaches closeEvent without it.
+    def close(self):
+        self._closing = True
+        return super().close()
+
+    def closeEvent(self, event):
+        if self._closing:
+            super().closeEvent(event)
+        else:
+            event.ignore()
+
+    def keyPressEvent(self, event):
+        if not event.matches(QKeySequence.Cancel):
+            super().keyPressEvent(event)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, analysis_context: AnalysisContext | None = None):
         super().__init__()
@@ -638,7 +661,7 @@ class MainWindow(QMainWindow):
 
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
-        dlg = QProgressDialog(title, None, 0, 100, self)
+        dlg = _WorkerProgressDialog(title, None, 0, 100, self)
         dlg.setWindowTitle("Please wait")
         dlg.setWindowModality(Qt.WindowModal)
         dlg.setAutoClose(False)
@@ -1541,6 +1564,9 @@ class MainWindow(QMainWindow):
             f"with tR window {tr_window} centered at {rt_description}"
         )
 
+        if self._background_work_running("regenerating EIC data"):
+            return
+
         try:
             # Build and show progress dialog
             self.regen_progress_dialog = self._build_progress_dialog(
@@ -2342,6 +2368,10 @@ class MainWindow(QMainWindow):
 
     def apply_mass_tolerance(self, new_value: float) -> None:
         if new_value == self.mass_tolerance:
+            return
+        if self.cdf_data_loaded and self._background_work_running(
+            "changing the mass tolerance"
+        ):
             return
         logger.info(f"Mass tolerance changed from {self.mass_tolerance} to {new_value} Da")
         self.mass_tolerance = new_value

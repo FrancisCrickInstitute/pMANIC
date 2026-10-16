@@ -340,16 +340,17 @@ def test_extract_eic_slices_the_rt_window_once():
     assert CountingArray.slices == 1
 
 
-def test_extract_eic_skips_scans_outside_window_between_window_scans():
+def test_extract_eic_skips_out_of_window_scan_when_window_holds_final_scan():
+    # main ended scan 0 at scan 2's start, so scan 1's 10.0 leaked into it.
     cdf = CdfFileData(
         sample_name="S1",
         file_path="/fake/S1.cdf",
-        scan_time=np.array([60.0, 120.0, 70.0, 180.0]),
-        mass=np.array([100.0, 100.0, 100.0, 100.0]),
-        intensity=np.array([1.0, 10.0, 100.0, 1000.0]),
-        scan_index=np.array([0, 1, 2, 3]),
-        point_count=np.array([1, 1, 1, 1]),
-        total_intensity=np.array([1.0, 10.0, 100.0, 1000.0]),
+        scan_time=np.array([60.0, 120.0, 70.0]),
+        mass=np.array([100.0, 100.0, 100.0]),
+        intensity=np.array([1.0, 10.0, 100.0]),
+        scan_index=np.array([0, 1, 2]),
+        point_count=np.array([1, 1, 1]),
+        total_intensity=np.array([1.0, 10.0, 100.0]),
     )
 
     eic = extract_eic("Target", 65.0 / 60.0, 100.0, cdf, rt_window=0.1)

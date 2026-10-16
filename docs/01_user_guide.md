@@ -427,7 +427,7 @@ Re-process results from the legacy MANIC tool (v3.3.0) or a previous MANIC expor
 Use this feature when you possess the exported "Raw Values" (integrated peak areas) from an old experiment but **do not** have the original raw CDF files (or do not wish to re-integrate them).
 
 **Prerequisites**
-1.  **Old Results File:** An Excel or CSV file containing a sheet/table of uncorrected peak areas (Raw Values).
+1.  **Old Results File:** An Excel (`.xlsx`) workbook with a **Raw Values** sheet of uncorrected peak areas. CSV files are not supported.
 2.  **Compound List:** A valid compound definition file (see Step 1) that matches the metabolites in your old results. This is required to provide the molecular formulas and atom counts needed for the new correction math.
 
 **Procedure**

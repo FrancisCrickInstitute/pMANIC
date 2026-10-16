@@ -110,7 +110,8 @@ def test_batch_correction_skips_channel_shortfall_and_writes_valid_row(review_db
     assert np.any(stored != np.arange(1, 11, dtype=np.float64))
 
 
-def test_ensure_corrections_for_export_raises_naming_uncorrectable(review_db):
+@pytest.mark.parametrize("level", ["4", "off"])
+def test_ensure_corrections_for_export_raises_naming_uncorrectable(review_db, level):
     with database.get_connection() as conn:
         _insert_labelled_eic(
             conn,
@@ -128,16 +129,55 @@ def test_ensure_corrections_for_export_raises_naming_uncorrectable(review_db):
             label_atoms=1,
             channels=2,
         )
+        _insert_labelled_eic(
+            conn,
+            sample="S1",
+            compound="NoFormula",
+            formula=None,
+            label_atoms=1,
+            channels=2,
+        )
+        _insert_labelled_eic(
+            conn, sample="S1", compound="Torn", formula="C1", label_atoms=1, channels=2
+        )
+        # 81 bytes is not a whole number of float64 values.
+        conn.execute(
+            "UPDATE eic SET y_axis = ? WHERE compound_name = 'Torn'",
+            (zlib.compress(bytes(81)),),
+        )
+        conn.execute("UPDATE compounds SET deconvolution_level = ?", (level,))
 
     with pytest.raises(
         RuntimeError,
         match=(
-            "Natural abundance correction failed for: Short. "
+            "Natural abundance correction failed for: NoFormula, Short, Torn. "
             "Fix the formula or label_atoms for these compounds, "
             "or delete them, then export again."
         ),
     ):
         ensure_corrections_for_export()
+
+
+def test_ensure_corrections_for_export_leaves_eic_corrected_empty(review_db):
+    with database.get_connection() as conn:
+        for compound, label_atoms in (("Unlabelled", 0), ("Deconvolved", 1), ("Plain", 1)):
+            _insert_labelled_eic(
+                conn,
+                sample="S1",
+                compound=compound,
+                formula="C1",
+                label_atoms=label_atoms,
+                channels=label_atoms + 1,
+            )
+        conn.execute(
+            "UPDATE compounds SET deconvolution_level = 'off' WHERE compound_name = 'Plain'"
+        )
+
+    ensure_corrections_for_export()
+
+    with database.get_connection() as conn:
+        stored = conn.execute("SELECT compound_name FROM eic_corrected").fetchall()
+    assert [row[0] for row in stored] == []
 
 
 def test_load_bulk_omits_labelled_when_correction_fails_keeps_unlabelled_raw(

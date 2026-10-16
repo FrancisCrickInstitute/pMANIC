@@ -9,13 +9,18 @@ import numpy as np
 import openpyxl
 import pandas as pd
 import pytest
+from netCDF4 import Dataset
 
 from manic.io.changelog_writer import generate_changelog
 from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import detect_compound_list_format, import_compound_excel
 from manic.io.data_exporter import DataExporter
 from manic.io.data_provider import DataProvider
-from manic.io.eic_importer import _iter_compounds
+from manic.io.eic_importer import (
+    _iter_compounds,
+    import_eics,
+    regenerate_all_eics_with_mass_tolerance,
+)
 from manic.io.eic_reader import read_eic
 from manic.models import database
 from manic.models import session_export
@@ -242,6 +247,52 @@ def test_unlabelled_import_requires_quantifier_and_qualifier_columns(
             compound_list,
             analysis_mode=AnalysisMode.UNLABELLED,
         )
+
+
+def _write_cdf(path: Path, masses: list[float]) -> None:
+    """Write a minimal ANDI-MS file: one scan every 0.6 s holding `masses`."""
+    scan_time = np.arange(0.0, 600.0, 0.6)
+    with Dataset(path, "w") as cdf:
+        cdf.createDimension("scan", len(scan_time))
+        cdf.createDimension("point", len(scan_time) * len(masses))
+        values = {
+            "scan_acquisition_time": ("scan", scan_time),
+            "scan_index": ("scan", np.arange(len(scan_time)) * len(masses)),
+            "point_count": ("scan", np.full(len(scan_time), len(masses))),
+            "total_intensity": ("scan", np.full(len(scan_time), 100.0 * len(masses))),
+            "mass_values": ("point", np.tile(masses, len(scan_time))),
+            "intensity_values": ("point", np.full(len(scan_time) * len(masses), 100.0)),
+        }
+        for name, (dimension, data) in values.items():
+            kind = "i4" if name in ("scan_index", "point_count") else "f8"
+            cdf.createVariable(name, kind, (dimension,))[:] = data
+
+
+def _stored_rt_windows() -> dict[str, float]:
+    with database.get_connection() as conn:
+        return dict(conn.execute("SELECT compound_name, rt_window FROM eic").fetchall())
+
+
+def test_cdf_import_and_mass_tolerance_reload_extract_at_least_the_tr_window(
+    empty_db, tmp_path
+):
+    path = tmp_path / "targets.csv"
+    path.write_text(
+        "name,tR,lOffset,rOffset,quant_ion,qualifier_ion_1,tR Window\n"
+        "Wide,3.0,0.1,0.1,217,147,0.6\n"
+        "Default,5.0,0.08,0.12,217,147,\n"
+    )
+    import_compound_excel(path, AnalysisMode.UNLABELLED)
+    cdf_dir = tmp_path / "cdf"
+    cdf_dir.mkdir()
+    _write_cdf(cdf_dir / "s1.cdf", [147.0, 217.0])
+    expected = {"Wide": 0.6, "Default": 0.22}
+
+    import_eics(cdf_dir)
+    assert _stored_rt_windows() == pytest.approx(expected)
+
+    regenerate_all_eics_with_mass_tolerance(0.3)
+    assert _stored_rt_windows() == pytest.approx(expected)
 
 
 def test_data_provider_integrates_all_channels_but_quantifies_quantifier(

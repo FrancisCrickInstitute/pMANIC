@@ -55,6 +55,11 @@ def _extract_rt_window_covering_offsets(
     return max(float(requested), minimum_extract_rt_window(loffset, roffset))
 
 
+def _required_rt_window(loffset, roffset, rt_tolerance) -> float:
+    # An unlabelled list's tR Window widens the extract; labelled lists leave it NULL.
+    return max(minimum_extract_rt_window(loffset, roffset), float(rt_tolerance or 0.0))
+
+
 # ─────────────────────────── Utility Functions ────────────────────────────
 def _compress(arr: np.ndarray) -> bytes:
     """Compress numpy array to optimized byte stream for database storage.
@@ -81,7 +86,7 @@ def _iter_compounds(conn, include_deleted: bool = False):
     rows = conn.execute(
         """
         SELECT c.compound_name, c.retention_time, c.mass0, c.label_atoms,
-               c.loffset, c.roffset,
+               c.loffset, c.roffset, c.rt_tolerance,
                ci.mz AS channel_mz
         FROM compounds c
         LEFT JOIN compound_ions ci ON ci.compound_name = c.compound_name
@@ -102,6 +107,7 @@ def _iter_compounds(conn, include_deleted: bool = False):
                 "label_atoms": int(row["label_atoms"] or 0),
                 "loffset": float(row["loffset"] or 0.0),
                 "roffset": float(row["roffset"] or 0.0),
+                "rt_tolerance": row["rt_tolerance"],
                 "target_mzs": [],
             },
         )
@@ -121,8 +127,8 @@ def _iter_compounds(conn, include_deleted: bool = False):
             mass0=float(data["mass0"]),
             label_atoms=data["label_atoms"],
             target_mzs=target_mzs,
-            required_rt_window=minimum_extract_rt_window(
-                data["loffset"], data["roffset"]
+            required_rt_window=_required_rt_window(
+                data["loffset"], data["roffset"], data["rt_tolerance"]
             ),
         )
 
@@ -891,6 +897,7 @@ def regenerate_all_eics_with_mass_tolerance(
                     c.label_atoms,
                     COALESCE(sa.loffset, c.loffset) as loffset,
                     COALESCE(sa.roffset, c.roffset) as roffset,
+                    c.rt_tolerance,
                     (
                         SELECT MAX(e.rt_window) FROM eic e
                         WHERE e.compound_name = c.compound_name
@@ -925,7 +932,9 @@ def regenerate_all_eics_with_mass_tolerance(
                     target_mzs=base_target.target_mzs,
                     required_rt_window=max(
                         float(extract_rt_window),
-                        minimum_extract_rt_window(row["loffset"], row["roffset"]),
+                        _required_rt_window(
+                            row["loffset"], row["roffset"], row["rt_tolerance"]
+                        ),
                     ),
                 )
             )

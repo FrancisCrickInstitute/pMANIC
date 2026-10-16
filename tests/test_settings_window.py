@@ -344,10 +344,9 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
         conn.execute("INSERT INTO samples (sample_name) VALUES ('S2')")
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
+    selected: list[str] = []
     monkeypatch.setattr(
-        labelled_window.graph_view,
-        "get_selected_samples",
-        lambda: ["S1", "S2"],
+        labelled_window.graph_view, "get_selected_samples", lambda: list(selected)
     )
     replots = []
     monkeypatch.setattr(
@@ -358,6 +357,10 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     settings = labelled_window.settings_window
     _select_page(settings, "Deconvolution")
     page = settings.page_named("Deconvolution")
+    assert not page.sample_fit_combo.isEnabled()
+
+    selected += ["S1", "S2"]
+    labelled_window.graph_view.selection_changed.emit(["S1", "S2"])
     assert page.sample_scope_label.text() == (
         "Sets the fit for the 2 samples selected in the plot area"
     )

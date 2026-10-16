@@ -372,7 +372,20 @@ def _deconvolve_channel_matrix_cached(
         ):
             result = dataclasses.replace(result, empty=True)
         channels.append(ChannelDeconvolution(index=index, result=result))
-    return ChannelDeconvolutionBundle(time=time, channels=tuple(channels))
+    return _freeze_arrays(ChannelDeconvolutionBundle(time=time, channels=tuple(channels)))
+
+
+def _freeze_arrays(value):
+    # Cached bundles are shared between callers, so a write by one would change the others.
+    if isinstance(value, np.ndarray):
+        value.flags.writeable = False
+    elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+        for field in dataclasses.fields(value):
+            _freeze_arrays(getattr(value, field.name))
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            _freeze_arrays(item)
+    return value
 
 
 def deconvolve_eic(

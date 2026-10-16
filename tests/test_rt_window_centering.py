@@ -1353,7 +1353,7 @@ def test_regenerate_reads_only_the_scans_inside_the_window(tmp_path, monkeypatch
         x_axis, y_axis = conn.execute(
             "SELECT x_axis, y_axis FROM eic WHERE sample_name = 's1'"
         ).fetchone()
-    assert loaded_points == [12]
+    assert loaded_points == [15]  # 4 in-window scans + 1 trailing, of 20
     assert np.frombuffer(zlib.decompress(x_axis)) == pytest.approx(
         [7.0, 7.1, 7.2, 7.3]
     )

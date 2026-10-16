@@ -13,8 +13,9 @@ from PySide6.QtCharts import (
     QChart,
     QValueAxis,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
 import numpy as np
 from types import SimpleNamespace
@@ -52,6 +53,8 @@ from manic.validation.unlabelled_identity import (
     IdentityQcResult,
     IdentitySampleAssessment,
     IdentityStatus,
+    QualifierAssessment,
+    QualifierPair,
     QualifierRatioResult,
     QualifierStatus,
     qualifier_pair,
@@ -308,20 +311,70 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         widget.deleteLater()
 
 
-def test_identity_chart_click_emits_sample_name(qapp):
-    channels = (_qion(), _v1())
-    identity = _identity_snapshot(
-        channels, ("S1", _supported_qc(channels, True), None)
+_GRID_STATUSES = (
+    QualifierStatus.VALIDATED,
+    QualifierStatus.FAILED,
+    QualifierStatus.ABSENT,
+)
+
+
+def _status_grid(count: int) -> IdentityAssessmentSet:
+    samples = tuple(
+        IdentitySampleAssessment(
+            f"S{i}",
+            None,
+            QualifierPair(
+                QualifierAssessment(
+                    1, _GRID_STATUSES[i % 3], None, None, f"S{i} first"
+                ),
+                QualifierAssessment(
+                    2, _GRID_STATUSES[(i + 1) % 3], None, None, f"S{i} second"
+                ),
+            ),
+        )
+        for i in range(count)
+    )
+    return IdentityAssessmentSet("Target", (), samples)
+
+
+def test_identity_grid_real_click_and_hover_map_to_sample(qapp, monkeypatch):
+    shown = []
+    monkeypatch.setattr(
+        "manic.ui.targeted_qc_widget.show_identity_tooltip",
+        lambda _widget, text: shown.append(text.splitlines()[:2]),
     )
     widget = TargetedQcWidget()
     activated = []
     widget.sample_activated.connect(activated.append)
     try:
-        widget.update_results(identity)
-        v2_set = widget._binding.bar_sets[1]
-        assert widget._binding.cell_for(v2_set).qualifier.status is QualifierStatus.ABSENT
-        v2_set.clicked.emit(0)
-        assert activated == ["S1"]
+        widget.resize(300, 300)
+        widget.show()
+        assert QTest.qWaitForWindowExposed(widget)
+        widget.update_results(_status_grid(4))
+        qapp.processEvents()
+        bar_set_count = len(widget._binding.bar_sets)
+        series = widget.chart.series()[0]
+        viewport = widget.chart_view.viewport()
+        for row, x in ((0, 0.5), (0, 1.5), (2, 0.5), (3, 1.5), (1, 0.5)):
+            pos = widget.chart_view.mapFromScene(
+                widget.chart.mapToPosition(QPointF(x, row), series)
+            )
+            QTest.mouseMove(viewport, pos)
+            qapp.processEvents()
+            QTest.mouseClick(viewport, Qt.LeftButton, pos=pos)
+        assert activated == ["S3", "S3", "S1", "S0", "S2"]
+        assert shown == [
+            ["S3", "Qualifier 1  Validated"],
+            ["S3", "Qualifier 2  Failed"],
+            ["S1", "Qualifier 1  Failed"],
+            ["S0", "Qualifier 2  Failed"],
+            ["S2", "Qualifier 1  Absent"],
+        ]
+
+        widget.update_results(_status_grid(60))
+        bar_sets = widget._binding.bar_sets
+        assert len(bar_sets) == bar_set_count
+        assert sum(bar_set.count() for bar_set in bar_sets) == 360
     finally:
         widget.deleteLater()
 

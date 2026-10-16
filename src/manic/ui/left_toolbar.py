@@ -325,13 +325,17 @@ class Toolbar(QWidget):
         selected_items = self.compound_list.selectedItems()
         if selected_items:
             selected_text = selected_items[0].text()
+            # Resolve the y-scale silently so the compound_selected plot uses
+            # it; a y_scale_policy_changed here would replot the old compound.
+            self.blockSignals(True)
+            self.sync_selected_peak_checkbox(selected_text)
+            self.blockSignals(False)
             self.compound_selected.emit(selected_text)
             self.compound_indicator.set_compound(selected_text)
             # Initial fill - will be updated by plot selection logic after plotting
             self.fill_integration_window(selected_text)
             # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
-            self.sync_selected_peak_checkbox(selected_text)
         else:
             self.compound_selected.emit("")
             self.compound_indicator.set_compound("")
@@ -420,6 +424,10 @@ class Toolbar(QWidget):
             self.baseline_checkbox.blockSignals(True)
             self.baseline_checkbox.setChecked(False)
             self.baseline_checkbox.blockSignals(False)
+
+    @property
+    def y_scale_policy(self) -> YScalePolicy:
+        return self._y_scale_policy
 
     def sync_selected_peak_checkbox(self, compound_name: str):
         checkbox = self.selected_peak_yscale_checkbox

@@ -488,11 +488,12 @@ class GraphView(QWidget):
                 return True
         return False
 
-    def set_y_scale_policy(self, policy: YScalePolicy):
+    def set_y_scale_policy(self, policy: YScalePolicy, *, replot: bool = True):
         if policy is self._y_scale_policy:
             return
         self._y_scale_policy = policy
-        self._replot_current()
+        if replot:
+            self._replot_current()
 
     def _replot_current(self) -> None:
         """Re-plot the current compound/samples after a display toggle."""

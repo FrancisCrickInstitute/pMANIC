@@ -1204,6 +1204,7 @@ class MainWindow(QMainWindow):
         """
         samples = self.toolbar.get_selected_samples()
         self.update_deconvolution_indicator(compound_selected)
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy, replot=False)
         self.on_plot_button(compound_selected, samples)
         if self.settings_window is not None:
             self.settings_window.refresh()

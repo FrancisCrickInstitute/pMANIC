@@ -155,7 +155,8 @@ def test_selected_peak_yscale_follows_compound_deconvolution(qapp, monkeypatch):
         toolbar.update_compound_list(["Glucose"])
         assert checkbox.isEnabled() is False
         assert checkbox.isChecked() is False
-        assert emitted == [YScalePolicy.PER_TILE_EXTRACT]
+        assert toolbar.y_scale_policy is YScalePolicy.PER_TILE_EXTRACT
+        assert emitted == []
 
         monkeypatch.setattr(
             "manic.ui.left_toolbar.read_compound",

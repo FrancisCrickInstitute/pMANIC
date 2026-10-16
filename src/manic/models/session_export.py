@@ -36,6 +36,7 @@ from manic.io.changelog_sections import (
     format_compounds_table_for_session_export,
     format_overrides_section_for_session_export,
     format_peak_reviews_section,
+    format_peak_validation_threshold,
     format_sample_fit_types_section,
 )
 
@@ -46,6 +47,12 @@ logger = logging.getLogger(__name__)
 class SessionInternalStandard:
     compound_name: str | None
     reference_isotope: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class SessionProcessingSettings:
+    mass_tolerance: float | None = None
+    min_peak_height_ratio: float | None = None
 
 
 class InternalStandardRestoreKind(StrEnum):
@@ -108,16 +115,38 @@ def parse_session_internal_standard(
     )
 
 
-def read_session_internal_standard(import_path: str) -> SessionInternalStandard | None:
+def _load_method_json(import_path: str) -> dict[str, Any] | None:
     try:
         with open(import_path, encoding="utf-8") as handle:
             method_data = json.load(handle)
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
-        logger.warning("Could not read internal standard from %s", import_path)
+        logger.warning("Could not read session file %s", import_path)
         return None
-    if not isinstance(method_data, dict):
+    return method_data if isinstance(method_data, dict) else None
+
+
+def read_session_internal_standard(import_path: str) -> SessionInternalStandard | None:
+    method_data = _load_method_json(import_path)
+    if method_data is None:
         return None
     return parse_session_internal_standard(method_data)
+
+
+def _bounded_float(value: Any, low: float, high: float) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if low <= value <= high else None
+
+
+def read_session_processing_settings(import_path: str) -> SessionProcessingSettings:
+    method_data = _load_method_json(import_path) or {}
+    # Same ranges the Settings spin boxes accept; anything else keeps the current value.
+    return SessionProcessingSettings(
+        mass_tolerance=_bounded_float(method_data.get("mass_tolerance"), 0.01, 1.0),
+        min_peak_height_ratio=_bounded_float(
+            method_data.get("min_peak_height_ratio"), 0.0, 1.0
+        ),
+    )
 
 
 def clamp_reference_isotope(isotope: int, channel_count: int) -> int:
@@ -147,6 +176,8 @@ def export_session_method(
     analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
     internal_standard: str | None = None,
     internal_standard_reference_isotope: int = 0,
+    mass_tolerance: float | None = None,
+    min_peak_height_ratio: float | None = None,
 ) -> bool:
     """
     Export session methodology and parameters only (no processed data).
@@ -156,6 +187,7 @@ def export_session_method(
     - Integration boundary overrides (session_activity)
     - Analysis methodology
     - Selected internal standard and labelled reference peak (M+N)
+    - Mass tolerance (Da) and peak-validation threshold
 
     Does NOT export:
     - Raw CDF file data
@@ -200,6 +232,8 @@ def export_session_method(
                 internal_standard_reference_isotope,
                 has_standard=standard_name is not None,
             ),
+            "mass_tolerance": mass_tolerance,
+            "min_peak_height_ratio": min_peak_height_ratio,
         }
 
         with get_connection() as conn:
@@ -855,6 +889,15 @@ def _generate_changelog(method_data: dict, changelog_path: Path) -> None:
                 f.write(
                     "**Internal Standard Reference Peak:** "
                     f"M+{method_data.get('internal_standard_reference_isotope', 0)}\n"
+                )
+            mass_tolerance = method_data.get("mass_tolerance")
+            if mass_tolerance is not None:
+                f.write(f"**Mass Tolerance:** {mass_tolerance:g} Da\n")
+            ratio = method_data.get("min_peak_height_ratio")
+            if ratio is not None:
+                f.write(
+                    "**Peak Validation Threshold:** "
+                    f"{format_peak_validation_threshold(ratio)}\n"
                 )
             f.write("\n")
 

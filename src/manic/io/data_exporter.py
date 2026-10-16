@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import xlsxwriter
 
-from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
+from manic.constants import DEFAULT_MASS_TOLERANCE, DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.io.changelog_writer import generate_changelog
 from manic.io.data_provider import DataProvider
 from manic.models.analysis import AnalysisMode
@@ -127,6 +127,8 @@ class DataExporter:
         )
         # Minimum peak area ratio for validation highlighting
         self.min_peak_area_ratio = DEFAULT_MIN_PEAK_HEIGHT_RATIO
+        # Mass tolerance the EICs were extracted with, recorded in the changelog
+        self.mass_tolerance = DEFAULT_MASS_TOLERANCE
 
         # Which isotopologue peak (M+N) to use as the internal standard reference peak
         # across validation + abundance + MRRF. Default is 0 (M0).
@@ -152,6 +154,10 @@ class DataExporter:
     def set_min_peak_area_ratio(self, ratio: float):
         """Set the minimum peak area ratio for validation highlighting."""
         self.min_peak_area_ratio = ratio
+
+    def set_mass_tolerance(self, mass_tolerance: float) -> None:
+        """Set the mass tolerance (Da) recorded in the export changelog."""
+        self.mass_tolerance = mass_tolerance
 
     def set_internal_standard_reference_isotope(self, isotope_index: int) -> None:
         """Set internal standard reference isotopologue (M+N).
@@ -215,6 +221,8 @@ class DataExporter:
             export_filepath,
             internal_standard=self.internal_standard_compound,
             use_legacy_integration=self.use_legacy_integration,
+            mass_tolerance=self.mass_tolerance,
+            min_peak_area_ratio=self.min_peak_area_ratio,
             analysis_mode=self.analysis_mode,
             assumed_mrrf=self.assumed_mrrf,
         )

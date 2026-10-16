@@ -259,7 +259,7 @@ Generate the final analytical report. This process calculates all results, appli
 **Output Files**   
 The export generates two files in your selected directory:
 1.  **Data File (`.xlsx`):** The multi-sheet workbook containing your results.
-2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, any deleted items excluded from export, and a table of all session-specific integration overrides. This serves as an audit trail for reproducibility.
+2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, the mass tolerance (Da) and peak-validation threshold, any deleted items excluded from export, and a table of all session-specific integration overrides. This serves as an audit trail for reproducibility.
 
 **Workbook Structure**   
 The Excel file contains five worksheets by default. A sixth sheet is optional.
@@ -292,7 +292,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
 ### Export Session
 **File → Export Session...**
 * **Function:** Creates a `.json` file containing your analytical method and a human-readable changelog.
-* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, and the labelled internal-standard reference peak (M+N).
+* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, the labelled internal-standard reference peak (M+N), the mass tolerance (Da), and the peak-validation threshold.
 * **What is NOT saved:** The raw mass spectrometry data (CDF content).
 * **Use Case:** Archiving your analysis method or sharing it with a colleague who has the same raw files.
 
@@ -302,8 +302,8 @@ MANIC can save the state of your analysis, including compound definitions, integ
 * **Workflow:**
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
-    3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, and internal standard.
-* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged.
+    3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, internal standard, mass tolerance, and peak-validation threshold. If the saved mass tolerance differs from the current one, MANIC regenerates every EIC, as it does when you change it in **Settings**.
+* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged. A file with no mass tolerance or peak-validation threshold keeps the current Settings values.
 
 ---
 

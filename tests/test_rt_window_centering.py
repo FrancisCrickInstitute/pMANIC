@@ -268,6 +268,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _selected_samples=["s1", "s2"],
             _all_samples=["s1", "s2"],
             _get_validated_inputs=lambda: (7.1, 2.0, 2.0),
@@ -302,6 +303,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _all_samples=["s1", "s2"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -328,6 +330,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _all_samples=["s1"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -354,6 +357,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _all_samples=["s1"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -380,6 +384,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _all_samples=["s1", "s2"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -403,6 +408,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _selected_samples=["s2"],
             _all_samples=["s1", "s2"],
             _get_validated_inputs=lambda: (5.0, 0.2, 0.2),

@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS samples (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     sample_name  TEXT NOT NULL UNIQUE,
     file_name    TEXT,
-    deleted      INTEGER DEFAULT 0
+    deleted      INTEGER DEFAULT 0,
+    eics_stale   INTEGER DEFAULT 0  -- 1 when the last tolerance change could not rebuild its EICs
 );
 
 CREATE INDEX IF NOT EXISTS idx_samples_name

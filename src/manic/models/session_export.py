@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 from manic.models.database import (
+    StaleEicsError,
     get_connection,
     restore_compounds,
     restore_samples,
@@ -393,19 +394,8 @@ def import_session_overrides(
         )
 
         if has_deletion_data:
-            # Sync compound deleted state with import
-            compounds_to_restore = [c["compound_name"] for c in compounds if not c.get("deleted", 0)]
-            compounds_to_delete = [c["compound_name"] for c in compounds if c.get("deleted", 0)]
-
-            if compounds_to_restore:
-                restored = restore_compounds(compounds_to_restore)
-                if restored:
-                    logger.info(f"Restored {restored} previously deleted compound(s)")
-
-            for name in compounds_to_delete:
-                soft_delete_compound(name)
-
-            # Sync sample deleted state with import
+            # Sync sample deleted state first: restore_samples may refuse, and
+            # nothing has been changed yet
             deleted_samples_in_import = set(method_data.get("deleted_samples", []))
             active_samples_in_import = {o["sample_name"] for o in session_overrides}
 
@@ -417,6 +407,18 @@ def import_session_overrides(
 
             for name in deleted_samples_in_import:
                 soft_delete_sample(name)
+
+            # Sync compound deleted state with import
+            compounds_to_restore = [c["compound_name"] for c in compounds if not c.get("deleted", 0)]
+            compounds_to_delete = [c["compound_name"] for c in compounds if c.get("deleted", 0)]
+
+            if compounds_to_restore:
+                restored = restore_compounds(compounds_to_restore)
+                if restored:
+                    logger.info(f"Restored {restored} previously deleted compound(s)")
+
+            for name in compounds_to_delete:
+                soft_delete_compound(name)
 
         # Apply per-compound analytical method settings (deconvolution + baseline)
         # when the file provides them. Older method files omit these keys, so we
@@ -476,6 +478,8 @@ def import_session_overrides(
         )
         return True, has_deletion_data
 
+    except StaleEicsError:
+        raise
     except Exception as e:
         logger.error(f"Failed to import session overrides: {e}")
         return False, False

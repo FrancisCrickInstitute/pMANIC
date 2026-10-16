@@ -113,6 +113,15 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         logger.error(f"Migration error for TIC/MS tables: {e}")
         pass
 
+    try:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(samples)")]
+        if columns and "eics_stale" not in columns:
+            logger.info("Adding eics_stale column to samples table")
+            conn.execute("ALTER TABLE samples ADD COLUMN eics_stale INTEGER DEFAULT 0")
+            conn.commit()
+    except sqlite3.OperationalError as e:
+        logger.error(f"Migration error for samples table: {e}")
+
     # Migration for formula and derivatization columns in compounds table
     try:
         cursor = conn.execute("PRAGMA table_info(compounds)")
@@ -343,6 +352,19 @@ def soft_delete_samples(sample_names: List[str]) -> int:
         return count
 
 
+class StaleEicsError(Exception):
+    """Raised when a restore would reactivate EICs built with an older tolerance."""
+
+    def __init__(self, sample_names: List[str]):
+        self.sample_names = sample_names
+        super().__init__(
+            f"Cannot restore {', '.join(sample_names)}: the CDF file was missing "
+            "at the last mass tolerance change, so its EICs use an older "
+            "tolerance. Put the CDF file back and change the mass tolerance to "
+            "rebuild them."
+        )
+
+
 def restore_samples(sample_names: List[str]) -> int:
     """
     Restore multiple soft-deleted samples by setting deleted = 0.
@@ -352,11 +374,22 @@ def restore_samples(sample_names: List[str]) -> int:
 
     Returns:
         Count of samples actually restored.
+
+    Raises:
+        StaleEicsError: If any requested deleted sample has stale EICs. Nothing
+            is restored.
     """
     if not sample_names:
         return 0
     with get_connection() as conn:
         placeholders = ",".join("?" * len(sample_names))
+        stale = conn.execute(
+            f"SELECT sample_name FROM samples WHERE sample_name IN ({placeholders}) "
+            "AND deleted = 1 AND eics_stale = 1 ORDER BY sample_name",
+            sample_names,
+        ).fetchall()
+        if stale:
+            raise StaleEicsError([row["sample_name"] for row in stale])
         cursor = conn.execute(
             f"UPDATE samples SET deleted = 0 WHERE sample_name IN ({placeholders}) AND deleted = 1",
             sample_names

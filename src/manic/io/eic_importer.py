@@ -858,6 +858,7 @@ def regenerate_all_eics_with_mass_tolerance(
     total_work = len(sample_rows) * len(compounds) + corrections_needed
     done = 0
     regenerated = 0
+    failed_samples = []
 
     # Process each sample file
     for sample_row in sample_rows:
@@ -867,6 +868,7 @@ def regenerate_all_eics_with_mass_tolerance(
         # Check if CDF file exists
         if not cdf_path.exists():
             logger.warning(f"CDF file not found for sample '{sample_name}': {cdf_path}")
+            failed_samples.append(sample_name)
             done += len(compounds)
             if progress_cb:
                 progress_cb(done, total_work)
@@ -970,6 +972,7 @@ def regenerate_all_eics_with_mass_tolerance(
 
         except Exception as e:
             logger.error(f"Failed to process sample '{sample_name}': {e}")
+            failed_samples.append(sample_name)
             done += len(compounds)
             if progress_cb:
                 progress_cb(done, total_work)
@@ -978,6 +981,14 @@ def regenerate_all_eics_with_mass_tolerance(
             if "cdf_data" in locals():
                 del cdf_data
             gc.collect()
+
+    # restore_samples refuses deleted samples flagged here
+    with get_connection() as conn:
+        conn.execute("UPDATE samples SET eics_stale = 0")
+        conn.executemany(
+            "UPDATE samples SET eics_stale = 1 WHERE sample_name = ?",
+            [(name,) for name in failed_samples],
+        )
 
     # Recalculate natural abundance corrections for all compounds
     if corrections_needed > 0:

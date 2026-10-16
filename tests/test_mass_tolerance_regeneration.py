@@ -15,6 +15,7 @@ from manic.models.database import (
     soft_delete_compound,
     soft_delete_samples,
 )
+from manic.ui.compound_recovery_dialog import CompoundRecoveryDialog
 from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
 
 FORMULA = "C6 O3 N1 H12 Si1 S0 P0"
@@ -91,6 +92,20 @@ STALE_MESSAGE = (
     "change, so its EICs use an older tolerance. Put the CDF file back and "
     "change the mass tolerance to rebuild them."
 )
+
+
+STALE_COMPOUND_MESSAGE = (
+    "Cannot restore Pyruvate: the CDF file of active sample s2 was missing at "
+    "the last mass tolerance change, so its EICs use an older tolerance. Put "
+    "the CDF file back and change the mass tolerance, or delete the sample, "
+    "then restore again."
+)
+
+
+def _delete_pyruvate_and_lose_active_s2_cdf_across_a_tolerance_change(tmp_path):
+    soft_delete_compound("Pyruvate")
+    (tmp_path / "s2.cdf").unlink()
+    regenerate_all_eics_with_mass_tolerance(0.3)
 
 
 def _pyruvate_deleted():
@@ -182,3 +197,53 @@ def test_session_import_refuses_a_sample_with_stale_eics(tmp_path, monkeypatch):
 
     assert _deleted_samples() == {"s2"}
     assert _pyruvate_deleted() == 1
+
+
+def test_recovery_dialog_refuses_a_compound_while_an_active_sample_is_stale(
+    qapp, tmp_path, monkeypatch
+):
+    _load_session(tmp_path, monkeypatch)
+    _delete_pyruvate_and_lose_active_s2_cdf_across_a_tolerance_change(tmp_path)
+    warnings = []
+    monkeypatch.setattr(
+        "manic.ui.compound_recovery_dialog.QMessageBox.warning",
+        lambda parent, title, text: warnings.append((title, text)),
+    )
+
+    dialog = CompoundRecoveryDialog()
+    dialog.compound_list.item(0).setSelected(True)
+    dialog.restore_btn.click()
+
+    assert warnings == [("Restore Refused", STALE_COMPOUND_MESSAGE)]
+    assert _pyruvate_deleted() == 1
+
+
+def test_session_import_refuses_a_compound_while_an_active_sample_is_stale(
+    tmp_path, monkeypatch
+):
+    _load_session(tmp_path, monkeypatch)
+    _delete_pyruvate_and_lose_active_s2_cdf_across_a_tolerance_change(tmp_path)
+    session = _write_session(tmp_path, pyruvate_deleted=0, deleted_samples=[])
+
+    with pytest.raises(Exception, match=re.escape(STALE_COMPOUND_MESSAGE)):
+        import_session_overrides(session)
+
+    assert _pyruvate_deleted() == 1
+    assert _deleted_samples() == set()
+
+
+@pytest.mark.parametrize(
+    ("pyruvate_deleted", "deleted_samples"),
+    [(1, []), (0, ["s2"])],
+    ids=["no-compound-restored", "stale-sample-deleted-by-import"],
+)
+def test_session_import_with_an_active_stale_sample_succeeds_when_it_exposes_nothing(
+    tmp_path, monkeypatch, pyruvate_deleted, deleted_samples
+):
+    _load_session(tmp_path, monkeypatch)
+    _delete_pyruvate_and_lose_active_s2_cdf_across_a_tolerance_change(tmp_path)
+    session = _write_session(tmp_path, pyruvate_deleted, deleted_samples)
+
+    assert import_session_overrides(session) == (True, True)
+    assert _pyruvate_deleted() == pyruvate_deleted
+    assert _deleted_samples() == set(deleted_samples)

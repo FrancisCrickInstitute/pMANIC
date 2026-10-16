@@ -5,11 +5,12 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from netCDF4 import Dataset
 
 from PySide6.QtWidgets import QLineEdit
 
 from manic.constants import DEFAULT_RT_WINDOW
-from manic.io.cdf_reader import CdfFileData
+from manic.io.cdf_reader import CdfFileData, read_cdf_file, read_cdf_window
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.io.eic_reader import read_eics_batch
 from manic.io.eic_importer import (
@@ -20,7 +21,7 @@ from manic.io.eic_importer import (
 from manic.models import database
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.chromatographic_peak_deconvolution import deconvolve_eic
-from manic.processors.eic_calculator import EmptyRtWindowError
+from manic.processors.eic_calculator import EmptyRtWindowError, extract_eic
 from manic.ui.main_window import MainWindow
 from manic.ui.integration_window_widget import (
     calculate_integration_boundaries,
@@ -575,8 +576,8 @@ def _stub_window_extract(monkeypatch) -> list[float]:
         )
 
     monkeypatch.setattr(
-        "manic.io.eic_importer.read_cdf_file",
-        lambda _path: SimpleNamespace(sample_name="s1"),
+        "manic.io.eic_importer.read_cdf_window",
+        lambda _path, *_args: SimpleNamespace(sample_name="s1"),
     )
     monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
     monkeypatch.setattr(
@@ -658,8 +659,8 @@ class TestRecoveryAfterEmptyExtract:
         _seed_eic_db(db_path, {"s1": cdf_path})
 
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: object(),
+            "manic.io.eic_importer.read_cdf_window",
+            lambda _path, *_args: object(),
         )
 
         def _no_scans(*_args, **_kwargs):
@@ -746,11 +747,11 @@ class TestRecoveryAfterEmptyExtract:
         monkeypatch.setattr(database, "DB_FILE", db_path)
         _seed_eic_db(db_path, {"s1": cdf_path})
 
-        def _unreadable(_path):
+        def _unreadable(_path, *_args):
             raise OSError("invalid CDF")
 
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
+            "manic.io.eic_importer.read_cdf_window",
             _unreadable,
         )
 
@@ -784,8 +785,8 @@ class TestRecoveryAfterEmptyExtract:
         _seed_eic_db(db_path, sample_files)
 
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda path: SimpleNamespace(sample_name=Path(path).stem),
+            "manic.io.eic_importer.read_cdf_window",
+            lambda path, *_args: SimpleNamespace(sample_name=Path(path).stem),
         )
         replacement_time = np.array([717.0, 717.1], dtype=np.float64)
 
@@ -830,8 +831,8 @@ class TestRecoveryAfterEmptyExtract:
         new_time = np.array([7.00, 7.10, 7.20], dtype=np.float64)
         new_intensity = np.array([2.0, 20.0, 2.0], dtype=np.float64)
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: object(),
+            "manic.io.eic_importer.read_cdf_window",
+            lambda _path, *_args: object(),
         )
         monkeypatch.setattr(
             "manic.io.eic_importer.extract_eic",
@@ -993,8 +994,8 @@ class TestRecoveryAfterEmptyExtract:
             return SimpleNamespace(time=time, intensity=intensity)
 
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
+            "manic.io.eic_importer.read_cdf_window",
+            lambda _path, *_args: SimpleNamespace(sample_name="s1"),
         )
         monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
         monkeypatch.setattr(
@@ -1032,8 +1033,8 @@ class TestRecoveryAfterEmptyExtract:
         monkeypatch.setattr(database, "DB_FILE", db_path)
         _seed_eic_db(db_path, {"s1": cdf_path})
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
+            "manic.io.eic_importer.read_cdf_window",
+            lambda _path, *_args: SimpleNamespace(sample_name="s1"),
         )
         monkeypatch.setattr(
             "manic.io.eic_importer.extract_eic",
@@ -1113,8 +1114,8 @@ class TestRecoveryAfterEmptyExtract:
         monkeypatch.setattr(database, "DB_FILE", db_path)
         _seed_eic_db(db_path, {"s1": cdf_path})
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
+            "manic.io.eic_importer.read_cdf_window",
+            lambda _path, *_args: SimpleNamespace(sample_name="s1"),
         )
         monkeypatch.setattr(
             "manic.io.eic_importer.extract_eic",
@@ -1190,8 +1191,8 @@ class TestRecoveryAfterEmptyExtract:
                 ),
             )
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path: object(),
+            "manic.io.eic_importer.read_cdf_window",
+            lambda _path, *_args: object(),
         )
         monkeypatch.setattr(
             "manic.io.eic_importer.extract_eic",
@@ -1248,8 +1249,8 @@ class TestRecoveryAfterEmptyExtract:
         monkeypatch.setattr(database, "DB_FILE", db_path)
         _seed_eic_db(db_path, sample_files)
         monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda path: SimpleNamespace(sample_name=Path(path).stem),
+            "manic.io.eic_importer.read_cdf_window",
+            lambda path, *_args: SimpleNamespace(sample_name=Path(path).stem),
         )
         seen = []
 
@@ -1311,6 +1312,118 @@ def test_mass_tolerance_change_keeps_stored_tr_window(
     assert rt_window == pytest.approx(stored_window)
     assert time_axis[0] == pytest.approx(7.17 - stored_window, abs=0.011)
     assert time_axis[-1] == pytest.approx(7.17 + stored_window, abs=0.011)
+
+
+def test_regenerate_reads_only_the_scans_inside_the_window(tmp_path, monkeypatch):
+    db_path = tmp_path / "regen.db"
+    cdf_path = tmp_path / "s1.cdf"
+    scan_count = 20
+    with Dataset(cdf_path, "w") as cdf:
+        cdf.createDimension("scan_number", scan_count)
+        cdf.createDimension("point_number", 3 * scan_count)
+        scans = {
+            "scan_acquisition_time": 396.0 + 6.0 * np.arange(scan_count),
+            "scan_index": 3 * np.arange(scan_count, dtype=np.int32),
+            "point_count": np.full(scan_count, 3, dtype=np.int32),
+            "total_intensity": np.zeros(scan_count),
+        }
+        for name, values in scans.items():
+            cdf.createVariable(name, values.dtype, ("scan_number",))[:] = values
+        points = {
+            "mass_values": np.tile([99.8, 100.0, 101.0], scan_count),
+            "intensity_values": np.column_stack(
+                [np.ones(scan_count), np.arange(scan_count), np.full(scan_count, 100)]
+            ).ravel(),
+        }
+        for name, values in points.items():
+            cdf.createVariable(name, "f8", ("point_number",))[:] = values
+    monkeypatch.setattr(database, "DB_FILE", db_path)
+    _seed_eic_db(db_path, {"s1": cdf_path})
+    loaded_points = []
+
+    def _extract(*args):
+        loaded_points.append(args[3].mass.size)
+        return extract_eic(*args)
+
+    monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
+
+    regenerate_compound_eics("Glucose", 0.2, ["s1"], retention_time=7.17)
+
+    with sqlite3.connect(db_path) as conn:
+        x_axis, y_axis = conn.execute(
+            "SELECT x_axis, y_axis FROM eic WHERE sample_name = 's1'"
+        ).fetchone()
+    assert loaded_points == [15]  # 4 in-window scans + 1 trailing, of 20
+    assert np.frombuffer(zlib.decompress(x_axis)) == pytest.approx(
+        [7.0, 7.1, 7.2, 7.3]
+    )
+    assert np.frombuffer(zlib.decompress(y_axis)).tolist() == [5.0, 6.0, 7.0, 8.0]
+
+
+@pytest.mark.parametrize(
+    "times,masses,attrs,expected",
+    [
+        # A masked scan time inside the window drops that scan from the EIC.
+        (
+            [60.0, 9.969209968386869e36, 72.0, 78.0],
+            [100.0, 100.0, 100.0, 100.0],
+            {"scan_acquisition_time": {"_FillValue": 9.969209968386869e36}},
+            [1.0, 3.0],
+        ),
+        # Masked float32 masses (a fill value, one outside valid_range): both
+        # reads must hand extract_eic the same masked arrays.
+        (
+            [60.0, 66.0, 72.0, 78.0],
+            [100.0, -1.0, 99.9, 100.1],
+            {"mass_values": {"_FillValue": -1.0, "valid_range": [99.95, 200.0]}},
+            [1.0, 0.0, 3.0],
+        ),
+        # A masked scan_index keeps its stored offset, which the window read
+        # must shift like every other offset.
+        (
+            [54.0, 60.0, 66.0, 72.0],
+            [100.0, 100.0, 100.0, 100.0],
+            {"scan_index": {"missing_value": 2}},
+            [2.0, 3.0, 4.0],
+        ),
+    ],
+)
+def test_window_read_extracts_the_same_eic_as_the_full_read(
+    tmp_path, times, masses, attrs, expected
+):
+    path = tmp_path / "s1.cdf"
+    scans = {
+        "scan_acquisition_time": np.array(times),
+        "scan_index": np.arange(4, dtype=np.int32),
+        "point_count": np.ones(4, dtype=np.int32),
+        "total_intensity": np.zeros(4),
+    }
+    points = {
+        "mass_values": np.array(masses, dtype=np.float32),
+        "intensity_values": np.array([1.0, 2.0, 3.0, 4.0]),
+    }
+    with Dataset(path, "w") as cdf:
+        cdf.createDimension("scan_number", 4)
+        cdf.createDimension("point_number", 4)
+        for dimension, variables in (("scan_number", scans), ("point_number", points)):
+            for name, values in variables.items():
+                meta = dict(attrs.get(name, {}))
+                variable = cdf.createVariable(
+                    name,
+                    values.dtype,
+                    (dimension,),
+                    fill_value=meta.pop("_FillValue", None),
+                )
+                for key, value in meta.items():
+                    variable.setncattr(key, np.asarray(value, dtype=values.dtype))
+                variable.set_auto_maskandscale(False)
+                variable[:] = values
+
+    def _eic(cdf):
+        return extract_eic("T", 1.1, 100.0, cdf, 0.2, 0.11).intensity.tolist()
+
+    assert _eic(read_cdf_file(path)) == expected
+    assert _eic(read_cdf_window(path, 1.1, 0.11)) == expected
 
 
 class TestRegenerationCompletion:

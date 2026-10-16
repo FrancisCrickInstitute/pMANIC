@@ -10,7 +10,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from manic.constants import DEFAULT_MASS_TOLERANCE, minimum_extract_rt_window
-from manic.io.cdf_reader import read_cdf_file
+from manic.io.cdf_reader import read_cdf_file, read_cdf_window
 from manic.io.compound_reader import Compound, read_compound
 from manic.models.database import get_connection
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
@@ -671,7 +671,7 @@ def regenerate_compound_eics(
             )
 
         try:
-            cdf = read_cdf_file(cdf_path)
+            cdf = read_cdf_window(cdf_path, sample_rt, tr_window)
             extracted_eics[sample_name] = extract_eic(
                 compound_name,
                 sample_rt,

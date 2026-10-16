@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 from manic.models.database import (
+    StaleEicsError,
+    check_compound_restore,
     get_connection,
     restore_compounds,
     restore_samples,
@@ -393,21 +395,15 @@ def import_session_overrides(
         )
 
         if has_deletion_data:
-            # Sync compound deleted state with import
+            deleted_samples_in_import = set(method_data.get("deleted_samples", []))
+            active_samples_in_import = {o["sample_name"] for o in session_overrides}
             compounds_to_restore = [c["compound_name"] for c in compounds if not c.get("deleted", 0)]
             compounds_to_delete = [c["compound_name"] for c in compounds if c.get("deleted", 0)]
 
-            if compounds_to_restore:
-                restored = restore_compounds(compounds_to_restore)
-                if restored:
-                    logger.info(f"Restored {restored} previously deleted compound(s)")
-
-            for name in compounds_to_delete:
-                soft_delete_compound(name)
-
-            # Sync sample deleted state with import
-            deleted_samples_in_import = set(method_data.get("deleted_samples", []))
-            active_samples_in_import = {o["sample_name"] for o in session_overrides}
+            # Refuse before changing anything: check compounds against the
+            # samples this import leaves active, then restore_samples checks
+            # its own
+            check_compound_restore(compounds_to_restore, deleted_samples_in_import)
 
             samples_to_restore = list(active_samples_in_import - deleted_samples_in_import)
             if samples_to_restore:
@@ -417,6 +413,15 @@ def import_session_overrides(
 
             for name in deleted_samples_in_import:
                 soft_delete_sample(name)
+
+            # Sync compound deleted state with import
+            if compounds_to_restore:
+                restored = restore_compounds(compounds_to_restore)
+                if restored:
+                    logger.info(f"Restored {restored} previously deleted compound(s)")
+
+            for name in compounds_to_delete:
+                soft_delete_compound(name)
 
         # Apply per-compound analytical method settings (deconvolution + baseline)
         # when the file provides them. Older method files omit these keys, so we
@@ -476,6 +481,8 @@ def import_session_overrides(
         )
         return True, has_deletion_data
 
+    except StaleEicsError:
+        raise
     except Exception as e:
         logger.error(f"Failed to import session overrides: {e}")
         return False, False

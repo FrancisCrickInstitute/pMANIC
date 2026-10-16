@@ -68,11 +68,12 @@ def _compress(arr: np.ndarray) -> bytes:
     return zlib.compress(arr.astype(np.float64).tobytes())
 
 
-def _iter_compounds(conn):
-    """Iterate over active compounds in the database.
+def _iter_compounds(conn, include_deleted: bool = False):
+    """Iterate over compounds in the database.
 
     Args:
         conn: Database connection object
+        include_deleted: Also yield soft-deleted compounds
 
     Yields:
         Tuple of (compound_name, retention_time, mass0, label_atoms)
@@ -84,11 +85,12 @@ def _iter_compounds(conn):
                ci.mz AS channel_mz
         FROM compounds c
         LEFT JOIN compound_ions ci ON ci.compound_name = c.compound_name
-        WHERE c.deleted = 0
+        WHERE c.deleted = 0 OR ?
         ORDER BY c.id,
                  CASE ci.role WHEN 'quantifier' THEN 0 ELSE 1 END,
                  ci.ordinal
-        """
+        """,
+        (include_deleted,),
     ).fetchall()
     grouped: dict[str, dict] = {}
     for row in rows:
@@ -804,8 +806,9 @@ def regenerate_all_eics_with_mass_tolerance(
     Regenerate all EIC data with a new mass tolerance value.
 
     This function deletes ALL existing EIC records and recalculates them using
-    the new mass tolerance parameter. Session overrides (retention times, offsets)
-    are preserved via LEFT JOIN + COALESCE queries.
+    the new mass tolerance parameter. Soft-deleted compounds and samples are
+    included so that restoring them needs no regeneration. Session overrides
+    (retention times, offsets) are preserved via LEFT JOIN + COALESCE queries.
 
     Parameters
     ----------
@@ -824,18 +827,16 @@ def regenerate_all_eics_with_mass_tolerance(
     start = time.time()
     logger.info(f"Starting full EIC regeneration with mass tolerance {mass_tol}")
 
-    # Get all active samples
     with get_connection() as conn:
         sample_rows = conn.execute(
-            "SELECT sample_name, file_name FROM samples WHERE deleted = 0"
+            "SELECT sample_name, file_name FROM samples"
         ).fetchall()
 
     if not sample_rows:
-        raise RuntimeError("No active samples found in database")
+        raise RuntimeError("No samples found in database")
 
-    # Get all active compounds (base data)
     with get_connection() as conn:
-        compounds = list(_iter_compounds(conn))
+        compounds = list(_iter_compounds(conn, include_deleted=True))
     targets_by_name = {target.compound_name: target for target in compounds}
 
     if not compounds:
@@ -847,8 +848,7 @@ def regenerate_all_eics_with_mass_tolerance(
         correction_sql = """
             SELECT COUNT(DISTINCT compound_name) as count
             FROM compounds
-            WHERE deleted = 0
-            AND formula IS NOT NULL
+            WHERE formula IS NOT NULL
             AND label_atoms > 0
         """
         result = conn.execute(correction_sql).fetchone()
@@ -858,6 +858,7 @@ def regenerate_all_eics_with_mass_tolerance(
     total_work = len(sample_rows) * len(compounds) + corrections_needed
     done = 0
     regenerated = 0
+    failed_samples = []
 
     # Process each sample file
     for sample_row in sample_rows:
@@ -867,6 +868,7 @@ def regenerate_all_eics_with_mass_tolerance(
         # Check if CDF file exists
         if not cdf_path.exists():
             logger.warning(f"CDF file not found for sample '{sample_name}': {cdf_path}")
+            failed_samples.append(sample_name)
             done += len(compounds)
             if progress_cb:
                 progress_cb(done, total_work)
@@ -891,7 +893,6 @@ def regenerate_all_eics_with_mass_tolerance(
                     ON sa.compound_name = c.compound_name
                     AND sa.sample_name = ?
                     AND sa.sample_deleted = 0
-                WHERE c.deleted = 0
                 """,
                 (sample_name,),
             ).fetchall()
@@ -971,6 +972,7 @@ def regenerate_all_eics_with_mass_tolerance(
 
         except Exception as e:
             logger.error(f"Failed to process sample '{sample_name}': {e}")
+            failed_samples.append(sample_name)
             done += len(compounds)
             if progress_cb:
                 progress_cb(done, total_work)
@@ -979,6 +981,14 @@ def regenerate_all_eics_with_mass_tolerance(
             if "cdf_data" in locals():
                 del cdf_data
             gc.collect()
+
+    # restore_samples refuses deleted samples flagged here
+    with get_connection() as conn:
+        conn.execute("UPDATE samples SET eics_stale = 0")
+        conn.executemany(
+            "UPDATE samples SET eics_stale = 1 WHERE sample_name = ?",
+            [(name,) for name in failed_samples],
+        )
 
     # Recalculate natural abundance corrections for all compounds
     if corrections_needed > 0:

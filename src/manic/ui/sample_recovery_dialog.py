@@ -14,7 +14,11 @@ from PySide6.QtWidgets import (
 )
 
 from manic.constants import FONT
-from manic.models.database import get_deleted_samples, restore_samples
+from manic.models.database import (
+    StaleEicsError,
+    get_deleted_samples,
+    restore_samples,
+)
 
 
 class SampleRecoveryDialog(QDialog):
@@ -106,8 +110,11 @@ class SampleRecoveryDialog(QDialog):
         # Get sample names from selection
         sample_names = [item.text() for item in selected_items]
 
-        # Restore samples
-        restored_count = restore_samples(sample_names)
+        try:
+            restored_count = restore_samples(sample_names)
+        except StaleEicsError as e:
+            QMessageBox.warning(self, "Restore Refused", str(e))
+            return
 
         if restored_count > 0:
             # Emit the originally selected names. The UI will refresh from the

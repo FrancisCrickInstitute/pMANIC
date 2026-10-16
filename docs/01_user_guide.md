@@ -225,7 +225,7 @@ Deleted items are not permanently removed. They are "soft deleted" and can be re
 3.  In the recovery dialog, select the items you wish to restore (multi-select is supported).
 4.  Click **"Restore Selected"**.
 
-Restored items will immediately reappear in their respective lists and be included in subsequent analyses and exports.
+Restored items will immediately reappear in their respective lists and be included in subsequent analyses and exports. Their EICs use the current mass tolerance, even if you changed it while they were deleted. If a deleted sample's CDF file was missing when you changed the tolerance, MANIC refuses to restore it, from the recovery dialog or a session import, until you put the file back and change the tolerance again. While an active sample's CDF file is in that state, MANIC also refuses to restore deleted compounds, since they would show that sample's old-tolerance EICs; put the file back and change the tolerance, or delete the sample, first.
 
 ### Deleted Items in Exports
 

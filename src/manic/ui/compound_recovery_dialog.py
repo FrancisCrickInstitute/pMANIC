@@ -12,7 +12,11 @@ from PySide6.QtWidgets import (
 )
 
 from manic.constants import FONT
-from manic.models.database import get_deleted_compounds, restore_compounds
+from manic.models.database import (
+    StaleEicsError,
+    get_deleted_compounds,
+    restore_compounds,
+)
 
 
 class CompoundRecoveryDialog(QDialog):
@@ -105,7 +109,11 @@ class CompoundRecoveryDialog(QDialog):
         compound_names = [item.text() for item in selected_items]
 
         # Restore compounds
-        restored_count = restore_compounds(compound_names)
+        try:
+            restored_count = restore_compounds(compound_names)
+        except StaleEicsError as e:
+            QMessageBox.warning(self, "Restore Refused", str(e))
+            return
 
         if restored_count > 0:
             # Emit the originally selected names. The UI will refresh from the

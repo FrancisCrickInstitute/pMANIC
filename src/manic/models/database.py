@@ -3,7 +3,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List
+from typing import Iterable, List, Optional
 
 from manic.utils.paths import resource_path
 
@@ -112,6 +112,15 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError as e:
         logger.error(f"Migration error for TIC/MS tables: {e}")
         pass
+
+    try:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(samples)")]
+        if columns and "eics_stale" not in columns:
+            logger.info("Adding eics_stale column to samples table")
+            conn.execute("ALTER TABLE samples ADD COLUMN eics_stale INTEGER DEFAULT 0")
+            conn.commit()
+    except sqlite3.OperationalError as e:
+        logger.error(f"Migration error for samples table: {e}")
 
     # Migration for formula and derivatization columns in compounds table
     try:
@@ -291,9 +300,14 @@ def restore_compounds(compound_names: List[str]) -> int:
 
     Returns:
         Count of compounds actually restored.
+
+    Raises:
+        StaleEicsError: If any active sample has stale EICs. Nothing is
+            restored.
     """
     if not compound_names:
         return 0
+    check_compound_restore(compound_names)
     with get_connection() as conn:
         placeholders = ",".join("?" * len(compound_names))
         cursor = conn.execute(
@@ -343,6 +357,67 @@ def soft_delete_samples(sample_names: List[str]) -> int:
         return count
 
 
+class StaleEicsError(Exception):
+    """Raised when a restore would reactivate EICs built with an older tolerance."""
+
+    def __init__(
+        self, sample_names: List[str], compound_names: Optional[List[str]] = None
+    ):
+        self.sample_names = sample_names
+        samples = ", ".join(sample_names)
+        if compound_names is None:
+            message = (
+                f"Cannot restore {samples}: the CDF file was missing at the last "
+                "mass tolerance change, so its EICs use an older tolerance. Put "
+                "the CDF file back and change the mass tolerance to rebuild them."
+            )
+        else:
+            message = (
+                f"Cannot restore {', '.join(compound_names)}: the CDF file of "
+                f"active sample {samples} was missing at the last mass tolerance "
+                "change, so its EICs use an older tolerance. Put the CDF file back "
+                "and change the mass tolerance, or delete the sample, then "
+                "restore again."
+            )
+        super().__init__(message)
+
+
+def check_compound_restore(
+    compound_names: List[str], deleting_samples: Iterable[str] = ()
+) -> None:
+    """
+    Raise StaleEicsError if restoring these compounds would expose their
+    old-tolerance EICs in an active sample flagged eics_stale.
+
+    Args:
+        compound_names: Compounds about to be restored.
+        deleting_samples: Samples the caller deletes before restoring.
+    """
+    if not compound_names:
+        return
+    deleting = set(deleting_samples)
+    with get_connection() as conn:
+        placeholders = ",".join("?" * len(compound_names))
+        restoring = [
+            row["compound_name"]
+            for row in conn.execute(
+                f"SELECT compound_name FROM compounds WHERE compound_name IN ({placeholders}) "
+                "AND deleted = 1 ORDER BY compound_name",
+                compound_names,
+            )
+        ]
+        stale = [
+            row["sample_name"]
+            for row in conn.execute(
+                "SELECT sample_name FROM samples WHERE deleted = 0 "
+                "AND eics_stale = 1 ORDER BY sample_name"
+            )
+            if row["sample_name"] not in deleting
+        ]
+    if restoring and stale:
+        raise StaleEicsError(stale, restoring)
+
+
 def restore_samples(sample_names: List[str]) -> int:
     """
     Restore multiple soft-deleted samples by setting deleted = 0.
@@ -352,11 +427,22 @@ def restore_samples(sample_names: List[str]) -> int:
 
     Returns:
         Count of samples actually restored.
+
+    Raises:
+        StaleEicsError: If any requested deleted sample has stale EICs. Nothing
+            is restored.
     """
     if not sample_names:
         return 0
     with get_connection() as conn:
         placeholders = ",".join("?" * len(sample_names))
+        stale = conn.execute(
+            f"SELECT sample_name FROM samples WHERE sample_name IN ({placeholders}) "
+            "AND deleted = 1 AND eics_stale = 1 ORDER BY sample_name",
+            sample_names,
+        ).fetchall()
+        if stale:
+            raise StaleEicsError([row["sample_name"] for row in stale])
         cursor = conn.execute(
             f"UPDATE samples SET deleted = 0 WHERE sample_name IN ({placeholders}) AND deleted = 1",
             sample_names

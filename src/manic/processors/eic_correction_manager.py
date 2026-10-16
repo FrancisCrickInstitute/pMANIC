@@ -186,13 +186,13 @@ def process_all_corrections(progress_cb=None) -> int:
     start_time = time.time()
 
     # Get all compounds that need correction with full metadata
-    # Include both labeled compounds (label_atoms > 0) AND internal standards (label_atoms = 0)
+    # Include both labeled compounds (label_atoms > 0) AND internal standards (label_atoms = 0).
+    # Soft-deleted compounds keep EICs, so correct them too; restoring one is then consistent.
     compound_sql = """
         SELECT DISTINCT c.compound_name, c.formula, c.label_type, c.label_atoms,
                         c.tbdms, c.meox, c.me
         FROM compounds c
-        WHERE c.deleted = 0
-        AND c.formula IS NOT NULL
+        WHERE c.formula IS NOT NULL
         AND EXISTS (
             SELECT 1 FROM eic e
             WHERE e.compound_name = c.compound_name

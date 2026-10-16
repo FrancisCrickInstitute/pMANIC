@@ -1,11 +1,14 @@
 import sqlite3
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from netCDF4 import Dataset
 
 from manic.io.compound_reader import Compound
+from manic.io.eic_importer import regenerate_all_eics_with_mass_tolerance
 from manic.models import database
 from manic.processors.eic_calculator import EIC
 from manic.io.data_provider import DataProvider
@@ -18,6 +21,7 @@ from manic.processors.natural_abundance_correction import (
     NaturalAbundanceCorrectionError,
     NaturalAbundanceCorrector,
 )
+from manic.ui.main_window import MainWindow
 from manic.utils import workers
 
 SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
@@ -294,6 +298,87 @@ def test_regeneration_worker_uses_the_session_mass_tolerance(monkeypatch):
     worker = workers.EicRegenerationWorker("Glucose", 0.2, ["s1"], 7.1, mass_tol=0.15)
     worker.run()
     assert seen["mass_tol"] == 0.15
+
+
+def _write_cdf_with_corrupt_scan_index(path):
+    with Dataset(path, "w") as cdf:
+        cdf.createDimension("scan_number", 3)
+        cdf.createDimension("point_number", 6)
+        variables = {
+            "scan_acquisition_time": ("scan_number", [294.0, 300.0, 306.0]),
+            "scan_index": ("scan_number", [0, 4, 2]),
+            "point_count": ("scan_number", [2, 2, 2]),
+            "total_intensity": ("scan_number", [20.0, 20.0, 20.0]),
+            "mass_values": ("point_number", [100.0] * 6),
+            "intensity_values": ("point_number", [10.0] * 6),
+        }
+        for name, (dimension, values) in variables.items():
+            cdf.createVariable(name, np.asarray(values).dtype, (dimension,))[:] = values
+
+
+@pytest.mark.parametrize(
+    "write_cdf",
+    [
+        lambda path: path.write_bytes(b"corrupted CDF"),
+        _write_cdf_with_corrupt_scan_index,
+    ],
+    ids=["unreadable-file", "corrupt-scan-index"],
+)
+def test_mass_tolerance_reload_keeps_eics_of_an_unreadable_cdf(
+    review_db, tmp_path, write_cdf
+):
+    cdf_path = tmp_path / "s1.cdf"
+    write_cdf(cdf_path)
+    x_axis = _blob(np.array([4.9, 5.0, 5.1]))
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms) "
+            "VALUES ('Glucose', 5.0, 100.0, 0)"
+        )
+        conn.execute(
+            "INSERT INTO samples (sample_name, file_name) VALUES ('s1', ?)",
+            (str(cdf_path),),
+        )
+        conn.execute(
+            "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window) "
+            "VALUES ('s1', 'Glucose', ?, ?, 0.2)",
+            (x_axis, _blob(np.array([1.0, 10.0, 1.0]))),
+        )
+
+    result = regenerate_all_eics_with_mass_tolerance(0.15)
+
+    with database.get_connection() as conn:
+        rows = conn.execute("SELECT x_axis FROM eic WHERE sample_name = 's1'").fetchall()
+    assert [row["x_axis"] for row in rows] == [x_axis]
+    assert result == (0, ["s1"])
+
+
+def test_mass_tolerance_reload_names_failed_samples(monkeypatch):
+    monkeypatch.setattr(DataProvider, "invalidate_cache", lambda self: None)
+    messages = []
+    window = SimpleNamespace(
+        _validation_provider=None,
+        mass_tolerance=0.15,
+        toolbar=SimpleNamespace(
+            get_selected_compound=lambda: None,
+            get_selected_samples=lambda: [],
+            sample_list=SimpleNamespace(mark_stale_samples=lambda: None),
+        ),
+        _re_enable_ui_actions=lambda: None,
+        _create_message_box=lambda *args: messages.append(args)
+        or SimpleNamespace(exec=lambda: None),
+    )
+
+    MainWindow._mass_tolerance_reload_completed(window, 4, ["s1", "s3"])
+
+    assert messages == [
+        (
+            "warning",
+            "Regeneration Incomplete",
+            "Regenerated 4 EICs with new mass tolerance 0.15 Da. "
+            "These samples could not be read and keep their previous EICs: s1, s3",
+        )
+    ]
 
 
 def test_bulk_load_cancel_stops_pulling_and_closes_the_task_stream(

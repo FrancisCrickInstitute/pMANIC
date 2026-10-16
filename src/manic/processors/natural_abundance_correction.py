@@ -106,6 +106,12 @@ class NaturalAbundanceCorrector:
 
         # Remove spaces if present (for space-separated format)
         formula_clean = formula.replace(" ", "")
+        # findall skips what it cannot match, so brackets would silently drop atoms
+        if not re.fullmatch(r"(?:[A-Z][a-z]?\d*)+", formula_clean):
+            raise NaturalAbundanceCorrectionError(
+                f"formula '{formula}' cannot be read; "
+                "use element symbols and counts only, such as C6H12O6"
+            )
 
         # Parse elements and counts using regex
         # Matches element symbols (with optional lowercase) followed by optional numbers

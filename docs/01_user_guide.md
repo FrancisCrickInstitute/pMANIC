@@ -25,7 +25,7 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns l
 | `loffset` | Left integration offset (minutes) from tR |
 | `roffset` | Right integration offset (minutes) from tR |
 | `labelatoms` | Number of positions capable of retaining label. Cannot exceed the formula's count of the label element |
-| `formula` | Molecular formula (e.g., C6H12O6) |
+| `formula` | Molecular formula as element symbols and counts, such as `C6H12O6` or `C6 H12 O6`. A formula MANIC cannot read in full, such as `C(CH3)4`, is rejected |
 | `labeltype` | Element being labeled: `C`, `N` or `H` (upper case). Tracers whose heavy isotope is 2 Da heavier, such as 18O, are rejected |
 | `tbdms` | Number of TBDMS derivatization groups |
 | `meox` | Number of Methoxyamine derivatization groups |

@@ -9,7 +9,6 @@ and "Amount in StdMix".
 """
 
 import logging
-import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,22 +96,14 @@ class CompoundRow(BaseModel):
         # Remove extra spaces and standardize
         # Convert "C6 O3 N1 H12 Si1 S0 P0" to "C6H12N1O3Si1"
         formula = str(v).strip()
-        
+        elements = NaturalAbundanceCorrector().parse_formula(formula)
+
         # Skip if already in standard format (no spaces between element and count)
         if ' ' not in formula:
             return formula
         
-        # Parse space-separated format
-        elements = {}
-        parts = formula.split()
-        
-        for part in parts:
-            match = re.match(r'([A-Z][a-z]?)(\d*)', part)
-            if match:
-                elem, count = match.groups()
-                count = int(count) if count else 1
-                if count > 0:  # Skip elements with 0 count
-                    elements[elem] = count
+        # Skip elements with 0 count
+        elements = {elem: count for elem, count in elements.items() if count > 0}
         
         # Rebuild in standard order
         standard_order = ['C', 'H', 'N', 'O', 'S', 'Si', 'P']

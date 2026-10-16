@@ -176,6 +176,38 @@ def test_soft_deleted_name_raises_value_error(empty_db):
     assert "recover deleted compounds" in str(excinfo.value)
 
 
+def test_import_rejects_unreadable_formula(empty_db, tmp_path):
+    path = tmp_path / "labelled.csv"
+    base = {
+        "tR": 6.37,
+        "Mass0": 174,
+        "lOffset": 0.1,
+        "rOffset": 0.15,
+        "LabelAtoms": 3,
+        "LabelType": "C",
+        "TBDMS": 0,
+        "MeOX": 0,
+        "Me": 0,
+        "Amount in StdMix": None,
+        "Int Std amount": None,
+        "MM Files": None,
+    }
+    spaced = {**base, "name": "Spaced", "Formula": "C6 O3 N1 H12 Si1 S0 P0"}
+    pd.DataFrame(
+        [{**base, "name": "Neopentane", "Formula": "C(CH3)4"}, spaced]
+    ).to_csv(path, index=False)
+
+    with pytest.raises(
+        ValueError, match=re.escape("row 2 (Neopentane): formula 'C(CH3)4' cannot be read")
+    ):
+        import_compound_excel(path, AnalysisMode.LABELLED)
+    assert taken_compound_names() == set()
+
+    pd.DataFrame([spaced]).to_csv(path, index=False)
+    assert import_compound_excel(path, AnalysisMode.LABELLED) == 1
+    assert _fetch_compound("Spaced")["formula"] == "C6H12NO3Si"
+
+
 def test_blank_name_rejected():
     with pytest.raises(ValueError, match="blank"):
         CompoundRow(
@@ -652,3 +684,16 @@ def test_failed_extraction_lists_added_compound_unselected(held_workers):
     assert window.boxes == ["Regeneration Blocked"]
     assert window.toolbar.get_selected_compound() == "A"
     assert "NewOne" in _listed_names(window)
+
+
+def test_unreadable_formula_keeps_dialog_open(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
+    _fill_labelled(dialog)
+    dialog.formula.setText("C(CH3)4")
+    shown = _warning_capture(dialog)
+    dialog._on_ok()
+    assert dialog.record is None
+    assert shown == [
+        "formula: Value error, formula 'C(CH3)4' cannot be read; "
+        "use element symbols and counts only, such as C6H12O6"
+    ]

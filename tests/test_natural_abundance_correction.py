@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 
 from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
     NaturalAbundanceCorrector,
 )
 
@@ -19,3 +21,9 @@ def test_direct_correct_recovers_known_c1_true_vector():
     )
     recovered = corrector._correct_vectorized_direct(measured, matrix)
     np.testing.assert_allclose(recovered[:, 0], [2.0, 1.0], atol=1e-3)
+
+
+@pytest.mark.parametrize("formula", ["C(CH3)4", "c6h12o6", "C6H12O6·H2O"])
+def test_parse_formula_rejects_unreadable_formula(formula):
+    with pytest.raises(NaturalAbundanceCorrectionError, match="cannot be read"):
+        NaturalAbundanceCorrector().parse_formula(formula)

@@ -919,31 +919,17 @@ class DataProvider:
                 return []
 
             label_atoms = meta["label_atoms"] or 0
-            row = None
             use_deconvolved_correction = (
                 label_atoms > 0
                 and chromatographic_peak_deconvolution_enabled(
                     meta["deconvolution_level"]
                 )
             )
-            if use_deconvolved_correction:
-                row = conn.execute(
-                    "SELECT x_axis, y_axis as y FROM eic "
-                    "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
-                    (sample_name, compound_name),
-                ).fetchone()
-            elif label_atoms > 0:
-                row = conn.execute(
-                    "SELECT x_axis, y_axis_corrected as y FROM eic_corrected "
-                    "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
-                    (sample_name, compound_name),
-                ).fetchone()
-            if row is None:
-                row = conn.execute(
-                    "SELECT x_axis, y_axis as y FROM eic "
-                    "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
-                    (sample_name, compound_name),
-                ).fetchone()
+            row = conn.execute(
+                "SELECT x_axis, y_axis as y FROM eic "
+                "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
+                (sample_name, compound_name),
+            ).fetchone()
             if row is None:
                 return []
 
@@ -964,6 +950,24 @@ class DataProvider:
                     use_legacy=self.use_legacy_integration,
                     baseline_correction=baseline_flag,
                 )
+            # Correct the raw trace here, as export does, so the verdict does
+            # not depend on whether eic_corrected rows exist yet.
+            if (
+                label_atoms > 0
+                and meta["formula"]
+                and intensity_data.size == (label_atoms + 1) * time_data.size
+            ):
+                try:
+                    intensity_data = self._correct_time_series(
+                        intensity_data.reshape(label_atoms + 1, -1), meta
+                    ).ravel()
+                except NaturalAbundanceCorrectionError as exc:
+                    logger.warning(
+                        "No corrected areas for %s in %s: %s",
+                        compound_name,
+                        sample_name,
+                        exc,
+                    )
             return calculate_peak_areas(
                 time_data,
                 intensity_data,

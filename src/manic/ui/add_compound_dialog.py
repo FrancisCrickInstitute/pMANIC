@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic import ValidationError
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLocale, Qt
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QDialog,
@@ -218,8 +218,10 @@ class AddCompoundDialog(QDialog):
             tbdms=self.tbdms.value(),
             meox=self.meox.value(),
             me=self.me.value(),
-            amount_in_std_mix=self._optional_float(self.amount_in_std_mix),
-            int_std_amount=self._optional_float(self.int_std_amount),
+            amount_in_std_mix=self._optional_float(
+                self.amount_in_std_mix, "Amount in std mix"
+            ),
+            int_std_amount=self._optional_float(self.int_std_amount, "Int std amount"),
             mm_files=self.mm_files.text().strip() or None,
         )
 
@@ -234,19 +236,29 @@ class AddCompoundDialog(QDialog):
                 mz=self.qualifier1_mz.value(),
                 role=IonRole.QUALIFIER,
                 ordinal=1,
-                expected_ratio=self._optional_float(self.qualifier1_ratio),
-                ratio_tolerance=self._optional_float(self.qualifier1_tolerance),
+                expected_ratio=self._optional_float(
+                    self.qualifier1_ratio, "Qualifier 1 expected ratio"
+                ),
+                ratio_tolerance=self._optional_float(
+                    self.qualifier1_tolerance, "Qualifier 1 tolerance"
+                ),
             ),
         ]
-        qualifier2_mz = self._optional_float(self.qualifier2_mz)
+        qualifier2_mz = self._optional_float(
+            self.qualifier2_mz, "Qualifier ion 2 (m/z)"
+        )
         if qualifier2_mz is not None:
             channels.append(
                 IonChannel(
                     mz=qualifier2_mz,
                     role=IonRole.QUALIFIER,
                     ordinal=2,
-                    expected_ratio=self._optional_float(self.qualifier2_ratio),
-                    ratio_tolerance=self._optional_float(self.qualifier2_tolerance),
+                    expected_ratio=self._optional_float(
+                        self.qualifier2_ratio, "Qualifier 2 expected ratio"
+                    ),
+                    ratio_tolerance=self._optional_float(
+                        self.qualifier2_tolerance, "Qualifier 2 tolerance"
+                    ),
                 )
             )
         name = self.compound_name.text().strip()
@@ -258,9 +270,11 @@ class AddCompoundDialog(QDialog):
             retention_time=self.retention_time.value(),
             loffset=self.loffset.value(),
             roffset=self.roffset.value(),
-            rt_window=self._optional_float(self.rt_window),
-            amount_in_std_mix=self._optional_float(self.amount_in_std_mix),
-            int_std_amount=self._optional_float(self.int_std_amount),
+            rt_window=self._optional_float(self.rt_window, "tR window"),
+            amount_in_std_mix=self._optional_float(
+                self.amount_in_std_mix, "Amount in std mix"
+            ),
+            int_std_amount=self._optional_float(self.int_std_amount, "Int std amount"),
             mm_files=self.mm_files.text().strip() or None,
             channels=validated,
         )
@@ -293,11 +307,20 @@ class AddCompoundDialog(QDialog):
         return edit
 
     @staticmethod
-    def _optional_float(edit: QLineEdit) -> float | None:
+    def _optional_float(edit: QLineEdit, name: str) -> float | None:
         text = edit.text().strip()
         if not text:
             return None
-        return float(text)
+        # Parse in the validator's locale so "0,25" (de_DE) or "1,000" (en_GB)
+        # works; fall back to C so "0.25" still parses in a comma locale.
+        value, ok = edit.validator().locale().toDouble(text)
+        if not ok:
+            value, ok = QLocale.c().toDouble(text)
+        if not ok:
+            raise ValueError(f"{name} is not a number: {text}")
+        if value < 0:
+            raise ValueError(f"{name} cannot be negative")
+        return value
 
     @staticmethod
     def _hint(text: str) -> QLabel:

@@ -31,7 +31,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.validation.peak_verdict import PeakReview
 from manic.__version__ import __version__, APP_NAME
-from manic.models.analysis import AnalysisMode
+from manic.models.analysis import AnalysisMode, reject_negative
 from manic.io.changelog_sections import (
     format_compounds_table_for_session_export,
     format_overrides_section_for_session_export,
@@ -382,6 +382,9 @@ def import_session_overrides(
                 )
                 return False, False
 
+        # Validate before the first write so a bad file changes nothing.
+        _reject_negative_inputs(method_data.get("compounds", []))
+
         # Import session overrides directly to database
         session_overrides = method_data.get("session_overrides", [])
         compounds = method_data.get("compounds", [])
@@ -479,6 +482,20 @@ def import_session_overrides(
     except Exception as e:
         logger.error(f"Failed to import session overrides: {e}")
         return False, False
+
+
+def _reject_negative_inputs(compounds: list) -> None:
+    for compound in compounds:
+        name = compound.get("compound_name")
+        values = {
+            f"{name} {key}": compound.get(key)
+            for key in ("amount_in_std_mix", "int_std_amount", "rt_tolerance")
+        }
+        for ion in compound.get("ions") or []:
+            label = f"{name} ion {ion.get('mz')}"
+            values[f"{label} expected ratio"] = ion.get("expected_ratio")
+            values[f"{label} ratio tolerance"] = ion.get("ratio_tolerance")
+        reject_negative(values)
 
 
 def _import_peak_reviews(method_data: dict) -> None:

@@ -24,9 +24,9 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns l
 | `mass0` | Base m/z value |
 | `loffset` | Left integration offset (minutes) from tR |
 | `roffset` | Right integration offset (minutes) from tR |
-| `labelatoms` | Number of positions capable of retaining label |
+| `labelatoms` | Number of positions capable of retaining label. Cannot exceed the formula's count of the label element |
 | `formula` | Molecular formula (e.g., C6H12O6) |
-| `labeltype` | Element being labeled (e.g., C) |
+| `labeltype` | Element being labeled: `C`, `N` or `H` (upper case). Tracers whose heavy isotope is 2 Da heavier, such as 18O, are rejected |
 | `tbdms` | Number of TBDMS derivatization groups |
 | `meox` | Number of Methoxyamine derivatization groups |
 | `me` | Number of Methylation groups |
@@ -39,6 +39,8 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns l
 **Procedure**
 1.  Navigate to **File → Load Compounds/Parameter List**.
 2.  Select your prepared compound definition file from the file dialog.
+
+MANIC skips rows with a blank `name`. If any other row is invalid, such as an unsupported label type, more label atoms than the formula holds, or a negative standard amount, MANIC lists each bad row by row number and compound name and imports nothing.
 
 **Verification**
 Upon a successful import, the application provides immediate visual feedback:

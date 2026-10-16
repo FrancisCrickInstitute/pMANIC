@@ -232,3 +232,89 @@ def test_selecting_internal_standard_recolours_plotted_compound(
         }
     finally:
         window.close()
+
+
+def test_compound_navigation_deconvolves_each_tile_once(qapp, empty_db, monkeypatch):
+    import zlib
+
+    import numpy as np
+
+    import manic.processors.chromatographic_peak_deconvolution as deconv
+    import manic.processors.display_deconvolution as display_deconvolution
+    import manic.ui.graphs as graphs
+    from manic.models.database import get_connection
+
+    time_axis = np.linspace(4.0, 6.0, 300)
+    rng = np.random.default_rng(185)
+    names = ["C0", "C1"]
+    samples = ["S1", "S2"]
+    with get_connection() as conn:
+        for name in names:
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+                "mass0, label_atoms, formula, label_type) VALUES (?, 5.0, 0.2, 0.2, 100.0, 2, "
+                "'C3H6O3', 'C')",
+                (name,),
+            )
+            for sample in samples:
+                intensity = np.vstack(
+                    [
+                        height * np.exp(-0.5 * ((time_axis - 5.0) / 0.03) ** 2)
+                        + rng.normal(0, 50, time_axis.size)
+                        for height in (1e5, 3e4, 1e4)
+                    ]
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO samples (sample_name, file_name) VALUES (?, ?)",
+                    (sample, f"/fake/{sample}.cdf"),
+                )
+                conn.execute(
+                    "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window) "
+                    "VALUES (?, ?, ?, ?, 0.5)",
+                    (
+                        sample,
+                        name,
+                        zlib.compress(time_axis.tobytes()),
+                        zlib.compress(intensity.ravel().tobytes()),
+                    ),
+                )
+
+    counts = {"_deconvolve_matrix": 0, "plot_display": 0}
+
+    def counting(module, attr):
+        original = getattr(module, attr)
+
+        def wrapper(*args, **kwargs):
+            counts[attr] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(module, attr, wrapper)
+
+    window = _make_window(monkeypatch)
+    try:
+        window.compound_data_loaded = window.cdf_data_loaded = True
+        window.toolbar.update_sample_list(samples)
+        window.toolbar.update_compound_list(names, "C0")
+        window.toolbar.on_internal_standard_selected("C0")
+        qapp.processEvents()
+        counting(deconv, "_deconvolve_matrix")
+        counting(graphs, "plot_display")
+        counting(display_deconvolution, "plot_display")
+
+        per_visit = []
+        for target in ("C1", "C0", "C1"):
+            counts.update(dict.fromkeys(counts, 0))
+            window.toolbar.update_compound_list(names, target)
+            qapp.processEvents()
+            assert window.graph_view.get_current_compound() == target
+            per_visit.append(dict(counts))
+
+        # One deconvolution per sample and channel on a first visit, none on a
+        # revisit; one display per tile plus one per Label Incorporation bar.
+        assert per_visit == [
+            {"_deconvolve_matrix": 6, "plot_display": 4},
+            {"_deconvolve_matrix": 0, "plot_display": 4},
+            {"_deconvolve_matrix": 0, "plot_display": 4},
+        ]
+    finally:
+        window.close()

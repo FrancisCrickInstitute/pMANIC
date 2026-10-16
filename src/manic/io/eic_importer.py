@@ -215,9 +215,9 @@ def _extract_all_eics_for_file(
             )
             eic_batch.append(eic_data)
 
-        except ValueError:
-            # Handle compounds with insufficient data in RT/m/z window
-            # This is expected behavior - not all compounds are detectable in all samples
+        except EmptyRtWindowError:
+            # Not every compound elutes in every sample; any other error means
+            # corrupt CDF data and must reach the caller
             skipped_count += 1
 
         # Maintain original progress reporting behavior for GUI consistency
@@ -270,7 +270,7 @@ def _extract_eic_optimized(
         EIC: Structured object containing time series and intensity data
 
     Raises:
-        ValueError: If no scans found within specified RT window
+        EmptyRtWindowError: If no scans found within specified RT window
     """
     from manic.processors.eic_calculator import _extract_eic_with_times
 

@@ -103,7 +103,8 @@ def test_labelled_insert_matches_import_column_set(empty_db, tmp_path):
                 "Amount in StdMix": 10.0,
                 "Int Std amount": 1.5,
                 "MM Files": "*MM*",
-            }
+            },
+            {"name": None, "tR": 6.37},
         ]
     ).to_csv(path, index=False)
     assert import_compound_excel(path, AnalysisMode.LABELLED) == 1
@@ -486,7 +487,7 @@ def _write_labelled_list(path, **overrides):
         "rOffset": 0.1,
         "LabelAtoms": 1,
         "Formula": "H2O",
-        "LabelType": "C",
+        "LabelType": "H",
         "TBDMS": 0,
         "MeOX": 0,
         "Me": 0,
@@ -510,4 +511,36 @@ def test_import_rejects_impossible_label(empty_db, tmp_path, overrides, message)
     path = _write_labelled_list(tmp_path / "labelled.csv", **overrides)
     with pytest.raises(ValueError, match=re.escape(message)):
         import_compound_excel(path, AnalysisMode.LABELLED)
+    assert taken_compound_names() == set()
+
+
+@pytest.mark.parametrize(
+    "column, message",
+    [
+        ("Amount in StdMix", "row 2 (Water): amount_in_std_mix cannot be negative"),
+        ("Int Std amount", "row 2 (Water): int_std_amount cannot be negative"),
+    ],
+)
+def test_labelled_import_rejects_negative_amounts(empty_db, tmp_path, column, message):
+    path = _write_labelled_list(tmp_path / "labelled.csv", **{column: -1})
+    with pytest.raises(ValueError, match=re.escape(message)):
+        import_compound_excel(path, AnalysisMode.LABELLED)
+    assert taken_compound_names() == set()
+
+
+@pytest.mark.parametrize(
+    "column, message",
+    [
+        ("AmountInStdMix", "row 2: amount_in_std_mix cannot be negative"),
+        ("IntStdAmount", "row 2: int_std_amount cannot be negative"),
+        ("Qualifier1Ratio", "row 2: qualifier 1 expected ratio cannot be negative"),
+    ],
+)
+def test_unlabelled_import_rejects_negative_values(empty_db, tmp_path, column, message):
+    row = {"name": "Citrate", "tR": 9.1, "lOffset": 0.1, "rOffset": 0.1,
+           "QIon": 273, "QualifierIon1": 147, column: -1}
+    path = tmp_path / "unlabelled.csv"
+    pd.DataFrame([row]).to_csv(path, index=False)
+    with pytest.raises(ValueError, match=re.escape(message)):
+        import_compound_excel(path, AnalysisMode.UNLABELLED)
     assert taken_compound_names() == set()

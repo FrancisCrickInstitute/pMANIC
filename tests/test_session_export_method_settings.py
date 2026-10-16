@@ -358,3 +358,34 @@ def test_apply_imported_standard_clears_deleted_name(temp_method_db):
     assert host.internal_standard_reference_isotope == 0
     assert host.menu_updated is True
     assert result.kind is session_export.InternalStandardRestoreKind.CLEARED
+
+
+@pytest.mark.parametrize(
+    "compound",
+    [
+        {"int_std_amount": -1},
+        {"amount_in_std_mix": -1},
+        {"ions": [
+            {"role": "quantifier", "ordinal": 0, "mz": 89.0},
+            {"role": "qualifier", "ordinal": 1, "mz": 90.0, "expected_ratio": -0.5},
+        ]},
+    ],
+)
+def test_session_import_rejects_negative_values(temp_method_db, compound):
+    db_path, tmp_path = temp_method_db
+    path = tmp_path / "method.json"
+    path.write_text(
+        json.dumps({"compounds": [{"compound_name": "Alanine", **compound}]}),
+        encoding="utf-8",
+    )
+
+    assert session_export.import_session_overrides(str(path)) == (False, False)
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT int_std_amount, amount_in_std_mix FROM compounds"
+    ).fetchone()
+    ions = conn.execute("SELECT COUNT(*) FROM compound_ions").fetchone()[0]
+    conn.close()
+    assert row == (None, None)
+    assert ions == 0

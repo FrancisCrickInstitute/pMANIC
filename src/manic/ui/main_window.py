@@ -740,8 +740,19 @@ class MainWindow(QMainWindow):
         self.close()
         logger.info(f"New analysis session started in {mode.display_name} mode")
 
+    def _stop_update_check(self) -> None:
+        """Qt aborts the process if a running QThread is destroyed with this window."""
+        if self._update_worker is None:
+            return
+        self._update_worker.result.disconnect(self._on_update_check_finished)
+        # The fetch cannot be interrupted; hide first so the close is not a frozen window.
+        self.hide()
+        self._update_worker.wait()
+        self._update_worker = None
+
     def closeEvent(self, event):
         if self._skip_close_guard:
+            self._stop_update_check()
             event.accept()
             return
         running = self._running_background_thread()
@@ -777,6 +788,7 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.Yes:
                 event.ignore()
                 return
+        self._stop_update_check()
         event.accept()
 
     def _rebuild_open_recent_menu(self) -> None:

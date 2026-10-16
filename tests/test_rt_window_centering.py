@@ -395,6 +395,29 @@ class TestPerSampleReloadChecking:
         assert emitted == [("Glucose", 0.7, ["s1", "s2"], 5.0)]
         assert tr_window_field.text() == "0.7"
 
+    def test_apply_reload_uses_widest_window_in_a_range(self):
+        emitted = []
+        fields = {
+            "tr_input": _TextField("5.0"),
+            "tr_window_input": _TextField("0.3 - 0.8"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _selected_samples=["s2"],
+            _all_samples=["s1", "s2"],
+            _get_validated_inputs=lambda: (5.0, 0.2, 0.2),
+            _get_samples_needing_reload=lambda *_args: ["s2"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _show_message=lambda *_args: None,
+        )
+
+        IntegrationWindow._on_apply_clicked(window)
+
+        assert emitted == [("Glucose", 0.8, ["s2"], 5.0)]
+
 
 class _TextField:
     def __init__(self, value: str):

@@ -68,7 +68,8 @@ def read_cdf_window(path: str | Path, t_r: float, rt_window: float) -> CdfFileDa
             intensity=_read(
                 variables["intensity_values"], slice(start, stop), np.float64
             ),
-            scan_index=scan_index[first:last] - start,
+            # Masked arithmetic would skip masked offsets; extract_eic reads them raw.
+            scan_index=np.asarray(scan_index[first:last]) - start,
             point_count=_read(variables["point_count"], slice(first, last)),
             total_intensity=_read(
                 variables["total_intensity"], slice(first, last), np.float64

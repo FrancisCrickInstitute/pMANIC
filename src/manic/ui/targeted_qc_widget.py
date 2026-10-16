@@ -76,25 +76,19 @@ class TargetedQcWidget(QWidget):
                 lambda index, bound=bar_set: self._on_grid_clicked(bound, index)
             )
 
-    def _on_grid_clicked(self, bar_set: QBarSet, _index: int) -> None:
+    def _on_grid_clicked(self, bar_set: QBarSet, index: int) -> None:
         if self._binding is None:
             return
-        cell = self._binding.cell_for(bar_set)
+        cell = self._binding.cell_for(bar_set, index)
         if cell is None:
             return
         self.sample_activated.emit(cell.sample_name)
 
     def _on_grid_hovered(self, bar_set: QBarSet, status: bool, index: int) -> None:
-        if (
-            not status
-            or self._binding is None
-            or index < 0
-            or index >= bar_set.count()
-            or bar_set.at(index) <= 0
-        ):
+        if not status or self._binding is None:
             QToolTip.hideText()
             return
-        cell = self._binding.cell_for(bar_set)
+        cell = self._binding.cell_for(bar_set, index)
         if cell is None:
             QToolTip.hideText()
             return

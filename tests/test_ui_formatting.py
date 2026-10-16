@@ -278,22 +278,26 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert not widget.chart.legend().isVisible()
         assert widget._binding is not None
         bar_sets = widget._binding.bar_sets
-        assert len(bar_sets) == 4
+        assert len(bar_sets) == 3
         expected = (
-            ("S2", QualifierStatus.FAILED, QUALIFIER_RED),
-            ("S2", QualifierStatus.ABSENT, QUALIFIER_GREY),
-            ("S1", QualifierStatus.VALIDATED, QUALIFIER_GREEN),
-            ("S1", QualifierStatus.ABSENT, QUALIFIER_GREY),
+            (1, QualifierStatus.FAILED, QUALIFIER_RED, ["S2", None]),
+            (1, QualifierStatus.VALIDATED, QUALIFIER_GREEN, [None, "S1"]),
+            (2, QualifierStatus.ABSENT, QUALIFIER_GREY, ["S2", "S1"]),
         )
-        for bar_set, (sample_name, status, color) in zip(bar_sets, expected):
-            cell = widget._binding.cell_for(bar_set)
-            assert cell.sample_name == sample_name
-            assert cell.qualifier.status is status
+        for bar_set, (ordinal, status, color, names) in zip(
+            bar_sets, expected, strict=True
+        ):
+            cells = [widget._binding.cell_for(bar_set, row) for row in range(2)]
+            assert [cell and cell.sample_name for cell in cells] == names
+            for cell in filter(None, cells):
+                assert cell.qualifier.ordinal == ordinal
+                assert cell.qualifier.status is status
+            assert [bar_set.at(row) for row in range(2)] == [
+                0.0 if name is None else 1.0 for name in names
+            ]
             assert bar_set.color() == color
             assert bar_set.color() == QUALIFIER_STATUS_COLORS[status]
             assert bar_set.borderColor() == QColor("white")
-        assert [set_.at(0) for set_ in bar_sets] == [1.0, 1.0, 0.0, 0.0]
-        assert [set_.at(1) for set_ in bar_sets] == [0.0, 0.0, 1.0, 1.0]
         value_axes, category_axes = _horizontal_axes(widget.chart)
         assert len(value_axes) == 1
         assert value_axes[0].min() == 0
@@ -399,8 +403,8 @@ def test_identity_chart_hover_maps_live_cell(qapp, monkeypatch):
     widget = TargetedQcWidget()
     try:
         widget.update_results(identity)
-        s1_v1 = widget._binding.bar_sets[2]
-        assert widget._binding.cell_for(s1_v1).sample_name == "S1"
+        s1_v1 = widget._binding.bar_sets[1]
+        assert widget._binding.cell_for(s1_v1, 1).sample_name == "S1"
         s1_v1.hovered.emit(True, 1)
         assert len(shown) == 1
         assert "S1" in shown[0]
@@ -461,9 +465,9 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
         assert dialog._identity_binding is not None
         bar_sets = dialog._identity_binding.bar_sets
-        assert len(bar_sets) == 4
-        s2_v2 = dialog._identity_binding.cell_for(bar_sets[1])
-        s1_v1 = dialog._identity_binding.cell_for(bar_sets[2])
+        assert len(bar_sets) == 3
+        s2_v2 = dialog._identity_binding.cell_for(bar_sets[1], 0)
+        s1_v1 = dialog._identity_binding.cell_for(bar_sets[0], 1)
         assert s1_v1.sample_name == "S1"
         assert s1_v1.qualifier.status is QualifierStatus.VALIDATED
         assert s2_v2.sample_name == "S2"
@@ -498,7 +502,7 @@ def test_identity_chart_popup_hover_maps_live_cell(qapp, monkeypatch):
     dialog = ChartPopupDialog.for_identity(identity)
     try:
         v1_set = dialog._identity_binding.bar_sets[0]
-        assert dialog._identity_binding.cell_for(v1_set).sample_name == "S1"
+        assert dialog._identity_binding.cell_for(v1_set, 0).sample_name == "S1"
         v1_set.hovered.emit(True, 0)
         assert len(shown) == 1
         assert "S1" in shown[0]

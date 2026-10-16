@@ -195,6 +195,45 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
         window.close()
 
 
+def test_qualifier_ratios_stepping_never_stores_a_negative_tolerance(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
+    try:
+        _insert_unlabelled_target()
+        window.compound_data_loaded = True
+        window.toolbar.update_compound_list(["Target"], selected_name="Target")
+        monkeypatch.setattr(window, "_replot_current_selection", lambda: None)
+        window.open_settings_window()
+        settings = window.settings_window
+        _select_page(settings, "Qualifier Ratios")
+        page = settings.page_named("Qualifier Ratios")
+        first, second = page._spins[1], page._spins[2]
+        first.lineEdit().selectAll()
+        QTest.keyClicks(first, "0.005")
+        assert first.text() == "0.005"
+        QTest.keyClick(first, Qt.Key_Down)
+        assert first.text() == "Not set"
+        assert second.text() == "Not set"
+        QTest.keyClick(second, Qt.Key_Up)
+        assert second.text() == "0.000"
+        QTest.keyClick(second, Qt.Key_Down)
+        assert second.text() == "Not set"
+        QTest.keyClick(second, Qt.Key_Up)
+        settings.save_button.click()
+        with database.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT ordinal, ratio_tolerance FROM compound_ions "
+                "WHERE compound_name = 'Target' AND role = 'qualifier' "
+                "ORDER BY ordinal"
+            ).fetchall()
+        assert [tuple(row) for row in rows] == [(1, None), (2, 0.0)]
+    finally:
+        if window.settings_window is not None:
+            window.settings_window.close()
+        window.close()
+
+
 def test_mass_tolerance_save_writes_literal_value(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window

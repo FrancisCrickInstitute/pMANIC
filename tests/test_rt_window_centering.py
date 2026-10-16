@@ -544,6 +544,35 @@ def test_batch_read_falls_back_to_raw_per_sample(tmp_path, monkeypatch):
     assert eics[1].intensity == pytest.approx([1.0, 10.0, 1.0])
 
 
+def test_range_bounds_follow_sample_when_one_eic_is_missing(monkeypatch):
+    # read_eics_batch omits samples with no EIC, so s0 is absent here.
+    monkeypatch.setattr(
+        "manic.ui.integration_window_widget.get_eics_for_compound",
+        lambda _compound, _samples: [
+            SimpleNamespace(sample_name="s1", time=np.array([4.0, 6.0])),
+            SimpleNamespace(sample_name="s2", time=np.array([4.5, 5.5])),
+        ],
+    )
+    monkeypatch.setattr(
+        "manic.ui.integration_window_widget.read_compound_with_session",
+        lambda _compound, _sample: SimpleNamespace(
+            retention_time=5.0, loffset=0.1, roffset=0.1
+        ),
+    )
+    window = SimpleNamespace(
+        _data_window_bounds={},
+        _format_range=lambda _values: "",
+        findChild=lambda *_args: None,
+    )
+
+    IntegrationWindow._populate_range_fields(window, "cmpd", ["s0", "s1", "s2"])
+
+    assert window._data_window_bounds == {
+        ("cmpd", "s1"): (4.0, 6.0),
+        ("cmpd", "s2"): (4.5, 5.5),
+    }
+
+
 class TestRecoveryAfterEmptyExtract:
     def test_refresh_drops_bounds_when_eic_missing(self, monkeypatch):
         w = IntegrationWindow.__new__(IntegrationWindow)

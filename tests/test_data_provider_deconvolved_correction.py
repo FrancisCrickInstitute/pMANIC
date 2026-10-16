@@ -14,11 +14,13 @@ from manic.processors.chromatographic_peak_deconvolution import (
     deconvolve_channel_matrix,
     deconvolve_eic,
 )
+from manic.processors.eic_correction_manager import ensure_corrections_for_export
 from manic.processors.integration import (
     _integrate_dense_rows,
     _integrate_model_component,
     calculate_peak_areas,
 )
+from manic.validation.peak_verdict import PeakVerdict
 
 
 def _blob(values: np.ndarray) -> bytes:
@@ -565,3 +567,41 @@ def test_empty_ions_keep_export_on_the_model_path():
     assert raw_areas[1] > 0
     assert raw_areas[2] == pytest.approx(0.0)
     assert corrected_areas == pytest.approx(raw_areas)
+
+
+def test_tile_verdict_matches_export_before_corrections_exist(empty_db):
+    time = np.array([0, 1, 2], dtype=np.float64)
+    with database.get_connection() as conn:
+        conn.execute("INSERT INTO samples (sample_name) VALUES ('S1')")
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms, formula, baseline_correction, deconvolution_level) "
+            "VALUES ('X', 1, 2, 2, 100, 2, 'C2', 0, 'off')"
+        )
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms, baseline_correction, deconvolution_level) "
+            "VALUES ('IS', 1, 2, 2, 200, 0, 0, 'off')"
+        )
+        for name, intensity in [
+            ("X", [0, 100, 0, 0, 0, 0, 0, 0, 0]),
+            ("IS", [0, 1000, 0]),
+        ]:
+            conn.execute(
+                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis) "
+                "VALUES (?, ?, ?, ?)",
+                ("S1", name, _blob(time), _blob(intensity)),
+            )
+
+    # Raw total is 100 and corrected total is about 102.2, so 0.101 x IS
+    # splits them.
+    tile_provider = DataProvider()
+    tile_verdict = tile_provider.peak_verdict("S1", "X", "IS", 0.101)
+
+    ensure_corrections_for_export()
+    export_provider = DataProvider()
+    export_provider.load_bulk_sample_data()
+
+    assert tile_verdict == PeakVerdict.PASS
+    assert export_provider.peak_verdict("S1", "X", "IS", 0.101) == PeakVerdict.PASS
+    assert tile_provider.peak_verdict("S1", "X", "IS", 0.101) == PeakVerdict.PASS

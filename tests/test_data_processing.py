@@ -19,6 +19,8 @@ from manic.io.cdf_data_extractor import (
 )
 from manic.io.cdf_reader import CdfFileData, read_cdf_file
 from manic.io.eic_importer import _extract_eic_optimized, import_eics
+from manic.io.ms_reader import store_ms_data_batch
+from manic.io.tic_reader import read_tic, store_tic_data
 from manic.models import database
 from manic.processors.eic_calculator import extract_eic
 from manic.processors.integration import calculate_peak_areas
@@ -122,6 +124,38 @@ def test_ensure_ms_data_refreshes_when_cache_is_stale(monkeypatch):
 
     assert result is refreshed
     assert called["refresh"] == 1
+
+
+def test_import_stores_one_row_per_spectrum_and_per_tic():
+    database.init_db()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO samples (sample_name, file_name, deleted) "
+            "VALUES ('S1', '/missing/S1.cdf', 0)"
+        )
+        before = conn.total_changes
+        assert store_tic_data("S1", np.array([60.0, 70.0, 80.0]), np.array([16.0, 32.0, 48.0]), conn)
+        assert store_ms_data_batch(
+            "S1",
+            [
+                (1.0, np.array([100.0, 101.0, 102.0]), np.array([10.0, 4.0, 2.0])),
+                (1.5, np.array([100.0, 101.0, 102.0]), np.array([30.0, 0.0, 6.0])),
+            ],
+            conn,
+        )
+        rows_written = conn.total_changes - before
+
+    assert rows_written == 3
+
+    tic = read_tic("S1")
+    assert tic.time.tolist() == [60.0, 70.0, 80.0]
+    assert tic.intensity.tolist() == [16.0, 32.0, 48.0]
+
+    # The CDF path does not exist, so the detailed view falls back to the stored spectrum.
+    ms = ensure_ms_data_for_time("S1", 1.5)
+    assert ms.time == 1.5
+    assert ms.mz.tolist() == [100.0, 102.0]
+    assert ms.intensity.tolist() == [30.0, 6.0]
 
 
 def test_extract_eic_labeled_three_isotopologues():

@@ -6,6 +6,8 @@ and other UI components.
 """
 
 from dataclasses import replace
+import zlib
+
 import pytest
 from PySide6.QtCharts import (
     QBarCategoryAxis,
@@ -46,6 +48,7 @@ from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
 from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.targeted_qc_widget import TargetedQcWidget
+from manic.models import database
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -56,6 +59,8 @@ from manic.validation.unlabelled_identity import (
     QualifierStatus,
     qualifier_pair,
 )
+
+from conftest import _gaussian, _make_window
 
 
 @pytest.fixture
@@ -150,7 +155,8 @@ def test_selected_peak_yscale_follows_compound_deconvolution(qapp, monkeypatch):
         toolbar.update_compound_list(["Glucose"])
         assert checkbox.isEnabled() is False
         assert checkbox.isChecked() is False
-        assert emitted == [YScalePolicy.PER_TILE_EXTRACT]
+        assert toolbar.y_scale_policy is YScalePolicy.PER_TILE_EXTRACT
+        assert emitted == []
 
         monkeypatch.setattr(
             "manic.ui.left_toolbar.read_compound",
@@ -163,6 +169,80 @@ def test_selected_peak_yscale_follows_compound_deconvolution(qapp, monkeypatch):
         assert checkbox.isEnabled() is True
     finally:
         toolbar.deleteLater()
+
+
+@pytest.fixture
+def selected_peak_window(qapp, monkeypatch):
+    """Compound A (deconvolution on) selected with "Scale to selected peak" ticked;
+    B has deconvolution off."""
+    time = np.linspace(4.0, 6.0, 201)
+    intensity = _gaussian(time, 5.0, 0.03, 1e5)
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO samples (sample_name, file_name) VALUES ('S1', '/fake/S1.cdf')"
+        )
+        for name, level in (("A", "4"), ("B", "off")):
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, "
+                "roffset, mass0, label_atoms, deconvolution_level) "
+                "VALUES (?, 5.0, 0.1, 0.1, 100.0, 0, ?)",
+                (name, level),
+            )
+            conn.execute(
+                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis) "
+                "VALUES ('S1', ?, ?, ?)",
+                (
+                    name,
+                    zlib.compress(time.tobytes()),
+                    zlib.compress(intensity.tobytes()),
+                ),
+            )
+    window = _make_window(monkeypatch)
+    window.cdf_data_loaded = window.compound_data_loaded = True
+    window.toolbar.update_sample_list(["S1"])
+    window.toolbar.update_compound_list(["A", "B"], "A")
+    window.toolbar.selected_peak_yscale_checkbox.setChecked(True)
+    yield window
+    window.close()
+
+
+def _record_plots(view, monkeypatch):
+    plotted = []
+    real_plot = view.plot_compound
+
+    def record(compound_name, *args, **kwargs):
+        plotted.append((compound_name, view._y_scale_policy))
+        return real_plot(compound_name, *args, **kwargs)
+
+    monkeypatch.setattr(view, "plot_compound", record)
+    return plotted
+
+
+def test_compound_switch_resolves_y_scale_before_single_plot(
+    selected_peak_window, monkeypatch
+):
+    window = selected_peak_window
+    plotted = _record_plots(window.graph_view, monkeypatch)
+    window.toolbar.update_compound_list(["A", "B"], "B")
+
+    assert plotted == [("B", YScalePolicy.PER_TILE_EXTRACT)]
+    assert not window.toolbar.selected_peak_yscale_checkbox.isChecked()
+
+
+@pytest.mark.parametrize(
+    "replot, expected",
+    [(True, [("A", YScalePolicy.PER_TILE_EXTRACT)]), (False, [])],
+)
+def test_settings_deconvolution_off_resolves_y_scale_before_single_plot(
+    selected_peak_window, monkeypatch, replot, expected
+):
+    window = selected_peak_window
+    plotted = _record_plots(window.graph_view, monkeypatch)
+    window.apply_deconvolution("A", "off", "auto", "balanced", False, replot=replot)
+
+    assert plotted == expected
+    assert window.graph_view._y_scale_policy is YScalePolicy.PER_TILE_EXTRACT
+    assert not window.toolbar.selected_peak_yscale_checkbox.isChecked()
 
 
 def test_refresh_mode_charts_shares_one_provider(monkeypatch):

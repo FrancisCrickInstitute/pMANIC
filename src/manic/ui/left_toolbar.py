@@ -325,13 +325,13 @@ class Toolbar(QWidget):
         selected_items = self.compound_list.selectedItems()
         if selected_items:
             selected_text = selected_items[0].text()
+            self.sync_selected_peak_checkbox(selected_text)
             self.compound_selected.emit(selected_text)
             self.compound_indicator.set_compound(selected_text)
             # Initial fill - will be updated by plot selection logic after plotting
             self.fill_integration_window(selected_text)
             # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
-            self.sync_selected_peak_checkbox(selected_text)
         else:
             self.compound_selected.emit("")
             self.compound_indicator.set_compound("")
@@ -421,13 +421,21 @@ class Toolbar(QWidget):
             self.baseline_checkbox.setChecked(False)
             self.baseline_checkbox.blockSignals(False)
 
+    @property
+    def y_scale_policy(self) -> YScalePolicy:
+        return self._y_scale_policy
+
     def sync_selected_peak_checkbox(self, compound_name: str):
         checkbox = self.selected_peak_yscale_checkbox
         if checkbox is None:
             return
         checkbox.setEnabled(_deconvolution_on(compound_name))
         if not checkbox.isEnabled() and checkbox.isChecked():
+            # Silent: callers hand y_scale_policy to the graph before their own
+            # single plot; a y_scale_policy_changed here would plot a second time.
+            self.blockSignals(True)
             self._commit_y_scale_policy(YScalePolicy.PER_TILE_EXTRACT)
+            self.blockSignals(False)
 
     def _on_shared_yscale_toggled(self, state: int):
         self._commit_y_scale_policy(

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
+from manic.io.sample_reader import list_stale_samples
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.display_deconvolution import (
@@ -65,10 +66,13 @@ logger = logging.getLogger(__name__)
 PLOT_Y_AXIS_HEADROOM = 1.05
 
 
-def tile_caption(sample_name: str, fit_type: str | None) -> str:
-    if not fit_type:
-        return sample_name
-    return f"{sample_name}  ·  {FIT_TYPE_LABELS.get(fit_type, fit_type)}"
+def tile_caption(sample_name: str, fit_type: str | None, stale: bool = False) -> str:
+    parts = [sample_name]
+    if fit_type:
+        parts.append(FIT_TYPE_LABELS.get(fit_type, fit_type))
+    if stale:
+        parts.append("old mass tolerance")
+    return "  ·  ".join(parts)
 
 
 class ElidingLabel(QLabel):
@@ -200,6 +204,7 @@ class GraphView(QWidget):
         self._current_compound: str = ""
         self._current_samples: List[str] = []
         self._sample_fit_types: Dict[tuple[str, str], str] = {}
+        self._stale_samples: Set[str] = set()
 
         self.use_corrected = False
         self._prepared_displays = {}
@@ -378,6 +383,7 @@ class GraphView(QWidget):
         self._current_compound = compound_name
         self._current_samples = samples
         self._sample_fit_types = get_sample_fit_types(compound_name)
+        self._stale_samples = set(list_stale_samples())
 
         with measure_time("get_eics_from_db"):
             eics = get_eics_for_compound(
@@ -1066,7 +1072,9 @@ class GraphView(QWidget):
 
     def _tile_caption_for(self, eic) -> str:
         fit_type = self._sample_fit_types.get((eic.compound_name, eic.sample_name))
-        return tile_caption(eic.sample_name, fit_type)
+        return tile_caption(
+            eic.sample_name, fit_type, eic.sample_name in self._stale_samples
+        )
 
     def _update_container_data(
         self,

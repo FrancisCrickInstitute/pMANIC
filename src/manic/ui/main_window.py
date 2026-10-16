@@ -1640,6 +1640,8 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
 
+        self.toolbar.sample_list.mark_stale_samples()
+
         # Refresh plots
         current_compound = self.toolbar.get_selected_compound()
         current_samples = self.toolbar.get_selected_samples()

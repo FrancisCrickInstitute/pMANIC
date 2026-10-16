@@ -67,6 +67,7 @@ Import raw experimental data files for processing. The application will extract 
 The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) to bin detected masses.
 * To check or change this: Go to **Settings → Mass Tolerance** before or after loading data.
 * If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder.
+* If a sample's CDF file is missing or unreadable at that point, the sample keeps its old-tolerance EICs and is marked stale: a warning icon in the sample list and "old mass tolerance" in its plot captions. Put the file back and change the tolerance again to rebuild it and clear the mark.
 
 **Procedure**   
 1.  Navigate to **File → Load Raw Data (CDF)**.
@@ -273,6 +274,7 @@ The Excel file contains five worksheets by default. A sixth sheet is optional.
 
 **Validation & Errors**   
 * **Invalid Peaks:** Cells corresponding to peaks that failed the minimum area validation (red plots) will be highlighted with a **light red background** in the Excel file.
+* **Stale Samples:** Cells of a sample whose EICs still use an older mass tolerance (see [Mass Tolerance](Reference_Mass_Tolerance.md)) have a **light gold background**, and the export changelog lists these samples under **Stale Samples**. This mark replaces any validation fill for those cells.
 * **Abundance Errors:** If the internal standard is missing required calibration fields (`int_std_amount` or `amount_in_std_mix`), MANIC will prompt you to either **cancel** and fix the compound list, or **continue** in unnormalized **Peak Area** mode for that export.
 
 ---

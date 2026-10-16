@@ -14,6 +14,7 @@ class PeakVerdict(StrEnum):
     FAIL = "fail"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    STALE = "stale"
 
 
 def resolve_verdict(meets_threshold: bool, review: PeakReview | None) -> PeakVerdict:
@@ -29,4 +30,5 @@ PEAK_VERDICT_FILL: Mapping[PeakVerdict, str | None] = {
     PeakVerdict.FAIL: "#FFCCCC",
     PeakVerdict.ACCEPTED: "#E5D4F1",
     PeakVerdict.REJECTED: "#E0C9A6",
+    PeakVerdict.STALE: "#FFE699",
 }

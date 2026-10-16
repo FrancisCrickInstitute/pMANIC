@@ -30,3 +30,13 @@ def list_active_samples() -> List[str]:
 
     # `conn.row_factory` is sqlite3.Row, so each row works like a dict
     return [row["sample_name"] for row in rows]
+
+
+def list_stale_samples() -> List[str]:
+    """Active samples whose EICs missed the last mass tolerance change."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT sample_name FROM samples WHERE deleted = 0 AND eics_stale = 1 "
+            "ORDER BY sample_name"
+        ).fetchall()
+    return [row["sample_name"] for row in rows]

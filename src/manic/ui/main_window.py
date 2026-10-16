@@ -2032,10 +2032,19 @@ class MainWindow(QMainWindow):
             return
         internal_standard = dlg.get_internal_standard()
         if internal_standard:
-            ok, problems = validate_internal_standard_metadata(
-                InMemoryDataProvider(_read_compounds_as_dicts(compounds_path), [], {}),
-                internal_standard,
-            )
+            try:
+                ok, problems = validate_internal_standard_metadata(
+                    InMemoryDataProvider(_read_compounds_as_dicts(compounds_path), [], {}),
+                    internal_standard,
+                )
+            except Exception as e:
+                logger.error(f"Update Old Data error: {e}")
+                self._create_message_box(
+                    "critical",
+                    "Update Failed",
+                    f"Failed to read the compounds file.\n{e}",
+                ).exec()
+                return
             if not ok:
                 if not self._confirm_peak_area_fallback(internal_standard, problems):
                     return

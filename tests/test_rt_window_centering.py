@@ -6,9 +6,15 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from manic.constants import DEFAULT_RT_WINDOW
+from manic.io.cdf_reader import CdfFileData
 from manic.io.compound_reader import read_compound
 from manic.io.eic_reader import read_eics_batch
-from manic.io.eic_importer import _compress, regenerate_compound_eics
+from manic.io.eic_importer import (
+    _compress,
+    regenerate_all_eics_with_mass_tolerance,
+    regenerate_compound_eics,
+)
 from manic.models import database
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.chromatographic_peak_deconvolution import deconvolve_eic
@@ -1161,6 +1167,40 @@ class TestRecoveryAfterEmptyExtract:
 
         assert regenerated == 2
         assert seen == [("s1", 7.1), ("s2", 7.5)]
+
+
+@pytest.mark.parametrize("stored_window", [0.9, 0.15])
+def test_mass_tolerance_change_keeps_stored_tr_window(
+    tmp_path, monkeypatch, stored_window
+):
+    db_path = _glucose_regen_db(tmp_path, monkeypatch)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE eic SET rt_window = ?", (stored_window,))
+    scan_minutes = np.round(np.arange(6.0, 8.4, 0.01), 2)
+    monkeypatch.setattr(
+        "manic.io.eic_importer.read_cdf_file",
+        lambda _path: CdfFileData(
+            sample_name="s1",
+            file_path="s1.cdf",
+            scan_time=scan_minutes * 60.0,
+            mass=np.full(scan_minutes.size, 100.0),
+            intensity=np.ones(scan_minutes.size),
+            scan_index=np.arange(scan_minutes.size),
+            point_count=np.ones(scan_minutes.size, dtype=int),
+            total_intensity=np.ones(scan_minutes.size),
+        ),
+    )
+
+    regenerate_all_eics_with_mass_tolerance(0.3, rt_window=DEFAULT_RT_WINDOW)
+
+    with sqlite3.connect(db_path) as conn:
+        rt_window, x_axis = conn.execute(
+            "SELECT rt_window, x_axis FROM eic WHERE sample_name = 's1'"
+        ).fetchone()
+    time_axis = np.frombuffer(zlib.decompress(x_axis), dtype=np.float64)
+    assert rt_window == pytest.approx(stored_window)
+    assert time_axis[0] == pytest.approx(7.17 - stored_window, abs=0.011)
+    assert time_axis[-1] == pytest.approx(7.17 + stored_window, abs=0.011)
 
 
 class TestRegenerationCompletion:

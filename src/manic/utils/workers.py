@@ -1,4 +1,5 @@
 # In src/manic/utils/workers.py
+import logging
 import threading
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
@@ -11,8 +12,11 @@ from manic.io.eic_importer import (
 )
 from manic.models.session_activity import PendingRegeneration
 from manic.models.session_export import reextract_session_eics
+from manic.processors.display_deconvolution import plot_display
 from manic.processors.eic_correction_manager import ensure_corrections_for_export
 from manic.utils.update_check import check_for_update
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateCheckWorker(QThread):
@@ -172,3 +176,47 @@ class ExportWorker(QObject):
             self.finished.emit(success)
         except Exception as exc:
             self.failed.emit(str(exc))
+
+
+class DisplayFitWorker(QObject):
+    """Fit each plot tile's peaks on a pool thread; the GUI thread draws them.
+
+    ``annotate`` (peak verdicts and identity) runs last, reusing the tile fits.
+    """
+
+    fitted = Signal(int, str, object)  # generation, sample name, PlotDisplay
+    finished = Signal(int, object)  # generation, annotate() result or None
+
+    def __init__(self, generation: int, jobs: list, use_corrected: bool, annotate=None):
+        super().__init__()
+        self._generation = generation
+        self._jobs = jobs  # (sample name, time, intensity, compound)
+        self._use_corrected = use_corrected
+        self._annotate = annotate
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        self._cancel_event.set()
+
+    @Slot()
+    def run(self):
+        for sample_name, time, intensity, compound in self._jobs:
+            if self._cancel_event.is_set():
+                return
+            try:
+                prepared = plot_display(
+                    time, intensity, compound, use_corrected=self._use_corrected
+                )
+            except Exception:
+                logger.exception("Display fit failed for %s", sample_name)
+                continue
+            self.fitted.emit(self._generation, sample_name, prepared)
+        annotations = None
+        if self._annotate is not None:
+            if self._cancel_event.is_set():
+                return
+            try:
+                annotations = self._annotate()
+            except Exception:
+                logger.exception("Peak verdicts or identity failed")
+        self.finished.emit(self._generation, annotations)

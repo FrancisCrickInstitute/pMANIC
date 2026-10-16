@@ -185,7 +185,9 @@ def test_refresh_mode_charts_shares_one_provider(monkeypatch):
     host = SimpleNamespace(
         analysis_mode=AnalysisMode.UNLABELLED,
         use_legacy_integration=False,
-        graph_view=SimpleNamespace(get_current_samples=lambda: ["S1"]),
+        graph_view=SimpleNamespace(
+            get_current_samples=lambda: ["S1"], fits_pending=False
+        ),
         _update_targeted_qc=lambda identity: seen_qc.append(identity),
         _update_total_abundance=lambda compound, provider=None: seen_abundance.append(
             provider

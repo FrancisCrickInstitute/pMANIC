@@ -73,7 +73,9 @@ class PlotDisplay:
         return self.intensity
 
 
-def plot_display(time, raw_intensity, compound, *, use_corrected: bool) -> PlotDisplay:
+def plot_display(
+    time, raw_intensity, compound, *, use_corrected: bool, deconvolve: bool = True
+) -> PlotDisplay:
     raw = np.asarray(raw_intensity, dtype=np.float64)
     apply_correction = (
         make_time_series_corrector(compound)
@@ -81,7 +83,7 @@ def plot_display(time, raw_intensity, compound, *, use_corrected: bool) -> PlotD
         else None
     )
     display = None
-    if chromatographic_peak_deconvolution_enabled(
+    if deconvolve and chromatographic_peak_deconvolution_enabled(
         getattr(compound, "deconvolution_level", "off")
     ):
         display = deconvolve_for_display(

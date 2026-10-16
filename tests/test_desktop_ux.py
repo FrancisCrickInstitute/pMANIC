@@ -197,6 +197,59 @@ def test_running_regeneration_keeps_its_dialog_and_refuses_a_second_one(
     assert messages[-1][1] == "Regeneration Complete"
 
 
+def test_worker_that_fails_to_start_closes_its_dialog_and_restores_actions(
+    qapp, empty_db, monkeypatch, tmp_path
+):
+    def cannot_start(*args, **kwargs):
+        raise RuntimeError("thread unavailable")
+
+    for worker in (
+        "CdfImportWorker",
+        "EicRegenerationWorker",
+        "MassToleranceReloadWorker",
+        "SessionReextractionWorker",
+    ):
+        monkeypatch.setattr(f"manic.ui.main_window.{worker}", cannot_start)
+    window = _make_window(monkeypatch)
+    window._recent_cdf = RecentFiles(
+        "cdf_folders",
+        settings=QSettings(str(tmp_path / "recent.ini"), QSettings.IniFormat),
+    )
+    titles = []
+    monkeypatch.setattr(
+        window,
+        "_create_message_box",
+        lambda kind, title, *a, **k: titles.append(title) or Mock(),
+    )
+    try:
+        window.compound_data_loaded = True
+        window._update_menu_states()
+        window._load_cdf_folder(str(tmp_path))
+        assert not window.progress_dialog.isVisible()
+
+        window.cdf_data_loaded = True
+        window._update_menu_states()
+        window.on_data_regeneration_requested("Glucose", 0.2, ["s1"], 7.0)
+        assert not window.regen_progress_dialog.isVisible()
+
+        window.apply_mass_tolerance(window.mass_tolerance + 0.1)
+        assert not window.mass_tol_progress_dialog.isVisible()
+
+        session = tmp_path / "session.json"
+        session.write_text("{}")
+        window._reextract_after_session_import(str(session))
+        assert not window.regen_progress_dialog.isVisible()
+        assert window.export_data_action.isEnabled()
+        assert titles == [
+            "Import failed",
+            "Regeneration Blocked",
+            "Regeneration Failed",
+            "Some Samples Were Not Re-extracted",
+        ]
+    finally:
+        window.close()
+
+
 def test_load_cdf_folder_noop_when_cdf_already_loaded(
     qapp, empty_db, monkeypatch, tmp_path
 ):

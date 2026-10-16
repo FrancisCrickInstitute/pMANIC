@@ -35,10 +35,10 @@ export sheets, and scientific rationale) is in
 
 ## Upgrading to MANIC 5
 
-> **⚠️ The Corrected Values sheet changes in 5.0. Ratio sheets move by less than half a percentage point; the largest change we found was 45.3% → 45.8%. Calibrated nmol amounts move by under 2.5%.**
+> **⚠️ Exported numbers change in 5.0. Corrected Values change for every compound. The ratio sheets change most for small and unlabelled peaks, because correction now runs once on the integrated areas. Reprocess older data with 5.0 before comparing any sheet.**
 
-Two processing changes in 5.0 alter exported numbers. Both are measured below
-on two real lab datasets.
+Three processing changes in 5.0 alter exported numbers. The first two are
+measured below on two real lab datasets, the third on simulated data.
 
 ### The short version
 
@@ -46,10 +46,15 @@ on two real lab datasets.
   baseline clamp (next section). On dataset_1, 11.8% of channel areas moved,
   by a median of 0.12%, and 90% of those that moved did so by under 1.9%.
 - **Isotope Ratio, % Label Incorporation, % Carbons Labelled.** Move by less
-  than half a percentage point. The largest change found anywhere was an
-  Isotope Ratio of 45.30% becoming 45.78%. Your 4.x results stand.
+  than half a percentage point from the correction fix alone. The largest
+  change found anywhere was an Isotope Ratio of 45.30% becoming 45.78%.
+  Correcting the integrated areas moves them further for small peaks: in a
+  simulated unlabelled export, % Label Incorporation fell from 3.25% to 1.12%
+  at a 2,000-count apex and from 0.65% to 0.27% at 20,000 counts.
 - **Abundances (nmol) for compounds calibrated against MM files.** Change by
-  under 2.5%, and typically by about 0.1%. Your 4.x results stand.
+  under 2.5%, and typically by about 0.1%, from the correction fix alone.
+  Small peaks can move further with the new correction order (not measured
+  separately).
 - **Abundances for compounds with no MM-file calibration.** Drop by 15 to 35%.
   5.0 labels these columns **Relative** instead of nmol, because they never
   were absolute amounts.
@@ -82,6 +87,14 @@ that line dipped below zero, the negative area was subtracted too, which
 added area to the peak. 5.0 subtracts only the part of the line above zero. A
 baseline can therefore only ever reduce a peak. This affects Raw Values and
 everything computed from them.
+
+**Correction order.** Up to 4.x, and in 5.0.0-alpha, MANIC corrected every
+scan, set negative scans to zero and then integrated. Noise in an
+isotopologue with no real label swings above and below zero, so zeroing each
+negative scan kept only the positive swings and added false label. The
+smaller the peak, the more false label. 5.0 integrates the raw traces first
+and corrects the integrated areas once. Raw Values do not change. See
+[Correct the Integrated Areas](docs/Reference_Natural_Isotope_Correction.md#3-correct-the-integrated-areas).
 
 ### How we checked
 

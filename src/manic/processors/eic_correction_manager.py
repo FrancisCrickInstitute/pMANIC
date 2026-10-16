@@ -27,14 +27,23 @@ logger = logging.getLogger(__name__)
 
 
 def make_time_series_corrector(compound: Compound):
+    return _make_corrector(compound, NaturalAbundanceCorrector.correct_time_series)
+
+
+def make_area_corrector(compound: Compound):
+    return _make_corrector(compound, NaturalAbundanceCorrector.correct_areas)
+
+
+def _make_corrector(compound: Compound, correct):
     if not compound.formula or (compound.label_atoms or 0) <= 0:
         return None
     corrector = NaturalAbundanceCorrector()
 
-    def apply(matrix: np.ndarray) -> np.ndarray:
-        raw = np.asarray(matrix, dtype=np.float64)
+    def apply(values: np.ndarray) -> np.ndarray:
+        raw = np.asarray(values, dtype=np.float64)
         try:
-            return corrector.correct_time_series(
+            return correct(
+                corrector,
                 raw,
                 compound.formula,
                 compound.label_type,

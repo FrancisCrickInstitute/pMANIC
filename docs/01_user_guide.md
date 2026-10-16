@@ -412,7 +412,7 @@ Two ticks sit under **Baseline correction**.
     * Ticked: Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * Unticked: Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
 * **Usage:** Toggle this to check how correction redistributes the isotopologue signals.
-* **Note:** This setting only affects the *display* and the on-screen bars. Export still writes both Raw and Corrected sheets from the raw fit, then correction of that selected component. Time-based export uses a denser evaluation of the fit for a more accurate area.
+* **Note:** This setting only affects the *display* and the on-screen bars. Export always integrates the raw fit for Raw Values, then corrects those integrated areas for Corrected Values. The on-screen bars use the same order. Time-based export uses a denser evaluation of the fit for a more accurate area.
 * **Deep Dive:** 📖 [Natural Isotope Correction Algorithm](Reference_Natural_Isotope_Correction.md)
 
 ---
@@ -442,9 +442,9 @@ Use this feature when you possess the exported "Raw Values" (integrated peak are
 **How It Works**
 MANIC reads the raw areas from the workbook, pairs them with the compound list, and writes five sheets: **Raw Values**, **Corrected Values**, **Isotope Ratio**, **% Label Incorporation**, and **Abundances**.
 
-> **⚠️ Scientific Limitation: Approximate Mode**
-> Because the original raw data (CDF) is missing, MANIC cannot perform the standard "per-timepoint" correction. Instead, it applies a mathematical approximation to the **total integrated area**.
-> * **Result:** The "Corrected Values" may differ slightly from a full re-analysis of raw CDFs.
+> **⚠️ Scientific Limitation: No Re-integration**
+> MANIC corrects the integrated areas in both workflows, so the correction itself is the same. Because the original raw data (CDF) is missing, MANIC uses the areas in your workbook as they are.
+> * **Result:** The "Corrected Values" differ from a full re-analysis of raw CDFs wherever the original integration differs from MANIC's (window, baseline correction, deconvolution, or integration units).
 > * **Restriction:** You cannot adjust integration boundaries or view chromatograms in this mode.
 
 **Full Explanation:** 📖 [Process External Data](Workflow_Process_External_Data.md)
@@ -458,7 +458,7 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 | Feature | v3.3.0 (Legacy) | v4.0.0 (Python) |
 | :--- | :--- | :--- |
 | **Integration** | Unit-spacing (large values) | Time-based (physically meaningful). *Legacy mode available.* |
-| **NA Correction** | Applied *after* integration | Applied *before* integration (per timepoint) for higher accuracy. |
+| **NA Correction** | Applied *after* integration | Applied *before* integration (per timepoint). MANIC 5.0 applies it *after* integration again, because correcting every scan added false label. |
 | **MRRF** | Sum-based calculation | Mean-based calculation (more robust to sample count variations). |
 | **Validation** | Manual visual check | Automatic red/white quality indicators. |
 

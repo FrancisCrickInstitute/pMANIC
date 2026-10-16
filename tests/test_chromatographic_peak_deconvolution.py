@@ -1404,7 +1404,7 @@ def test_legacy_bundle_areas_integrate_and_correct_the_selected_component(
         time,
         bundle,
         raw,
-        correct_time_series=lambda matrix: swap_m0_m2 @ matrix,
+        correct_areas=lambda areas: swap_m0_m2 @ areas,
         baseline_correction=baseline_correction,
         use_legacy=True,
         label_atoms=2,

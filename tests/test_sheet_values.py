@@ -13,7 +13,11 @@ from manic.io.in_memory_provider import InMemoryDataProvider
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.processors.calibration import calculate_mrrf_values
-from manic.processors.eic_correction_manager import process_all_corrections
+from manic.processors.display_deconvolution import integrated_display_areas
+from manic.processors.eic_correction_manager import (
+    ensure_corrections_for_export,
+    process_all_corrections,
+)
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
 from manic.sheet_generators import (
     abundances,
@@ -319,6 +323,61 @@ def test_process_all_corrections_matches_correct_time_series(empty_db):
         ).fetchone()
     stored = np.frombuffer(zlib.decompress(row["y_axis_corrected"]), dtype=np.float64)
     np.testing.assert_allclose(stored, expected.ravel())
+
+
+@pytest.mark.parametrize("deconvolution_level", ["off", "4"])
+def test_unlabelled_noisy_peak_corrected_values_correct_the_raw_areas(
+    empty_db, deconvolution_level
+):
+    corrector = NaturalAbundanceCorrector()
+    matrix = corrector.build_correction_matrix(
+        corrector.calculate_derivative_formula("C3H6O3", tbdms=2)[0], "C", 3
+    )
+    time = np.linspace(5.8, 6.2, 121)
+    peak = 20000.0 * np.exp(-0.5 * ((time - 6.0) / 0.02) ** 2)
+    rng = np.random.default_rng(177)
+    measured = rng.poisson(np.outer(matrix[:, 0], peak)) + rng.normal(
+        0.0, 30.0, (4, time.size)
+    )
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms, formula, label_type, tbdms, baseline_correction, "
+            "deconvolution_level) "
+            "VALUES ('Lactate', 6.0, 0.1, 0.1, 261.0, 3, 'C3H6O3', 'C', 2, 1, ?)",
+            (deconvolution_level,),
+        )
+        conn.execute("INSERT INTO samples (sample_name, file_name) VALUES ('S1', '/fake/S1.cdf')")
+        conn.execute(
+            "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window) "
+            "VALUES ('S1', 'Lactate', ?, ?, 0.2)",
+            (
+                zlib.compress(time.tobytes()),
+                zlib.compress(measured.astype(np.float64).ravel().tobytes()),
+            ),
+        )
+    ensure_corrections_for_export()
+
+    provider = DataProvider()
+    raw = provider.get_sample_raw_data("S1")["Lactate"]
+    corrected = provider.get_sample_corrected_data("S1")["Lactate"]
+
+    assert corrected[1:] == [0.0, 0.0, 0.0], "an unlabelled sample shows no label"
+    integrate_first = np.maximum(np.linalg.solve(matrix, raw), 0.0)
+    np.testing.assert_allclose(corrected, integrate_first, rtol=1e-12)
+    np.testing.assert_allclose(
+        DataProvider().get_compound_areas("S1", "Lactate"), corrected, rtol=1e-12
+    )
+    compound = SimpleNamespace(
+        retention_time=6.0, loffset=0.1, roffset=0.1, baseline_correction=1,
+        deconvolution_level=deconvolution_level, formula="C3H6O3", label_atoms=3,
+        label_type="C", tbdms=2, meox=0, me=0,
+    )
+    np.testing.assert_allclose(
+        integrated_display_areas(time, measured, compound, use_corrected=True),
+        corrected,
+        rtol=1e-6,
+    )
 
 
 def test_export_to_excel_stops_and_leaves_no_file_when_callback_says_stop(

@@ -14,11 +14,13 @@ from manic.processors.chromatographic_peak_deconvolution import (
     deconvolve_channel_matrix,
     deconvolve_eic,
 )
+from manic.processors.eic_correction_manager import ensure_corrections_for_export
 from manic.processors.integration import (
     _integrate_dense_rows,
     _integrate_model_component,
     calculate_peak_areas,
 )
+from manic.validation.peak_verdict import PeakVerdict
 
 
 def _blob(values: np.ndarray) -> bytes:
@@ -93,8 +95,8 @@ def test_corrected_export_uses_deconvolved_raw_component(empty_db, monkeypatch):
     monkeypatch.setattr(data_provider, "deconvolve_channel_matrix", fake_deconvolve)
 
     class IdentityCorrector:
-        def correct_time_series(self, matrix, *args, **kwargs):
-            return np.asarray(matrix, dtype=np.float64)
+        def correct_areas(self, areas, *args, **kwargs):
+            return np.asarray(areas, dtype=np.float64)
 
     monkeypatch.setattr(data_provider, "NaturalAbundanceCorrector", IdentityCorrector)
 
@@ -160,8 +162,8 @@ def test_model_path_raw_and_corrected_differ_only_by_correction():
     provider = DataProvider()
     # Identity correction: raw and corrected must be bit-for-bit identical
     # because they now flow through the same integration routine.
-    provider._correct_time_series = lambda matrix, r: np.asarray(
-        matrix, dtype=np.float64
+    provider._correct_areas = lambda areas, r: np.asarray(
+        areas, dtype=np.float64
     )
     raw_intensity = np.zeros((2, 5), dtype=np.float64)
     raw_areas, corrected_areas = provider._areas_from_deconvolved(
@@ -176,9 +178,9 @@ def test_model_path_raw_and_corrected_differ_only_by_correction():
 
     # A pure channel-wise scaling correction scales the integrated areas by the
     # same factor, proving correction is the only thing that differs.
-    provider._correct_time_series = lambda matrix, r: np.asarray(
-        matrix, dtype=np.float64
-    ) * np.array([[0.5], [2.0]])
+    provider._correct_areas = lambda areas, r: np.asarray(
+        areas, dtype=np.float64
+    ) * np.array([0.5, 2.0])
     raw_areas2, corrected_areas2 = provider._areas_from_deconvolved(
         np.array([0, 1, 2, 3, 4], dtype=np.float64),
         deconvolved,
@@ -192,7 +194,7 @@ def test_model_path_raw_and_corrected_differ_only_by_correction():
     assert corrected_areas2[1] == pytest.approx(raw_areas2[1] * 2.0)
 
 
-def test_model_path_corrected_baseline_uses_corrected_scans():
+def test_model_path_correction_scales_baseline_subtracted_areas():
     class Fake1DModel:
         integration_left = 1.0
         integration_right = 3.0
@@ -233,9 +235,9 @@ def test_model_path_corrected_baseline_uses_corrected_scans():
         "me": 0,
     }
     provider = DataProvider()
-    provider._correct_time_series = lambda matrix, r: np.asarray(
-        matrix, dtype=np.float64
-    ) * np.array([[0.5], [2.0]])
+    provider._correct_areas = lambda areas, r: np.asarray(
+        areas, dtype=np.float64
+    ) * np.array([0.5, 2.0])
     raw_areas, corrected_areas = provider._areas_from_deconvolved(
         time,
         bundle,
@@ -307,7 +309,7 @@ def test_export_raw_areas_match_direct_integration():
     assert model.integration_right < 5.0 + 0.5
 
     provider = DataProvider()
-    provider._correct_time_series = lambda matrix, r: np.asarray(matrix, dtype=np.float64)
+    provider._correct_areas = lambda areas, r: np.asarray(areas, dtype=np.float64)
     raw_areas, _ = provider._areas_from_deconvolved(
         time,
         bundle,
@@ -381,7 +383,7 @@ def test_mixed_bundle_uses_raw_scans_for_every_channel():
     intensity = np.vstack([clean, failed])
     row = _mixed_row()
     provider = DataProvider()
-    provider._correct_time_series = lambda matrix, r: np.asarray(matrix, dtype=np.float64)
+    provider._correct_areas = lambda areas, r: np.asarray(areas, dtype=np.float64)
     raw_areas, corrected_areas = provider._areas_from_deconvolved(
         time,
         _mixed_bundle(time, fitted, failed),
@@ -421,7 +423,7 @@ def test_mixed_overlap_export_matches_raw_window_not_isolated_component():
     )
     assert fitted.model is not None
     provider = DataProvider()
-    provider._correct_time_series = lambda matrix, r: np.asarray(matrix, dtype=np.float64)
+    provider._correct_areas = lambda areas, r: np.asarray(areas, dtype=np.float64)
     raw_areas, _ = provider._areas_from_deconvolved(
         time,
         _mixed_bundle(time, fitted, failed),
@@ -468,9 +470,9 @@ def test_mixed_bundle_correction_and_baseline_use_raw_window():
     )
     assert fitted.model is not None
     provider = DataProvider()
-    provider._correct_time_series = lambda matrix, r: np.asarray(
-        matrix, dtype=np.float64
-    ) * np.array([[0.5], [2.0]])
+    provider._correct_areas = lambda areas, r: np.asarray(
+        areas, dtype=np.float64
+    ) * np.array([0.5, 2.0])
     raw_areas, corrected_areas = provider._areas_from_deconvolved(
         time,
         _mixed_bundle(time, fitted, failed),
@@ -528,7 +530,7 @@ def test_empty_ions_keep_export_on_the_model_path():
     assert bundle.uses_model_areas()
 
     provider = DataProvider()
-    provider._correct_time_series = lambda matrix, r: np.asarray(matrix, dtype=np.float64)
+    provider._correct_areas = lambda areas, r: np.asarray(areas, dtype=np.float64)
     raw_areas, corrected_areas = provider._areas_from_deconvolved(
         time,
         bundle,
@@ -565,3 +567,41 @@ def test_empty_ions_keep_export_on_the_model_path():
     assert raw_areas[1] > 0
     assert raw_areas[2] == pytest.approx(0.0)
     assert corrected_areas == pytest.approx(raw_areas)
+
+
+def test_tile_verdict_matches_export_before_corrections_exist(empty_db):
+    time = np.array([0, 1, 2], dtype=np.float64)
+    with database.get_connection() as conn:
+        conn.execute("INSERT INTO samples (sample_name) VALUES ('S1')")
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms, formula, baseline_correction, deconvolution_level) "
+            "VALUES ('X', 1, 2, 2, 100, 2, 'C2', 0, 'off')"
+        )
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms, int_std_amount, baseline_correction, "
+            "deconvolution_level) VALUES ('IS', 1, 2, 2, 200, 0, 1.0, 0, 'off')"
+        )
+        for name, intensity in [
+            ("X", [0, 100, 0, 0, 0, 0, 0, 0, 0]),
+            ("IS", [0, 1000, 0]),
+        ]:
+            conn.execute(
+                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis) "
+                "VALUES (?, ?, ?, ?)",
+                ("S1", name, _blob(time), _blob(intensity)),
+            )
+
+    # Raw total is 100 and corrected total is about 102.2, so 0.101 x IS
+    # splits them.
+    tile_provider = DataProvider()
+    tile_verdict = tile_provider.peak_verdict("S1", "X", "IS", 0.101)
+
+    ensure_corrections_for_export()
+    export_provider = DataProvider()
+    export_provider.load_bulk_sample_data()
+
+    assert tile_verdict == PeakVerdict.PASS
+    assert export_provider.peak_verdict("S1", "X", "IS", 0.101) == PeakVerdict.PASS
+    assert tile_provider.peak_verdict("S1", "X", "IS", 0.101) == PeakVerdict.PASS

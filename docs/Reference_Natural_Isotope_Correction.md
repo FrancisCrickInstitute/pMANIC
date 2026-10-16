@@ -16,18 +16,18 @@ MANIC models the relationship between the **Measured Raw Signal ($b$)** and the 
 $$A \cdot x = b$$
 
 Where:
-* **$b$ (Vector):** The raw intensities measured by the instrument at M+0, M+1, M+2, etc.
+* **$b$ (Vector):** The integrated raw peak areas measured at M+0, M+1, M+2, etc.
 * **$x$ (Vector):** The unknown "true" amounts of unlabelled (M+0), 1-labelled (M+1), etc.
 * **$A$ (Matrix):** The **Correction Matrix**. Each column $j$ represents the theoretical isotopic distribution of a compound with exactly $j$ labels.
 
 ### The Solution
-To find the true abundances ($x$), MANIC solves the linear system at every timepoint:
+To find the true abundances ($x$), MANIC solves the linear system once for each compound in each sample, on the vector of integrated raw areas:
 
 $$x = A^{-1} \cdot b$$
 
 This is a single solve of $A x = b$. There is no later scaling by the diagonal of $A$.
 
-> **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by less than half a percentage point.**
+> **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. This change alone moves the ratio sheets by less than half a percentage point. Correcting the integrated areas (section 3) moves them further for small peaks.**
 > Versions up to 4.x performed the solve and then divided each isotopologue by
 > the matching diagonal element of $A$, an extra step inherited from the legacy
 > MATLAB flow. That step has no basis in $A x = b$ and inflated every channel by
@@ -50,7 +50,11 @@ This is a single solve of $A x = b$. There is no later scaling by the diagonal o
 > **What this means for you.** Do not compare 4.x Corrected Values, or 4.x
 > abundances of compounds without MM-file calibration, against 5.0 output;
 > reprocess the older data with 5.0 first. Ratio sheets and calibrated nmol
-> amounts from 4.x remain usable. The README's *Upgrading to MANIC 5* section
+> amounts from 4.x stay within the margins above for this change alone, but
+> 5.0 also corrects the integrated areas instead of every scan (see
+> [Correct the Integrated Areas](#3-correct-the-integrated-areas)), which moves
+> the ratio sheets for small peaks. Reprocess older data with 5.0 before
+> comparing any sheet. The README's *Upgrading to MANIC 5* section
 > has the full tables.
 
 MANIC treats the tracer as 99% isotopically pure. One percent of labelled positions still carry the light isotope. That is a fixed constant, typical of commercial ¹³C tracers. Get in touch if your tracer differs.
@@ -92,20 +96,39 @@ Before building the matrix, MANIC adjusts the molecular formula to include the a
 
 ---
 
-## 3. Per-Timepoint Correction
+## 3. Correct the Integrated Areas
 
-A key feature of MANIC (compared to the legacy v3.3.0 tool) is that this correction is applied **before integration**.   
+MANIC integrates each raw isotopologue trace first, then corrects the integrated areas once. IsoCor and the legacy v3.3.0 tool use the same order.
 
-* **Legacy:** Integrate raw M+0, M+1, M+2 peaks $\rightarrow$ Apply correction to the total areas.
-* **MANIC:** Apply correction to every scan (timepoint) $\rightarrow$ Integrate the "Corrected Chromatogram."
+1. Integrate the raw M+0, M+1, M+2 traces with the compound's normal integration: the integration window, baseline correction, legacy or time-based integration, and chromatographic peak deconvolution. These areas are the **Raw Values**.
+2. Solve $A x = b$ once with those areas as $b$. Set any negative result to 0. The result is the **Corrected Values**.
 
-This provides higher accuracy because it prevents baseline noise or interfering peaks at specific timepoints from skewing the global correction.
+The solve is linear, so correcting the areas gives the same answer as correcting every scan and then integrating, except for the step that sets negatives to 0. That step is why the order matters. In an isotopologue whose true amount is 0, noise swings above and below 0 from scan to scan. Setting each negative scan to 0 before integrating keeps only the positive swings, and that adds a false labelled signal. The smaller the peak, the larger the false label.
 
-The envelope that enters this correction must be the same kind of measurement on every ion. If chromatographic peak deconvolution fitted every non-empty ion of a compound in a sample, correction runs on the dense selected curves. Empty ions contribute zeros. If any ion with real intensity failed to fit, correction runs on the raw in-window scans for every non-empty ion of that pair. Empty rows stay zero. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
+> **⚠️ Changed in MANIC 5.0. Corrected Values and the ratio sheets differ from 4.x and from 5.0.0-alpha, most for small peaks.**
+> Versions up to 4.x, and 5.0.0-alpha, corrected every scan, set negative scans
+> to 0, and then integrated the corrected traces. This added a false labelled
+> signal to unlabelled samples. MM-file background subtraction cannot remove
+> it, because the false label depends on peak height, and MM peaks and sample
+> peaks differ in size.
+>
+> **What we measured.** Simulated unlabelled lactate (2 TBDMS, 3 label atoms)
+> with shot noise and detector noise, baseline correction on, 200 replicates.
+> At a 200,000-count apex the label shown fell from 0.12% to 0.03%; at 20,000
+> counts, from 0.51% to 0.16%. When M+3 is scanned 0.3 of a scan after M+0,
+> as on a quadrupole, the old order showed 0.47% and 0.62%, against 0.03% and
+> 0.17% now.
+>
+> **What this means for you.** Corrected Values, Isotope Ratio,
+> % Label Incorporation, % Carbons Labelled and Abundances change. Unlabelled
+> and weakly labelled small peaks move the most. Raw Values do not change.
+> Reprocess older data with this version before you compare it.
 
-**Settings → Natural Abundance** uses that same order on screen. It fits the raw traces, then corrects that measurement for the tiles when the compound has a correction formula and labelled atoms. Otherwise, the plot keeps the raw fitted view. Preview draws corrected values at the acquisition scan times. When deconvolution selects a fitted component, preview also retains a faint raw EIC for context. Peaks outside the selected component remain visible in that context but do not enter correction or integration. Time-based Isotopologue Ratio bars and the Corrected Values sheet use the same raw fit and integration path. Each bar is one isotopologue's corrected area divided by the sample's total, so it equals the Isotope Ratio sheet number. Legacy export remains scan-point based and uses different units. The toggle does not write `eic_corrected`. Export still fills that table when you export.
+The areas that enter this correction must be the same kind of measurement on every ion. If chromatographic peak deconvolution fitted every non-empty ion of a compound in a sample, each area comes from the dense selected curve. Empty ions contribute zeros. If any ion with real intensity failed to fit, every non-empty ion of that pair is integrated from its raw in-window scans. Empty rows stay zero. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
 
-When the dense-curve path is used with baseline correction on, the curve and the baseline ends are corrected separately: the area from the dense grid, the straight-line ends from the isolated component at the real scan times. See [One fit for display and integration](Reference_Chromatographic_Peak_Deconvolution.md#one-fit-for-display-and-integration).
+With baseline correction on, MANIC subtracts the baseline from each raw area before correction. A raw area that falls below zero after baseline subtraction is set to 0 before correction. See [Baseline Correction](Reference_Baseline_Correction.md).
+
+**Settings → Natural Abundance** fits the raw traces, then draws the correction of every scan for the tiles when the compound has a correction formula and labelled atoms. Otherwise, the plot keeps the raw fitted view. Preview draws corrected values at the acquisition scan times. When deconvolution selects a fitted component, preview also retains a faint raw EIC for context. Peaks outside the selected component remain visible in that context but do not enter correction or integration. The corrected trace is a picture only: negative scans are drawn at 0, so it can show small positive blips in an isotopologue whose corrected area is 0. Time-based Isotopologue Ratio bars and the Corrected Values sheet both correct the integrated raw areas. Each bar is one isotopologue's corrected area divided by the sample's total, so it equals the Isotope Ratio sheet number. Legacy export uses unit-spacing integration and different units. The toggle does not write `eic_corrected`. Export still fills that table when you export, but does not read it for any number.
 
 ---
 
@@ -122,7 +145,9 @@ If you analyze a purely unlabeled standard:
 **Result:** Corrected values for M+0 are typically **higher** than raw values because they account for the signal "lost" to natural heavy isotopes.   
 
 ### Non-Negativity
-The algorithm enforces a non-negativity constraint. If noise causes the mathematical solution to be negative (e.g., $-0.5$), it is clamped to **0**.   
+After the solve, MANIC sets any negative corrected area (e.g., $-0.5$) to **0**. This applies to the integrated areas, not to each scan.
+
+This is the step the MATLAB tool uses. It is not a constrained fit. A non-negative least-squares fit gives a different answer whenever a value would be negative, because it adjusts the other isotopologues to compensate. Setting the negatives to 0 leaves the other isotopologues as the unconstrained solve gave them.
 
 ---
 

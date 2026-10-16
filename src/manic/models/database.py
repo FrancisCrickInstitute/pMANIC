@@ -181,8 +181,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         pass
 
 
-def _pack(values) -> bytes:
-    return zlib.compress(np.array(values, dtype=np.float64).tobytes())
+def _pack_columns(rows) -> tuple[bytes, bytes]:
+    """Pack the last two columns of rows (time or m/z, then intensity) as two blobs."""
+    *_, xs, ys = zip(*rows)
+    return (
+        zlib.compress(np.array(xs, dtype=np.float64).tobytes()),
+        zlib.compress(np.array(ys, dtype=np.float64).tobytes()),
+    )
 
 
 def _migrate_point_rows_to_blobs(conn: sqlite3.Connection) -> None:
@@ -199,12 +204,12 @@ def _migrate_point_rows_to_blobs(conn: sqlite3.Connection) -> None:
             "WHERE deleted = 0 AND sample_name IN (SELECT sample_name FROM samples) "
             "ORDER BY sample_name, time"
         )
-        traces = []
-        for sample_name, rows in groupby(points, key=itemgetter(0)):
-            rows = list(rows)
-            traces.append(
-                (sample_name, _pack([r[1] for r in rows]), _pack([r[2] for r in rows]))
-            )
+        # Generators let executemany pack and insert one group at a time, so memory
+        # stays bounded however large the old tables are.
+        traces = (
+            (sample_name, *_pack_columns(rows))
+            for sample_name, rows in groupby(points, key=itemgetter(0))
+        )
         conn.executemany("INSERT OR REPLACE INTO tic_trace VALUES (?, ?, ?)", traces)
         conn.execute("DROP TABLE tic_data")
 
@@ -215,12 +220,10 @@ def _migrate_point_rows_to_blobs(conn: sqlite3.Connection) -> None:
             "WHERE deleted = 0 AND sample_name IN (SELECT sample_name FROM samples) "
             "ORDER BY sample_name, time, mz"
         )
-        spectra = []
-        for (sample_name, scan_time), rows in groupby(peaks, key=itemgetter(0, 1)):
-            rows = list(rows)
-            spectra.append(
-                (sample_name, scan_time, _pack([r[2] for r in rows]), _pack([r[3] for r in rows]))
-            )
+        spectra = (
+            (sample_name, scan_time, *_pack_columns(rows))
+            for (sample_name, scan_time), rows in groupby(peaks, key=itemgetter(0, 1))
+        )
         conn.executemany("INSERT OR REPLACE INTO ms_spectrum VALUES (?, ?, ?, ?)", spectra)
         conn.execute("DROP TABLE ms_data")
 

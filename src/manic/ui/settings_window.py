@@ -70,7 +70,16 @@ _DECONVOLUTION_GATE_OPTIONS = [
 
 
 class _ToleranceSpinBox(QDoubleSpinBox):
-    """The minimum, one step below 0, reads "Not set"; an empty field selects it."""
+    """The minimum, one step below 0 at the box's precision, reads "Not set".
+
+    An empty field selects it, and Up from it lands on 0.
+    """
+
+    def stepBy(self, steps: int) -> None:
+        if steps > 0 and self.value() == self.minimum():
+            self.setValue(0.0)
+            steps -= 1
+        super().stepBy(steps)
 
     def validate(self, text: str, pos: int):
         if not text.strip():
@@ -264,7 +273,7 @@ class QualifierRatioPage(SettingsPage):
             label = QLabel()
             spin = _ToleranceSpinBox()
             spin.setObjectName(f"qualifier{ordinal}ToleranceSpin")
-            spin.setRange(-0.01, 10.0)
+            spin.setRange(-0.001, 10.0)
             spin.setDecimals(3)
             spin.setSingleStep(0.01)
             spin.setSpecialValueText("Not set")

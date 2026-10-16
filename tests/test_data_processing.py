@@ -8,12 +8,14 @@ import numpy as np
 import pytest
 from types import SimpleNamespace
 
+from netCDF4 import Dataset
+
 import manic.io.cdf_data_extractor as cdf_data_extractor
 from manic.io.cdf_data_extractor import (
     _extract_ms_at_time_from_cdf_data,
     ensure_ms_data_for_time,
 )
-from manic.io.cdf_reader import CdfFileData
+from manic.io.cdf_reader import CdfFileData, read_cdf_file
 from manic.io.eic_importer import _extract_eic_optimized
 from manic.processors.eic_calculator import extract_eic
 from manic.processors.integration import calculate_peak_areas
@@ -288,6 +290,51 @@ def test_unlabelled_extraction_supports_arbitrary_diagnostic_masses():
         channel_count=3,
     )
     assert areas == pytest.approx([6.6666667, 2.6666667, 1.3333333])
+
+
+def test_extract_eic_from_float32_cdf_bins_masses_in_float64(tmp_path):
+    path = tmp_path / "S1.cdf"
+    # float32 99.7 is a bin edge: float64 arithmetic bins it to 99, float32 to 100.
+    with Dataset(path, "w", format="NETCDF3_CLASSIC") as cdf:
+        cdf.createDimension("scan_number", 2)
+        cdf.createDimension("point_number", 3)
+        variables = {
+            "scan_acquisition_time": ("scan_number", "f4", [60.0, 70.0]),
+            "total_intensity": ("scan_number", "f4", [12.0, 3.0]),
+            "scan_index": ("scan_number", "i4", [0, 2]),
+            "point_count": ("scan_number", "i4", [2, 1]),
+            "mass_values": ("point_number", "f4", [99.7, 100.0, 100.0]),
+            "intensity_values": ("point_number", "f4", [5.0, 7.0, 3.0]),
+        }
+        for name, (dimension, dtype, values) in variables.items():
+            cdf.createVariable(name, dtype, (dimension,))[:] = values
+
+    cdf = read_cdf_file(path)
+
+    for values in (cdf.scan_time, cdf.mass, cdf.intensity, cdf.total_intensity):
+        assert type(values) is np.ndarray
+        assert values.dtype == np.float64
+    assert type(cdf.scan_index) is np.ndarray
+    eic = extract_eic("Target", 1.1, 100.0, cdf, rt_window=0.2)
+
+    assert eic.intensity.tolist() == [7.0, 3.0]
+
+
+def test_extract_eic_slices_the_rt_window_once():
+    class CountingArray(np.ndarray):
+        slices = 0
+
+        def __getitem__(self, key):
+            CountingArray.slices += 1
+            return super().__getitem__(key)
+
+    cdf = make_cdf()
+    cdf.mass = cdf.mass.view(CountingArray)
+
+    eic = extract_eic("Target", 70.0 / 60.0, 100.0, cdf, rt_window=0.5)
+
+    assert eic.intensity.tolist() == [10.0, 20.0, 30.0]
+    assert CountingArray.slices == 1
 
 
 # ============================================================================

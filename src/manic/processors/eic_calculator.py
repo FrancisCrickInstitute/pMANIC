@@ -69,17 +69,17 @@ def _extract_eic_with_times(
     if idx.size == 0:
         raise EmptyRtWindowError("no scans inside RT window")
 
-    # Scan times are monotonic, so the in-window scans are contiguous.
-    start = cdf.scan_index[idx[0]]
-    if idx[-1] + 1 < len(cdf.scan_index):
-        stop = cdf.scan_index[idx[-1] + 1]
+    bounds = np.append(cdf.scan_index, len(cdf.mass))
+    starts, ends = bounds[idx], bounds[idx + 1]
+    if idx[-1] - idx[0] + 1 == idx.size:
+        # Monotonic scan times make the in-window scans one contiguous slice.
+        points = slice(starts[0], ends[-1])
     else:
-        stop = len(cdf.mass)
-    all_relevant_mass = cdf.mass[start:stop]
-    all_relevant_intensity = cdf.intensity[start:stop]
-    scan_indices = np.repeat(
-        np.arange(idx.size), np.diff(np.append(cdf.scan_index[idx], stop))
-    )
+        points = np.concatenate([np.arange(s, e) for s, e in zip(starts, ends)])
+    # EICs have always ignored CDF masks. Float64 matches masked arithmetic.
+    all_relevant_mass = np.ma.getdata(cdf.mass[points]).astype(np.float64, copy=False)
+    all_relevant_intensity = np.ma.getdata(cdf.intensity[points])
+    scan_indices = np.repeat(np.arange(idx.size), ends - starts)
 
     num_scans = len(idx)
     if target_mzs is None:

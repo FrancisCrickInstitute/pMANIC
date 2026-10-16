@@ -84,6 +84,7 @@ def write(
         samples,
         compounds,
         bulk_data,
+        validation_data,
         progress_callback,
     )
     if progress_callback:
@@ -221,6 +222,7 @@ def _write_qualifier_qc(
     samples,
     compounds,
     bulk_data,
+    validation_data,
     progress_callback,
 ) -> None:
     qc_sheet = workbook.add_worksheet("Qualifier QC")
@@ -250,6 +252,7 @@ def _write_qualifier_qc(
         )
         for outcome, fill in QUALIFIER_OUTCOME_FILL.items()
     }
+    stale_format = peak_verdict_formats(workbook)[PeakVerdict.STALE]
 
     qc_row = 1
     total = max(1, len(samples) * len(compounds))
@@ -264,7 +267,11 @@ def _write_qualifier_qc(
                 qc = None
 
             outcome = qualifier_outcome(qc)
-            row_format = outcome_formats[outcome]
+            # Gold wins so the old-tolerance warning matches the other sheets.
+            stale = (validation_data or {}).get(sample, {}).get(
+                compound.compound_name
+            ) is PeakVerdict.STALE
+            row_format = stale_format if stale else outcome_formats[outcome]
             areas = bulk_data.get(sample, {}).get(compound.compound_name)
             q_area = _q_area(areas)
             qualifier_results = (

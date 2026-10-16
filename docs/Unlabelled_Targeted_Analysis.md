@@ -398,6 +398,10 @@ per sample × compound and written on every qualifier row of that group:
 | **Not detected** | Q ion was not found, so no ratio could be assessed | Dark grey |
 | **No qualifiers** | No scored qualifier ratio (missing ratio/tolerance, or no qualifier ions) | Grey |
 
+Rows of a stale sample, one whose EICs still use an older mass tolerance (see
+[Mass Tolerance](Reference_Mass_Tolerance.md)), are **light gold** instead of the
+Outcome colour. The text is unchanged, but it was computed from old-tolerance EICs.
+
 Identity status stays in the app chart, not the workbook.
 
 A session changelog is also written. For unlabelled mode it records Q/qualifier ion

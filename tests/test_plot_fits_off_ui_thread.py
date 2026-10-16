@@ -17,7 +17,7 @@ from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.tile_y_scale import TileScaleInput, YScalePolicy, axes_for_tiles
 from manic.ui.graphs import GraphView
 from manic.ui.isotopologue_ratio_widget import IsotopologueRatioWidget
-from manic.validation.peak_verdict import PeakVerdict
+from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import IdentityStatus
 
 from conftest import _gaussian, _make_window
@@ -324,3 +324,74 @@ def test_closing_the_window_drops_pending_fit_results(qapp, window, gated_fits):
 
     assert not window.graph_view.fits_pending
     assert delivered == []
+
+
+def _tile_verdicts(window):
+    return {p.sample_name: p.parent().verdict for p in window.graph_view._current_plots}
+
+
+def test_clearing_the_standard_while_fitting_keeps_the_new_verdicts(
+    qapp, window, gated_fits
+):
+    gate, _ = gated_fits
+    window.toolbar.standard.set_internal_standard("Alpha")
+    window.min_peak_height_ratio = 1.0
+    _navigate(window, "Beta")
+    assert window.graph_view.fits_pending
+    window.toolbar.on_internal_standard_cleared()
+    expected = {s: PeakVerdict.PASS for s in SAMPLES}
+    assert _tile_verdicts(window) == expected
+
+    gate.set()
+    _wait_for_fits(qapp, window)
+
+    assert window._peak_verdicts("Beta", SAMPLES) == expected
+    assert _tile_verdicts(window) == expected
+
+
+def test_a_review_made_while_verdicts_compute_survives_their_arrival(
+    qapp, window, monkeypatch
+):
+    deconvolution._fit_single_component_model_cached.cache_clear()
+    deconvolution._fit_joint_component_model_cached.cache_clear()
+    window.toolbar.standard.set_internal_standard("Alpha")
+    window.min_peak_height_ratio = 1.0
+    entered = threading.Event()
+    release = threading.Event()
+    original = DataProvider.peak_verdict
+
+    def paused(self, sample, compound, *args, **kwargs):
+        result = original(self, sample, compound, *args, **kwargs)
+        on_worker = threading.current_thread() is not threading.main_thread()
+        if compound == "Beta" and sample == "S1" and on_worker:
+            entered.set()
+            assert release.wait(10)
+        return result
+
+    monkeypatch.setattr(DataProvider, "peak_verdict", paused)
+    try:
+        _navigate(window, "Beta")
+        assert entered.wait(10)
+        window.on_peak_review_changed("Beta", ["S1"], PeakReview.REJECTED)
+        assert _tile_verdicts(window)["S1"] == PeakVerdict.REJECTED
+    finally:
+        release.set()
+    _wait_for_fits(qapp, window)
+
+    assert _tile_verdicts(window)["S1"] == PeakVerdict.REJECTED
+
+
+def test_selecting_a_tile_while_fitting_keeps_identity_to_the_selection(
+    qapp, unlabelled_window, gated_fits
+):
+    gate, _ = gated_fits
+    window = unlabelled_window
+    _navigate(window, "Beta")
+    window.graph_view.select_samples(["S1"])
+
+    gate.set()
+    _wait_for_fits(qapp, window)
+
+    assert window.graph_view.get_selected_samples() == ["S1"]
+    identity = window.toolbar.targeted_qc._identity
+    assert [s.sample_name for s in identity.samples] == ["S1"]

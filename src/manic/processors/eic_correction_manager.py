@@ -418,38 +418,64 @@ def has_correction(sample_name: str, compound_name: str) -> bool:
         return row["count"] > 0 if row else False
 
 
-_MISSING_CORRECTIONS_SQL = """
-    SELECT DISTINCT c.compound_name
-    FROM eic e
-    JOIN compounds c ON e.compound_name = c.compound_name
-    LEFT JOIN eic_corrected ec
-       ON ec.sample_name = e.sample_name
-      AND ec.compound_name = e.compound_name
-      AND ec.deleted = 0
-    WHERE e.deleted = 0
-      AND c.deleted = 0
+_LABELLED_WITH_EIC_SQL = """
+    SELECT c.compound_name, c.formula, c.label_type, c.label_atoms,
+           c.tbdms, c.meox, c.me
+    FROM compounds c
+    WHERE c.deleted = 0
       AND c.label_atoms > 0
-      AND ec.id IS NULL
+      AND EXISTS (
+          SELECT 1 FROM eic e
+          WHERE e.compound_name = c.compound_name AND e.deleted = 0
+      )
     ORDER BY c.compound_name
 """
 
 
-def compounds_missing_corrections() -> list[str]:
-    with get_connection() as conn:
-        return [row[0] for row in conn.execute(_MISSING_CORRECTIONS_SQL)]
+def _correctable_from_raw(conn, row, corrector: NaturalAbundanceCorrector) -> bool:
+    # A compound failing any check cannot be corrected from its raw traces.
+    if not row["formula"]:
+        return False
+    channels = row["label_atoms"] + 1
+    for eic in conn.execute(
+        "SELECT x_axis, y_axis FROM eic WHERE compound_name = ? AND deleted = 0",
+        (row["compound_name"],),
+    ):
+        try:
+            points = np.frombuffer(zlib.decompress(eic["x_axis"]), dtype=np.float64).size
+            values = np.frombuffer(zlib.decompress(eic["y_axis"]), dtype=np.float64).size
+        except (ValueError, zlib.error):
+            return False
+        if values != channels * points:
+            return False
+    try:
+        corrector.correct_time_series(
+            np.zeros((channels, 1)),
+            row["formula"],
+            row["label_type"],
+            row["label_atoms"],
+            row["tbdms"],
+            row["meox"],
+            row["me"],
+        )
+    except Exception:
+        return False
+    return True
 
 
 def ensure_corrections_for_export() -> None:
-    missing = compounds_missing_corrections()
-    if not missing:
-        return
-    logger.info("Applying natural isotope corrections for %d compounds", len(missing))
-    process_all_corrections(progress_cb=None)
-    still_missing = compounds_missing_corrections()
-    if still_missing:
+    """Refuse export if a labelled compound cannot be corrected from its raw traces."""
+    corrector = NaturalAbundanceCorrector()
+    with get_connection() as conn:
+        uncorrectable = [
+            row["compound_name"]
+            for row in conn.execute(_LABELLED_WITH_EIC_SQL).fetchall()
+            if not _correctable_from_raw(conn, row, corrector)
+        ]
+    if uncorrectable:
         raise RuntimeError(
             "Natural abundance correction failed for: "
-            + ", ".join(still_missing)
+            + ", ".join(uncorrectable)
             + ". Fix the formula or label_atoms for these compounds, "
             "or delete them, then export again."
         )

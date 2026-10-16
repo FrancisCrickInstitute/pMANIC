@@ -2613,9 +2613,8 @@ class MainWindow(QMainWindow):
         - Raw Values sheet: Uncorrected instrument signals
         - Corrected Values sheet: Natural isotope abundance corrected signals
 
-        If corrections have not yet been applied to the database (because the user never
-        toggled the correction on in the UI), they will be automatically applied before
-        export to ensure data integrity.
+        Export corrects the integrated areas itself. Before it starts, it refuses
+        any labelled compound whose raw traces cannot be corrected.
         """
         try:
             # Get export file path

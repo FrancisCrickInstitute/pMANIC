@@ -1,3 +1,7 @@
+import json
+
+from PySide6.QtWidgets import QFileDialog, QMessageBox
+
 from manic.models import database
 from manic.models.database import soft_delete_compound
 
@@ -35,6 +39,45 @@ def test_deleting_internal_standard_clears_it(qapp, monkeypatch):
 
     assert soft_delete_compound("Norvaline")
     window.toolbar.compounds_deleted.emit(["Norvaline"])
+
+    assert window.toolbar.get_internal_standard() is None
+    assert window.toolbar.standard.toolTip() == "Int Std: none"
+    assert window.internal_standard_reference_isotope == 0
+    window.close()
+
+
+def test_session_import_deleting_internal_standard_clears_it(
+    qapp, monkeypatch, tmp_path
+):
+    window = _window_with_standard(monkeypatch)
+    session = tmp_path / "legacy_session.json"
+    session.write_text(
+        json.dumps(
+            {
+                "compounds": [
+                    {"compound_name": "Norvaline", "retention_time": 1.0,
+                     "mass0": 217.0, "deleted": 1},
+                    {"compound_name": "Alanine", "retention_time": 1.0,
+                     "mass0": 217.0, "deleted": 0},
+                ],
+                "session_overrides": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: (str(session), "")
+    )
+    monkeypatch.setattr(
+        window, "_show_question_dialog", lambda *a, **k: QMessageBox.Yes
+    )
+    monkeypatch.setattr(
+        window,
+        "_create_message_box",
+        lambda *a, **k: type("Box", (), {"exec": lambda self: None})(),
+    )
+
+    window.import_session()
 
     assert window.toolbar.get_internal_standard() is None
     assert window.toolbar.standard.toolTip() == "Int Std: none"

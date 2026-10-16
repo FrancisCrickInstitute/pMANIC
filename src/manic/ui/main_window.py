@@ -116,6 +116,9 @@ class MainWindow(QMainWindow):
         # Flag to prevent cascading sample deletion events
         self._deleting_samples = False
 
+        # Added compound held out of the list until its EICs are extracted
+        self._compound_awaiting_eics: str | None = None
+
         # Guard: plot selection that originated from the Identity chart
         # must not rebuild that chart from the newly selected sample alone.
         self._qc_link_guard = False
@@ -859,9 +862,14 @@ class MainWindow(QMainWindow):
 
     def _after_compound_added(self, compound_name: str) -> None:
         first_compound = not self.compound_data_loaded
-        self.toolbar.update_compound_list(
-            list_compound_names(), selected_name=compound_name
-        )
+        samples = list_active_samples() if self.cdf_data_loaded else []
+        if samples:
+            # Selecting it before extraction plots nothing and shows "Missing data".
+            self._compound_awaiting_eics = compound_name
+        else:
+            self.toolbar.update_compound_list(
+                list_compound_names(), selected_name=compound_name
+            )
         if first_compound:
             self.compound_data_loaded = True
             self.toolbar.update_label_colours(False, True)
@@ -872,14 +880,12 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
 
-        if self.cdf_data_loaded:
-            samples = list_active_samples()
-            if not samples:
-                return
+        if samples:
             try:
                 compound = read_compound(compound_name)
             except Exception as exc:
                 self._show_message("warning", "Add Compound", str(exc))
+                self._list_compound_awaiting_eics(select=False)
                 return
             required = minimum_extract_rt_window(compound.loffset, compound.roffset)
             tr_window = max(DEFAULT_RT_WINDOW, required)
@@ -891,6 +897,18 @@ class MainWindow(QMainWindow):
                 samples,
                 compound.retention_time,
             )
+
+    def _list_compound_awaiting_eics(self, select: bool) -> None:
+        compound_name = self._compound_awaiting_eics
+        if compound_name is None:
+            return
+        self._compound_awaiting_eics = None
+        self.toolbar.update_compound_list(
+            list_compound_names(),
+            selected_name=(
+                compound_name if select else self.toolbar.get_selected_compound()
+            ),
+        )
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(
@@ -1713,6 +1731,8 @@ class MainWindow(QMainWindow):
 
                 self.toolbar.integration._pending_session_update = None
 
+            self._list_compound_awaiting_eics(select=True)
+
             current_compound = self.graph_view.get_current_compound()
             current_selected = self.graph_view.get_selected_samples()
             current_samples = self.graph_view.get_current_samples()
@@ -1768,6 +1788,7 @@ class MainWindow(QMainWindow):
             self.regen_progress_dialog.close()
 
         self.toolbar.integration._pending_session_update = None
+        self._list_compound_awaiting_eics(select=False)
 
         try:
             current_compound = self.graph_view.get_current_compound()

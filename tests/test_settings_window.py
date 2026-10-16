@@ -237,7 +237,7 @@ def test_legacy_radio_save_enables_legacy_integration(labelled_window):
     assert labelled_window.use_legacy_integration is True
 
 
-def test_legacy_radio_save_reintegrates_labelled_toolbar_charts(labelled_window):
+def _seed_irregular_scans(window) -> None:
     # Irregular scans separate the methods: time-based weights each step by
     # its width, Legacy treats every step as one unit.
     time = np.array([0.0, 0.25, 2.0])
@@ -264,10 +264,14 @@ def test_legacy_radio_save_reintegrates_labelled_toolbar_charts(labelled_window)
                     zlib.compress(np.asarray(intensity, dtype=np.float64).tobytes()),
                 ),
             )
-    window = labelled_window
     window.compound_data_loaded = window.cdf_data_loaded = True
     window.toolbar.update_sample_list(["S"])
     window.toolbar.update_compound_list(["Labelled", "Single"])
+
+
+def test_legacy_radio_save_reintegrates_labelled_toolbar_charts(labelled_window):
+    window = labelled_window
+    _seed_irregular_scans(window)
 
     window.open_settings_window()
     settings = window.settings_window
@@ -282,6 +286,37 @@ def test_legacy_radio_save_reintegrates_labelled_toolbar_charts(labelled_window)
     assert window.toolbar.total_abundance._current_abundances.tolist() == [1.5]
 
     window.on_plot_button("Single", ["S"])
+    assert window.toolbar.total_abundance._current_abundances.tolist() == [1.5]
+
+
+def test_export_dialog_legacy_choice_reintegrates_toolbar_charts(
+    labelled_window, monkeypatch, tmp_path
+):
+    window = labelled_window
+    _seed_irregular_scans(window)
+    window.on_plot_button("Single", ["S"])
+    assert window.toolbar.total_abundance._current_abundances.tolist() == [1.125]
+
+    def choose_legacy(dialog):
+        for button in dialog.findChildren(main_window_module.QRadioButton):
+            button.setChecked(button.text().startswith("Legacy"))
+        return main_window_module.QDialog.Accepted
+
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getSaveFileName",
+        lambda *a, **k: (str(tmp_path / "out.xlsx"), ""),
+    )
+    monkeypatch.setattr(main_window_module.QDialog, "exec", choose_legacy)
+    # Declining the no-standard question stops before the export itself runs.
+    monkeypatch.setattr(
+        window,
+        "_show_question_dialog",
+        lambda *a, **k: main_window_module.QMessageBox.No,
+    )
+    window.export_data()
+
+    assert window.use_legacy_integration is True
     assert window.toolbar.total_abundance._current_abundances.tolist() == [1.5]
 
 

@@ -274,7 +274,7 @@ def test_blank_std_mix_amount_defaults_to_one_in_mrrf(tmp_path: Path):
     assert prov.get_mrrf_values(compounds, 'IS') == {'IS': 1.0, 'Ala': 0.1}
 
 
-def run_update_old_data(tmp_path: Path, monkeypatch, reply):
+def run_update_old_data(tmp_path: Path, monkeypatch, reply, compounds_override=None):
     """Drive File > Process External Data with IS selected; return (question titles, message titles)."""
     from PySide6.QtWidgets import QDialog, QFileDialog
 
@@ -285,7 +285,7 @@ def run_update_old_data(tmp_path: Path, monkeypatch, reply):
     out_path = tmp_path / 'out.xlsx'
 
     dialog = Mock(**{'exec.return_value': QDialog.Accepted, 'get_internal_standard.return_value': 'IS'})
-    dialog.get_paths.return_value = compounds_path, raw_path
+    dialog.get_paths.return_value = compounds_override or compounds_path, raw_path
     monkeypatch.setattr(update_old_data_dialog, 'UpdateOldDataDialog', Mock(return_value=dialog))
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', staticmethod(lambda *a, **k: (str(out_path), '')))
 
@@ -320,4 +320,16 @@ def test_update_old_data_stops_when_is_metadata_missing_and_cancelled(qapp, tmp_
 
     assert questions == ['Internal Standard Metadata Missing']
     assert messages == []
+    assert not out_path.exists()
+
+
+def test_update_old_data_reports_unreadable_compounds_file(qapp, tmp_path: Path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    questions, messages, out_path = run_update_old_data(
+        tmp_path, monkeypatch, QMessageBox.Yes, compounds_override=str(tmp_path / 'gone.csv')
+    )
+
+    assert questions == []
+    assert messages == ['Update Failed']
     assert not out_path.exists()

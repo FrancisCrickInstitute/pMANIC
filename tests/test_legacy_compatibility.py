@@ -232,6 +232,33 @@ def test_rebuild_names_every_compound_with_wrong_isotopologue_count(tmp_path: Pa
     assert not out.exists()
 
 
+def test_rebuild_names_every_compound_with_missing_or_repeated_isotopes(tmp_path: Path):
+    compounds = tmp_path / 'compounds.csv'
+    write_compounds_csv(compounds, {'A': 2, 'B': 2, 'C': 1})
+    isotopes = {'A': [0, 2], 'B': [0, 1, 2, 2], 'C': [0, 1]}
+    names = [name for name, isos in isotopes.items() for _ in isos]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Raw Values'
+    ws.append(['Compound Name', None] + names)
+    ws.append(['Mass', None] + [100.0] * len(names))
+    ws.append(['Isotope', None] + [i for isos in isotopes.values() for i in isos])
+    ws.append(['tR', None] + [1.0] * len(names))
+    ws.append([None, 'S1'] + [10.0] * len(names))
+    xlsx_path = tmp_path / 'raw_values.xlsx'
+    wb.save(xlsx_path)
+    out = tmp_path / 'out.xlsx'
+
+    with pytest.raises(ValueError) as exc:
+        rebuild_export_from_files(str(compounds), str(xlsx_path), str(out))
+
+    assert str(exc.value) == (
+        "Each compound in the Raw Values workbook needs one isotope column for each of "
+        "0, 1, 2, ... with no gaps or repeats: A (found 0, 2), B (found 0, 1, 2, 2)"
+    )
+    assert not out.exists()
+
+
 # ============================================================================
 # IN-MEMORY PROVIDER TESTS (LEGACY REBUILD)
 # ============================================================================

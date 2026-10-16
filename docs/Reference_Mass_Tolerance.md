@@ -12,7 +12,7 @@ The **Mass Tolerance** setting controls how this binning occurs. It is a critica
 MANIC uses an **Asymmetric Offset-and-Round** algorithm. This is mathematically identical to the method used in the legacy MATLAB tool (GVISO) to ensuring data consistency.
 
 ### Concept
-Instead of a symmetric window (e.g., `205 ± 0.2`), MANIC subtracts a fixed offset from the detected mass before rounding to the nearest integer. This effectively creates a "capture window" that is shifted to lower masses.
+Instead of a symmetric window (e.g., `205 ± 0.2`), MANIC subtracts a fixed offset from the detected mass before rounding to the nearest integer. This creates a "capture window" that is shifted to higher masses. For a target of 205 and a tolerance of 0.2, the window runs from 204.7 up to, but not including, 205.7.
 
 ### Formula
 For a detected mass $m$ and a tolerance offset $\tau$:   
@@ -38,6 +38,8 @@ For a detected mass $m$ and a tolerance offset $\tau$:
 | **205.7** | $205.5$ | **206** | ❌ No Match |
 
 **Resulting Window:** The effective window for "205" is approximately **204.7 to 205.7**. This captures ions that have drifted up to +0.7 Da higher than expected, which is common in quadrupole instruments.
+
+A mass that lies exactly on a window edge depends on how the instrument stored it. CDF files often store masses as 32-bit floats, which cannot hold 204.7 exactly: the stored value is 204.699997, so it falls in the 204 bin.
 
 ---
 

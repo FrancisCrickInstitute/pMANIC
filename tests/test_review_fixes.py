@@ -136,7 +136,7 @@ def test_ensure_corrections_for_export_raises_naming_uncorrectable(review_db):
         ensure_corrections_for_export()
 
 
-def test_load_bulk_omits_labelled_without_corrected_keeps_unlabelled_raw(
+def test_load_bulk_omits_labelled_when_correction_fails_keeps_unlabelled_raw(
     review_db,
 ):
     time = np.linspace(0.0, 1.0, 5)
@@ -146,7 +146,7 @@ def test_load_bulk_omits_labelled_without_corrected_keeps_unlabelled_raw(
             "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
             "mass0, label_atoms, formula, label_type, deconvolution_level) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("Labeled", 1.0, 0.2, 0.2, 100.0, 1, "C1", "C", "off"),
+            ("Labeled", 1.0, 0.2, 0.2, 100.0, 1, "C1Se1", "C", "off"),
         )
         conn.execute(
             "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "

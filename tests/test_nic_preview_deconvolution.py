@@ -234,13 +234,13 @@ def test_preview_areas_do_not_refit_a_corrected_matrix(monkeypatch):
     time, raw = _raw_labelled_pair()
     noisy_m1 = np.vstack([raw[0], _noise_row(time)])
 
-    def scale_m1(matrix):
-        out = np.asarray(matrix, dtype=np.float64).copy()
+    def scale_m1(values):
+        out = np.asarray(values, dtype=np.float64).copy()
         out[1] *= 0.4
         return out
 
     monkeypatch.setattr(
-        "manic.processors.display_deconvolution.make_time_series_corrector",
+        "manic.processors.display_deconvolution.make_area_corrector",
         lambda _compound: scale_m1,
     )
     compound = _plot_compound()
@@ -252,7 +252,7 @@ def test_preview_areas_do_not_refit_a_corrected_matrix(monkeypatch):
         time,
         preview.bundle,
         raw,
-        correct_time_series=scale_m1,
+        correct_areas=scale_m1,
         baseline_correction=False,
         use_legacy=False,
         retention_time=7.0,
@@ -314,7 +314,7 @@ def test_mixed_fallback_keeps_outside_peak_zero(use_legacy):
         time,
         bundle,
         raw,
-        correct_time_series=lambda matrix: matrix,
+        correct_areas=lambda areas: areas,
         baseline_correction=False,
         use_legacy=use_legacy,
         retention_time=retention_time,

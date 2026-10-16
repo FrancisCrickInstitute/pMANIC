@@ -862,12 +862,5 @@ def test_unlabelled_component_fallback_keeps_qv_channels(empty_db):
     assert raw == pytest.approx([10.0, 4.0])
     assert corrected == pytest.approx(raw)
     assert corrected is not raw
-    assert provider._calculate_corrected_areas_from_raw_component(
-        time,
-        intensity,
-        row,
-        use_legacy=False,
-        baseline_correction=False,
-    ) == pytest.approx([10.0, 4.0])
 
 

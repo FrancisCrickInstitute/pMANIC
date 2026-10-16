@@ -15,18 +15,18 @@ Use this workflow **only** if:
 
 ---
 
-## ⚠️ Scientific Limitation: Approximate Mode
+## ⚠️ Scientific Limitation: No Re-integration
 
-Because the original raw time-series data is missing, MANIC cannot perform its standard **Per-Timepoint Correction**. Instead, it must use an **Approximate Mode**:
+Both workflows correct the integrated areas, so the correction is the same. Without the original raw time-series data, MANIC cannot redo the integration:
 
-| Standard Workflow | Approximate Mode (Process External Data) |
+| Standard Workflow | Process External Data |
 | :--- | :--- |
-| **1. Correct Timepoints** (Matrix algebra on every scan) | **1. Sum Totals** (Read integer areas from Excel) |
-| **2. Integrate** ("Clean" peak area) | **2. Correct Totals** (Apply matrix algebra to the single sum) |
+| **1. Integrate** (MANIC integrates the raw traces) | **1. Read Areas** (Take the areas from your workbook as they are) |
+| **2. Correct** (Matrix algebra on the integrated areas) | **2. Correct** (The same matrix algebra on those areas) |
 
 > **Impact:**
-> * For clean, high-intensity peaks, the results are nearly identical (< 0.1% difference).
-> * For messy or low-intensity peaks, this method is slightly less accurate because it cannot distinguish between baseline noise and true signal overlap.
+> * If your areas came from a MANIC export with the same settings, the Corrected Values match.
+> * Otherwise they differ wherever the original integration differs from MANIC's: the window, baseline correction, deconvolution, or integration units.
 
 ---
 
@@ -47,7 +47,7 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 ### Result
 MANIC writes five sheets.
 * **Raw Values:** Copied from your input workbook.
-* **Corrected Values:** Recalculated using Approximate Mode.
+* **Corrected Values:** Recalculated from the areas in your workbook.
 * **Isotope Ratio:** Normalized corrected values that sum to 1.0.
 * **% Label Incorporation:** Experimental label percentages.
 * **Abundances:** Recalculated using the optional internal standard from the dialog.

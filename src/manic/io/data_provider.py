@@ -72,7 +72,7 @@ def _run_integration(provider: "DataProvider", use_legacy: bool, task) -> tuple:
     intensity_data = np.frombuffer(zlib.decompress(y_blob), dtype=np.float64)
     baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
     corrected_areas = None
-    if kind == "raw_and_corrected_deconvolved":
+    if kind == "raw_and_corrected":
         areas, corrected_areas = (
             provider._calculate_raw_and_corrected_areas_from_raw_component(
                 time_data,
@@ -288,38 +288,11 @@ class DataProvider:
                 ORDER BY e.sample_name, e.compound_name
             """
 
-            corrected_eic_query = """
-                SELECT ec.sample_name, ec.compound_name, ec.x_axis, ec.y_axis_corrected,
-                       c.label_atoms,
-                       COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci
-                                 WHERE ci.compound_name = c.compound_name), 0),
-                                c.label_atoms + 1) AS channel_count,
-                       COALESCE(sa.retention_time, c.retention_time) as retention_time,
-                       COALESCE(sa.loffset, c.loffset) as loffset,
-                       COALESCE(sa.roffset, c.roffset) as roffset,
-                       c.baseline_correction as baseline_correction,
-                       c.deconvolution_level as deconvolution_level,
-                       COALESCE(sft.fit_type, c.deconvolution_fit_type) AS deconvolution_fit_type,
-                       c.deconvolution_noise_gate as deconvolution_noise_gate
-                FROM eic_corrected ec 
-                JOIN compounds c ON ec.compound_name = c.compound_name
-                LEFT JOIN session_activity sa 
-                    ON ec.compound_name = sa.compound_name 
-                    AND ec.sample_name = sa.sample_name 
-                    AND sa.sample_deleted = 0
-                LEFT JOIN sample_fit_type sft
-                    ON sft.compound_name = c.compound_name
-                    AND sft.sample_name = ec.sample_name
-                WHERE ec.deleted = 0 AND c.deleted = 0
-                ORDER BY ec.sample_name, ec.compound_name
-            """
-
             # Load all rows up front (cheap), then integrate/deconvolve them in
             # parallel. Each row is integrated with that compound's own settings,
             # so results are identical to the sequential path - this only spreads
             # the work (mainly the curve fits, which release the GIL) across cores.
             raw_rows = list(conn.execute(raw_eic_query))
-            corrected_rows = list(conn.execute(corrected_eic_query))
             query_time = time.perf_counter() - query_start
 
             # Cache each compound's label_atoms so the corrected-data fallback can
@@ -328,7 +301,6 @@ class DataProvider:
 
             task_start = time.perf_counter()
             tasks: list[tuple] = []
-            corrected_from_raw_keys: set[tuple[str, str]] = set()
             # Count only the tasks that actually run a (CPU-heavy) curve fit, so
             # the process-pool decision is based on real fitting work rather than
             # the total task count. A large but deconvolution-off export is cheap
@@ -339,30 +311,12 @@ class DataProvider:
                 compound_name = row['compound_name']
                 label_atoms = row['label_atoms'] or 0
                 compound_labels[compound_name] = label_atoms
-                if (
-                    sample_name in corrected_data
-                    and label_atoms > 0
-                    and chromatographic_peak_deconvolution_enabled(
-                        row['deconvolution_level']
-                    )
-                ):
-                    tasks.append(("raw_and_corrected_deconvolved", dict(row), row['y_axis']))
-                    corrected_from_raw_keys.add((sample_name, compound_name))
+                if sample_name not in raw_data:
+                    continue
+                kind = "raw_and_corrected" if label_atoms > 0 else "raw"
+                tasks.append((kind, dict(row), row['y_axis']))
+                if chromatographic_peak_deconvolution_enabled(row['deconvolution_level']):
                     deconv_task_count += 1
-                elif sample_name in raw_data:
-                    tasks.append(("raw", dict(row), row['y_axis']))
-                    if chromatographic_peak_deconvolution_enabled(row['deconvolution_level']):
-                        deconv_task_count += 1
-            for row in corrected_rows:
-                key = (row['sample_name'], row['compound_name'])
-                if (
-                    row['sample_name'] in corrected_data
-                    and (row['label_atoms'] or 0) > 0
-                    and key not in corrected_from_raw_keys
-                ):
-                    tasks.append(("corrected", dict(row), row['y_axis_corrected']))
-                    if chromatographic_peak_deconvolution_enabled(row['deconvolution_level']):
-                        deconv_task_count += 1
 
             task_counts = Counter(task[0] for task in tasks)
             task_time = time.perf_counter() - task_start
@@ -389,16 +343,11 @@ class DataProvider:
                         areas,
                         corrected_areas,
                     ) in results:
-                        if kind == "raw":
-                            raw_data[sample_name][compound_name] = areas
-                        elif kind == "raw_and_corrected_deconvolved":
-                            raw_data[sample_name][compound_name] = areas
-                            if corrected_areas:
-                                corrected_data[sample_name][compound_name] = (
-                                    corrected_areas
-                                )
-                        else:
-                            corrected_data[sample_name][compound_name] = areas
+                        raw_data[sample_name][compound_name] = areas
+                        if corrected_areas:
+                            corrected_data[sample_name][compound_name] = (
+                                corrected_areas
+                            )
                         processed += 1
                         if progress_callback and processed % 25 == 0:
                             try:
@@ -487,12 +436,10 @@ class DataProvider:
         total_time = time.perf_counter() - load_start
         logger.info(
             "Bulk export load completed in %.2fs "
-            "(samples=%d, raw_rows=%d, stored_corrected_rows=%d, tasks=%d, "
-            "task_counts=%s)",
+            "(samples=%d, raw_rows=%d, tasks=%d, task_counts=%s)",
             total_time,
             len(raw_data),
             len(raw_rows),
-            len(corrected_rows),
             len(tasks),
             dict(task_counts),
         )
@@ -735,9 +682,9 @@ class DataProvider:
             self._corrector_local.corrector = corrector
         return corrector
 
-    def _correct_time_series(self, matrix: np.ndarray, row) -> np.ndarray:
-        return self._get_corrector().correct_time_series(
-            matrix,
+    def _correct_areas(self, areas: np.ndarray, row) -> np.ndarray:
+        return self._get_corrector().correct_areas(
+            areas,
             row["formula"],
             row["label_type"],
             row["label_atoms"] or 0,
@@ -755,10 +702,13 @@ class DataProvider:
         use_legacy: bool,
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
-        """Deconvolve once, then produce both raw and corrected component areas."""
+        """Integrate the raw traces once, then correct the raw area vector."""
         label_atoms = row["label_atoms"] or 0
-        if label_atoms <= 0 or not row["formula"]:
-            raw_fallback = calculate_peak_areas(
+        deconvolve = chromatographic_peak_deconvolution_enabled(
+            row["deconvolution_level"]
+        )
+        if label_atoms <= 0 or not row["formula"] or not deconvolve:
+            raw_areas = calculate_peak_areas(
                 time_data,
                 raw_intensity_data,
                 label_atoms,
@@ -772,9 +722,11 @@ class DataProvider:
                 chromatographic_peak_deconvolution_fit_type=row["deconvolution_fit_type"],
                 chromatographic_peak_deconvolution_noise_gate=row["deconvolution_noise_gate"],
             )
+            if label_atoms > 0 and row["formula"]:
+                return raw_areas, self._corrected_or_empty(raw_areas, row)
             # Return a distinct corrected list so downstream consumers can never
             # mutate raw and corrected areas through the same object.
-            return raw_fallback, list(raw_fallback)
+            return raw_areas, list(raw_areas)
 
         n_time_points = len(time_data)
         num_isotopologues = label_atoms + 1
@@ -811,23 +763,23 @@ class DataProvider:
         use_legacy: bool,
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
-        def integrate(correct_time_series):
-            return integrate_bundle_areas(
-                time_data,
-                bundle,
-                raw_intensity,
-                correct_time_series=correct_time_series,
-                baseline_correction=baseline_correction,
-                use_legacy=use_legacy,
-                retention_time=row["retention_time"],
-                loffset=row["loffset"],
-                roffset=row["roffset"],
-                label_atoms=row["label_atoms"] or 0,
-                channel_count=_row_channel_count(row),
-            )
+        raw_areas, _ = integrate_bundle_areas(
+            time_data,
+            bundle,
+            raw_intensity,
+            baseline_correction=baseline_correction,
+            use_legacy=use_legacy,
+            retention_time=row["retention_time"],
+            loffset=row["loffset"],
+            roffset=row["roffset"],
+            label_atoms=row["label_atoms"] or 0,
+            channel_count=_row_channel_count(row),
+        )
+        return raw_areas, self._corrected_or_empty(raw_areas, row)
 
+    def _corrected_or_empty(self, raw_areas: List[float], row) -> List[float]:
         try:
-            return integrate(lambda matrix: self._correct_time_series(matrix, row))
+            return [float(a) for a in self._correct_areas(raw_areas, row)]
         except NaturalAbundanceCorrectionError as exc:
             logger.warning(
                 "No corrected areas for %s in %s: %s",
@@ -835,68 +787,14 @@ class DataProvider:
                 row["sample_name"],
                 exc,
             )
-            raw_areas, _ = integrate(None)
-            return raw_areas, []
-
-    def _calculate_corrected_areas_from_raw_component(
-        self,
-        time_data: np.ndarray,
-        raw_intensity_data: np.ndarray,
-        row,
-        *,
-        use_legacy: bool,
-        baseline_correction: bool,
-    ) -> List[float]:
-        """Correct and integrate the same measurement used for Raw Values."""
-        label_atoms = row["label_atoms"] or 0
-        if label_atoms <= 0 or not row["formula"]:
-            return calculate_peak_areas(
-                time_data,
-                raw_intensity_data,
-                label_atoms,
-                row["retention_time"],
-                row["loffset"],
-                row["roffset"],
-                channel_count=_row_channel_count(row),
-                use_legacy=use_legacy,
-                baseline_correction=baseline_correction,
-                chromatographic_peak_deconvolution_stringency=row["deconvolution_level"],
-                chromatographic_peak_deconvolution_fit_type=row["deconvolution_fit_type"],
-                chromatographic_peak_deconvolution_noise_gate=row["deconvolution_noise_gate"],
-            )
-
-        n_time_points = len(time_data)
-        num_isotopologues = label_atoms + 1
-        if raw_intensity_data.size != num_isotopologues * n_time_points:
             return []
-
-        raw_matrix = raw_intensity_data.reshape(num_isotopologues, n_time_points)
-        bundle = deconvolve_channel_matrix(
-            time_data,
-            raw_matrix,
-            retention_time=row["retention_time"],
-            loffset=row["loffset"],
-            roffset=row["roffset"],
-            stringency=row["deconvolution_level"],
-            fit_type=row["deconvolution_fit_type"],
-            noise_gate=row["deconvolution_noise_gate"],
-        )
-        _, corrected_areas = self._areas_from_deconvolved(
-            time_data,
-            bundle,
-            row,
-            raw_matrix,
-            use_legacy=use_legacy,
-            baseline_correction=baseline_correction,
-        )
-        return corrected_areas
 
     def _compute_compound_areas(
         self, sample_name: str, compound_name: str
     ) -> List[float]:
         with get_connection() as conn:
             meta = conn.execute(
-                "SELECT c.label_atoms, "
+                "SELECT ? AS sample_name, c.compound_name, c.label_atoms, "
                 "COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci "
                 "WHERE ci.compound_name = c.compound_name), 0), c.label_atoms + 1) AS channel_count, "
                 "COALESCE(sa.retention_time, c.retention_time) as retention_time, "
@@ -913,37 +811,16 @@ class DataProvider:
                 "LEFT JOIN sample_fit_type sft "
                 "  ON sft.compound_name = c.compound_name AND sft.sample_name = ? "
                 "WHERE c.compound_name = ? AND c.deleted = 0",
-                (sample_name, sample_name, compound_name),
+                (sample_name, sample_name, sample_name, compound_name),
             ).fetchone()
             if meta is None:
                 return []
 
-            label_atoms = meta["label_atoms"] or 0
-            row = None
-            use_deconvolved_correction = (
-                label_atoms > 0
-                and chromatographic_peak_deconvolution_enabled(
-                    meta["deconvolution_level"]
-                )
-            )
-            if use_deconvolved_correction:
-                row = conn.execute(
-                    "SELECT x_axis, y_axis as y FROM eic "
-                    "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
-                    (sample_name, compound_name),
-                ).fetchone()
-            elif label_atoms > 0:
-                row = conn.execute(
-                    "SELECT x_axis, y_axis_corrected as y FROM eic_corrected "
-                    "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
-                    (sample_name, compound_name),
-                ).fetchone()
-            if row is None:
-                row = conn.execute(
-                    "SELECT x_axis, y_axis as y FROM eic "
-                    "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
-                    (sample_name, compound_name),
-                ).fetchone()
+            row = conn.execute(
+                "SELECT x_axis, y_axis as y FROM eic "
+                "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
+                (sample_name, compound_name),
+            ).fetchone()
             if row is None:
                 return []
 
@@ -956,28 +833,14 @@ class DataProvider:
                 if meta["baseline_correction"]
                 else False
             )
-            if use_deconvolved_correction:
-                return self._calculate_corrected_areas_from_raw_component(
-                    time_data,
-                    intensity_data,
-                    meta,
-                    use_legacy=self.use_legacy_integration,
-                    baseline_correction=baseline_flag,
-                )
-            return calculate_peak_areas(
+            _, areas = self._calculate_raw_and_corrected_areas_from_raw_component(
                 time_data,
                 intensity_data,
-                label_atoms,
-                meta["retention_time"],
-                meta["loffset"],
-                meta["roffset"],
-                channel_count=meta["channel_count"],
+                meta,
                 use_legacy=self.use_legacy_integration,
                 baseline_correction=baseline_flag,
-                chromatographic_peak_deconvolution_stringency=meta["deconvolution_level"],
-                chromatographic_peak_deconvolution_fit_type=meta["deconvolution_fit_type"],
-                chromatographic_peak_deconvolution_noise_gate=meta["deconvolution_noise_gate"],
             )
+            return areas
 
     def validate_peak_area(
         self,

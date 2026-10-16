@@ -58,11 +58,10 @@ class InMemoryDataProvider:
             if label_atoms <= 0:
                 corrected[name] = [float(areas[0])] if areas else [0.0]
                 continue
-            # Build 2D vector with a single time point for reuse of corrector
-            vec = np.array(areas, dtype=float).reshape(label_atoms + 1, 1)
+            vec = np.array(areas, dtype=float)
             try:
-                # Force direct-solve path when numerically suitable to match DB-corrected behavior
-                cm, _cond, _use_direct = self._corrector._get_cached_correction_matrix(
+                corr_vec = self._corrector.correct_areas(
+                    vec,
                     comp.get('formula') or '',
                     comp.get('label_type') or 'C',
                     label_atoms,
@@ -70,19 +69,17 @@ class InMemoryDataProvider:
                     int(comp.get('meox') or 0),
                     int(comp.get('me') or 0),
                 )
-                corr2d = self._corrector._correct_vectorized_direct(vec, cm)
-                corr_vec = corr2d[:, 0]
             except NaturalAbundanceCorrectionError as exc:
                 logger.warning("No corrected values for %s in %s: %s", name, sample_name, exc)
                 continue
 
-            # Log if the approximate correction yields near-zero while raw has signal
+            # Log if correction yields near-zero while raw has signal
             raw_total = float(np.sum(vec))
             corr_total = float(np.sum(corr_vec))
             if raw_total > 1e-6 and corr_total <= 1e-9:
                 logger.debug(
                     f"UpdateOldData: corrected total ~0 for {name} in {sample_name} (raw_total={raw_total:.6g}). "
-                    "This can occur in approximate mode when correcting integrated vectors."
+                    "This can occur when correcting integrated vectors."
                 )
 
             corrected[name] = corr_vec.astype(float).tolist()

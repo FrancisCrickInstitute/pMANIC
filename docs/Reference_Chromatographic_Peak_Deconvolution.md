@@ -2,7 +2,7 @@
 
 ## Overview
 
-Chromatographic peak deconvolution separates partially overlapping extracted ion chromatogram (EIC) signals before peak area integration. In MANIC this is distinct from natural isotope correction: chromatographic deconvolution works in retention-time space, while natural isotope correction works across isotopologue intensities before integration.
+Chromatographic peak deconvolution separates partially overlapping extracted ion chromatogram (EIC) signals before peak area integration. In MANIC this is distinct from natural isotope correction: chromatographic deconvolution works in retention-time space, while natural isotope correction works across the integrated isotopologue areas.
 
 When enabled, MANIC fits peak shapes to the signal around the expected retention time on every fittable channel of every sample. Export then uses one measurement method for that compound in that sample: dense model areas if every non-empty ion fitted, or the raw in-window scan traces if any ion with real intensity did not. An ion with no finite positive signal inside the integration window is empty. It does not count as a failed fit.
 
@@ -29,7 +29,7 @@ If any ion of a labelled compound in that sample has real intensity and failed t
 
 If baseline correction is enabled, MANIC keeps the usual edge-based baseline correction but applies it to the selected deconvolved signal. Excluded components are removed before the baseline is estimated.
 
-The exported number is the dense-curve area minus that edge baseline. Those two pieces are natural-abundance corrected separately. The curve is corrected on the dense time grid. The baseline ends are corrected on the isolated component at the real scan times, then the first and last in-window scans are used as the straight-line ends. Raw Values use the raw selected edges; Corrected Values use those same scan-sampled edges after correction. The ends are almost the same sampling, so the baseline barely moves.
+The Raw Values number is the dense-curve area minus that edge baseline. The straight-line ends come from the raw selected component at the first and last in-window scans. Corrected Values are the natural-abundance correction of those Raw Values areas. Neither the curve nor the baseline ends are corrected separately.
 
 ## Independent per-channel fits
 
@@ -56,9 +56,9 @@ Imported expected qualifier/Q ratios are almost always measured on raw-window ar
 For a labeled compound, each channel's **selected chromatographic component** feeds every export sheet. When deconvolution is warranted, MANIC deconvolves each raw isotopologue channel independently and then:
 
 - integrates the selected component to produce the **Raw Values**, and
-- applies natural isotope correction to that *same* selected component (not to the full unresolved trace) before integrating it for the **Corrected Values** (and therefore the **Isotope Ratio**, **% Label Incorporation**, and **Abundances** that derive from them).
+- applies natural isotope correction to those integrated areas of the *same* selected component (not of the full unresolved trace) for the **Corrected Values** (and therefore the **Isotope Ratio**, **% Label Incorporation**, and **Abundances** that derive from them).
 
-In both the time-based and legacy paths, the selected component is integrated by the same routine for both sheets, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together.
+The selected component is integrated once, in both the time-based and legacy paths, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together.
 
 Because a single deconvolution pass produces both areas, enabling deconvolution does not double the fitting work at export. Together with caching and the fit-skipping checks described below, this keeps the bulk-export cost manageable.
 
@@ -69,7 +69,7 @@ Natural-abundance correction inverts a matrix across the isotopologue envelope. 
 For each compound/sample:
 
 - If **every non-empty** ion has a model, plots draw the dense curve and Raw and Corrected both integrate it. Empty ions contribute area 0.
-- If **any** ion of a labelled compound has real intensity and failed to fit (noise-gated, too few points, numerical failure, or poor reconstruction), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for every non-empty ion of that pair, including ions that did fit. Empty rows stay zero. No fitted overlay is drawn. Natural-abundance correction then runs on that envelope.
+- If **any** ion of a labelled compound has real intensity and failed to fit (noise-gated, too few points, numerical failure, or poor reconstruction), plots show the raw scan traces and Raw and Corrected both integrate those same raw in-window scans for every non-empty ion of that pair, including ions that did fit. Empty rows stay zero. No fitted overlay is drawn. Natural-abundance correction then runs on the areas of that envelope.
 - An ion is **empty** when it has no finite positive signal inside the integration window, or when a successful fit found peaks but none of their centres sit inside the nominal loffset/roffset boundaries. Signal elsewhere in the chromatogram does not make that ion active. Weak positive signal inside the window is not empty. If its fit fails, MANIC keeps its raw scans.
 - Unlabelled tiles draw a curve for each ion that fitted. Export still uses the raw window unless every non-empty Q/qualifier ion fitted, so qualifier/Q is never a model area divided by a scan trapezoid.
 
@@ -188,7 +188,7 @@ In summary, when deconvolution is on, every fittable channel is offered a peak m
 
 ## Natural Abundance Correction preview
 
-**Settings → Natural Abundance** changes only what the UI draws and what the Isotopologue Ratio bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
+**Settings → Natural Abundance** changes only what the UI draws and what the Isotopologue Ratio bars show. Export still fits the raw traces, integrates that same selected component, and corrects its areas. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
 
 Preview on:
 
@@ -197,7 +197,7 @@ Preview on:
 3. When overlays are on, draw the corrected selected traces over a faint raw EIC. The raw context does not enter correction or integration. Otherwise, draw the corrected raw matrix.
 4. When both layers are present, scale the y-axis to include both.
 
-The toolbar bars and the tiles use the same raw fit. They do not re-fit stored `eic_corrected` traces. Preview draws corrected selected values at the acquisition scan times. Time-based bars and export integrate a denser evaluation of the same fitted model.
+The toolbar bars and the tiles use the same raw fit. They do not re-fit stored `eic_corrected` traces. Preview draws corrected selected values at the acquisition scan times. Time-based bars and export integrate a denser evaluation of the same raw fitted model, then correct those areas.
 
 If the detailed-view display pipeline fails after the canvas was cleared, the dialog draws the raw EIC. The info strip reports an error only if that fallback also fails.
 

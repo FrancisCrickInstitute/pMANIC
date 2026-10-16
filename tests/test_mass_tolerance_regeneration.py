@@ -3,10 +3,13 @@ import re
 import zlib
 
 import numpy as np
+import openpyxl
 import pytest
 
 from manic.io.cdf_reader import CdfFileData
+from manic.io.data_exporter import DataExporter
 from manic.io.eic_importer import regenerate_all_eics_with_mass_tolerance
+from manic.models.analysis import AnalysisMode
 from manic.models.session_export import import_session_overrides
 from manic.models.database import (
     get_connection,
@@ -16,6 +19,8 @@ from manic.models.database import (
     soft_delete_samples,
 )
 from manic.ui.compound_recovery_dialog import CompoundRecoveryDialog
+from manic.ui.graphs import GraphView
+from manic.ui.sample_list_widget import SampleListWidget
 from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
 
 FORMULA = "C6 O3 N1 H12 Si1 S0 P0"
@@ -247,3 +252,60 @@ def test_session_import_with_an_active_stale_sample_succeeds_when_it_exposes_not
     assert import_session_overrides(session) == (True, True)
     assert _pyruvate_deleted() == pyruvate_deleted
     assert _deleted_samples() == set(deleted_samples)
+
+
+STALE_TOOLTIP = (
+    "EICs use an older mass tolerance: the CDF file was missing or unreadable "
+    "at the last tolerance change"
+)
+
+
+def _stale_marks(qapp, tmp_path):
+    list_widget = SampleListWidget()
+    list_widget.update_samples(["s1", "s2"])
+    tooltips = {
+        list_widget.item(i).text(): list_widget.item(i).toolTip()
+        for i in range(list_widget.count())
+    }
+
+    view = GraphView()
+    view.plot_compound("Pyruvate", ["s1", "s2"])
+    captions = sorted(plot.parent().caption.fullText() for plot in view._current_plots)
+
+    exporter = DataExporter(AnalysisMode.LABELLED)
+    export_dir = tmp_path / f"export_{len(list(tmp_path.glob('export_*')))}"
+    export_dir.mkdir()
+    assert exporter.export_to_excel(str(export_dir / "out.xlsx"))
+    raw = openpyxl.load_workbook(export_dir / "out.xlsx")["Raw Values"]
+    fills = {
+        row[1].value: {cell.fill.fgColor.rgb for cell in row[2:]}
+        for row in raw.iter_rows(min_row=5)
+    }
+    changelog = next(export_dir.glob("changelog_*.md")).read_text(encoding="utf-8")
+    return tooltips, captions, fills, changelog
+
+
+def test_active_sample_with_stale_eics_is_marked_until_rebuilt(
+    qapp, tmp_path, monkeypatch
+):
+    _load_session(tmp_path, monkeypatch)
+    cdf_bytes = (tmp_path / "s2.cdf").read_bytes()
+    (tmp_path / "s2.cdf").unlink()
+    regenerate_all_eics_with_mass_tolerance(0.3)
+
+    tooltips, captions, fills, changelog = _stale_marks(qapp, tmp_path)
+    assert tooltips == {"s1": "", "s2": STALE_TOOLTIP}
+    assert captions == ["s1", "s2  ·  old mass tolerance"]
+    assert fills == {"s1": {"00000000"}, "s2": {"FFFFE699"}}
+    stale_section = changelog.split("## Stale Samples\n")[1].split("\n## ")[0]
+    assert "- s2\n" in stale_section
+    assert "- Light gold (#FFE699) = EICs from an older mass tolerance\n" in changelog
+
+    (tmp_path / "s2.cdf").write_bytes(cdf_bytes)
+    regenerate_all_eics_with_mass_tolerance(0.3)
+
+    tooltips, captions, fills, changelog = _stale_marks(qapp, tmp_path)
+    assert tooltips == {"s1": "", "s2": ""}
+    assert captions == ["s1", "s2"]
+    assert fills == {"s1": {"00000000"}, "s2": {"00000000"}}
+    assert "## Stale Samples" not in changelog

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from netCDF4 import Dataset
 
 from manic.io.compound_reader import Compound
 from manic.io.eic_importer import regenerate_all_eics_with_mass_tolerance
@@ -299,9 +300,35 @@ def test_regeneration_worker_uses_the_session_mass_tolerance(monkeypatch):
     assert seen["mass_tol"] == 0.15
 
 
-def test_mass_tolerance_reload_keeps_eics_of_an_unreadable_cdf(review_db, tmp_path):
+def _write_cdf_with_corrupt_scan_index(path):
+    with Dataset(path, "w") as cdf:
+        cdf.createDimension("scan_number", 3)
+        cdf.createDimension("point_number", 6)
+        variables = {
+            "scan_acquisition_time": ("scan_number", [294.0, 300.0, 306.0]),
+            "scan_index": ("scan_number", [0, 4, 2]),
+            "point_count": ("scan_number", [2, 2, 2]),
+            "total_intensity": ("scan_number", [20.0, 20.0, 20.0]),
+            "mass_values": ("point_number", [100.0] * 6),
+            "intensity_values": ("point_number", [10.0] * 6),
+        }
+        for name, (dimension, values) in variables.items():
+            cdf.createVariable(name, np.asarray(values).dtype, (dimension,))[:] = values
+
+
+@pytest.mark.parametrize(
+    "write_cdf",
+    [
+        lambda path: path.write_bytes(b"corrupted CDF"),
+        _write_cdf_with_corrupt_scan_index,
+    ],
+    ids=["unreadable-file", "corrupt-scan-index"],
+)
+def test_mass_tolerance_reload_keeps_eics_of_an_unreadable_cdf(
+    review_db, tmp_path, write_cdf
+):
     cdf_path = tmp_path / "s1.cdf"
-    cdf_path.write_bytes(b"corrupted CDF")
+    write_cdf(cdf_path)
     x_axis = _blob(np.array([4.9, 5.0, 5.1]))
     with database.get_connection() as conn:
         conn.execute(

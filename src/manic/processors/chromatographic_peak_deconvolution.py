@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import dataclasses
 import functools
 import warnings
@@ -491,6 +493,8 @@ def _deconvolve_matrix(
                     params,
                     retention_time,
                 )
+        except FitCacheMiss:
+            raise
         except Exception:
             fitted = None
 
@@ -604,6 +608,23 @@ def _deconvolve_matrix(
     )
 
 
+class FitCacheMiss(Exception):
+    """A fit needed under cached_fits_only() has not been computed yet."""
+
+
+_cached_fits_only = contextvars.ContextVar("cached_fits_only", default=False)
+
+
+@contextlib.contextmanager
+def cached_fits_only():
+    """Raise FitCacheMiss instead of running an uncached fit in this thread."""
+    token = _cached_fits_only.set(True)
+    try:
+        yield
+    finally:
+        _cached_fits_only.reset(token)
+
+
 @functools.lru_cache(maxsize=8192)
 def _fit_single_component_model_cached(
     time_bytes: bytes,
@@ -612,6 +633,8 @@ def _fit_single_component_model_cached(
     params: ChromatographicPeakDeconvolutionParameters,
     target_rt: float | None = None,
 ) -> FittedComponentModel | None:
+    if _cached_fits_only.get():
+        raise FitCacheMiss
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
     cheap = dataclasses.replace(
@@ -643,6 +666,8 @@ def _fit_joint_component_model_cached(
     different key and never returns a stale result; the cost is only memory (each
     entry is one window's small fit result).
     """
+    if _cached_fits_only.get():
+        raise FitCacheMiss
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
     return _fit_joint_component_model(time, matrix, params, target_rt=target_rt)

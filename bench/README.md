@@ -44,6 +44,7 @@ Compare only runs with the same workload. Each benchmark id carries the workload
 the compound name. Each JSON also records the hostname and CPU.
 
 The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
+Peak fits for the tiles run on a worker thread while the window stays responsive, so each plot timing waits for the worker to finish. It covers the fully fitted grid and the sidebar charts, not only the first draw of the raw traces.
 
 ## What is measured
 

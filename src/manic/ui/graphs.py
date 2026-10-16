@@ -3,11 +3,21 @@ import math
 import sys
 import warnings
 from collections.abc import Iterable
+from dataclasses import replace
 from typing import Dict, List, Optional, Sequence, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QEvent, QMargins, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QMargins,
+    QRect,
+    Qt,
+    QThreadPool,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QActionGroup, QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -26,6 +36,10 @@ from PySide6.QtWidgets import (
 from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
+from manic.processors.chromatographic_peak_deconvolution import (
+    FitCacheMiss,
+    cached_fits_only,
+)
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.display_deconvolution import (
     plot_display,
@@ -38,6 +52,7 @@ from manic.processors.tile_y_scale import (
 )
 from manic.processors.integration import compute_linear_baseline
 from manic.utils.timer import measure_time
+from manic.utils.workers import DisplayFitWorker
 
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import (
@@ -161,6 +176,7 @@ class GraphView(QWidget):
     show_all_samples_requested = Signal()
     settings_requested = Signal()
     documentation_requested = Signal()
+    fits_finished = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -208,6 +224,17 @@ class GraphView(QWidget):
 
         self._y_scale_policy = YScalePolicy.PER_TILE_EXTRACT
         self._last_validation_data: Dict[str, PeakVerdict] | None = None
+
+        # Uncached tiles draw the raw trace first; a DisplayFitWorker fits them
+        # off the GUI thread. Results tagged with an older generation are stale.
+        self._fit_generation = 0
+        self._fit_worker: DisplayFitWorker | None = None
+        self._tile_eics = []
+        self._tile_inputs: list[TileScaleInput] = []
+        self._tile_axes: list[YAxisScale] = []
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.cancel_fits)
 
         # Track max grid dimensions we've used, so we can reliably reset
         # stretch/min-size for any historical rows/cols when the grid shrinks.
@@ -368,6 +395,7 @@ class GraphView(QWidget):
             identity = None
         self._identity = identity
 
+        self.cancel_fits()
         # Begin compound plotting - logging removed to reduce noise
         self._clear_layout()
         if not samples:
@@ -393,14 +421,28 @@ class GraphView(QWidget):
 
         prepared_displays = []
         scale_inputs: list[TileScaleInput] = []
+        fit_jobs = []
         for eic in eics:
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
-            prepared = plot_display(
-                eic.time,
-                eic.intensity,
-                compound,
-                use_corrected=self.use_corrected,
-            )
+            # Cached fits draw at once; uncached ones show the raw trace until
+            # the worker fits them.
+            try:
+                with cached_fits_only():
+                    prepared = plot_display(
+                        eic.time,
+                        eic.intensity,
+                        compound,
+                        use_corrected=self.use_corrected,
+                    )
+            except FitCacheMiss:
+                prepared = plot_display(
+                    eic.time,
+                    eic.intensity,
+                    compound,
+                    use_corrected=self.use_corrected,
+                    deconvolve=False,
+                )
+                fit_jobs.append((eic.sample_name, eic.time, eic.intensity, compound))
             prepared_displays.append(prepared)
             scale_inputs.append(
                 TileScaleInput(
@@ -479,6 +521,59 @@ class GraphView(QWidget):
         self._update_graph_sizes()
 
         self._prepared_displays.clear()
+
+        self._tile_eics = eics
+        self._tile_inputs = scale_inputs
+        self._tile_axes = list(tile_axes)
+        if fit_jobs:
+            worker = DisplayFitWorker(self._fit_generation, fit_jobs, self.use_corrected)
+            worker.fitted.connect(self._on_tile_fitted)
+            worker.finished.connect(self._on_fits_finished)
+            self._fit_worker = worker
+            QThreadPool.globalInstance().start(worker.run)
+
+    @property
+    def fits_pending(self) -> bool:
+        return self._fit_worker is not None
+
+    def cancel_fits(self) -> None:
+        self._fit_generation += 1
+        if self._fit_worker is not None:
+            self._fit_worker.cancel()
+            self._fit_worker = None
+
+    def _on_tile_fitted(self, generation: int, sample_name: str, prepared) -> None:
+        if generation != self._fit_generation:
+            return
+        index = next(
+            i for i, eic in enumerate(self._tile_eics) if eic.sample_name == sample_name
+        )
+        self._tile_inputs[index] = replace(self._tile_inputs[index], prepared=prepared)
+        self._tile_axes[index] = axes_for_tiles(self._y_scale_policy, self._tile_inputs)[
+            index
+        ]
+        self._redraw_tile(index)
+
+    def _on_fits_finished(self, generation: int) -> None:
+        if generation != self._fit_generation:
+            return
+        self._fit_worker = None
+        # A shared y-scale can move with every fit; settle it once all are in.
+        final_axes = axes_for_tiles(self._y_scale_policy, self._tile_inputs)
+        for index, axis in enumerate(final_axes):
+            if axis != self._tile_axes[index]:
+                self._tile_axes[index] = axis
+                self._redraw_tile(index)
+        self.fits_finished.emit()
+
+    def _redraw_tile(self, index: int) -> None:
+        eic = self._tile_eics[index]
+        chart_view = self._current_plots[index]
+        self._prepared_displays[(eic.sample_name, eic.compound_name)] = (
+            self._tile_inputs[index].prepared
+        )
+        self._update_chart_data(chart_view, eic, axis_scale=self._tile_axes[index])
+        chart_view.set_selected(chart_view in self._selected_plots)
 
     def select_sample(self, sample_name: str) -> bool:
         """Select the plot for ``sample_name``; return False if not shown."""
@@ -838,6 +933,7 @@ class GraphView(QWidget):
             force_destroy: If True, completely destroy widgets (slower but prevents artifacts).
                           If False, use pooling (faster but may have visual artifacts).
         """
+        self.cancel_fits()
         self._current_compound = ""
         self._current_samples = []
         self._identity = None

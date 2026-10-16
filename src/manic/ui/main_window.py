@@ -1,5 +1,6 @@
 import logging
 import os
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -145,6 +146,7 @@ class MainWindow(QMainWindow):
         # Guard: plot selection that originated from the Identity chart
         # must not rebuild that chart from the newly selected sample alone.
         self._qc_link_guard = False
+        self._deferred_mode_charts = None
 
         # Set window icon
         self._set_window_icon()
@@ -457,6 +459,7 @@ class MainWindow(QMainWindow):
         )
         self.graph_view.focus_selected_requested.connect(self.focus_on_samples)
         self.graph_view.show_all_samples_requested.connect(self.show_all_samples)
+        self.graph_view.fits_finished.connect(self._run_deferred_mode_charts)
 
         # Connect the integration window's session data signals
         self.toolbar.integration.session_data_applied.connect(
@@ -1194,6 +1197,24 @@ class MainWindow(QMainWindow):
         identity=None,
         provider=None,
     ) -> None:
+        if self.graph_view.fits_pending:
+            # These charts integrate the same deconvolved peaks; fitting them
+            # here would block the GUI thread, so wait for the tile worker.
+            self._deferred_mode_charts = partial(
+                self._refresh_mode_charts,
+                compound_name,
+                qc_samples,
+                skip_qc=skip_qc,
+                identity=identity,
+                provider=provider,
+            )
+            if self.analysis_mode is AnalysisMode.LABELLED:
+                self.toolbar.isotopologue_ratios._clear_chart()
+            elif not skip_qc:
+                self._update_targeted_qc(None)
+            self.toolbar.total_abundance._clear_chart()
+            return
+        self._deferred_mode_charts = None
         if self.analysis_mode is not AnalysisMode.LABELLED:
             if provider is None:
                 provider = DataProvider(
@@ -1207,6 +1228,11 @@ class MainWindow(QMainWindow):
                     )
                 self._update_targeted_qc(identity)
         self._update_total_abundance(compound_name, provider)
+
+    def _run_deferred_mode_charts(self) -> None:
+        deferred, self._deferred_mode_charts = self._deferred_mode_charts, None
+        if deferred is not None:
+            deferred()
 
     def _update_total_abundance(
         self, compound_name: str, provider: DataProvider | None = None

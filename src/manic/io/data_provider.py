@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 
 from manic.models.database import get_connection
+from manic.models.mm_file_check import match_mm_samples
 from manic.processors.calibration import internal_standard_amount
 from manic.validation.peak_verdict import PeakReview, PeakVerdict, resolve_verdict
 from manic.processors.chromatographic_peak_deconvolution import (
@@ -166,57 +167,7 @@ class DataProvider:
             )]
 
     def resolve_mm_samples(self, mm_files_field: Optional[str]) -> List[str]:
-        """Resolve MM sample patterns to concrete sample names.
-
-        Robust handling:
-        - Accept comma/semicolon/whitespace separated tokens
-        - Support '*' wildcards anywhere, translating to SQL LIKE '%'
-        - Escape SQL LIKE special chars ('%', '_') in literal tokens
-        - Case-insensitive matching via COLLATE NOCASE
-        - Deduplicate results
-        """
-        if not mm_files_field:
-            return []
-
-        # Split by common delimiters and normalize tokens
-        raw = mm_files_field.replace(';', ',').replace('\n', ',').replace('\t', ',')
-        raw_tokens = [t.strip() for t in raw.split(',') if t.strip()]
-        if not raw_tokens:
-            return []
-
-        def escape_like(s: str) -> str:
-            # Escape SQL LIKE special chars, then convert '*' to '%'
-            s = s.replace('\\', '\\\\')  # escape backslash first
-            s = s.replace('%', '\\%').replace('_', '\\_')
-            s = s.replace('*', '%')
-            return s
-
-        patterns = []
-        for tok in raw_tokens:
-            # If token still contains '*' at ends or middle, convert to '%' directly
-            # If no '*', do a contains match by wrapping with % ... %
-            if '*' in tok:
-                p = escape_like(tok)
-                # ensure we didn't remove all wildcards; leave '%' as-is
-                patterns.append(p)
-            else:
-                p = escape_like(tok)
-                if not p.startswith('%'):
-                    p = '%' + p
-                if not p.endswith('%'):
-                    p = p + '%'
-                patterns.append(p)
-
-        matched: set = set()
-        with get_connection() as conn:
-            for like in patterns:
-                sql = (
-                    "SELECT sample_name FROM samples "
-                    "WHERE deleted=0 AND sample_name LIKE ? ESCAPE '\\' COLLATE NOCASE"
-                )
-                for row in conn.execute(sql, (like,)):
-                    matched.add(row["sample_name"])
-        return sorted(matched)
+        return match_mm_samples(mm_files_field, self.get_all_samples())
 
     def load_bulk_sample_data(
         self, progress_callback=None

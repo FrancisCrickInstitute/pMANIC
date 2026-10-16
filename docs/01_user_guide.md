@@ -32,7 +32,7 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns l
 | `me` | Number of Methylation groups |
 | `amount_in_std_mix`| Concentration in standard mixture |
 | `int_std_amount` | Amount of internal standard added to samples |
-| `mmfiles` | Pattern to identify MM files (standard mixture). Supports wildcards like `*MM*` |
+| `mmfiles` | Pattern to identify MM files (standard mixture). `*` matches any run of characters, so `MM*` matches names that start with `MM`. A pattern without `*` matches anywhere in the name. Separate several patterns with commas or semicolons. Case is ignored. Process External Data uses the same rules. |
 
 > **Tip:** To see a working template, download the `example_compound_list.xls` file from the repository.
 

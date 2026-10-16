@@ -14,7 +14,7 @@ A peak is considered **Invalid/Weak** (and flagged red) if its total integrated 
 > **⚠️ Requirement: Internal Standard**
 > Automated validation requires an Internal Standard to be selected. If no standard is selected, all peaks are treated as "Valid" (white) by default.
 >
-> If a standard is selected but its reference peak area is 0 in a sample (for example, a failed injection), every peak in that sample is flagged **Invalid** (red), because the sample cannot be quantified. A manual Accept or Reject still overrides this.
+> If a standard is selected but its reference peak area is 0 in a sample (for example, a failed injection), or its known amount for that sample is missing or 0 (`amount_in_std_mix` in MM files, `int_std_amount` elsewhere), every peak in that sample is flagged **Invalid** (red), because the sample cannot be quantified. A manual Accept or Reject still overrides this.
 
 ### Formula
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$

@@ -437,6 +437,7 @@ class IntegrationWindow(QGroupBox):
                 sample_name = selected_samples[0]
 
                 # Get EIC data to capture data window bounds (per-sample)
+                self._data_window_bounds.pop((compound_name, sample_name), None)
                 try:
                     eics = get_eics_for_compound(compound_name, [sample_name])
                     if eics and len(eics) > 0 and len(eics[0].time) > 0:

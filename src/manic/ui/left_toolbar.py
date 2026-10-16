@@ -325,11 +325,7 @@ class Toolbar(QWidget):
         selected_items = self.compound_list.selectedItems()
         if selected_items:
             selected_text = selected_items[0].text()
-            # Resolve the y-scale silently so the compound_selected plot uses
-            # it; a y_scale_policy_changed here would replot the old compound.
-            self.blockSignals(True)
             self.sync_selected_peak_checkbox(selected_text)
-            self.blockSignals(False)
             self.compound_selected.emit(selected_text)
             self.compound_indicator.set_compound(selected_text)
             # Initial fill - will be updated by plot selection logic after plotting
@@ -435,7 +431,11 @@ class Toolbar(QWidget):
             return
         checkbox.setEnabled(_deconvolution_on(compound_name))
         if not checkbox.isEnabled() and checkbox.isChecked():
+            # Silent: callers hand y_scale_policy to the graph before their own
+            # single plot; a y_scale_policy_changed here would plot a second time.
+            self.blockSignals(True)
             self._commit_y_scale_policy(YScalePolicy.PER_TILE_EXTRACT)
+            self.blockSignals(False)
 
     def _on_shared_yscale_toggled(self, state: int):
         self._commit_y_scale_policy(

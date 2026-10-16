@@ -2327,6 +2327,7 @@ class MainWindow(QMainWindow):
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
         self.toolbar.sync_selected_peak_checkbox(self.toolbar.get_selected_compound())
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy, replot=False)
         if replot:
             self._replot_current_selection()
 

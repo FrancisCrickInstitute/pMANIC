@@ -76,6 +76,23 @@ CREATE TABLE IF NOT EXISTS eic (
 CREATE INDEX IF NOT EXISTS idx_eic_compound_sample
           ON eic(compound_name, sample_name);
 
+-- TIC and mass spectra for the detailed view (zlib-compressed float64 arrays)
+CREATE TABLE IF NOT EXISTS tic_trace (
+    sample_name    TEXT PRIMARY KEY,
+    time           BLOB NOT NULL,
+    intensity      BLOB NOT NULL,
+    FOREIGN KEY (sample_name) REFERENCES samples(sample_name)
+);
+
+CREATE TABLE IF NOT EXISTS ms_spectrum (
+    sample_name    TEXT NOT NULL,
+    time           REAL NOT NULL,
+    mz             BLOB NOT NULL,
+    intensity      BLOB NOT NULL,
+    PRIMARY KEY (sample_name, time),
+    FOREIGN KEY (sample_name) REFERENCES samples(sample_name)
+);
+
 -- Session activity -----------------------------------------------
 CREATE TABLE IF NOT EXISTS session_activity (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,

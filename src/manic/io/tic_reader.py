@@ -5,6 +5,8 @@ Provides functionality to read TIC data from the database for detailed plot view
 """
 
 import logging
+import zlib
+
 import numpy as np
 from typing import Optional
 from dataclasses import dataclass
@@ -39,21 +41,17 @@ def read_tic(sample_name: str) -> Optional[TICData]:
     """
     try:
         with get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT time, intensity 
-                FROM tic_data 
-                WHERE sample_name = ? AND deleted = 0
-                ORDER BY time
-            """, (sample_name,))
+            row = conn.execute(
+                "SELECT time, intensity FROM tic_trace WHERE sample_name = ?",
+                (sample_name,),
+            ).fetchone()
             
-            rows = cursor.fetchall()
-            
-            if not rows:
+            if row is None:
                 logger.warning(f"No TIC data found for sample: {sample_name}")
                 return None
             
-            times = np.array([row['time'] for row in rows])
-            intensities = np.array([row['intensity'] for row in rows])
+            times = np.frombuffer(zlib.decompress(row['time']), dtype=np.float64)
+            intensities = np.frombuffer(zlib.decompress(row['intensity']), dtype=np.float64)
             
             logger.debug(f"Loaded TIC data for {sample_name}: {len(times)} points")
             
@@ -68,50 +66,21 @@ def read_tic(sample_name: str) -> Optional[TICData]:
         return None
 
 
-def tic_data_exists(sample_name: str) -> bool:
-    """
-    Check if TIC data exists for a sample.
-    
-    Args:
-        sample_name: Name of the sample to check
-        
-    Returns:
-        True if TIC data exists, False otherwise
-    """
-    try:
-        with get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT COUNT(*) as count
-                FROM tic_data 
-                WHERE sample_name = ? AND deleted = 0
-            """, (sample_name,))
-            
-            result = cursor.fetchone()
-            return result['count'] > 0
-            
-    except Exception as e:
-        logger.error(f"Failed to check TIC data existence for {sample_name}: {e}")
-        return False
-
-
 def _store_tic_data_with_conn(conn, sample_name: str, times: np.ndarray, intensities: np.ndarray):
     """Helper function to store TIC data with an existing connection."""
-    # Clear existing data for this sample
-    conn.execute("""
-        UPDATE tic_data SET deleted = 1 
-        WHERE sample_name = ?
-    """, (sample_name,))
-    
-    # Insert new data
-    data_to_insert = [
-        (sample_name, float(time), float(intensity), 0)
-        for time, intensity in zip(times, intensities)
-    ]
-    
-    conn.executemany("""
-        INSERT INTO tic_data (sample_name, time, intensity, deleted)
-        VALUES (?, ?, ?, ?)
-    """, data_to_insert)
+    # np.asarray exposes the fill value under masked (missing) CDF scans; drop them.
+    present = ~(np.ma.getmaskarray(times) | np.ma.getmaskarray(intensities))
+    times = np.asarray(times, dtype=np.float64)[present]
+    intensities = np.asarray(intensities, dtype=np.float64)[present]
+    order = np.argsort(times, kind="stable")
+    conn.execute(
+        "INSERT OR REPLACE INTO tic_trace (sample_name, time, intensity) VALUES (?, ?, ?)",
+        (
+            sample_name,
+            zlib.compress(times[order].tobytes()),
+            zlib.compress(intensities[order].tobytes()),
+        ),
+    )
 
 
 def store_tic_data(sample_name: str, times: np.ndarray, intensities: np.ndarray, conn=None) -> bool:

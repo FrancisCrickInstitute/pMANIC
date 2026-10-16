@@ -1,8 +1,11 @@
 import os
+import threading
 import time
+from unittest.mock import Mock
 
 from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QMessageBox
 
 from manic.utils.recent_files import RecentFiles
@@ -134,6 +137,64 @@ def test_export_worker_cancel_crosses_threads_and_quit_unblocks_wait(
     canceller.canceled.emit()
     assert thread.wait(1000), "quit must reach the thread while the GUI thread blocks"
     assert finished == [False]
+
+
+def test_running_regeneration_keeps_its_dialog_and_refuses_a_second_one(
+    qapp, empty_db, monkeypatch
+):
+    release = threading.Event()
+    started = []
+
+    def blocking_regenerate(**kwargs):
+        started.append(kwargs["compound_name"])
+        release.wait(5)
+        return 1
+
+    monkeypatch.setattr(
+        "manic.utils.workers.regenerate_compound_eics", blocking_regenerate
+    )
+    window = _make_window(monkeypatch)
+    messages = []
+    monkeypatch.setattr(
+        window,
+        "_create_message_box",
+        lambda kind, title, text, *a, **k: messages.append((kind, title, text))
+        or Mock(),
+    )
+
+    def spin_until(condition):
+        deadline = time.monotonic() + 5.0
+        while not condition() and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.005)
+
+    try:
+        window.on_data_regeneration_requested("Glucose", 0.2, ["s1"], 7.0)
+        dialog = window.regen_progress_dialog
+        spin_until(lambda: started)
+
+        QTest.keyClick(dialog, Qt.Key_Escape)
+        dialog.windowHandle().close()  # title-bar close, delivered as spontaneous
+        assert dialog.isVisible()
+
+        window.on_data_regeneration_requested("Lactate", 0.2, ["s1"], 7.0)
+        qapp.processEvents()
+        assert started == ["Glucose"]
+        assert messages == [
+            (
+                "information",
+                "Operation in progress",
+                "Wait for the current import or reload to finish before "
+                "regenerating EIC data.",
+            )
+        ]
+    finally:
+        release.set()
+        spin_until(lambda: window._running_background_thread() is None)
+        window.close()
+
+    assert not dialog.isVisible()
+    assert messages[-1][1] == "Regeneration Complete"
 
 
 def test_load_cdf_folder_noop_when_cdf_already_loaded(

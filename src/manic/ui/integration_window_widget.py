@@ -475,6 +475,10 @@ class IntegrationWindow(QGroupBox):
         import logging
         logger = logging.getLogger(__name__)
         
+        # A sample whose EIC is gone must not keep bounds from an earlier visit
+        for sample_name in sample_names:
+            self._data_window_bounds.pop((compound_name, sample_name), None)
+
         try:
             # Get EIC data for all specified samples
             eics = get_eics_for_compound(compound_name, sample_names)

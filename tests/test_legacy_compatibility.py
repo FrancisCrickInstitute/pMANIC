@@ -7,9 +7,11 @@ and legacy data import/export.
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
 from openpyxl import Workbook, load_workbook
 
 from manic.io.legacy_raw_values_reader import read_raw_values_workbook
+from manic.io.legacy_rebuild import rebuild_export_from_files
 from manic.io.in_memory_provider import InMemoryDataProvider
 from manic.io.legacy_rebuild import _read_compounds_as_dicts
 from manic.io.changelog_sections import (
@@ -190,6 +192,44 @@ def test_read_raw_values_workbook_roundtrip(tmp_path: Path):
     assert raw['S1']['B'] == [5.0]
     assert raw['S2']['A'] == [20.0, 3.0]
     assert raw['S2']['B'] == [7.0]
+
+
+def write_compounds_csv(path: Path, label_atoms: dict[str, int]):
+    rows = ["name,tr,mass0,loffset,roffset,labelatoms,formula"]
+    rows += [f"{name},1.0,100.0,0.1,0.1,{n},C6H12O6" for name, n in label_atoms.items()]
+    path.write_text("\n".join(rows) + "\n")
+
+
+def test_rebuild_rejects_csv_raw_values_with_clear_error(tmp_path: Path):
+    compounds = tmp_path / 'compounds.csv'
+    write_compounds_csv(compounds, {'A': 1})
+    raw_csv = tmp_path / 'raw_values.csv'
+    raw_csv.write_text("Compound Name,,A,A\nMass,,100,101\nIsotope,,0,1\ntR,,1,1\n,S1,10,2\n")
+
+    with pytest.raises(ValueError) as exc:
+        rebuild_export_from_files(str(compounds), str(raw_csv), str(tmp_path / 'out.xlsx'))
+
+    assert str(exc.value) == (
+        f"Raw Values file must be an Excel workbook (.xlsx): {raw_csv}"
+    )
+
+
+def test_rebuild_names_every_compound_with_wrong_isotopologue_count(tmp_path: Path):
+    compounds = tmp_path / 'compounds.csv'
+    # Workbook has 2 columns for A and 1 for B; these label atoms expect 3 and 2
+    write_compounds_csv(compounds, {'A': 2, 'B': 1})
+    xlsx_path = tmp_path / 'raw_values.xlsx'
+    write_raw_values_xlsx(str(xlsx_path))
+    out = tmp_path / 'out.xlsx'
+
+    with pytest.raises(ValueError) as exc:
+        rebuild_export_from_files(str(compounds), str(xlsx_path), str(out))
+
+    assert str(exc.value) == (
+        "Isotopologue columns in the Raw Values workbook do not match label atoms + 1 "
+        "in the compounds file: A (expected 3, found 2), B (expected 2, found 1)"
+    )
+    assert not out.exists()
 
 
 # ============================================================================

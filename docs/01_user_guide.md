@@ -293,7 +293,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
 ### Export Session
 **File → Export Session...**
 * **Function:** Creates a `.json` file containing your analytical method and a human-readable changelog.
-* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, the labelled internal-standard reference peak (M+N), the mass tolerance (Da), and the peak-validation threshold.
+* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), each sample's tR Window, the selected internal standard, the labelled internal-standard reference peak (M+N), the mass tolerance (Da), and the peak-validation threshold.
 * **What is NOT saved:** The raw mass spectrometry data (CDF content).
 * **Use Case:** Archiving your analysis method or sharing it with a colleague who has the same raw files.
 
@@ -304,7 +304,8 @@ MANIC can save the state of your analysis, including compound definitions, integ
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
     3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, internal standard, mass tolerance, and peak-validation threshold. If the saved mass tolerance differs from the current one, MANIC regenerates every EIC, as it does when you change it in **Settings**.
-* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared. A file with no mass tolerance or peak-validation threshold keeps the current Settings values.
+* **Re-extraction:** After the import, MANIC re-reads the CDF files for any sample whose restored integration window falls outside its stored EIC, or whose saved tR Window differs from the stored one. A progress bar shows while this runs. If a CDF file has moved since you loaded it, MANIC lists the affected compound and sample pairs. Their areas can be zero until you restore the files and import the session again.
+* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared. A file with no mass tolerance or peak-validation threshold keeps the current Settings values. A file with no saved tR Windows keeps the current ones and re-extracts only the samples whose integration window falls outside their stored EIC.
 
 ---
 

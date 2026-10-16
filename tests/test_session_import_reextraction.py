@@ -90,3 +90,13 @@ def test_session_round_trip_restores_moved_windows_and_tr_window(
         == original_areas
     )
     assert _eic_rt_window("Bio_002") == 0.5
+
+    _load_fresh_session(tmp_path / "moved.db", cdf_dir, monkeypatch)
+    (cdf_dir / "Bio_001.cdf").rename(tmp_path / "moved.cdf")
+    session_export.import_session_overrides(str(session_path))
+    result = session_export.reextract_session_eics(str(session_path), mass_tol=0.2)
+
+    assert result == session_export.SessionReextraction(
+        1, ("Pyruvate / Bio_001: CDF file not found",)
+    )
+    assert _eic_rt_window("Bio_002") == 0.5

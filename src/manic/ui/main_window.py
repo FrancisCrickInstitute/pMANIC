@@ -58,6 +58,7 @@ from manic.models.mm_file_check import build_mm_file_report
 from manic.models.session_export import (
     InternalStandardRestore,
     InternalStandardRestoreKind,
+    SessionReextraction,
     clamp_reference_isotope,
     export_session_method,
     format_session_import_standard_note,
@@ -94,6 +95,7 @@ from manic.utils.workers import (
     EicRegenerationWorker,
     ExportWorker,
     MassToleranceReloadWorker,
+    SessionReextractionWorker,
     UpdateCheckWorker,
 )
 from manic.utils.timer import measure_time
@@ -2003,8 +2005,7 @@ class MainWindow(QMainWindow):
                 )
                 msg_box.exec()
                 logger.info(f"Session overrides imported from {file_path}")
-                self._refresh_after_session_import()
-                self._apply_imported_processing_settings(file_path)
+                self._reextract_after_session_import(file_path)
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -2132,6 +2133,47 @@ class MainWindow(QMainWindow):
         standard = self.toolbar.get_internal_standard()
         if standard is not None and standard not in active_compounds:
             self.toolbar.on_internal_standard_cleared()
+
+    def _reextract_after_session_import(self, import_path: str):
+        self._session_import_path = import_path
+        self.regen_progress_dialog = self._build_progress_dialog(
+            "Re-extracting EIC data for the imported session..."
+        )
+        self.regen_progress_dialog.show()
+
+        self._regen_thread = QThread(self)
+        self._regen_worker = SessionReextractionWorker(
+            import_path, mass_tol=self.mass_tolerance
+        )
+        self._regen_worker.moveToThread(self._regen_thread)
+        self._regen_worker.progress.connect(self._update_regeneration_progress)
+        self._regen_worker.finished.connect(self._session_reextraction_finished)
+        self._regen_worker.failed.connect(self._session_reextraction_failed)
+        self._regen_worker.finished.connect(self._regen_thread.quit)
+        self._regen_worker.failed.connect(self._regen_thread.quit)
+        self._regen_thread.started.connect(self._regen_worker.run)
+        self._regen_thread.finished.connect(self._regen_thread.deleteLater)
+        self._regen_thread.start()
+
+    def _session_reextraction_failed(self, error: str):
+        self._session_reextraction_finished(SessionReextraction(0, (error,)))
+
+    def _session_reextraction_finished(self, result: SessionReextraction):
+        self.regen_progress_dialog.close()
+        if self._validation_provider is not None:
+            self._validation_provider.invalidate_cache()
+        self._refresh_after_session_import()
+        self._apply_imported_processing_settings(self._session_import_path)
+        if result.failed:
+            self._show_message(
+                "warning",
+                "Some Samples Were Not Re-extracted",
+                "The imported integration windows of these samples may fall "
+                "outside their stored EIC data, so their areas can be zero. "
+                "Check that the CDF files are where they were loaded from, "
+                "then import the session again.",
+                "\n".join(result.failed),
+            )
 
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""

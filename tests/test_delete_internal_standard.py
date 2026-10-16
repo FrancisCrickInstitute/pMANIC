@@ -1,5 +1,6 @@
 import json
 
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from manic.models import database
@@ -78,6 +79,14 @@ def test_session_import_deleting_internal_standard_clears_it(
     )
 
     window.import_session()
+    # The refresh that clears the standard runs once re-extraction finishes.
+    thread = window._regen_thread
+    for _ in range(1000):
+        QCoreApplication.sendPostedEvents(window)
+        if not thread.isRunning():
+            break
+        QCoreApplication.sendPostedEvents(thread)
+        thread.wait(10)
 
     assert window.toolbar.get_internal_standard() is None
     assert window.toolbar.standard.toolTip() == "Int Std: none"

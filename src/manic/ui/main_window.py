@@ -2822,7 +2822,8 @@ class MainWindow(QMainWindow):
 
             # Read selection and persist to window state
             chosen_use_legacy = radio_legacy.isChecked()
-            self.use_legacy_integration = chosen_use_legacy
+            if chosen_use_legacy != self.use_legacy_integration:
+                self.apply_use_legacy_integration(chosen_use_legacy)
             if self.analysis_mode is AnalysisMode.LABELLED:
                 include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
 

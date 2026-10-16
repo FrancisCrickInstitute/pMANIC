@@ -816,7 +816,8 @@ def regenerate_all_eics_with_mass_tolerance(
     mass_tol : float
         New mass tolerance offset for MANIC's asymmetric matching method (Da)
     rt_window : float
-        Retention time search window (±min). Default: 0.2
+        Retention time search window (±min) for compound/sample pairs with no
+        stored EIC. Existing pairs keep their stored window. Default: 0.2
     progress_cb : Callable[[done, total], None] | None
         Optional callback for GUI progress bars
 
@@ -889,20 +890,32 @@ def regenerate_all_eics_with_mass_tolerance(
                     c.mass0,
                     c.label_atoms,
                     COALESCE(sa.loffset, c.loffset) as loffset,
-                    COALESCE(sa.roffset, c.roffset) as roffset
+                    COALESCE(sa.roffset, c.roffset) as roffset,
+                    (
+                        SELECT MAX(e.rt_window) FROM eic e
+                        WHERE e.compound_name = c.compound_name
+                        AND e.sample_name = ?
+                        AND e.deleted = 0
+                    ) as stored_rt_window
                 FROM compounds c
                 LEFT JOIN session_activity sa
                     ON sa.compound_name = c.compound_name
                     AND sa.sample_name = ?
                     AND sa.sample_deleted = 0
                 """,
-                (sample_name,),
+                (sample_name, sample_name),
             ).fetchall()
 
         # Convert to list of tuples for _extract_all_eics_for_file
         compounds_with_overrides = []
         for row in compound_overrides:
             base_target = targets_by_name[row["compound_name"]]
+            # Keep the window set with Update tR Window; only the tolerance changes.
+            extract_rt_window = (
+                rt_window
+                if row["stored_rt_window"] is None
+                else row["stored_rt_window"]
+            )
             compounds_with_overrides.append(
                 CompoundExtractionTarget(
                     compound_name=base_target.compound_name,
@@ -910,8 +923,9 @@ def regenerate_all_eics_with_mass_tolerance(
                     mass0=base_target.mass0,
                     label_atoms=base_target.label_atoms,
                     target_mzs=base_target.target_mzs,
-                    required_rt_window=minimum_extract_rt_window(
-                        row["loffset"], row["roffset"]
+                    required_rt_window=max(
+                        float(extract_rt_window),
+                        minimum_extract_rt_window(row["loffset"], row["roffset"]),
                     ),
                 )
             )
@@ -925,7 +939,7 @@ def regenerate_all_eics_with_mass_tolerance(
                 cdf_data,
                 compounds_with_overrides,
                 mass_tol,
-                rt_window,
+                0.0,  # each target already carries its full window
                 progress_cb,
                 done,
                 total_work,

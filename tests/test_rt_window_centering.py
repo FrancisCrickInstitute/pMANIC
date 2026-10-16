@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from netCDF4 import Dataset
 
 from PySide6.QtWidgets import QLineEdit
 
@@ -20,7 +21,7 @@ from manic.io.eic_importer import (
 from manic.models import database
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.chromatographic_peak_deconvolution import deconvolve_eic
-from manic.processors.eic_calculator import EmptyRtWindowError
+from manic.processors.eic_calculator import EmptyRtWindowError, extract_eic
 from manic.ui.main_window import MainWindow
 from manic.ui.integration_window_widget import (
     calculate_integration_boundaries,
@@ -1311,6 +1312,52 @@ def test_mass_tolerance_change_keeps_stored_tr_window(
     assert rt_window == pytest.approx(stored_window)
     assert time_axis[0] == pytest.approx(7.17 - stored_window, abs=0.011)
     assert time_axis[-1] == pytest.approx(7.17 + stored_window, abs=0.011)
+
+
+def test_regenerate_reads_only_the_scans_inside_the_window(tmp_path, monkeypatch):
+    db_path = tmp_path / "regen.db"
+    cdf_path = tmp_path / "s1.cdf"
+    scan_count = 20
+    with Dataset(cdf_path, "w") as cdf:
+        cdf.createDimension("scan_number", scan_count)
+        cdf.createDimension("point_number", 3 * scan_count)
+        scans = {
+            "scan_acquisition_time": 396.0 + 6.0 * np.arange(scan_count),
+            "scan_index": 3 * np.arange(scan_count, dtype=np.int32),
+            "point_count": np.full(scan_count, 3, dtype=np.int32),
+            "total_intensity": np.zeros(scan_count),
+        }
+        for name, values in scans.items():
+            cdf.createVariable(name, values.dtype, ("scan_number",))[:] = values
+        points = {
+            "mass_values": np.tile([99.8, 100.0, 101.0], scan_count),
+            "intensity_values": np.column_stack(
+                [np.ones(scan_count), np.arange(scan_count), np.full(scan_count, 100)]
+            ).ravel(),
+        }
+        for name, values in points.items():
+            cdf.createVariable(name, "f8", ("point_number",))[:] = values
+    monkeypatch.setattr(database, "DB_FILE", db_path)
+    _seed_eic_db(db_path, {"s1": cdf_path})
+    loaded_points = []
+
+    def _extract(*args):
+        loaded_points.append(args[3].mass.size)
+        return extract_eic(*args)
+
+    monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
+
+    regenerate_compound_eics("Glucose", 0.2, ["s1"], retention_time=7.17)
+
+    with sqlite3.connect(db_path) as conn:
+        x_axis, y_axis = conn.execute(
+            "SELECT x_axis, y_axis FROM eic WHERE sample_name = 's1'"
+        ).fetchone()
+    assert loaded_points == [12]
+    assert np.frombuffer(zlib.decompress(x_axis)) == pytest.approx(
+        [7.0, 7.1, 7.2, 7.3]
+    )
+    assert np.frombuffer(zlib.decompress(y_axis)).tolist() == [5.0, 6.0, 7.0, 8.0]
 
 
 class TestRegenerationCompletion:

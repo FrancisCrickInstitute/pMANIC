@@ -675,11 +675,11 @@ class DataProvider:
 
         Returns ``assess(sample_name)``, which applies that sample's session
         RT/offsets and raises LookupError when the sample has no EIC. Reading the
-        compound, the session rows and the raw EICs takes three connections in
+        compound, the session rows and the raw EICs takes two connections in
         total rather than three per sample.
         """
         from manic.io.compound_reader import read_compound
-        from manic.io.eic_reader import read_eics_batch
+        from manic.io.eic_reader import eic_from_blobs
         from manic.validation.unlabelled_identity import (
             assess_identity,
             quantifier_apex_time,
@@ -701,20 +701,21 @@ class DataProvider:
                     (compound_name, *sample_names),
                 )
             }
-        try:
-            eics = {
-                eic.sample_name: eic
-                for eic in read_eics_batch(
-                    list(sample_names), compound, use_corrected=False
-                )
-            }
-        except LookupError:
-            eics = {}
+            rows = {}
+            for row in conn.execute(
+                "SELECT sample_name, x_axis, y_axis FROM eic WHERE compound_name = ? "
+                f"AND sample_name IN ({placeholders}) AND deleted = 0 ORDER BY id",
+                (compound_name, *sample_names),
+            ):
+                # read_eic uses a sample's first stored row.
+                rows.setdefault(row["sample_name"], row)
 
         def assess(sample_name: str):
-            eic = eics.get(sample_name)
-            if eic is None:
+            row = rows.get(sample_name)
+            if row is None:
                 raise LookupError(f"EIC not found for {compound_name} in {sample_name}")
+            # Decoded here so one unreadable trace fails only its own sample.
+            eic = eic_from_blobs(sample_name, compound, row["x_axis"], row["y_axis"])
             session = sessions.get(sample_name)
             sample_compound = (
                 compound

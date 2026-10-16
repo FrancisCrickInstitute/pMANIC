@@ -18,6 +18,17 @@ class EIC:
     intensity: np.ndarray
 
 
+def eic_from_blobs(sample: str, compound: Compound, x_axis: bytes, y_axis: bytes) -> EIC:
+    """Decode one stored EIC row; raises ValueError if its channels do not fit."""
+    time = np.frombuffer(zlib.decompress(x_axis), dtype=np.float64)
+    inten = np.frombuffer(zlib.decompress(y_axis), dtype=np.float64)
+    channel_count = compound.channel_count
+    if channel_count > 1:
+        # floor division works as embedded arrays are same length
+        inten = inten.reshape((channel_count, len(inten) // channel_count))
+    return EIC(sample, compound.compound_name, time, inten)
+
+
 def read_eics_batch(samples: List[str], compound: Compound, use_corrected: bool = True) -> List[EIC]:
     """
     Batch read EIC data for multiple samples and a single compound.
@@ -78,15 +89,9 @@ def read_eics_batch(samples: List[str], compound: Compound, use_corrected: bool 
     # Create a dictionary for fast lookup of database results by sample name
     results_by_sample = {}
     for row in rows:
-        # Decompress time and intensity data from database blobs
-        time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
-        inten = np.frombuffer(zlib.decompress(row["y_axis"]), dtype=np.float64)
-        
-        channel_count = compound.channel_count
-        if channel_count > 1:
-            inten = inten.reshape((channel_count, len(inten) // channel_count))
-        
-        results_by_sample[row["sample_name"]] = EIC(row["sample_name"], compound_name, time, inten)
+        results_by_sample[row["sample_name"]] = eic_from_blobs(
+            row["sample_name"], compound, row["x_axis"], row["y_axis"]
+        )
 
     if use_corrected:
         missing_samples = [
@@ -154,15 +159,4 @@ def read_eic(sample: str, compound: Compound, use_corrected: bool = True) -> EIC
         if row is None:
             raise LookupError(f"EIC not found for {compound_name} in {sample}")
 
-    channel_count = compound.channel_count
-
-    time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
-    inten = np.frombuffer(zlib.decompress(row["y_axis"]), dtype=np.float64)
-    if channel_count > 1:
-        inten = inten.reshape(
-            (
-                channel_count,
-                len(inten) // channel_count,
-            )  # floor division works as embedded arrays are same length
-        )
-    return EIC(sample, compound_name, time, inten)
+    return eic_from_blobs(sample, compound, row["x_axis"], row["y_axis"])

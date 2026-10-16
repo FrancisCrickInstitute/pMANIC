@@ -1623,8 +1623,10 @@ class MainWindow(QMainWindow):
             )
             QCoreApplication.processEvents()
 
-    def _mass_tolerance_reload_completed(self, regenerated_count: int):
-        """Handle successful mass tolerance reload completion"""
+    def _mass_tolerance_reload_completed(
+        self, regenerated_count: int, failed_samples: list
+    ):
+        """Handle mass tolerance reload completion"""
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
 
@@ -1651,12 +1653,19 @@ class MainWindow(QMainWindow):
         # Re-enable UI
         self._re_enable_ui_actions()
 
-        # Show success message
-        msg = self._create_message_box(
-            "information",
-            "Regeneration Complete",
-            f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
-        )
+        if failed_samples:
+            msg = self._create_message_box(
+                "warning",
+                "Regeneration Incomplete",
+                f"Regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da. "
+                f"These samples could not be read and keep their previous EICs: {', '.join(failed_samples)}",
+            )
+        else:
+            msg = self._create_message_box(
+                "information",
+                "Regeneration Complete",
+                f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
+            )
         msg.exec()
 
     def _mass_tolerance_reload_failed(self, error_msg: str):

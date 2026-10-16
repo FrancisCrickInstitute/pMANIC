@@ -801,14 +801,15 @@ def regenerate_all_eics_with_mass_tolerance(
     mass_tol: float,
     rt_window: float = 0.2,
     progress_cb: Optional[Callable[[int, int], None]] = None,
-) -> int:
+) -> tuple[int, list[str]]:
     """
     Regenerate all EIC data with a new mass tolerance value.
 
-    This function deletes ALL existing EIC records and recalculates them using
-    the new mass tolerance parameter. Soft-deleted compounds and samples are
-    included so that restoring them needs no regeneration. Session overrides
-    (retention times, offsets) are preserved via LEFT JOIN + COALESCE queries.
+    Each sample's EIC records are replaced with ones recalculated using the new
+    mass tolerance parameter. Soft-deleted compounds and samples are included
+    so that restoring them needs no regeneration. A sample whose CDF cannot be
+    read keeps its existing records. Session overrides (retention times,
+    offsets) are preserved via LEFT JOIN + COALESCE queries.
 
     Parameters
     ----------
@@ -821,8 +822,9 @@ def regenerate_all_eics_with_mass_tolerance(
 
     Returns
     -------
-    int
-        Total number of EIC rows regenerated
+    tuple[int, list[str]]
+        Total number of EIC rows regenerated, and the names of samples that
+        failed and kept their previous EICs
     """
     start = time.time()
     logger.info(f"Starting full EIC regeneration with mass tolerance {mass_tol}")
@@ -915,7 +917,21 @@ def regenerate_all_eics_with_mass_tolerance(
             )
 
         try:
-            # Delete existing EIC records for this sample
+            # Load CDF file
+            cdf_data = read_cdf_file(cdf_path)
+
+            # Extract all EICs using the optimized batch function
+            eic_batch, skipped_count = _extract_all_eics_for_file(
+                cdf_data,
+                compounds_with_overrides,
+                mass_tol,
+                rt_window,
+                progress_cb,
+                done,
+                total_work,
+            )
+
+            # Replace this sample's EICs only after extraction succeeded
             with get_connection() as conn:
                 delete_result = conn.execute(
                     "DELETE FROM eic WHERE sample_name = ?", (sample_name,)
@@ -935,23 +951,8 @@ def regenerate_all_eics_with_mass_tolerance(
                         f"Deleted {deleted_corrected_count} corrected EIC records for '{sample_name}'"
                     )
 
-            # Load CDF file
-            cdf_data = read_cdf_file(cdf_path)
-
-            # Extract all EICs using the optimized batch function
-            eic_batch, skipped_count = _extract_all_eics_for_file(
-                cdf_data,
-                compounds_with_overrides,
-                mass_tol,
-                rt_window,
-                progress_cb,
-                done,
-                total_work,
-            )
-
-            # Batch insert new EIC records
-            if eic_batch:
-                with get_connection() as conn:
+                # Batch insert new EIC records
+                if eic_batch:
                     conn.executemany(
                         """
                         INSERT INTO eic (
@@ -963,11 +964,11 @@ def regenerate_all_eics_with_mass_tolerance(
                         """,
                         eic_batch,
                     )
-                    regenerated += len(eic_batch)
                     logger.debug(
                         f"Inserted {len(eic_batch)} new EIC records for '{sample_name}'"
                     )
 
+            regenerated += len(eic_batch)
             done += len(compounds)
 
         except Exception as e:
@@ -1015,4 +1016,4 @@ def regenerate_all_eics_with_mass_tolerance(
         f"Regenerated {regenerated} EICs with mass tolerance {mass_tol} in {elapsed:.1f} s"
     )
 
-    return regenerated
+    return regenerated, failed_samples

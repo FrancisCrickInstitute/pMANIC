@@ -3,7 +3,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List
+from typing import Iterable, List, Optional
 
 from manic.utils.paths import resource_path
 
@@ -300,9 +300,14 @@ def restore_compounds(compound_names: List[str]) -> int:
 
     Returns:
         Count of compounds actually restored.
+
+    Raises:
+        StaleEicsError: If any active sample has stale EICs. Nothing is
+            restored.
     """
     if not compound_names:
         return 0
+    check_compound_restore(compound_names)
     with get_connection() as conn:
         placeholders = ",".join("?" * len(compound_names))
         cursor = conn.execute(
@@ -355,14 +360,62 @@ def soft_delete_samples(sample_names: List[str]) -> int:
 class StaleEicsError(Exception):
     """Raised when a restore would reactivate EICs built with an older tolerance."""
 
-    def __init__(self, sample_names: List[str]):
+    def __init__(
+        self, sample_names: List[str], compound_names: Optional[List[str]] = None
+    ):
         self.sample_names = sample_names
-        super().__init__(
-            f"Cannot restore {', '.join(sample_names)}: the CDF file was missing "
-            "at the last mass tolerance change, so its EICs use an older "
-            "tolerance. Put the CDF file back and change the mass tolerance to "
-            "rebuild them."
-        )
+        samples = ", ".join(sample_names)
+        if compound_names is None:
+            message = (
+                f"Cannot restore {samples}: the CDF file was missing at the last "
+                "mass tolerance change, so its EICs use an older tolerance. Put "
+                "the CDF file back and change the mass tolerance to rebuild them."
+            )
+        else:
+            message = (
+                f"Cannot restore {', '.join(compound_names)}: the CDF file of "
+                f"active sample {samples} was missing at the last mass tolerance "
+                "change, so its EICs use an older tolerance. Put the CDF file back "
+                "and change the mass tolerance, or delete the sample, then "
+                "restore again."
+            )
+        super().__init__(message)
+
+
+def check_compound_restore(
+    compound_names: List[str], deleting_samples: Iterable[str] = ()
+) -> None:
+    """
+    Raise StaleEicsError if restoring these compounds would expose their
+    old-tolerance EICs in an active sample flagged eics_stale.
+
+    Args:
+        compound_names: Compounds about to be restored.
+        deleting_samples: Samples the caller deletes before restoring.
+    """
+    if not compound_names:
+        return
+    deleting = set(deleting_samples)
+    with get_connection() as conn:
+        placeholders = ",".join("?" * len(compound_names))
+        restoring = [
+            row["compound_name"]
+            for row in conn.execute(
+                f"SELECT compound_name FROM compounds WHERE compound_name IN ({placeholders}) "
+                "AND deleted = 1 ORDER BY compound_name",
+                compound_names,
+            )
+        ]
+        stale = [
+            row["sample_name"]
+            for row in conn.execute(
+                "SELECT sample_name FROM samples WHERE deleted = 0 "
+                "AND eics_stale = 1 ORDER BY sample_name"
+            )
+            if row["sample_name"] not in deleting
+        ]
+    if restoring and stale:
+        raise StaleEicsError(stale, restoring)
 
 
 def restore_samples(sample_names: List[str]) -> int:

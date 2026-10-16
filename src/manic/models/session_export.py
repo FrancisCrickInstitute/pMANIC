@@ -16,6 +16,7 @@ from typing import Any, Dict, Iterable, Optional
 
 from manic.models.database import (
     StaleEicsError,
+    check_compound_restore,
     get_connection,
     restore_compounds,
     restore_samples,
@@ -394,10 +395,15 @@ def import_session_overrides(
         )
 
         if has_deletion_data:
-            # Sync sample deleted state first: restore_samples may refuse, and
-            # nothing has been changed yet
             deleted_samples_in_import = set(method_data.get("deleted_samples", []))
             active_samples_in_import = {o["sample_name"] for o in session_overrides}
+            compounds_to_restore = [c["compound_name"] for c in compounds if not c.get("deleted", 0)]
+            compounds_to_delete = [c["compound_name"] for c in compounds if c.get("deleted", 0)]
+
+            # Refuse before changing anything: check compounds against the
+            # samples this import leaves active, then restore_samples checks
+            # its own
+            check_compound_restore(compounds_to_restore, deleted_samples_in_import)
 
             samples_to_restore = list(active_samples_in_import - deleted_samples_in_import)
             if samples_to_restore:
@@ -409,9 +415,6 @@ def import_session_overrides(
                 soft_delete_sample(name)
 
             # Sync compound deleted state with import
-            compounds_to_restore = [c["compound_name"] for c in compounds if not c.get("deleted", 0)]
-            compounds_to_delete = [c["compound_name"] for c in compounds if c.get("deleted", 0)]
-
             if compounds_to_restore:
                 restored = restore_compounds(compounds_to_restore)
                 if restored:

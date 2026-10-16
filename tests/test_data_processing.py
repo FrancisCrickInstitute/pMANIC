@@ -4,17 +4,22 @@ Combines tests for EIC extraction, processing, correction management,
 and data flow through the application.
 """
 
+import zlib
+
 import numpy as np
 import pytest
 from types import SimpleNamespace
+
+from netCDF4 import Dataset
 
 import manic.io.cdf_data_extractor as cdf_data_extractor
 from manic.io.cdf_data_extractor import (
     _extract_ms_at_time_from_cdf_data,
     ensure_ms_data_for_time,
 )
-from manic.io.cdf_reader import CdfFileData
-from manic.io.eic_importer import _extract_eic_optimized
+from manic.io.cdf_reader import CdfFileData, read_cdf_file
+from manic.io.eic_importer import _extract_eic_optimized, import_eics
+from manic.models import database
 from manic.processors.eic_calculator import extract_eic
 from manic.processors.integration import calculate_peak_areas
 import manic.processors.eic_processing as eic_processing
@@ -288,6 +293,122 @@ def test_unlabelled_extraction_supports_arbitrary_diagnostic_masses():
         channel_count=3,
     )
     assert areas == pytest.approx([6.6666667, 2.6666667, 1.3333333])
+
+
+def test_extract_eic_from_float32_cdf_bins_masses_in_float64(tmp_path):
+    path = tmp_path / "S1.cdf"
+    # float32 99.7 is a bin edge: float64 arithmetic bins it to 99, float32 to 100.
+    with Dataset(path, "w", format="NETCDF3_CLASSIC") as cdf:
+        cdf.createDimension("scan_number", 2)
+        cdf.createDimension("point_number", 3)
+        variables = {
+            "scan_acquisition_time": ("scan_number", "f4", [60.0, 70.0]),
+            "total_intensity": ("scan_number", "f4", [12.0, 3.0]),
+            "scan_index": ("scan_number", "i4", [0, 2]),
+            "point_count": ("scan_number", "i4", [2, 1]),
+            "mass_values": ("point_number", "f4", [99.7, 100.0, 100.0]),
+            "intensity_values": ("point_number", "f4", [5.0, 7.0, 3.0]),
+        }
+        for name, (dimension, dtype, values) in variables.items():
+            cdf.createVariable(name, dtype, (dimension,))[:] = values
+
+    cdf = read_cdf_file(path)
+
+    for values in (cdf.scan_time, cdf.mass, cdf.intensity, cdf.total_intensity):
+        assert type(values) is np.ndarray
+        assert values.dtype == np.float64
+    assert type(cdf.scan_index) is np.ndarray
+    eic = extract_eic("Target", 1.1, 100.0, cdf, rt_window=0.2)
+
+    assert eic.intensity.tolist() == [7.0, 3.0]
+
+
+def test_extract_eic_slices_the_rt_window_once():
+    class CountingArray(np.ndarray):
+        slices = 0
+
+        def __getitem__(self, key):
+            CountingArray.slices += 1
+            return super().__getitem__(key)
+
+    cdf = make_cdf()
+    cdf.mass = cdf.mass.view(CountingArray)
+
+    eic = extract_eic("Target", 70.0 / 60.0, 100.0, cdf, rt_window=0.5)
+
+    assert eic.intensity.tolist() == [10.0, 20.0, 30.0]
+    assert CountingArray.slices == 1
+
+
+def test_extract_eic_skips_out_of_window_scan_when_window_holds_final_scan():
+    # main ended scan 0 at scan 2's start, so scan 1's 10.0 leaked into it.
+    cdf = CdfFileData(
+        sample_name="S1",
+        file_path="/fake/S1.cdf",
+        scan_time=np.array([60.0, 120.0, 70.0]),
+        mass=np.array([100.0, 100.0, 100.0]),
+        intensity=np.array([1.0, 10.0, 100.0]),
+        scan_index=np.array([0, 1, 2]),
+        point_count=np.array([1, 1, 1]),
+        total_intensity=np.array([1.0, 10.0, 100.0]),
+    )
+
+    eic = extract_eic("Target", 65.0 / 60.0, 100.0, cdf, rt_window=0.1)
+
+    assert eic.intensity.tolist() == [1.0, 100.0]
+
+
+def test_import_skips_masked_cdf_intensities_in_spectra_like_main(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(database, "DB_FILE", tmp_path / "manic.db")
+    database.init_db()
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, "
+            "label_atoms) VALUES ('Target', ?, 100, 0)",
+            (70.0 / 60.0,),
+        )
+    with Dataset(tmp_path / "S1.cdf", "w", format="NETCDF3_CLASSIC") as cdf:
+        cdf.createDimension("scan_number", 3)
+        cdf.createDimension("point_number", 7)
+        variables = {
+            "scan_acquisition_time": ("scan_number", "f4", [60.0, 70.0, 80.0]),
+            "total_intensity": ("scan_number", "f4", [12.0, 10.0, 13.0]),
+            "scan_index": ("scan_number", "i4", [0, 2, 5]),
+            "point_count": ("scan_number", "i4", [2, 3, 2]),
+            "mass_values": (
+                "point_number",
+                "f4",
+                [99.0, 100.0, 100.0, 101.0, 102.0, 100.0, 102.0],
+            ),
+        }
+        for name, (dimension, dtype, values) in variables.items():
+            cdf.createVariable(name, dtype, (dimension,))[:] = values
+        intensity = cdf.createVariable("intensity_values", "f4", ("point_number",))
+        intensity.missing_value = np.float32(7.0)
+        intensity.set_auto_mask(False)
+        # Point 4 (scan 1, m/z 102) is never written, so it holds netCDF's fill.
+        intensity[:4] = [5.0, 2.0, 7.0, 3.0]
+        intensity[5:] = [4.0, 9.0]
+
+    import_eics(tmp_path)
+
+    with database.get_connection() as conn:
+        spectra = conn.execute(
+            "SELECT time, mz, intensity FROM ms_data ORDER BY mz"
+        ).fetchall()
+        tic = conn.execute(
+            "SELECT time, intensity FROM tic_data ORDER BY time"
+        ).fetchall()
+        eic = conn.execute("SELECT x_axis, y_axis FROM eic").fetchone()
+    assert [tuple(row) for row in spectra] == [(70.0 / 60.0, 101.0, 3.0)]
+    assert [tuple(row) for row in tic] == [
+        (1.0, 12.0),
+        (70.0 / 60.0, 10.0),
+        (80.0 / 60.0, 13.0),
+    ]
+    assert np.frombuffer(zlib.decompress(eic["y_axis"])).tolist() == [2.0, 7.0, 4.0]
 
 
 # ============================================================================

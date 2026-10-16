@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QSignalBlocker, QSize, Signal
+from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -66,6 +67,29 @@ _DECONVOLUTION_GATE_OPTIONS = [
     ("Aggressive - only fit clearly smooth peaks", "aggressive"),
     ("Off - always attempt a fit", "off"),
 ]
+
+
+class _ToleranceSpinBox(QDoubleSpinBox):
+    """The minimum, one step below 0 at the box's precision, reads "Not set".
+
+    An empty field selects it, and Up from it lands on 0.
+    """
+
+    def stepBy(self, steps: int) -> None:
+        if steps > 0 and self.value() == self.minimum():
+            self.setValue(0.0)
+            steps -= 1
+        super().stepBy(steps)
+
+    def validate(self, text: str, pos: int):
+        if not text.strip():
+            return QValidator.Acceptable, text, pos
+        if text.lstrip().startswith("-"):
+            return QValidator.Invalid, text, pos
+        return super().validate(text, pos)
+
+    def valueFromText(self, text: str) -> float:
+        return self.minimum() if not text.strip() else super().valueFromText(text)
 
 
 def _form_layout() -> QFormLayout:
@@ -230,9 +254,10 @@ class QualifierRatioPage(SettingsPage):
         layout.setSpacing(12)
 
         info = QLabel(
-            "Tolerance is a fraction of the expected ratio (0.25 = ±25%). "
-            "An unset tolerance leaves that qualifier unassessed in Identity QC "
-            "and the Qualifier QC sheet."
+            "Tolerance is a fraction of the expected ratio (0.25 = ±25%; "
+            "0 = exact match). Clear the field to unset it: an unset tolerance "
+            "leaves that qualifier unassessed in Identity QC and the Qualifier "
+            "QC sheet."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -246,9 +271,9 @@ class QualifierRatioPage(SettingsPage):
         self._spins: dict[int, QDoubleSpinBox] = {}
         for ordinal in self._ORDINALS:
             label = QLabel()
-            spin = QDoubleSpinBox()
+            spin = _ToleranceSpinBox()
             spin.setObjectName(f"qualifier{ordinal}ToleranceSpin")
-            spin.setRange(0.0, 10.0)
+            spin.setRange(-0.001, 10.0)
             spin.setDecimals(3)
             spin.setSingleStep(0.01)
             spin.setSpecialValueText("Not set")
@@ -318,7 +343,9 @@ class QualifierRatioPage(SettingsPage):
             self._ratio_labels[ordinal].setText(f"expected ratio {ratio}")
             with QSignalBlocker(spin):
                 spin.setValue(
-                    0.0 if channel.ratio_tolerance is None else channel.ratio_tolerance
+                    spin.minimum()
+                    if channel.ratio_tolerance is None
+                    else channel.ratio_tolerance
                 )
         self._clear_dirty()
 
@@ -326,7 +353,7 @@ class QualifierRatioPage(SettingsPage):
         if not self._compound_name:
             return
         tolerances = {
-            ordinal: None if spin.value() == 0.0 else spin.value()
+            ordinal: None if spin.value() == spin.minimum() else spin.value()
             for ordinal, spin in self._spins.items()
             if ordinal in self._present_ordinals
         }

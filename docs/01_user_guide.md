@@ -214,6 +214,7 @@ You can delete samples or compounds directly from their respective list widgets.
 **Important Notes**
 *   You cannot delete *all* samples or *all* compounds. At least one must remain.
 *   Deleted items are excluded from plots, calculations, and exports.
+*   Deleting the internal standard compound clears the internal standard. Recovering that compound does not select it again; select it again from the context menu.
 *   Deletion is reversible. See below.
 
 ### Recovering Deleted Items
@@ -303,7 +304,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
     3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, internal standard, mass tolerance, and peak-validation threshold. If the saved mass tolerance differs from the current one, MANIC regenerates every EIC, as it does when you change it in **Settings**.
-* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged. A file with no mass tolerance or peak-validation threshold keeps the current Settings values.
+* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared. A file with no mass tolerance or peak-validation threshold keeps the current Settings values.
 
 ---
 

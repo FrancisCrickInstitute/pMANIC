@@ -5,11 +5,13 @@ and legacy data import/export.
 """
 
 from pathlib import Path
+from unittest.mock import Mock
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from manic.io.legacy_raw_values_reader import read_raw_values_workbook
 from manic.io.in_memory_provider import InMemoryDataProvider
+from manic.io.legacy_rebuild import _read_compounds_as_dicts
 from manic.io.changelog_sections import (
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
@@ -236,3 +238,98 @@ def test_in_memory_provider_corrected_vector(tmp_path: Path):
     assert all(v >= 0 for v in corr['A'])
     # B: unlabeled, copied as-is
     assert corr['B'] == [5.0]
+
+def write_blank_std_mix_inputs(tmp_path: Path) -> tuple[str, str]:
+    """IS has a blank AmountInStdMix; both compounds are measured in one MM file."""
+    compounds_path = tmp_path / 'compounds.csv'
+    compounds_path.write_text(
+        'name,tr,mass0,loffset,roffset,labelatoms,amountinstdmix,intstdamount,mmfiles\n'
+        'IS,1.0,100,0.1,0.1,0,,2.0,*MM*\n'
+        'Ala,2.0,116,0.1,0.1,0,5.0,,*MM*\n'
+    )
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Raw Values'
+    for row, label in enumerate(['Compound Name', 'Mass', 'Isotope', 'tR'], start=1):
+        ws.cell(row=row, column=1, value=label)
+    for col, header in enumerate([('IS', 100.0, 0, 1.0), ('Ala', 116.0, 0, 2.0)], start=3):
+        for row, value in enumerate(header, start=1):
+            ws.cell(row=row, column=col, value=value)
+    for row, sample in enumerate(['MM_01', 'S1'], start=5):
+        ws.cell(row=row, column=2, value=sample)
+        ws.cell(row=row, column=3, value=100.0)
+        ws.cell(row=row, column=4, value=50.0)
+    raw_path = tmp_path / 'raw_values.xlsx'
+    wb.save(raw_path)
+    return str(compounds_path), str(raw_path)
+
+
+def test_blank_std_mix_amount_defaults_to_one_in_mrrf(tmp_path: Path):
+    compounds_path, raw_path = write_blank_std_mix_inputs(tmp_path)
+    compounds = _read_compounds_as_dicts(compounds_path)
+    samples, raw = read_raw_values_workbook(raw_path)
+    prov = InMemoryDataProvider(compounds, samples, raw)
+
+    # Ala: (50 / 5.0) / (100 / 1.0), the IS concentration falling back to 1.0 as in the main app
+    assert prov.get_mrrf_values(compounds, 'IS') == {'IS': 1.0, 'Ala': 0.1}
+
+
+def run_update_old_data(tmp_path: Path, monkeypatch, reply, compounds_override=None):
+    """Drive File > Process External Data with IS selected; return (question titles, message titles)."""
+    from PySide6.QtWidgets import QDialog, QFileDialog
+
+    from conftest import _make_window
+    from manic.ui import update_old_data_dialog
+
+    compounds_path, raw_path = write_blank_std_mix_inputs(tmp_path)
+    out_path = tmp_path / 'out.xlsx'
+
+    dialog = Mock(**{'exec.return_value': QDialog.Accepted, 'get_internal_standard.return_value': 'IS'})
+    dialog.get_paths.return_value = compounds_override or compounds_path, raw_path
+    monkeypatch.setattr(update_old_data_dialog, 'UpdateOldDataDialog', Mock(return_value=dialog))
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', staticmethod(lambda *a, **k: (str(out_path), '')))
+
+    window = _make_window(monkeypatch)
+    questions: list[str] = []
+    messages: list[str] = []
+    monkeypatch.setattr(window, '_show_question_dialog', lambda title, *a, **k: questions.append(title) or reply)
+    monkeypatch.setattr(window, '_create_message_box', lambda kind, title, *a, **k: messages.append(title) or Mock())
+    try:
+        window.update_old_data()
+    finally:
+        window.close()
+    return questions, messages, out_path
+
+
+def test_update_old_data_continues_in_peak_area_mode_when_is_metadata_missing(qapp, tmp_path: Path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    questions, messages, out_path = run_update_old_data(tmp_path, monkeypatch, QMessageBox.Yes)
+
+    assert questions == ['Internal Standard Metadata Missing']
+    assert messages == ['Update Complete']
+    ws = load_workbook(out_path, read_only=True)['Abundances']
+    units = next(ws.iter_rows(min_row=5, max_row=5, min_col=3, values_only=True))
+    assert list(units) == ['Peak Area', 'Peak Area']
+
+
+def test_update_old_data_stops_when_is_metadata_missing_and_cancelled(qapp, tmp_path: Path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    questions, messages, out_path = run_update_old_data(tmp_path, monkeypatch, QMessageBox.No)
+
+    assert questions == ['Internal Standard Metadata Missing']
+    assert messages == []
+    assert not out_path.exists()
+
+
+def test_update_old_data_reports_unreadable_compounds_file(qapp, tmp_path: Path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    questions, messages, out_path = run_update_old_data(
+        tmp_path, monkeypatch, QMessageBox.Yes, compounds_override=str(tmp_path / 'gone.csv')
+    )
+
+    assert questions == []
+    assert messages == ['Update Failed']
+    assert not out_path.exists()

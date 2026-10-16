@@ -519,6 +519,26 @@ class MainWindow(QMainWindow):
             msg_box.setDefaultButton(default_button)
         return msg_box.exec()
 
+    def _confirm_peak_area_fallback(
+        self, internal_standard: str, problems: list[str]
+    ) -> bool:
+        """Ask whether to export without an internal standard when its metadata is missing."""
+        problems_text = "\n".join(f"• {p}" for p in problems)
+        reply = self._show_question_dialog(
+            "Internal Standard Metadata Missing",
+            (
+                f"Internal standard '{internal_standard}' is missing required metadata. "
+                "Proceed with export in Peak Area mode instead?"
+            ),
+            (
+                "Fix the compound list and re-import to enable calibrated Abundances.\n\n"
+                "Problems found:\n"
+                f"{problems_text}\n\n"
+                "If you continue, MANIC will export without an internal standard."
+            ),
+        )
+        return reply == QMessageBox.Yes
+
     def _show_message(
         self, msg_type: str, title: str, text: str, informative_text: str = ""
     ) -> None:
@@ -1997,7 +2017,11 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QFileDialog, QProgressDialog
 
-        from manic.io.legacy_rebuild import rebuild_export_from_files
+        from manic.io.in_memory_provider import InMemoryDataProvider
+        from manic.io.legacy_rebuild import (
+            _read_compounds_as_dicts,
+            rebuild_export_from_files,
+        )
         from manic.ui.update_old_data_dialog import UpdateOldDataDialog
 
         dlg = UpdateOldDataDialog(self)
@@ -2007,6 +2031,24 @@ class MainWindow(QMainWindow):
         if not compounds_path or not raw_values_path:
             return
         internal_standard = dlg.get_internal_standard()
+        if internal_standard:
+            try:
+                ok, problems = validate_internal_standard_metadata(
+                    InMemoryDataProvider(_read_compounds_as_dicts(compounds_path), [], {}),
+                    internal_standard,
+                )
+            except Exception as e:
+                logger.error(f"Update Old Data error: {e}")
+                self._create_message_box(
+                    "critical",
+                    "Update Failed",
+                    f"Failed to read the compounds file.\n{e}",
+                ).exec()
+                return
+            if not ok:
+                if not self._confirm_peak_area_fallback(internal_standard, problems):
+                    return
+                internal_standard = None
 
         out_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -2694,21 +2736,7 @@ class MainWindow(QMainWindow):
                     internal_standard,
                 )
                 if not ok:
-                    problems_text = "\n".join(f"• {p}" for p in problems)
-                    reply = self._show_question_dialog(
-                        "Internal Standard Metadata Missing",
-                        (
-                            f"Internal standard '{internal_standard}' is missing required metadata. "
-                            "Proceed with export in Peak Area mode instead?"
-                        ),
-                        (
-                            "Fix the compound list and re-import to enable calibrated Abundances.\n\n"
-                            "Problems found:\n"
-                            f"{problems_text}\n\n"
-                            "If you continue, MANIC will export without an internal standard."
-                        ),
-                    )
-                    if reply != QMessageBox.Yes:
+                    if not self._confirm_peak_area_fallback(internal_standard, problems):
                         return
                     internal_standard_for_export = None
 

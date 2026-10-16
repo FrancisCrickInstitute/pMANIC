@@ -42,7 +42,8 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 3.  Set **Raw Values Workbook:** with **Browse…**.
 4.  Optionally choose a value for **Internal Standard (optional):**.
 5.  Click **OK**.
-6.  In **Save Rebuilt Export**, choose the output workbook and save.
+6.  If the internal standard is missing `int_std_amount` or `amount_in_std_mix`, **Internal Standard Metadata Missing** appears. Click **Yes** to rebuild in **Peak Area** mode without an internal standard, or **No** to stop and fix the compound list.
+7.  In **Save Rebuilt Export**, choose the output workbook and save.
 
 ### Result
 MANIC writes five sheets.

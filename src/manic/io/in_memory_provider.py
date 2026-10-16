@@ -138,7 +138,10 @@ class InMemoryDataProvider:
 
         # Lookup internal standard metadata
         intstd_row = next((r for r in compounds if _get(r, 'compound_name') == internal_standard_compound), None)
-        internal_std_concentration = _get(intstd_row, 'amount_in_std_mix', 1.0) if intstd_row else 1.0
+        internal_std_concentration = _get(intstd_row, 'amount_in_std_mix') if intstd_row else None
+        # A blank cell is stored as None under an existing key, so _get's default never applies
+        if internal_std_concentration is None:
+            internal_std_concentration = 1.0
         internal_std_mm_field = _get(intstd_row, 'mm_files', None) if intstd_row else None
         internal_std_mm_samples = self.resolve_mm_samples(internal_std_mm_field)
 

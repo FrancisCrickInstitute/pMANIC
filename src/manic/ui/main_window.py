@@ -2119,11 +2119,12 @@ class MainWindow(QMainWindow):
 
     def _apply_imported_processing_settings(self, import_path: str) -> None:
         # Same setters as the Settings window, so a changed tolerance regenerates EICs.
+        # Threshold first: its replot must finish before regeneration deletes EIC rows.
         settings = read_session_processing_settings(import_path)
-        if settings.mass_tolerance is not None:
-            self.apply_mass_tolerance(settings.mass_tolerance)
         if settings.min_peak_height_ratio is not None:
             self.apply_min_peak_area_ratio(settings.min_peak_height_ratio)
+        if settings.mass_tolerance is not None:
+            self.apply_mass_tolerance(settings.mass_tolerance)
 
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""

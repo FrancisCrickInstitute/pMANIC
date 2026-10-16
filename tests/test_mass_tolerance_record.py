@@ -43,7 +43,7 @@ def test_session_round_trip_restores_tolerance_and_threshold(tmp_path):
 
     window, calls = _recording_window()
     MainWindow._apply_imported_processing_settings(window, str(export_dir / "method.json"))
-    assert calls == [("mass_tolerance", 0.5), ("ratio", 0.02)]
+    assert calls == [("ratio", 0.02), ("mass_tolerance", 0.5)]
 
 
 def test_legacy_session_without_keys_leaves_settings_unchanged(tmp_path):

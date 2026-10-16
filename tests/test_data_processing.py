@@ -236,6 +236,45 @@ def test_init_db_migrates_row_per_point_tic_and_spectra():
     assert not {"tic_data", "ms_data"} & tables
 
 
+def test_init_db_migrates_spectra_without_holding_them_all_in_memory():
+    import tracemalloc
+
+    rng = np.random.default_rng(0)
+    with database.get_connection() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE ms_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_name TEXT NOT NULL,
+                time REAL NOT NULL,
+                mz REAL NOT NULL,
+                intensity REAL NOT NULL,
+                deleted INTEGER DEFAULT 0,
+                UNIQUE(sample_name, time, mz)
+            );
+            INSERT INTO samples (sample_name, file_name, deleted) VALUES ('S1', '/missing/S1.cdf', 0);
+            """
+        )
+        conn.executemany(
+            "INSERT INTO ms_data (sample_name, time, mz, intensity) VALUES ('S1', ?, ?, ?)",
+            (
+                (scan * 0.01, 50.0 + peak, float(intensity))
+                for scan in range(3000)
+                for peak, intensity in enumerate(rng.random(50))
+            ),
+        )
+
+    tracemalloc.start()
+    database.init_db()
+    _, peak_bytes = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    with database.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM ms_spectrum").fetchone()[0] == 3000
+    # 3000 compressed spectra take ~2.5 MB; streaming holds one at a time.
+    assert peak_bytes < 1_000_000
+
+
 def test_extract_eic_labeled_three_isotopologues():
     """Test EIC extraction for labeled compound with three isotopologues."""
     cdf = make_cdf()

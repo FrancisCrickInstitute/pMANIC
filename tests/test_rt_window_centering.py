@@ -6,9 +6,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from PySide6.QtWidgets import QLineEdit
+
 from manic.constants import DEFAULT_RT_WINDOW
 from manic.io.cdf_reader import CdfFileData
-from manic.io.compound_reader import read_compound
+from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.io.eic_reader import read_eics_batch
 from manic.io.eic_importer import (
     _compress,
@@ -247,15 +249,13 @@ class TestPerSampleReloadChecking:
             ("cmpd", "s2"): (19.0, 21.0),
         }
 
-        sample_rts = {"s1": 10.0, "s2": 20.0}
-
-        need_reload = w._get_samples_needing_reload_with_sample_rts(
-            sample_rts, new_loffset=0.5, new_roffset=0.5, samples_to_check=["s1", "s2"]
+        need_reload = w._get_samples_needing_reload(
+            {"s1": (10.0, 0.5, 0.5), "s2": (20.0, 0.5, 0.5)}
         )
         assert need_reload == []
 
-        need_reload = w._get_samples_needing_reload_with_sample_rts(
-            sample_rts, new_loffset=2.0, new_roffset=2.0, samples_to_check=["s1", "s2"]
+        need_reload = w._get_samples_needing_reload(
+            {"s1": (10.0, 2.0, 2.0), "s2": (20.0, 2.0, 2.0)}
         )
         assert set(need_reload) == {"s1", "s2"}
 
@@ -276,10 +276,8 @@ class TestPerSampleReloadChecking:
             _current_compound="Glucose",
             _selected_samples=["s1", "s2"],
             _all_samples=["s1", "s2"],
-            _get_validated_inputs=lambda: (7.1, 2.0, 2.0),
-            _get_samples_needing_reload_with_sample_rts=(
-                lambda *_args: ["s1", "s2"]
-            ),
+            _get_validated_inputs=lambda: (None, 2.0, 2.0),
+            _get_samples_needing_reload=lambda *_args: ["s1", "s2"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
                 emit=lambda *args: emitted.append(args)
@@ -400,6 +398,88 @@ class TestPerSampleReloadChecking:
 
         assert emitted == [("Glucose", 0.7, ["s1", "s2"], 5.0)]
         assert tr_window_field.text() == "0.7"
+
+
+def _two_samples_with_different_offsets(qapp):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms) VALUES ('A', 5.0, 0.2, 0.2, 100.0, 0)"
+        )
+        time_axis = np.linspace(4.0, 6.0, 400)
+        for sample_name in ("S1", "S2"):
+            conn.execute(
+                "INSERT INTO samples (sample_name, file_name) VALUES (?, ?)",
+                (sample_name, f"/fake/{sample_name}.cdf"),
+            )
+            conn.execute(
+                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, "
+                "rt_window) VALUES (?, 'A', ?, ?, 1.0)",
+                (
+                    sample_name,
+                    _compress(time_axis),
+                    _compress(_gaussian(time_axis, 5.0, 0.03, 1e5)),
+                ),
+            )
+    SessionActivityService.update_session_data("A", ["S1"], 5.0, 0.1, 0.1)
+    SessionActivityService.update_session_data("A", ["S2"], 5.0, 0.3, 0.3)
+    window = IntegrationWindow()
+    window._show_message = lambda *args: pytest.fail(f"unexpected message {args}")
+    window.populate_tr_window_field("A")
+    window.populate_fields_from_plots("A", ["S1", "S2"], ["S1", "S2"])
+    assert window.findChild(QLineEdit, "lo_input").text() == "0.1 - 0.3"
+    assert window.findChild(QLineEdit, "ro_input").text() == "0.1 - 0.3"
+    return window
+
+
+def _stored_values(sample_name):
+    compound = read_compound_with_session("A", sample_name)
+    return compound.retention_time, compound.loffset, compound.roffset
+
+
+class TestApplyKeepsOffsetRanges:
+    def test_editing_only_tr_keeps_each_sample_offsets(self, qapp):
+        window = _two_samples_with_different_offsets(qapp)
+        window.findChild(QLineEdit, "tr_input").setText("5.01")
+
+        window._on_apply_clicked()
+
+        assert _stored_values("S1") == pytest.approx((5.01, 0.1, 0.1))
+        assert _stored_values("S2") == pytest.approx((5.01, 0.3, 0.3))
+        window.deleteLater()
+
+    def test_editing_one_offset_writes_it_and_keeps_the_other(self, qapp):
+        window = _two_samples_with_different_offsets(qapp)
+        window.findChild(QLineEdit, "lo_input").setText("0.2")
+
+        window._on_apply_clicked()
+
+        assert _stored_values("S1") == pytest.approx((5.0, 0.2, 0.1))
+        assert _stored_values("S2") == pytest.approx((5.0, 0.2, 0.3))
+        window.deleteLater()
+
+    def test_reload_checks_and_queues_each_sample_offsets(self, qapp):
+        window = _two_samples_with_different_offsets(qapp)
+        emitted = []
+        window.data_regeneration_requested.connect(
+            lambda *args: emitted.append(args)
+        )
+        # S2's own right offset (0.3) runs past the 6.0 extract edge; S1's (0.1) does not.
+        window.findChild(QLineEdit, "tr_input").setText("5.85")
+
+        window._on_apply_clicked()
+
+        assert emitted == [("A", pytest.approx(1.0), ["S2"], 5.85)]
+        assert window._pending_session_update == PendingRegeneration(
+            compound_name="A",
+            retention_time=5.85,
+            loffset=None,
+            roffset=None,
+            sample_names=("S1", "S2"),
+            regenerated_sample_names=("S2",),
+        )
+        assert _stored_values("S2") == pytest.approx((5.0, 0.3, 0.3))
+        window.deleteLater()
 
 
 class _TextField:
@@ -566,7 +646,7 @@ class TestRecoveryAfterEmptyExtract:
         w.refresh_data_window_bounds("cmpd", ["s1"])
 
         assert ("cmpd", "s1") not in w._data_window_bounds
-        assert w._get_samples_needing_reload(7.17, 0.1, 0.1, ["s1"]) == ["s1"]
+        assert w._get_samples_needing_reload({"s1": (7.17, 0.1, 0.1)}) == ["s1"]
 
     def test_failed_extract_rejects_change_and_keeps_existing_eic(
         self, tmp_path, monkeypatch
@@ -993,6 +1073,36 @@ class TestRecoveryAfterEmptyExtract:
                 ("Glucose", "s1"),
             ).fetchone()
         assert session == pytest.approx((7.1, 0.2, 0.3))
+
+    def test_pending_offset_left_as_a_range_keeps_the_sample_value(
+        self, tmp_path, monkeypatch
+    ):
+        db_path = _glucose_regen_db(tmp_path, monkeypatch)
+        _stub_window_extract(monkeypatch)
+        SessionActivityService.update_session_data("Glucose", ["s1"], 7.17, 0.25, 0.15)
+        pending = PendingRegeneration(
+            compound_name="Glucose",
+            retention_time=7.1,
+            loffset=None,
+            roffset=0.3,
+            sample_names=("s1",),
+            regenerated_sample_names=("s1",),
+        )
+
+        regenerate_compound_eics(
+            "Glucose",
+            0.1,
+            ["s1"],
+            retention_time=7.1,
+            pending_regeneration=pending,
+        )
+
+        with sqlite3.connect(db_path) as conn:
+            session = conn.execute(
+                "SELECT retention_time, loffset, roffset FROM session_activity "
+                "WHERE compound_name = 'Glucose' AND sample_name = 's1'"
+            ).fetchone()
+        assert session == pytest.approx((7.1, 0.25, 0.3))
 
     def test_session_write_failure_rolls_back_eic_replace(
         self, tmp_path, monkeypatch

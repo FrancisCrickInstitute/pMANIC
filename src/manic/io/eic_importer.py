@@ -45,8 +45,8 @@ def _extract_rt_window_covering_offsets(
     loffset = float(compound_data.loffset or 0.0)
     roffset = float(compound_data.roffset or 0.0)
     if pending_regeneration is not None:
-        loffset = max(loffset, float(pending_regeneration.loffset))
-        roffset = max(roffset, float(pending_regeneration.roffset))
+        loffset = max(loffset, float(pending_regeneration.loffset or 0.0))
+        roffset = max(roffset, float(pending_regeneration.roffset or 0.0))
     for session in SessionActivityService.get_session_data_for_samples(
         compound_name, sample_names
     ):
@@ -772,23 +772,14 @@ def regenerate_compound_eics(
                         connection=conn,
                     )
             if pending_regeneration is not None:
-                if pending_regeneration.retention_time is None:
-                    SessionActivityService.update_offsets_preserve_rt(
-                        compound_name=compound_name,
-                        sample_names=list(pending_regeneration.sample_names),
-                        loffset=pending_regeneration.loffset,
-                        roffset=pending_regeneration.roffset,
-                        connection=conn,
-                    )
-                else:
-                    SessionActivityService.update_session_data(
-                        compound_name=compound_name,
-                        sample_names=list(pending_regeneration.sample_names),
-                        retention_time=pending_regeneration.retention_time,
-                        loffset=pending_regeneration.loffset,
-                        roffset=pending_regeneration.roffset,
-                        connection=conn,
-                    )
+                SessionActivityService.update_session_data(
+                    compound_name=compound_name,
+                    sample_names=list(pending_regeneration.sample_names),
+                    retention_time=pending_regeneration.retention_time,
+                    loffset=pending_regeneration.loffset,
+                    roffset=pending_regeneration.roffset,
+                    connection=conn,
+                )
     except Exception as e:
         raise RuntimeError(
             f"Could not commit regenerated data. "

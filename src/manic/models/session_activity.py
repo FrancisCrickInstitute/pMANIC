@@ -35,8 +35,8 @@ class SessionData:
 class PendingRegeneration:
     compound_name: str
     retention_time: float | None
-    loffset: float
-    roffset: float
+    loffset: float | None
+    roffset: float | None
     sample_names: tuple[str, ...]
     regenerated_sample_names: tuple[str, ...]
 
@@ -51,17 +51,31 @@ class SessionActivityService:
     """
 
     @staticmethod
-    def update_offsets_preserve_rt(
+    def update_session_data(
         compound_name: str,
         sample_names: List[str],
-        loffset: float,
-        roffset: float,
+        retention_time: float | None,
+        loffset: float | None,
+        roffset: float | None,
         connection: sqlite3.Connection | None = None,
     ) -> None:
-        """Update offsets for samples while preserving each sample's RT.
+        """
+        Update session activity data for multiple samples in one transaction.
 
-        Used when the UI displays a tR range across multiple samples.
-        This performs the update in a single transaction for performance.
+        A field passed as None keeps each sample's current value: its session
+        override, else the compound default. The UI passes None for a field that
+        still shows a range across several samples.
+
+        Args:
+            compound_name: Name of the compound
+            sample_names: List of sample names to update
+            retention_time: Retention time value, or None to keep each sample's
+            loffset: Left offset value, or None to keep each sample's
+            roffset: Right offset value, or None to keep each sample's
+
+        Raises:
+            sqlite3.Error: If database operation fails
+            ValueError: If invalid parameters provided
         """
         if not compound_name or not isinstance(compound_name, str):
             raise ValueError("Compound name must be a non-empty string")
@@ -73,17 +87,28 @@ class SessionActivityService:
             raise ValueError("All sample names must be non-empty strings")
 
         try:
-            loffset = float(loffset)
-            roffset = float(roffset)
+            new_values = {
+                field: None if value is None else float(value)
+                for field, value in (
+                    ("retention_time", retention_time),
+                    ("loffset", loffset),
+                    ("roffset", roffset),
+                )
+            }
         except (ValueError, TypeError) as e:
-            raise ValueError(f"Offset values must be numeric: {e}")
+            raise ValueError(f"Retention time and offset values must be numeric: {e}")
 
-        if loffset < 0:
+        if new_values["retention_time"] is not None and new_values["retention_time"] <= 0:
+            raise ValueError("Retention time must be positive")
+        if new_values["loffset"] is not None and new_values["loffset"] < 0:
             raise ValueError("Left offset cannot be negative")
-        if roffset < 0:
+        if new_values["roffset"] is not None and new_values["roffset"] < 0:
             raise ValueError("Right offset cannot be negative")
 
-        placeholders = ",".join(["?"] * len(sample_names))
+        logger.info(
+            f"Updating session data for compound '{compound_name}' "
+            f"across {len(sample_names)} samples"
+        )
 
         try:
             connection_context = (
@@ -94,7 +119,7 @@ class SessionActivityService:
             with connection_context as conn:
                 base_row = conn.execute(
                     """
-                    SELECT retention_time
+                    SELECT retention_time, loffset, roffset
                     FROM compounds
                     WHERE compound_name = ? AND deleted = 0
                     LIMIT 1
@@ -102,152 +127,59 @@ class SessionActivityService:
                     (compound_name,),
                 ).fetchone()
 
-                if base_row is None or base_row["retention_time"] is None:
-                    raise ValueError(f"Compound not found: {compound_name}")
-
-                base_rt = float(base_row["retention_time"])
-
-                override_rows = conn.execute(
-                    f"""
-                    SELECT sample_name, retention_time
-                    FROM session_activity
-                    WHERE compound_name = ?
-                      AND sample_deleted = 0
-                      AND sample_name IN ({placeholders})
-                    """,
-                    (compound_name, *sample_names),
-                ).fetchall()
-
-                override_rt_by_sample = {
-                    row["sample_name"]: float(row["retention_time"]) for row in override_rows
+                placeholders = ",".join(["?"] * len(sample_names))
+                current_by_sample = {
+                    row["sample_name"]: row
+                    for row in conn.execute(
+                        f"""
+                        SELECT sample_name, retention_time, loffset, roffset
+                        FROM session_activity
+                        WHERE compound_name = ?
+                          AND sample_deleted = 0
+                          AND sample_name IN ({placeholders})
+                        """,
+                        (compound_name, *sample_names),
+                    ).fetchall()
                 }
-
-                delete_sql = """
-                    DELETE FROM session_activity
-                    WHERE compound_name = ? AND sample_name = ?
-                """
-
-                insert_sql = """
-                    INSERT INTO session_activity
-                        (compound_name, sample_name, retention_time, loffset, roffset, sample_deleted)
-                    VALUES (?, ?, ?, ?, ?, 0)
-                """
-
-                delete_params = [(compound_name, s) for s in sample_names]
-                conn.executemany(delete_sql, delete_params)
 
                 insert_params = []
                 for sample_name in sample_names:
-                    sample_rt = override_rt_by_sample.get(sample_name, base_rt)
-                    insert_params.append(
-                        (
-                            compound_name,
-                            sample_name,
-                            float(sample_rt),
-                            float(loffset),
-                            float(roffset),
+                    current = current_by_sample.get(sample_name, base_row)
+                    values = [
+                        value if value is not None
+                        else current[field] if current is not None
+                        else None
+                        for field, value in new_values.items()
+                    ]
+                    if None in values:
+                        raise ValueError(
+                            f"No current value to keep for {sample_name}"
                         )
+                    insert_params.append(
+                        (compound_name, sample_name, *map(float, values))
                     )
 
-                conn.executemany(insert_sql, insert_params)
-
-        except Exception as e:
-            logger.error(
-                f"Failed to update offsets (preserve RT) for compound '{compound_name}': {e}"
-            )
-            raise
-
-    @staticmethod
-    def update_session_data(
-        compound_name: str, 
-        sample_names: List[str], 
-        retention_time: float,
-        loffset: float, 
-        roffset: float,
-        connection: sqlite3.Connection | None = None,
-    ) -> None:
-        """
-        Update session activity data for multiple samples with the same compound parameters.
-        
-        This method performs an atomic upsert operation, either inserting new session data
-        or updating existing records for the given compound-sample combinations.
-        
-        Args:
-            compound_name: Name of the compound
-            sample_names: List of sample names to update
-            retention_time: Retention time value
-            loffset: Left offset value
-            roffset: Right offset value
-            
-        Raises:
-            sqlite3.Error: If database operation fails
-            ValueError: If invalid parameters provided
-        """
-        # Input validation
-        if not compound_name or not isinstance(compound_name, str):
-            raise ValueError("Compound name must be a non-empty string")
-        
-        if not sample_names or not isinstance(sample_names, list):
-            raise ValueError("Sample names must be a non-empty list")
-        
-        if not all(isinstance(name, str) and name.strip() for name in sample_names):
-            raise ValueError("All sample names must be non-empty strings")
-        
-        # Numeric validation with proper error messages
-        try:
-            retention_time = float(retention_time)
-            loffset = float(loffset)
-            roffset = float(roffset)
-        except (ValueError, TypeError) as e:
-            raise ValueError(f"Retention time and offset values must be numeric: {e}")
-        
-        # Range validation
-        if retention_time <= 0:
-            raise ValueError("Retention time must be positive")
-        if loffset < 0:
-            raise ValueError("Left offset cannot be negative")
-        if roffset < 0:
-            raise ValueError("Right offset cannot be negative")
-        
-        logger.info(
-            f"Updating session data for compound '{compound_name}' "
-            f"across {len(sample_names)} samples"
-        )
-        
-        try:
-            connection_context = (
-                nullcontext(connection)
-                if connection is not None
-                else get_connection()
-            )
-            with connection_context as conn:
-                # First, delete existing records to avoid duplicates
-                delete_sql = """
-                    DELETE FROM session_activity 
+                conn.executemany(
+                    """
+                    DELETE FROM session_activity
                     WHERE compound_name = ? AND sample_name = ?
-                """
-                
-                # Then insert new records
-                insert_sql = """
-                    INSERT INTO session_activity (compound_name, sample_name, retention_time, loffset, roffset, sample_deleted)
+                    """,
+                    [(compound_name, s) for s in sample_names],
+                )
+                conn.executemany(
+                    """
+                    INSERT INTO session_activity
+                        (compound_name, sample_name, retention_time, loffset, roffset, sample_deleted)
                     VALUES (?, ?, ?, ?, ?, 0)
-                """
-                
-                # Process each sample
-                for sample_name in sample_names:
-                    # Delete existing record
-                    conn.execute(delete_sql, (compound_name, sample_name))
-                    
-                    # Insert new record
-                    conn.execute(insert_sql, (
-                        compound_name, sample_name, float(retention_time), float(loffset), float(roffset)
-                    ))
-                
+                    """,
+                    insert_params,
+                )
+
                 logger.info(
                     f"Successfully updated session data for {len(sample_names)} samples "
                     f"of compound '{compound_name}'"
                 )
-                
+
         except Exception as e:
             logger.error(
                 f"Failed to update session data for compound '{compound_name}': {e}"

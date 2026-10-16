@@ -97,7 +97,9 @@ def add_identity_grid(
     for row, sample in enumerate(display):
         for qualifier in sample.qualifiers:
             key = (qualifier.ordinal, qualifier.status)
-            cells = rows.setdefault(key, [None] * len(display))
+            cells = rows.get(key)
+            if cells is None:
+                cells = rows[key] = [None] * len(display)
             cells[row] = IdentityCell(sample.sample_name, qualifier)
     cells_by_set: dict[QBarSet, tuple[IdentityCell | None, ...]] = {}
     # Qualifier 1 sets stack first so its cell spans 0-1 and qualifier 2 spans 1-2.

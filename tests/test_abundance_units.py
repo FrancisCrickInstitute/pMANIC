@@ -162,8 +162,34 @@ class TestAbundanceExportLogic:
         ]
         assert val_calls == [10.0, None, None]
 
+    def test_missing_internal_standard_amount_leaves_cells_empty_outside_mm(
+        self, setup_base_mocks
+    ):
+        """No int_std_amount: MM samples still calibrate from amount_in_std_mix, others are empty."""
+        workbook, worksheet, provider = setup_base_mocks
+        exporter = MagicMock()
+        exporter.internal_standard_compound = "ISTD"
+        exporter.internal_standard_reference_isotope = 0
+        provider.get_all_samples.return_value = ["MM_01", "S1"]
+        provider.resolve_mm_samples.return_value = ["MM_01"]
+        provider.get_all_compounds.return_value[0].update(
+            int_std_amount=None, mm_files="MM"
+        )
 
-def _unlabelled_abundance_rows(bulk, int_std_amount=5.0):
+        write(workbook, exporter, None, 0, 100, provider=provider)
+
+        rows = {
+            row: [
+                c.args[2]
+                for c in worksheet.write.call_args_list
+                if c.args[0] == row and c.args[1] >= 2
+            ]
+            for row in (5, 6)
+        }
+        assert rows == {5: [1.0, 0.25, 0.5], 6: [None, None, None]}
+
+
+def _unlabelled_abundance_rows(bulk, int_std_amount=5.0, mm_samples=()):
     from io import BytesIO
     from types import SimpleNamespace
 
@@ -174,7 +200,7 @@ def _unlabelled_abundance_rows(bulk, int_std_amount=5.0):
 
     provider = MagicMock()
     provider.get_mrrf_values.return_value = {"ISTD": 1.0, "Met": 2.0}
-    provider.resolve_mm_samples.return_value = []
+    provider.resolve_mm_samples.return_value = list(mm_samples)
     exporter = SimpleNamespace(_provider=provider, internal_standard_compound="ISTD")
     compounds = [
         SimpleNamespace(
@@ -208,3 +234,15 @@ def test_unlabelled_missing_internal_standard_signal_leaves_cells_empty():
         }
     )
     assert rows == [(None, "S_ok", 5, 10), (None, "S_noIS", 5, None)]
+
+
+def test_unlabelled_mm_sample_uses_amount_in_std_mix_without_int_std_amount():
+    rows = _unlabelled_abundance_rows(
+        {
+            "MM_01": {"ISTD": [1000.0], "Met": [4000.0]},
+            "S1": {"ISTD": [1000.0], "Met": [4000.0]},
+        },
+        int_std_amount=None,
+        mm_samples=["MM_01"],
+    )
+    assert rows == [(None, "MM_01", 1, 2), (None, "S1", None, None)]

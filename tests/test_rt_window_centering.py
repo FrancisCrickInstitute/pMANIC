@@ -1226,22 +1226,17 @@ class TestRegenerationCompletion:
 
         MainWindow._regeneration_completed(window, 1)
 
-        assert calls == [
-            "bounds",
-            "fields",
-            "window",
-            "plots",
-            "charts",
-        ]
+        # The real plot refresh emits selection_changed, which owns the
+        # fields and charts refresh.
+        assert calls == ["bounds", "window", "plots"]
         assert messages[0][0:2] == ("information", "Regeneration Complete")
 
     def test_refresh_failure_does_not_claim_complete(self):
-        def _refresh_fails(*_args):
+        def _refresh_fails(*_args, **_kwargs):
             raise RuntimeError("plot widget gone")
 
         integration = SimpleNamespace(
             _pending_session_update=None,
-            populate_fields_from_plots=_refresh_fails,
             populate_tr_window_field=lambda *_args: None,
         )
         messages = []
@@ -1249,11 +1244,13 @@ class TestRegenerationCompletion:
             toolbar=SimpleNamespace(integration=integration),
             graph_view=SimpleNamespace(
                 get_current_compound=lambda: "Glucose",
-                get_selected_samples=lambda: ["s1"],
                 get_current_samples=lambda: ["s1"],
+                refresh_plots_with_session_data=_refresh_fails,
             ),
             _validation_provider=None,
             min_peak_height_ratio=0,
+            _peak_verdicts=lambda *_args: {},
+            _identity_snapshot=lambda *_args: (None, None),
             _create_message_box=lambda *args: messages.append(args)
             or SimpleNamespace(exec=lambda: None),
         )

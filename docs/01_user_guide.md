@@ -353,7 +353,7 @@ These settings control the global behavior of the application.
 **Settings → Mass Tolerance**
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
-* **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder.
+* **Impact:** If CDFs are loaded, the change regenerates every EIC. Each EIC keeps its tR Window. You do not re-import the folder.
 * **Deep Dive:** 📖 [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Integration

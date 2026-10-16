@@ -9,11 +9,16 @@ by maintaining the primacy of raw data while preserving analytical workflows.
 import json
 import logging
 import tempfile
+import zlib
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Callable, Dict, Iterable, Optional
 
+import numpy as np
+
+from manic.constants import DEFAULT_MASS_TOLERANCE
+from manic.io.eic_importer import regenerate_compound_eics
 from manic.models.database import (
     get_connection,
     restore_compounds,
@@ -317,6 +322,18 @@ def export_session_method(
 
             method_data["session_overrides"] = session_overrides
 
+            method_data["eic_rt_windows"] = [
+                {
+                    "compound_name": row["compound_name"],
+                    "sample_name": row["sample_name"],
+                    "rt_window": row["rt_window"],
+                }
+                for row in conn.execute(
+                    "SELECT compound_name, sample_name, rt_window FROM eic "
+                    "WHERE deleted = 0 ORDER BY compound_name, sample_name"
+                )
+            ]
+
             method_data["peak_reviews"] = [
                 {
                     "compound_name": compound_name,
@@ -530,6 +547,97 @@ def _reject_negative_inputs(compounds: list) -> None:
             values[f"{label} expected ratio"] = ion.get("expected_ratio")
             values[f"{label} ratio tolerance"] = ion.get("ratio_tolerance")
         reject_negative(values)
+
+
+@dataclass(frozen=True, slots=True)
+class SessionReextraction:
+    regenerated: int
+    failed: tuple[str, ...]
+
+
+def reextract_session_eics(
+    import_path: str,
+    mass_tol: float = DEFAULT_MASS_TOLERANCE,
+    progress_cb: Optional[Callable[[int, int], None]] = None,
+) -> SessionReextraction:
+    """Re-extract EICs that no longer cover an imported session.
+
+    Call after import_session_overrides. A stored EIC is re-extracted around
+    its restored tR when the integration window falls outside it, or when
+    the file saved a different tR Window for it. Files without saved tR
+    Windows keep the stored windows.
+    """
+    with open(import_path, "r", encoding="utf-8") as f:
+        saved_windows = {
+            (entry["compound_name"], entry["sample_name"]): float(entry["rt_window"])
+            for entry in json.load(f).get("eic_rt_windows", [])
+        }
+
+    jobs: dict[tuple[str, float], dict[str, float]] = {}
+    failed: list[str] = []
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT e.compound_name, e.sample_name, e.x_axis, e.rt_window,
+                   s.file_name,
+                   COALESCE(sa.retention_time, c.retention_time) AS retention_time,
+                   COALESCE(sa.loffset, c.loffset, 0) AS loffset,
+                   COALESCE(sa.roffset, c.roffset, 0) AS roffset
+            FROM eic e
+            JOIN compounds c
+              ON c.compound_name = e.compound_name AND c.deleted = 0
+            JOIN samples s
+              ON s.sample_name = e.sample_name AND s.deleted = 0
+            LEFT JOIN session_activity sa
+              ON sa.compound_name = e.compound_name
+             AND sa.sample_name = e.sample_name AND sa.sample_deleted = 0
+            WHERE e.deleted = 0
+            """
+        ).fetchall()
+    for row in rows:
+        key = (row["compound_name"], row["sample_name"])
+        rt_window = saved_windows.get(key, row["rt_window"])
+        # Same coverage test and slack as the live-edit reload check.
+        time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
+        rt = row["retention_time"]
+        covered = (
+            time.size > 0
+            and rt - row["loffset"] >= time.min() - 0.001
+            and rt + row["roffset"] <= time.max() + 0.001
+        )
+        if covered and rt_window == row["rt_window"]:
+            continue
+        if not row["file_name"] or not Path(row["file_name"]).exists():
+            failed.append(f"{key[0]} / {key[1]}: CDF file not found")
+            continue
+        jobs.setdefault((key[0], rt_window), {})[key[1]] = rt
+
+    total = sum(len(samples) for samples in jobs.values())
+    done = 0
+    regenerated = 0
+    for (compound_name, rt_window), sample_rts in jobs.items():
+        try:
+            regenerated += regenerate_compound_eics(
+                compound_name,
+                rt_window,
+                list(sample_rts),
+                mass_tol=mass_tol,
+                progress_cb=(
+                    None
+                    if progress_cb is None
+                    else lambda current, _total: progress_cb(done + current, total)
+                ),
+                retention_time=sample_rts,
+            )
+        except Exception as e:
+            logger.error(f"Session re-extraction failed for '{compound_name}': {e}")
+            failed.extend(f"{compound_name} / {sample}: {e}" for sample in sample_rts)
+        done += len(sample_rts)
+
+    logger.info(
+        f"Session import re-extracted {regenerated} EICs, {len(failed)} failed"
+    )
+    return SessionReextraction(regenerated, tuple(failed))
 
 
 def _import_peak_reviews(method_data: dict) -> None:

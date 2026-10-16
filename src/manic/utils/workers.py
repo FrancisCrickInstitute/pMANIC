@@ -10,6 +10,7 @@ from manic.io.eic_importer import (
     regenerate_compound_eics,
 )
 from manic.models.session_activity import PendingRegeneration
+from manic.models.session_export import reextract_session_eics
 from manic.processors.eic_correction_manager import ensure_corrections_for_export
 from manic.utils.update_check import check_for_update
 
@@ -83,6 +84,28 @@ class EicRegenerationWorker(QObject):
                 pending_regeneration=self._pending_regeneration,
             )
             self.finished.emit(count)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class SessionReextractionWorker(QObject):
+    progress = Signal(int, int)  # current, total
+    finished = Signal(object)  # SessionReextraction
+    failed = Signal(str)
+
+    def __init__(self, import_path: str, mass_tol: float = DEFAULT_MASS_TOLERANCE):
+        super().__init__()
+        self._import_path = import_path
+        self._mass_tol = mass_tol
+
+    @Slot()
+    def run(self):
+        try:
+            self.finished.emit(
+                reextract_session_eics(
+                    self._import_path, self._mass_tol, self.progress.emit
+                )
+            )
         except Exception as exc:
             self.failed.emit(str(exc))
 

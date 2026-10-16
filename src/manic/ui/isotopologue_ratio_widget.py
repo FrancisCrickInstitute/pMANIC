@@ -110,6 +110,8 @@ class IsotopologueRatioWidget(QWidget):
             # Single trace - don't show isotopologue chart (it would just be 100%)
             self._clear_chart()
             # But we still have the abundance data stored for the total abundance widget
+            self._last_total_abundances = total_abundances
+            self._last_eics = eics
             return
 
         # Order EICs to match graph window layout (left-to-right, top-to-bottom in grid)

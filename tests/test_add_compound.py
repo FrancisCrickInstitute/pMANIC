@@ -661,9 +661,9 @@ def _listed_names(window):
 def test_added_compound_is_selected_only_when_its_own_eics_exist(held_workers):
     window, workers = held_workers
     window._after_compound_added("NewOne")
-    # A tR-window regeneration for another compound finishes first.
+    # A tR-window regeneration for another compound is refused while it runs.
     window.on_data_regeneration_requested("A", 1.0, ["S1"], 5.0)
-    workers[1].finished.emit(1)
+    assert len(workers) == 1
 
     assert window.toolbar.get_selected_compound() == "A"
     assert "NewOne" not in _listed_names(window)
@@ -671,7 +671,7 @@ def test_added_compound_is_selected_only_when_its_own_eics_exist(held_workers):
     _insert_eic("S1", "NewOne")
     workers[0].finished.emit(1)
 
-    assert window.boxes == ["Regeneration Complete"] * 2
+    assert window.boxes == ["Operation in progress", "Regeneration Complete"]
     assert window.toolbar.get_selected_compound() == "NewOne"
     assert window.graph_view.get_current_compound() == "NewOne"
 

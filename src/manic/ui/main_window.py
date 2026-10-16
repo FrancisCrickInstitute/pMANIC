@@ -3,8 +3,6 @@ import os
 from functools import partial
 from pathlib import Path
 
-import numpy as np
-
 from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
@@ -76,7 +74,6 @@ from manic.processors.chromatographic_peak_deconvolution import (
     normalize_noise_gate,
     normalize_stringency,
 )
-from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.models.sample_fit_type import set_sample_fit_type
@@ -453,6 +450,7 @@ class MainWindow(QMainWindow):
 
         # Connect the graph view's selection signal
         self.graph_view.selection_changed.connect(self.on_plot_selection_changed)
+        self.graph_view.data_refreshed.connect(self._refresh_summary_charts)
         self.graph_view.peak_review_changed.connect(self.on_peak_review_changed)
         self.graph_view.sample_fit_type_changed.connect(
             self.on_sample_fit_type_changed
@@ -1161,42 +1159,6 @@ class MainWindow(QMainWindow):
             logger.error(f"Error getting current EICs: {e}")
             return []
 
-    def _calculate_total_abundances_fallback(self, compound_name: str, eics):
-        """Compute total abundances directly from single-trace EICs.
-
-        This is a fallback path so Total Abundance can still render when the
-        isotopologue widget doesn't populate its cached abundance array.
-        """
-        if not eics or not compound_name:
-            return None
-
-        abundances = []
-        for eic in eics:
-            compound = read_compound_with_session(compound_name, eic.sample_name)
-            baseline_correction = bool(getattr(compound, "baseline_correction", 0))
-
-            intensity = np.asarray(eic.intensity, dtype=np.float64)
-            channel_count = (
-                intensity.shape[0] if intensity.ndim > 1 else compound.channel_count
-            )
-            isotope_areas = calculate_peak_areas(
-                eic.time,
-                intensity.ravel(),
-                label_atoms=0,
-                retention_time=compound.retention_time,
-                loffset=compound.loffset,
-                roffset=compound.roffset,
-                channel_count=channel_count,
-                use_legacy=self.use_legacy_integration,
-                baseline_correction=baseline_correction,
-                chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
-                chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
-                chromatographic_peak_deconvolution_noise_gate=compound.deconvolution_noise_gate,
-            )
-            abundances.append(float(sum(isotope_areas)))
-
-        return np.asarray(abundances, dtype=float)
-
     def _identity_snapshot(self, compound_name: str, sample_names: list[str]):
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
             return None, None
@@ -1255,6 +1217,11 @@ class MainWindow(QMainWindow):
                 self._update_targeted_qc(identity)
         self._update_total_abundance(compound_name, provider)
 
+    def _refresh_summary_charts(self) -> None:
+        compound = self.graph_view.get_current_compound()
+        if compound:
+            self._refresh_mode_charts(compound, skip_qc=True)
+
     def _run_deferred_mode_charts(self) -> None:
         deferred, self._deferred_mode_charts = self._deferred_mode_charts, None
         if deferred is None:
@@ -1276,11 +1243,6 @@ class MainWindow(QMainWindow):
             abundances, eics = (
                 self.toolbar.isotopologue_ratios.get_last_total_abundances()
             )
-            if abundances is None:
-                abundances = self._calculate_total_abundances_fallback(
-                    compound_name, current_eics
-                )
-                eics = current_eics
         elif not current_eics:
             abundances, eics = None, current_eics
         else:
@@ -1497,11 +1459,20 @@ class MainWindow(QMainWindow):
                 current_compound, selected_samples, all_samples
             )
 
-            self._refresh_mode_charts(
-                current_compound,
-                selected_samples or all_samples,
-                skip_qc=self._qc_link_guard,
-            )
+            # Label Incorporation and Total Abundance cover every shown sample,
+            # so only the Identity chart follows the selection.
+            if self.graph_view.fits_pending:
+                # The refresh queued for the end of fitting picks up the selection.
+                self._refresh_mode_charts(
+                    current_compound,
+                    selected_samples or all_samples,
+                    skip_qc=self._qc_link_guard,
+                )
+            elif not self._qc_link_guard:
+                _provider, identity = self._identity_snapshot(
+                    current_compound, selected_samples or all_samples
+                )
+                self._update_targeted_qc(identity)
 
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")
@@ -1515,8 +1486,8 @@ class MainWindow(QMainWindow):
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
             _provider, identity = self._identity_snapshot(compound_name, current_samples)
-            # Re-selecting the plots emits selection_changed, which refreshes the
-            # integration fields and side charts for the shown compound.
+            # The replot refreshes the summary charts (data_refreshed) and, by
+            # re-selecting the plots, the integration fields and Identity chart.
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )

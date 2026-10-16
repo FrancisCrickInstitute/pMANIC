@@ -171,6 +171,7 @@ class GraphView(QWidget):
 
     # Signal to emit when plot selection changes
     selection_changed = Signal(list)  # List of selected sample names
+    data_refreshed = Signal()  # the shown compound was replotted with new data
     peak_review_changed = Signal(str, list, object)
     sample_fit_type_changed = Signal(str, list, object)
     focus_selected_requested = Signal(list)
@@ -1086,6 +1087,9 @@ class GraphView(QWidget):
                     validation_data,
                     identity=identity,
                 )
+                # Before the selection is restored, so a refresh it queues while
+                # fits run replaces this one and covers the Identity chart too.
+                self.data_refreshed.emit()
 
                 self.select_samples(selected_sample_names)
                 restored_count = len(self._selected_plots)

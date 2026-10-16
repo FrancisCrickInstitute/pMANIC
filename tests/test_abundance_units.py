@@ -162,10 +162,10 @@ class TestAbundanceExportLogic:
         ]
         assert val_calls == [10.0, None, None]
 
-    def test_missing_internal_standard_amount_leaves_cells_empty_outside_mm(
+    def test_zero_internal_standard_amount_leaves_cells_empty_outside_mm(
         self, setup_base_mocks
     ):
-        """No int_std_amount: MM samples still calibrate from amount_in_std_mix, others are empty."""
+        """int_std_amount 0: MM samples still calibrate from amount_in_std_mix, others are empty."""
         workbook, worksheet, provider = setup_base_mocks
         exporter = MagicMock()
         exporter.internal_standard_compound = "ISTD"
@@ -173,7 +173,7 @@ class TestAbundanceExportLogic:
         provider.get_all_samples.return_value = ["MM_01", "S1"]
         provider.resolve_mm_samples.return_value = ["MM_01"]
         provider.get_all_compounds.return_value[0].update(
-            int_std_amount=None, mm_files="MM"
+            int_std_amount=0.0, mm_files="MM"
         )
 
         write(workbook, exporter, None, 0, 100, provider=provider)

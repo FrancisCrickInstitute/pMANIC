@@ -23,7 +23,7 @@ When deconvolution is on and every non-empty ion of the compound in that sample 
 - **Plots** with Natural Abundance Correction preview off draw the model on a dense grid, with the faint raw EIC underneath. With preview on, plots draw the corrected selected model at the acquisition scan times and keep the faint raw EIC for context. Neighbour peaks remain visible but do not enter correction or integration. The y-axis includes both the corrected trace and the raw context.
 - **Integration** and export integrate that same densely-evaluated model from the first scan inside the loffset/roffset window to the last, rather than from the offset edges themselves or from the model sampled only at the acquisition scans.
 
-Both views come from the same selected fit, but corrected preview is scan-sampled while time-based export uses the denser grid for a more accurate area. Dense evaluation changes exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks). Legacy (unit-spacing) integration remains scan-point based. The raw trace itself is never smoothed.
+Both views come from the same selected fit, but corrected preview is scan-sampled while time-based export uses the denser grid for a more accurate area. Dense evaluation changes exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks). Legacy (unit-spacing) integration remains scan-point based: it sums each ion's selected component at the scans inside the window, for single-ion and multi-ion compounds alike. The raw trace itself is never smoothed.
 
 If any ion of a labelled compound in that sample has real intensity and failed to fit, plots and export both use the raw in-window scan traces for non-empty ions. Empty ions stay zero. No fitted curve is drawn. An empty higher ion does not trigger that fallback. Unlabelled tiles draw a curve for each ion that fitted and leave failed ions on the raw trace; export still uses the raw window unless every non-empty ion fitted. See [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans).
 
@@ -58,7 +58,7 @@ For a labeled compound, each channel's **selected chromatographic component** fe
 - integrates the selected component to produce the **Raw Values**, and
 - applies natural isotope correction to that *same* selected component (not to the full unresolved trace) before integrating it for the **Corrected Values** (and therefore the **Isotope Ratio**, **% Label Incorporation**, and **Abundances** that derive from them).
 
-In the time-based (non-legacy) path, the selected component is integrated by the same routine for both sheets, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together.
+In both the time-based and legacy paths, the selected component is integrated by the same routine for both sheets, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together.
 
 Because a single deconvolution pass produces both areas, enabling deconvolution does not double the fitting work at export. Together with caching and the fit-skipping checks described below, this keeps the bulk-export cost manageable.
 

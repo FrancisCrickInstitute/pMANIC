@@ -7,6 +7,7 @@ import threading
 import time
 import zlib
 from collections import Counter
+from dataclasses import replace
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import get_context
 from typing import Dict, List, Optional, Sequence
@@ -123,6 +124,7 @@ class DataProvider:
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._bulk_raw_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._targeted_area_cache: Dict[tuple, List[float]] = {}
+        self._has_quantifier_cache: Dict[str, bool] = {}
         self._corrector_local = threading.local()
         self._cache_valid: bool = False
 
@@ -138,6 +140,7 @@ class DataProvider:
         self._bulk_sample_data_cache.clear()
         self._bulk_raw_sample_data_cache.clear()
         self._targeted_area_cache.clear()
+        self._has_quantifier_cache.clear()
         self._cache_valid = False
 
     def get_total_sample_count(self) -> int:
@@ -603,12 +606,17 @@ class DataProvider:
         areas = self.get_compound_areas(sample_name, compound_name)
         if not areas:
             return 0.0
-        with get_connection() as conn:
-            has_quantifier = conn.execute(
-                "SELECT 1 FROM compound_ions "
-                "WHERE compound_name = ? AND role = 'quantifier' LIMIT 1",
-                (compound_name,),
-            ).fetchone()
+        if compound_name not in self._has_quantifier_cache:
+            with get_connection() as conn:
+                self._has_quantifier_cache[compound_name] = (
+                    conn.execute(
+                        "SELECT 1 FROM compound_ions "
+                        "WHERE compound_name = ? AND role = 'quantifier' LIMIT 1",
+                        (compound_name,),
+                    ).fetchone()
+                    is not None
+                )
+        has_quantifier = self._has_quantifier_cache[compound_name]
         return float(areas[0] if has_quantifier else sum(areas))
 
     def get_compound_isotope_area(
@@ -656,35 +664,85 @@ class DataProvider:
 
     def assess_unlabelled_identity(self, sample_name: str, compound_name: str):
         """Return RT and qualifier-ratio QC for one targeted compound."""
+        return self.unlabelled_identity_assessor(compound_name, [sample_name])(
+            sample_name
+        )
 
-        from manic.io.compound_reader import read_compound_with_session
-        from manic.io.eic_reader import read_eic
+    def unlabelled_identity_assessor(
+        self, compound_name: str, sample_names: Sequence[str]
+    ):
+        """Read one compound's identity inputs for all ``sample_names`` at once.
+
+        Returns ``assess(sample_name)``, which applies that sample's session
+        RT/offsets and raises LookupError when the sample has no EIC. Reading the
+        compound, the session rows and the raw EICs takes three connections in
+        total rather than three per sample.
+        """
+        from manic.io.compound_reader import read_compound
+        from manic.io.eic_reader import read_eics_batch
         from manic.validation.unlabelled_identity import (
             assess_identity,
             quantifier_apex_time,
         )
 
-        compound = read_compound_with_session(compound_name, sample_name)
+        compound = read_compound(compound_name)
         if not compound.is_unlabelled_target:
             raise ValueError(
                 f"{compound_name!r} does not have quantifier/qualifier channels"
             )
-        eic = read_eic(sample_name, compound, use_corrected=False)
-        observed_rt = quantifier_apex_time(
-            eic.time,
-            eic.intensity,
-            compound.channel_count,
-            expected_rt=compound.retention_time,
-            loffset=compound.loffset,
-            roffset=compound.roffset,
-        )
-        return assess_identity(
-            self.get_compound_areas(sample_name, compound_name),
-            compound.analysis_channels,
-            expected_rt=compound.retention_time,
-            observed_rt=observed_rt,
-            rt_tolerance=compound.rt_tolerance,
-        )
+        placeholders = ",".join("?" * len(sample_names))
+        with get_connection() as conn:
+            sessions = {
+                row["sample_name"]: row
+                for row in conn.execute(
+                    "SELECT sample_name, retention_time, loffset, roffset "
+                    "FROM session_activity WHERE compound_name = ? "
+                    f"AND sample_name IN ({placeholders}) AND sample_deleted = 0",
+                    (compound_name, *sample_names),
+                )
+            }
+        try:
+            eics = {
+                eic.sample_name: eic
+                for eic in read_eics_batch(
+                    list(sample_names), compound, use_corrected=False
+                )
+            }
+        except LookupError:
+            eics = {}
+
+        def assess(sample_name: str):
+            eic = eics.get(sample_name)
+            if eic is None:
+                raise LookupError(f"EIC not found for {compound_name} in {sample_name}")
+            session = sessions.get(sample_name)
+            sample_compound = (
+                compound
+                if session is None
+                else replace(
+                    compound,
+                    retention_time=session["retention_time"],
+                    loffset=session["loffset"],
+                    roffset=session["roffset"],
+                )
+            )
+            observed_rt = quantifier_apex_time(
+                eic.time,
+                eic.intensity,
+                sample_compound.channel_count,
+                expected_rt=sample_compound.retention_time,
+                loffset=sample_compound.loffset,
+                roffset=sample_compound.roffset,
+            )
+            return assess_identity(
+                self.get_compound_areas(sample_name, compound_name),
+                sample_compound.analysis_channels,
+                expected_rt=sample_compound.retention_time,
+                observed_rt=observed_rt,
+                rt_tolerance=sample_compound.rt_tolerance,
+            )
+
+        return assess
 
     def assess_unlabelled_identities(
         self,

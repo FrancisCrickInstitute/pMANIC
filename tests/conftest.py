@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool
 from PySide6.QtWidgets import QApplication
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -64,3 +65,17 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "unit: marks tests as unit tests"
     )
+
+
+@pytest.fixture(autouse=True)
+def release_qt_objects():
+    yield
+    # Destroy what a test leaves behind now, not whenever the garbage
+    # collector next runs, which can be in the middle of a later Qt test.
+    app = QApplication.instance()
+    if app is None:
+        return
+    QThreadPool.globalInstance().waitForDone()
+    for widget in app.topLevelWidgets():
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

@@ -330,28 +330,27 @@ class IntegrationWindow(QGroupBox):
             # Try to get RT window from actual EIC data (persisted value)
             from manic.models.database import get_connection
 
-            tr_window_value = None
             with get_connection() as conn:
-                row = conn.execute(
-                    """
-                    SELECT rt_window FROM eic
-                    WHERE compound_name = ? AND deleted = 0
-                    LIMIT 1
-                    """,
-                    (compound_name,)
-                ).fetchone()
-
-                if row and row["rt_window"] is not None:
-                    tr_window_value = row["rt_window"]
+                tr_windows = [
+                    row["rt_window"]
+                    for row in conn.execute(
+                        """
+                        SELECT rt_window FROM eic
+                        WHERE compound_name = ? AND deleted = 0
+                        AND rt_window IS NOT NULL
+                        """,
+                        (compound_name,)
+                    )
+                ]
 
             # Fall back to compound default if no EIC data exists
-            if tr_window_value is None:
+            if not tr_windows:
                 compound_data = read_compound(compound_name)
-                tr_window_value = getattr(compound_data, "tr_window", 0.2)
+                tr_windows = [getattr(compound_data, "tr_window", 0.2)]
 
             tr_window_field = self.findChild(QLineEdit, "tr_window_input")
             if tr_window_field:
-                tr_window_field.setText(self._format_number(tr_window_value))
+                tr_window_field.setText(self._format_range(tr_windows))
 
 
         except Exception as e:
@@ -820,8 +819,8 @@ class IntegrationWindow(QGroupBox):
                 # Get current RT window value
                 tr_window_field = self.findChild(QLineEdit, "tr_window_input")
                 current_tr_window = (
-                    float(tr_window_field.text()) if tr_window_field and tr_window_field.text() else 0.2
-                )
+                    _widest_offset(tr_window_field.text()) if tr_window_field else None
+                ) or 0.2
 
                 min_required_window = calculate_minimum_rt_window(
                     loffset, roffset, buffer=DEFAULT_RT_WINDOW_BUFFER
@@ -1040,11 +1039,10 @@ class IntegrationWindow(QGroupBox):
                 tr_window_field.setFocus()
                 return
 
-            # Handle range format (take first value like other fields)
-            if " - " in tr_window_text:
-                tr_window_text = tr_window_text.split(" - ")[0]
-
-            tr_window = float(tr_window_text)
+            # An unchanged range keeps the widest stored window, so no sample loses data
+            tr_window = _widest_offset(tr_window_text)
+            if tr_window is None:
+                raise ValueError(tr_window_text)
 
             if tr_window <= 0:
                 self._show_message(

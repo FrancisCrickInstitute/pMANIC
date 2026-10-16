@@ -19,7 +19,8 @@ def is_valid(compound_total: float, internal_standard_reference: float, ratio: f
         ratio: Minimum ratio threshold (e.g., 0.05 for 5%)
 
     Returns:
-        True if compound meets threshold, False otherwise
+        True if compound meets threshold, False otherwise. False when the
+        internal standard reference is 0, since the sample cannot be quantified.
 
     Examples:
         >>> is_valid(20.0, 200.0, 0.05)
@@ -32,7 +33,7 @@ def is_valid(compound_total: float, internal_standard_reference: float, ratio: f
         True  # 10.0 >= (200.0 × 0.05 = 10.0) - exactly at threshold
     """
     if internal_standard_reference <= 0:
-        return True
+        return False
 
     threshold = internal_standard_reference * ratio
     return compound_total >= threshold

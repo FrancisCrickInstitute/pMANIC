@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 
 from manic.models.database import get_connection
+from manic.processors.calibration import internal_standard_amount
 from manic.validation.peak_verdict import PeakReview, PeakVerdict, resolve_verdict
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
@@ -119,6 +120,7 @@ class DataProvider:
         self.use_legacy_integration = use_legacy_integration
         self._mrrf_cache: Dict[str, Dict[str, float]] = {}
         self._mrrf_assumed_cache: Dict[str, set] = {}
+        self._internal_standard_meta_cache: Dict[str, tuple] = {}
         self._background_ratios_cache: Dict[str, Dict[str, float]] = {}
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._bulk_raw_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
@@ -134,6 +136,7 @@ class DataProvider:
     def invalidate_cache(self) -> None:
         self._mrrf_cache.clear()
         self._mrrf_assumed_cache.clear()
+        self._internal_standard_meta_cache.clear()
         self._background_ratios_cache.clear()
         self._bulk_sample_data_cache.clear()
         self._bulk_raw_sample_data_cache.clear()
@@ -1005,7 +1008,8 @@ class DataProvider:
         Returns:
             True if compound total area >= (internal standard reference peak × min_ratio)
             True if validation is disabled (min_ratio <= 0 or no internal standard)
-            True if the reference peak has no signal (cannot validate)
+            False if the reference peak has no signal or the sample's internal
+                standard amount is unknown (the sample cannot be quantified)
             False otherwise (compound fails validation)
             
         Example:
@@ -1029,11 +1033,36 @@ class DataProvider:
             float(is_areas[idx]) if is_areas and 0 <= idx < len(is_areas) else 0.0
         )
 
-        if is_ref <= 0:
-            return True
+        if is_ref <= 0 or self.get_internal_standard_amount(sample_name, internal_standard) <= 0:
+            return False
 
         threshold = is_ref * min_ratio
         return compound_total >= threshold
+
+    def get_internal_standard_amount(self, sample_name: str, internal_standard: str) -> float:
+        """Known internal standard amount in ``sample_name``, or 0.0 when unknown."""
+        meta = self._internal_standard_meta_cache.get(internal_standard)
+        if meta is None:
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT int_std_amount, amount_in_std_mix, mm_files FROM compounds "
+                    "WHERE compound_name = ? AND deleted = 0",
+                    (internal_standard,),
+                ).fetchone()
+            meta = (
+                (
+                    row["int_std_amount"],
+                    row["amount_in_std_mix"],
+                    set(self.resolve_mm_samples(row["mm_files"])),
+                )
+                if row
+                else (None, None, set())
+            )
+            self._internal_standard_meta_cache[internal_standard] = meta
+        int_std_amount, amount_in_std_mix, mm_samples = meta
+        return internal_standard_amount(
+            int_std_amount, amount_in_std_mix, sample_name in mm_samples
+        )
 
     def peak_verdict(
         self,

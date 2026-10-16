@@ -68,6 +68,19 @@ def calculate_background_ratios(provider, compounds: List[dict]) -> Dict[str, fl
     return background_ratios
 
 
+def internal_standard_amount(
+    int_std_amount, amount_in_std_mix, is_mm_sample: bool
+) -> float:
+    """Known internal standard amount in one sample, or 0.0 when it is unknown.
+
+    MM files contain the standard mix, so they use ``amount_in_std_mix``;
+    every other sample uses ``int_std_amount``.
+    """
+    if is_mm_sample and amount_in_std_mix and float(amount_in_std_mix) > 0:
+        return float(amount_in_std_mix)
+    return float(int_std_amount or 0.0)
+
+
 def calculate_mrrf_values(
     provider,
     compounds: List[dict],

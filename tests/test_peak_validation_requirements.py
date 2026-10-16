@@ -8,7 +8,18 @@ comparing compound total areas against an internal standard reference peak.
 import pytest
 
 from manic.io.data_provider import DataProvider
+from manic.models import database
 from manic.validation.peak_area import is_valid
+from manic.validation.peak_verdict import PeakVerdict
+
+
+def _insert_internal_standard(int_std_amount=10.0, mm_files=None):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms, "
+            "int_std_amount, amount_in_std_mix, mm_files) VALUES ('ISTD', 1.0, 100.0, 0, ?, 1.0, ?)",
+            (int_std_amount, mm_files),
+        )
 
 
 def test_peak_area_validation_math():
@@ -55,6 +66,7 @@ def test_data_provider_peak_metrics_totals():
 
 def test_data_provider_peak_validation_uses_reference_isotope_index():
     """Validation should use the configured IS isotopologue (M+N)."""
+    _insert_internal_standard()
     provider = DataProvider()
 
     provider._bulk_sample_data_cache = {
@@ -104,6 +116,7 @@ def test_data_provider_peak_validation_uses_reference_isotope_index():
 
 def test_peak_validation_uses_quantification_total_not_all_channels(monkeypatch):
     """A strong qualifier ion must not rescue a weak Q ion in unlabelled validation."""
+    _insert_internal_standard()
     provider = DataProvider()
     monkeypatch.setattr(
         provider,
@@ -124,3 +137,34 @@ def test_peak_validation_uses_quantification_total_not_all_channels(monkeypatch)
     )
 
 
+
+
+def test_peak_validation_fails_when_internal_standard_has_no_signal():
+    """No IS reference peak means the sample cannot be quantified, so it must not Pass."""
+    provider = DataProvider()
+    provider._bulk_sample_data_cache = {
+        "Sample1": {"CompoundA": [50.0], "ISTD": [0.0]},
+    }
+    provider._cache_valid = True
+
+    assert provider.peak_verdict("Sample1", "CompoundA", "ISTD", 0.05) is PeakVerdict.FAIL
+    assert provider.peak_verdict("Sample1", "CompoundA", None, 0.05) is PeakVerdict.PASS
+
+
+def test_peak_validation_fails_when_internal_standard_amount_is_missing():
+    """No int_std_amount: only MM samples, which use amount_in_std_mix, can be quantified."""
+    _insert_internal_standard(int_std_amount=None, mm_files="MM")
+    with database.get_connection() as conn:
+        for sample in ("MM_01", "S1"):
+            conn.execute(
+                "INSERT INTO samples (sample_name, file_name) VALUES (?, ?)",
+                (sample, f"/fake/{sample}.cdf"),
+            )
+    provider = DataProvider()
+    provider._bulk_sample_data_cache = {
+        sample: {"CompoundA": [50.0], "ISTD": [100.0]} for sample in ("MM_01", "S1")
+    }
+    provider._cache_valid = True
+
+    assert provider.peak_verdict("MM_01", "CompoundA", "ISTD", 0.05) is PeakVerdict.PASS
+    assert provider.peak_verdict("S1", "CompoundA", "ISTD", 0.05) is PeakVerdict.FAIL

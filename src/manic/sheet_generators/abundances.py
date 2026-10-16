@@ -4,6 +4,7 @@ import logging
 from typing import List
 
 from manic.models.database import get_connection
+from manic.processors.calibration import internal_standard_amount
 from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
 from manic.validation.peak_verdict import PeakVerdict
 
@@ -141,8 +142,8 @@ def write(
         worksheet.write(4, col + 2, unit, unit_fmt)
 
     # Resolve internal standard metadata if selected
-    internal_std_amount_default = 1.0
-    internal_std_amount_mm = 1.0
+    internal_std_int_amount = None
+    internal_std_mix_amount = None
     internal_std_mm_samples = set()
 
     if exporter.internal_standard_compound:
@@ -177,19 +178,17 @@ def write(
                 return set()
 
         intstd_row = intstd_rows[0]
-        int_std_amount_val = _row_get(intstd_row, "int_std_amount")
-        if int_std_amount_val is None:
+        internal_std_int_amount = _row_get(intstd_row, "int_std_amount")
+        if internal_std_int_amount is None:
             raise ValueError(
                 f"Internal standard '{exporter.internal_standard_compound}' is missing 'int_std_amount'"
             )
-        internal_std_amount_default = float(int_std_amount_val)
 
-        amount_in_mix_val = _row_get(intstd_row, "amount_in_std_mix")
-        if amount_in_mix_val is None:
+        internal_std_mix_amount = _row_get(intstd_row, "amount_in_std_mix")
+        if internal_std_mix_amount is None:
             raise ValueError(
                 f"Internal standard '{exporter.internal_standard_compound}' is missing 'amount_in_std_mix'"
             )
-        internal_std_amount_mm = float(amount_in_mix_val)
 
         mm_field = _row_get(intstd_row, "mm_files")
         internal_std_mm_samples = _resolve_mm_samples(mm_field)
@@ -217,10 +216,10 @@ def write(
                 if internal_std_data and 0 <= idx < len(internal_std_data)
                 else 0.0
             )
-            sample_internal_std_amount = (
-                internal_std_amount_mm
-                if sample_name in internal_std_mm_samples
-                else internal_std_amount_default
+            sample_internal_std_amount = internal_standard_amount(
+                internal_std_int_amount,
+                internal_std_mix_amount,
+                sample_name in internal_std_mm_samples,
             )
         else:
             internal_std_signal = 1.0
@@ -251,7 +250,7 @@ def write(
                 exporter.internal_standard_compound
                 and compound_name != exporter.internal_standard_compound
             ):
-                if internal_std_signal > 0:
+                if internal_std_signal > 0 and sample_internal_std_amount > 0:
                     if is_relative:
                         # Calculation for Relative Abundance: Ratio normalized to Internal Standard signal
                         calibrated_abundance = (
@@ -269,16 +268,18 @@ def write(
                                 * (sample_internal_std_amount / internal_std_signal)
                                 * (1 / mrrf)
                             )
+                            logger.debug(
+                                f"Abundance for {compound_name}: total_signal={total_signal:.1f}, "
+                                f"mrrf={mrrf:.3f}, result={calibrated_abundance:.3f} nmol"
+                            )
                         else:
-                            calibrated_abundance = 0.0
-                        logger.debug(
-                            f"Abundance for {compound_name}: total_signal={total_signal:.1f}, "
-                            f"mrrf={mrrf:.3f}, result={calibrated_abundance:.3f} nmol"
-                        )
+                            calibrated_abundance = None
                 else:
-                    calibrated_abundance = 0.0
+                    # Empty, not 0.0: a missing IS signal or amount is not a measured zero.
+                    calibrated_abundance = None
                     logger.debug(
-                        f"No valid calibration for {compound_name} (int_std_signal={internal_std_signal:.3f})"
+                        f"No valid calibration for {compound_name} (int_std_signal={internal_std_signal:.3f}, "
+                        f"int_std_amount={sample_internal_std_amount})"
                     )
             elif (
                 exporter.internal_standard_compound
@@ -287,7 +288,7 @@ def write(
                 calibrated_abundance = (
                     sample_internal_std_amount
                     if sample_internal_std_amount > 0
-                    else 0.0
+                    else None
                 )
                 logger.debug(
                     f"Internal standard {compound_name} abundance: {calibrated_abundance} nmol (known amount)"

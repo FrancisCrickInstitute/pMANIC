@@ -40,7 +40,7 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns l
 1.  Navigate to **File → Load Compounds/Parameter List**.
 2.  Select your prepared compound definition file from the file dialog.
 
-If any row is invalid, such as an unsupported label type or more label atoms than the formula holds, MANIC lists each bad row by row number and compound name and imports nothing.
+MANIC skips rows with a blank `name`. If any other row is invalid, such as an unsupported label type, more label atoms than the formula holds, or a negative standard amount, MANIC lists each bad row by row number and compound name and imports nothing.
 
 **Verification**
 Upon a successful import, the application provides immediate visual feedback:

@@ -203,7 +203,8 @@ tolerance still imports; those compounds then report **No qualifiers** or
 - All ion *m/z* values must be positive and distinct
 - Ions must resolve to **distinct nominal mass bins** (extraction matches on
   integer *m/z*; e.g. 217.1 and 217.4 are not allowed together)
-- Ratio tolerances cannot be negative
+- Expected ratios, ratio tolerances, the tR window and standard amounts cannot be
+  negative (a tolerance of 0 means an exact match)
 
 ### Choosing expected ratios and tolerances
 

@@ -106,8 +106,18 @@ def validate_unlabelled_channels(
     for channel in ordered:
         if channel.mz <= 0:
             raise ValueError("Ion m/z values must be positive")
-        if channel.expected_ratio is not None and channel.expected_ratio < 0:
-            raise ValueError("Qualifier expected ratios cannot be negative")
         if channel.ratio_tolerance is not None and channel.ratio_tolerance < 0:
             raise ValueError("Qualifier ratio tolerances cannot be negative")
     return ordered
+
+
+def reject_negative(values: dict[str, float | None]) -> None:
+    """Raise for the first negative value entered for a compound.
+
+    Called where values come in (dialog, list import, session import), not on
+    reads, so a compound already stored with a negative value stays readable.
+    """
+
+    for name, value in values.items():
+        if value is not None and value < 0:
+            raise ValueError(f"{name} cannot be negative")

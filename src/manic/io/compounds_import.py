@@ -22,6 +22,7 @@ from manic.models.analysis import (
     AnalysisMode,
     IonChannel,
     IonRole,
+    reject_negative,
     validate_unlabelled_channels,
 )
 from manic.models.database import get_connection
@@ -79,6 +80,12 @@ class CompoundRow(BaseModel):
             NaturalAbundanceCorrector().validate_formula(
                 self.formula, self.label_type, self.label_atoms
             )
+        reject_negative(
+            {
+                "amount_in_std_mix": self.amount_in_std_mix,
+                "int_std_amount": self.int_std_amount,
+            }
+        )
         return self
     
     @validator("formula")
@@ -251,6 +258,10 @@ def import_compound_excel(
             f"{path.name}: missing required column(s): {ordered_missing}.\n"
             "Please provide a compound list with all required columns."
         )
+
+    # Rows without a name are notes or spacing, not compounds. Filtering keeps
+    # the index, so error messages still give the spreadsheet row.
+    df = df[df["name"].notna() & df["name"].astype(str).str.strip().ne("")]
 
     # ---- hard-fail validation: retention times must be present -----
     # When retention times are missing, CDF import can fail later with unclear errors.
@@ -446,6 +457,16 @@ def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
             channels = validate_unlabelled_channels(channel_values)
             amount_in_std_mix = _optional_float(row, "amountinstdmix")
             int_std_amount = _optional_float(row, "intstdamount")
+            reject_negative(
+                {
+                    "amount_in_std_mix": amount_in_std_mix,
+                    "int_std_amount": int_std_amount,
+                    **{
+                        f"qualifier {c.ordinal} expected ratio": c.expected_ratio
+                        for c in channels
+                    },
+                }
+            )
             loffset = float(row["loffset"])
             roffset = float(row["roffset"])
             rt_tolerance = _optional_float(row, "trwindow")

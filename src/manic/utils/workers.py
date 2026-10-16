@@ -179,16 +179,20 @@ class ExportWorker(QObject):
 
 
 class DisplayFitWorker(QObject):
-    """Fit each plot tile's peaks on a pool thread; the GUI thread draws them."""
+    """Fit each plot tile's peaks on a pool thread; the GUI thread draws them.
+
+    ``annotate`` (peak verdicts and identity) runs last, reusing the tile fits.
+    """
 
     fitted = Signal(int, str, object)  # generation, sample name, PlotDisplay
-    finished = Signal(int)  # generation
+    finished = Signal(int, object)  # generation, annotate() result or None
 
-    def __init__(self, generation: int, jobs: list, use_corrected: bool):
+    def __init__(self, generation: int, jobs: list, use_corrected: bool, annotate=None):
         super().__init__()
         self._generation = generation
         self._jobs = jobs  # (sample name, time, intensity, compound)
         self._use_corrected = use_corrected
+        self._annotate = annotate
         self._cancel_event = threading.Event()
 
     def cancel(self):
@@ -207,4 +211,12 @@ class DisplayFitWorker(QObject):
                 logger.exception("Display fit failed for %s", sample_name)
                 continue
             self.fitted.emit(self._generation, sample_name, prepared)
-        self.finished.emit(self._generation)
+        annotations = None
+        if self._annotate is not None:
+            if self._cancel_event.is_set():
+                return
+            try:
+                annotations = self._annotate()
+            except Exception:
+                logger.exception("Peak verdicts or identity failed")
+        self.finished.emit(self._generation, annotations)

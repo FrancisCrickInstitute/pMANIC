@@ -4,7 +4,8 @@ import sys
 import warnings
 from collections.abc import Iterable
 from dataclasses import replace
-from typing import Dict, List, Optional, Sequence, Set
+from functools import partial
+from typing import Callable, Dict, List, Optional, Sequence, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -232,6 +233,7 @@ class GraphView(QWidget):
         self._tile_eics = []
         self._tile_inputs: list[TileScaleInput] = []
         self._tile_axes: list[YAxisScale] = []
+        self._annotate = None
         app = QCoreApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.cancel_fits)
@@ -386,10 +388,24 @@ class GraphView(QWidget):
         validation_data: Dict[str, PeakVerdict] = None,
         *,
         identity: IdentityAssessmentSet | None = None,
+        annotate: Callable[[], tuple] | None = None,
     ) -> None:
         """
         Build one mini-plot per active sample for the selected *compound*.
+
+        ``annotate`` returns ``(validation_data, identity)`` in place of those
+        arguments. It runs here only when every fit it needs is cached;
+        otherwise the fit worker runs it and tiles stay neutral until then.
         """
+
+        self._annotate = annotate
+        if annotate is not None:
+            try:
+                with cached_fits_only():
+                    validation_data, identity = annotate()
+                self._annotate = None
+            except FitCacheMiss:
+                validation_data, identity = None, None
 
         if identity is not None and identity.compound_name != compound_name:
             identity = None
@@ -525,16 +541,28 @@ class GraphView(QWidget):
         self._tile_eics = eics
         self._tile_inputs = scale_inputs
         self._tile_axes = list(tile_axes)
-        if fit_jobs:
-            worker = DisplayFitWorker(self._fit_generation, fit_jobs, self.use_corrected)
+        if fit_jobs or self._annotate is not None:
+            worker = DisplayFitWorker(
+                self._fit_generation, fit_jobs, self.use_corrected, self._annotate
+            )
             worker.fitted.connect(self._on_tile_fitted)
             worker.finished.connect(self._on_fits_finished)
             self._fit_worker = worker
             QThreadPool.globalInstance().start(worker.run)
+        else:
+            # A cache-only replot still finishes the sidebar refresh that
+            # waited on the generation it replaced.
+            QTimer.singleShot(
+                0, self, partial(self._on_fits_finished, self._fit_generation, None)
+            )
 
     @property
     def fits_pending(self) -> bool:
         return self._fit_worker is not None
+
+    @property
+    def identity(self) -> IdentityAssessmentSet | None:
+        return self._identity
 
     def cancel_fits(self) -> None:
         self._fit_generation += 1
@@ -554,14 +582,21 @@ class GraphView(QWidget):
         ]
         self._redraw_tile(index)
 
-    def _on_fits_finished(self, generation: int) -> None:
+    def _on_fits_finished(self, generation: int, annotations) -> None:
         if generation != self._fit_generation:
             return
         self._fit_worker = None
+        restyle_traces = False
+        if annotations is not None:
+            self._annotate = None
+            validation_data, self._identity = annotations
+            # Identity sets each channel's trace style.
+            restyle_traces = self._identity is not None
+            self.apply_peak_verdicts(validation_data)
         # A shared y-scale can move with every fit; settle it once all are in.
         final_axes = axes_for_tiles(self._y_scale_policy, self._tile_inputs)
         for index, axis in enumerate(final_axes):
-            if axis != self._tile_axes[index]:
+            if restyle_traces or axis != self._tile_axes[index]:
                 self._tile_axes[index] = axis
                 self._redraw_tile(index)
         self.fits_finished.emit()
@@ -597,6 +632,7 @@ class GraphView(QWidget):
                 self._current_samples,
                 self._last_validation_data,
                 identity=self._identity,
+                annotate=self._annotate,
             )
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:

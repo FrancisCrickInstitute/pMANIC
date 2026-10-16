@@ -493,8 +493,6 @@ def _deconvolve_matrix(
                     params,
                     retention_time,
                 )
-        except FitCacheMiss:
-            raise
         except Exception:
             fitted = None
 
@@ -608,8 +606,12 @@ def _deconvolve_matrix(
     )
 
 
-class FitCacheMiss(Exception):
-    """A fit needed under cached_fits_only() has not been computed yet."""
+class FitCacheMiss(BaseException):
+    """A fit needed under cached_fits_only() has not been computed yet.
+
+    A BaseException so the area and display code's broad ``except Exception``
+    fallbacks cannot turn a miss into a wrong area or verdict.
+    """
 
 
 _cached_fits_only = contextvars.ContextVar("cached_fits_only", default=False)

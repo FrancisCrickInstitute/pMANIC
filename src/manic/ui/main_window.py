@@ -728,6 +728,8 @@ class MainWindow(QMainWindow):
                 )
                 return
 
+        # Queued fit results must not read the cleared database.
+        self.graph_view.cancel_fits()
         try:
             clear_database()
         except Exception as exc:
@@ -756,6 +758,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self._skip_close_guard:
             self._stop_update_check()
+            self.graph_view.cancel_fits()
             event.accept()
             return
         running = self._running_background_thread()
@@ -792,6 +795,7 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
         self._stop_update_check()
+        self.graph_view.cancel_fits()
         event.accept()
 
     def _rebuild_open_recent_menu(self) -> None:
@@ -1043,29 +1047,49 @@ class MainWindow(QMainWindow):
         msg_box.exec()
 
     def _peak_verdicts(self, compound_name: str, samples) -> dict[str, PeakVerdict]:
-        reviews = get_peak_reviews()
-        internal_standard = self.toolbar.get_internal_standard()
         if self._validation_provider is None:
             self._validation_provider = DataProvider(
                 use_legacy_integration=self.use_legacy_integration,
             )
-        verdicts = {}
-        for sample in samples:
-            try:
-                verdicts[sample] = self._validation_provider.peak_verdict(
-                    sample,
-                    compound_name,
-                    internal_standard,
-                    self.min_peak_height_ratio,
-                    internal_standard_isotope_index=self.internal_standard_reference_isotope,
-                    reviews=reviews,
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Peak verdict failed for {compound_name}/{sample}: {e}"
-                )
-                verdicts[sample] = PeakVerdict.PASS
+        return self._verdict_task(self._validation_provider, compound_name, samples)()
+
+    def _verdict_task(self, provider, compound_name: str, samples):
+        """Read widget settings now; the returned callable may run on a worker."""
+        internal_standard = self.toolbar.get_internal_standard()
+        min_ratio = self.min_peak_height_ratio
+        isotope_index = self.internal_standard_reference_isotope
+
+        def verdicts() -> dict[str, PeakVerdict]:
+            reviews = get_peak_reviews()
+            result = {}
+            for sample in samples:
+                try:
+                    result[sample] = provider.peak_verdict(
+                        sample,
+                        compound_name,
+                        internal_standard,
+                        min_ratio,
+                        internal_standard_isotope_index=isotope_index,
+                        reviews=reviews,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Peak verdict failed for {compound_name}/{sample}: {e}"
+                    )
+                    result[sample] = PeakVerdict.PASS
+            return result
+
         return verdicts
+
+    def _tile_annotations(self, provider, compound_name: str, samples):
+        """Verdicts and identity for GraphView.plot_compound(annotate=...)."""
+        verdicts = self._verdict_task(provider, compound_name, samples)
+        if self.analysis_mode is not AnalysisMode.UNLABELLED:
+            return lambda: (verdicts(), None)
+        return lambda: (
+            verdicts(),
+            self._assess_identities(provider, compound_name, samples),
+        )
 
     def on_peak_review_changed(self, compound_name: str, sample_names: list, review):
         for sample_name in sample_names:
@@ -1084,14 +1108,15 @@ class MainWindow(QMainWindow):
         try:
             if samples:
                 with measure_time("total_plotting_speed"):
-                    validation_data = self._peak_verdicts(compound_name, samples)
-
-                    provider, identity = self._identity_snapshot(compound_name, samples)
+                    provider = DataProvider(
+                        use_legacy_integration=self.use_legacy_integration
+                    )
                     self.graph_view.plot_compound(
                         compound_name,
                         samples,
-                        validation_data,
-                        identity=identity,
+                        annotate=self._tile_annotations(
+                            provider, compound_name, samples
+                        ),
                     )
 
                 # After plotting, update integration window to show "All" state
@@ -1107,7 +1132,7 @@ class MainWindow(QMainWindow):
                 self._refresh_mode_charts(
                     compound_name,
                     samples,
-                    identity=identity,
+                    identity=self.graph_view.identity,
                     provider=provider,
                 )
         except LookupError as err:
@@ -1232,7 +1257,7 @@ class MainWindow(QMainWindow):
     def _run_deferred_mode_charts(self) -> None:
         deferred, self._deferred_mode_charts = self._deferred_mode_charts, None
         if deferred is not None:
-            deferred()
+            deferred(identity=self.graph_view.identity)
 
     def _update_total_abundance(
         self, compound_name: str, provider: DataProvider | None = None

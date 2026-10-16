@@ -298,16 +298,10 @@ class ChartPopupDialog(QDialog):
     def _on_identity_cell_hover(
         self, bar_set: QBarSet, status: bool, index: int
     ) -> None:
-        if (
-            not status
-            or self._identity_binding is None
-            or index < 0
-            or index >= bar_set.count()
-            or bar_set.at(index) <= 0
-        ):
+        if not status or self._identity_binding is None:
             QToolTip.hideText()
             return
-        cell = self._identity_binding.cell_for(bar_set)
+        cell = self._identity_binding.cell_for(bar_set, index)
         if cell is None:
             QToolTip.hideText()
             return

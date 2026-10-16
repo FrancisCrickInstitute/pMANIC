@@ -20,6 +20,8 @@ def test_right_click_targets_the_compound_under_the_cursor_even_after_scrolling(
     pos = widget.visualItemRect(clicked).center()
     QTest.mousePress(widget.viewport(), Qt.RightButton, Qt.NoModifier, pos)
     qapp.processEvents()
+    # A press with no release leaves QTest holding the button for later tests.
+    QTest.mouseRelease(widget.viewport(), Qt.RightButton, Qt.NoModifier, pos)
     assert widget.verticalScrollBar().value() > 0
     assert widget.itemAt(pos) is not clicked
 

@@ -64,10 +64,11 @@ class IdentityCell:
 @dataclass(slots=True)
 class IdentityGridBinding:
     bar_sets: tuple[QBarSet, ...]
-    cells_by_set: Mapping[QBarSet, IdentityCell]
+    cells_by_set: Mapping[QBarSet, tuple[IdentityCell | None, ...]]
 
-    def cell_for(self, bar_set: QBarSet) -> IdentityCell | None:
-        return self.cells_by_set.get(bar_set)
+    def cell_for(self, bar_set: QBarSet, index: int) -> IdentityCell | None:
+        cells = self.cells_by_set.get(bar_set, ())
+        return cells[index] if 0 <= index < len(cells) else None
 
 
 def add_identity_grid(
@@ -89,21 +90,26 @@ def add_identity_grid(
         return IdentityGridBinding((), MappingProxyType({}))
 
     display = tuple(reversed(samples))
-    count = len(display)
     series = QHorizontalStackedBarSeries()
     series.setBarWidth(0.92)
-    bar_sets: list[QBarSet] = []
-    cells: dict[QBarSet, IdentityCell] = {}
+    # One set per qualifier and status keeps the chart linear in samples.
+    rows: dict[tuple[int, QualifierStatus], list[IdentityCell | None]] = {}
     for row, sample in enumerate(display):
         for qualifier in sample.qualifiers:
-            bar_set = QBarSet("")
-            bar_set.setColor(QUALIFIER_STATUS_COLORS[qualifier.status])
-            bar_set.setBorderColor(_CELL_SEPARATOR_COLOR)
-            for other_row in range(count):
-                bar_set.append(1.0 if other_row == row else 0.0)
-            series.append(bar_set)
-            bar_sets.append(bar_set)
-            cells[bar_set] = IdentityCell(sample.sample_name, qualifier)
+            key = (qualifier.ordinal, qualifier.status)
+            cells = rows.get(key)
+            if cells is None:
+                cells = rows[key] = [None] * len(display)
+            cells[row] = IdentityCell(sample.sample_name, qualifier)
+    cells_by_set: dict[QBarSet, tuple[IdentityCell | None, ...]] = {}
+    # Qualifier 1 sets stack first so its cell spans 0-1 and qualifier 2 spans 1-2.
+    for (_, status), cells in sorted(rows.items(), key=lambda item: item[0][0]):
+        bar_set = QBarSet("")
+        bar_set.setColor(QUALIFIER_STATUS_COLORS[status])
+        bar_set.setBorderColor(_CELL_SEPARATOR_COLOR)
+        bar_set.append([0.0 if cell is None else 1.0 for cell in cells])
+        series.append(bar_set)
+        cells_by_set[bar_set] = tuple(cells)
     chart.addSeries(series)
 
     x_axis = QValueAxis()
@@ -134,4 +140,4 @@ def add_identity_grid(
     chart.addAxis(top_axis, Qt.AlignTop)
     series.attachAxis(x_axis)
     series.attachAxis(y_axis)
-    return IdentityGridBinding(tuple(bar_sets), MappingProxyType(cells))
+    return IdentityGridBinding(tuple(cells_by_set), MappingProxyType(cells_by_set))

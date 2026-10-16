@@ -20,6 +20,9 @@ def read_raw_values_workbook(path: str) -> tuple[List[str], Dict[str, Dict[str, 
       Row 4: 'tR'            | None | [retention time repeated]
       Row 5+: None           | sample_name | [values]
     """
+    if not path.lower().endswith('.xlsx'):
+        raise ValueError(f"Raw Values file must be an Excel workbook (.xlsx): {path}")
+
     # Read without headers to preserve positions
     df = pd.read_excel(path, sheet_name='Raw Values', header=None, engine='openpyxl')
 
@@ -31,6 +34,22 @@ def read_raw_values_workbook(path: str) -> tuple[List[str], Dict[str, Dict[str, 
     col_map: Dict[int, tuple[str, int]] = {}
     for idx, (cmp, iso) in enumerate(zip(compounds_row, isotopes_row)):
         col_map[2 + idx] = (str(cmp), int(iso))
+
+    # The per-sample lists below are indexed by isotope, so a gap would be padded with 0.0
+    # and a repeat would silently overwrite the earlier column
+    isotopes_by_compound: Dict[str, List[int]] = {}
+    for cmp, iso in col_map.values():
+        isotopes_by_compound.setdefault(cmp, []).append(iso)
+    bad = [
+        f"{cmp} (found {', '.join(map(str, isos))})"
+        for cmp, isos in isotopes_by_compound.items()
+        if sorted(isos) != list(range(len(isos)))
+    ]
+    if bad:
+        raise ValueError(
+            "Each compound in the Raw Values workbook needs one isotope column for each of "
+            f"0, 1, 2, ... with no gaps or repeats: {', '.join(bad)}"
+        )
 
     # Samples and data rows
     samples: List[str] = []

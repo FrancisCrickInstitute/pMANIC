@@ -485,11 +485,10 @@ class IntegrationWindow(QGroupBox):
                 return
 
             # Store data window bounds for all samples
-            for idx, sample_name in enumerate(sample_names):
-                if idx < len(eics) and len(eics[idx].time) > 0:
-                    time_data = eics[idx].time
-                    key = (compound_name, sample_name)
-                    self._data_window_bounds[key] = (time_data.min(), time_data.max())
+            for eic in eics:
+                if len(eic.time) > 0:
+                    key = (compound_name, eic.sample_name)
+                    self._data_window_bounds[key] = (eic.time.min(), eic.time.max())
 
             # Get compound data for each sample (including session overrides)
             rt_times = []

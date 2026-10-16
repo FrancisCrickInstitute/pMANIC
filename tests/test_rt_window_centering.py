@@ -559,8 +559,13 @@ def test_range_bounds_follow_sample_when_one_eic_is_missing(monkeypatch):
             retention_time=5.0, loffset=0.1, roffset=0.1
         ),
     )
+    # Bounds cached from an earlier visit, before s0's EIC disappeared.
     window = SimpleNamespace(
-        _data_window_bounds={},
+        _data_window_bounds={
+            ("cmpd", "s0"): (0.0, 10.0),
+            ("cmpd", "s1"): (0.0, 10.0),
+            ("other", "s0"): (1.0, 2.0),
+        },
         _format_range=lambda _values: "",
         findChild=lambda *_args: None,
     )
@@ -570,7 +575,30 @@ def test_range_bounds_follow_sample_when_one_eic_is_missing(monkeypatch):
     assert window._data_window_bounds == {
         ("cmpd", "s1"): (4.0, 6.0),
         ("cmpd", "s2"): (4.5, 5.5),
+        ("other", "s0"): (1.0, 2.0),
     }
+
+
+def _raise_lookup(*_args):
+    raise LookupError("no EIC")
+
+
+@pytest.mark.parametrize("fetch", [lambda *_args: [], _raise_lookup])
+def test_range_bounds_drop_stale_entries_when_eics_unavailable(monkeypatch, fetch):
+    monkeypatch.setattr(
+        "manic.ui.integration_window_widget.get_eics_for_compound", fetch
+    )
+    window = SimpleNamespace(
+        _data_window_bounds={
+            ("cmpd", "s0"): (0.0, 10.0),
+            ("other", "s0"): (1.0, 2.0),
+        },
+        _clear_fields=lambda: None,
+    )
+
+    IntegrationWindow._populate_range_fields(window, "cmpd", ["s0", "s1"])
+
+    assert window._data_window_bounds == {("other", "s0"): (1.0, 2.0)}
 
 
 class TestRecoveryAfterEmptyExtract:

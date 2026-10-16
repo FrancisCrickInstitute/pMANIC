@@ -1462,3 +1462,19 @@ def test_variable_projection_jacobian_matches_finite_differences(shape_model):
         )
 
 
+
+
+def test_cached_bundle_arrays_cannot_be_changed_by_a_caller():
+    time = np.linspace(0.0, 10.0, 201)
+    matrix = np.vstack([_gaussian(time, 5.0, 0.3, 10.0), _gaussian(time, 5.0, 0.3, 4.0)])
+    kwargs = dict(retention_time=5.0, loffset=2.0, roffset=2.0, stringency="4")
+
+    first = deconv.deconvolve_channel_matrix(time, matrix, **kwargs)
+    selected = first.channels[0].result.selected
+    expected = np.array(selected, copy=True)
+
+    with pytest.raises(ValueError):
+        selected[0] = -1.0
+
+    again = deconv.deconvolve_channel_matrix(time, matrix, **kwargs)
+    np.testing.assert_array_equal(again.channels[0].result.selected, expected)

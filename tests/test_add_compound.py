@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+import zlib
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QMessageBox, QWidget
 
 from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import (
@@ -25,6 +27,8 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.ui.add_compound_dialog import AddCompoundDialog
 from manic.ui.compound_list_widget import CompoundListWidget
 from manic.ui.main_window import MainWindow
+
+from conftest import _gaussian, _make_window
 
 
 def _labelled_row(**overrides) -> CompoundRow:
@@ -544,3 +548,60 @@ def test_unlabelled_import_rejects_negative_values(empty_db, tmp_path, column, m
     with pytest.raises(ValueError, match=re.escape(message)):
         import_compound_excel(path, AnalysisMode.UNLABELLED)
     assert taken_compound_names() == set()
+
+
+def _insert_compound(name: str) -> None:
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, "
+            "roffset, mass0, label_atoms) VALUES (?, 5.0, 0.2, 0.2, 100.0, 0)",
+            (name,),
+        )
+
+
+def _insert_eic(sample: str, compound: str) -> None:
+    time = np.linspace(4.5, 5.5, 200)
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO samples (sample_name, file_name) VALUES (?, ?)",
+            (sample, f"/fake/{sample}.cdf"),
+        )
+        conn.execute(
+            "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, "
+            "rt_window) VALUES (?, ?, ?, ?, 0.5)",
+            (
+                sample,
+                compound,
+                zlib.compress(time.tobytes()),
+                zlib.compress(_gaussian(time, 5.0, 0.03, 1e5).tobytes()),
+            ),
+        )
+
+
+def test_added_compound_is_selected_after_its_eics_exist(qapp, monkeypatch):
+    _insert_compound("A")
+    _insert_eic("S1", "A")
+    window = _make_window(monkeypatch)
+    boxes = []
+    monkeypatch.setattr(
+        QMessageBox, "exec", lambda self: boxes.append(self.windowTitle())
+    )
+
+    def regenerate(compound_name, *_args):
+        _insert_eic("S1", compound_name)
+        window._regeneration_completed(1)
+
+    window.on_data_regeneration_requested = regenerate
+    try:
+        window.compound_data_loaded = window.cdf_data_loaded = True
+        window.toolbar.update_sample_list(["S1"])
+        window.toolbar.update_compound_list(["A"])
+        _insert_compound("NewOne")
+
+        window._after_compound_added("NewOne")
+
+        assert boxes == ["Regeneration Complete"]
+        assert window.toolbar.get_selected_compound() == "NewOne"
+        assert window.graph_view.get_current_compound() == "NewOne"
+    finally:
+        window.close()

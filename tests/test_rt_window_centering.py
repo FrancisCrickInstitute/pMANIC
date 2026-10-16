@@ -268,6 +268,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _selected_samples=["s1", "s2"],
             _all_samples=["s1", "s2"],
             _get_validated_inputs=lambda: (7.1, 2.0, 2.0),
@@ -302,6 +303,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _all_samples=["s1", "s2"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -328,6 +330,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _all_samples=["s1"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -354,6 +357,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _all_samples=["s1"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -380,6 +384,7 @@ class TestPerSampleReloadChecking:
         }
         window = SimpleNamespace(
             _current_compound="Glucose",
+            _shown_tr_window=("", None),
             _all_samples=["s1", "s2"],
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -394,6 +399,92 @@ class TestPerSampleReloadChecking:
 
         assert emitted == [("Glucose", 0.7, ["s1", "s2"], 5.0)]
         assert tr_window_field.text() == "0.7"
+
+    def test_apply_reload_uses_widest_window_in_a_range(self):
+        emitted = []
+        fields = {
+            "tr_input": _TextField("5.0"),
+            "tr_window_input": _TextField("0.3 - 0.8"),
+        }
+        window = SimpleNamespace(
+            _current_compound="Glucose",
+            _shown_tr_window=("", None),
+            _selected_samples=["s2"],
+            _all_samples=["s1", "s2"],
+            _get_validated_inputs=lambda: (5.0, 0.2, 0.2),
+            _get_samples_needing_reload=lambda *_args: ["s2"],
+            findChild=lambda _widget_type, name: fields.get(name),
+            data_regeneration_requested=SimpleNamespace(
+                emit=lambda *args: emitted.append(args)
+            ),
+            _show_message=lambda *_args: None,
+        )
+
+        IntegrationWindow._on_apply_clicked(window)
+
+        assert emitted == [("Glucose", 0.8, ["s2"], 5.0)]
+
+    def test_apply_rejects_unreadable_tr_window(self, qapp):
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QLineEdit
+
+        window = IntegrationWindow()
+        window._current_compound = "Glucose"
+        window._all_samples = ["s1"]
+        window._data_window_bounds = {("Glucose", "s1"): (4.8, 5.2)}
+        window.findChild(QLineEdit, "tr_input").setText("5")
+        window.findChild(QLineEdit, "lo_input").setText("0.5")
+        window.findChild(QLineEdit, "ro_input").setText("0.5")
+        QTest.keyClicks(window.tr_window_edit, ".")
+        emitted, messages = [], []
+        window.data_regeneration_requested.connect(lambda *args: emitted.append(args))
+        window._show_message = lambda *args: messages.append(args)
+
+        window.apply_button.click()
+
+        assert window.tr_window_edit.text() == "."
+        assert emitted == []
+        assert messages == [
+            ("warning", "Invalid Input", "tR Window must be a valid number")
+        ]
+
+    def test_update_keeps_unrounded_widest_window_for_unchanged_range(self, qapp):
+        from PySide6.QtWidgets import QLineEdit
+
+        with database.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0) "
+                "VALUES ('Glucose', 5.0, 0.1, 0.1, 100.0)"
+            )
+            for sample, rt_window in (("s1", 0.3), ("s2", 0.8004)):
+                conn.execute(
+                    "INSERT INTO samples (sample_name, file_name) VALUES (?, ?)",
+                    (sample, f"/fake/{sample}.cdf"),
+                )
+                conn.execute(
+                    "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window) "
+                    "VALUES (?, 'Glucose', ?, ?, ?)",
+                    (sample, _compress(np.zeros(3)), _compress(np.zeros(3)), rt_window),
+                )
+        window = IntegrationWindow()
+        window._current_compound = "Glucose"
+        window._all_samples = ["s1", "s2"]
+        window.findChild(QLineEdit, "tr_input").setText("5")
+        window.findChild(QLineEdit, "lo_input").setText("0.1")
+        window.findChild(QLineEdit, "ro_input").setText("0.1")
+        window.populate_tr_window_field("Glucose")
+        emitted = []
+        window.data_regeneration_requested.connect(lambda *args: emitted.append(args))
+
+        window.regenerate_button.click()
+
+        assert window.tr_window_edit.text() == "0.3 - 0.8"
+        assert emitted == [("Glucose", 0.8004, ["s1", "s2"], 5.0)]
+
+        window.tr_window_edit.setText("0.2 - 0.8")
+        window.regenerate_button.click()
+
+        assert emitted[1] == ("Glucose", 0.8, ["s1", "s2"], 5.0)
 
 
 class _TextField:

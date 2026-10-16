@@ -178,6 +178,8 @@ To fix this, you must widen the underlying data extraction window:
 2.  Increase the value (e.g., from `0.2` to `0.4` or `0.5`).
 3.  Click **Update tR Window**.
 
+If samples hold different windows, the field shows the range (for example `0.3 - 0.8`). Clicking **Update tR Window** without changing a range applies the widest window to every sample.
+
 The extract must cover the current left and right offsets plus the RT window buffer (0.1 min by default). If the typed tR Window sits inside those offsets, MANIC raises it to that minimum, updates the field, and continues.
 
 A progress bar will appear as MANIC re-scans the raw CDF files to extract a wider slice of time around the target peak.

@@ -139,6 +139,14 @@ def _widest_offset(text: str) -> float | None:
         return None
 
 
+def _widest_tr_window(text: str, shown: tuple[str, float | None]) -> float | None:
+    # The field rounds for display, so unchanged text keeps the raw stored maximum
+    shown_text, shown_max = shown
+    if text.strip() == shown_text:
+        return shown_max
+    return _widest_offset(text)
+
+
 def check_boundaries_within_window(
     left_boundary: float,
     right_boundary: float,
@@ -213,6 +221,7 @@ class IntegrationWindow(QGroupBox):
         self._data_window_bounds: Dict[Tuple[str, str], Tuple[float, float]] = {}
 
         self._pending_session_update: PendingRegeneration | None = None
+        self._shown_tr_window: tuple[str, float | None] = ("", None)
 
         self._build_ui()
         self._setup_apply_button_state()
@@ -330,28 +339,29 @@ class IntegrationWindow(QGroupBox):
             # Try to get RT window from actual EIC data (persisted value)
             from manic.models.database import get_connection
 
-            tr_window_value = None
             with get_connection() as conn:
-                row = conn.execute(
-                    """
-                    SELECT rt_window FROM eic
-                    WHERE compound_name = ? AND deleted = 0
-                    LIMIT 1
-                    """,
-                    (compound_name,)
-                ).fetchone()
-
-                if row and row["rt_window"] is not None:
-                    tr_window_value = row["rt_window"]
+                tr_windows = [
+                    row["rt_window"]
+                    for row in conn.execute(
+                        """
+                        SELECT rt_window FROM eic
+                        WHERE compound_name = ? AND deleted = 0
+                        AND rt_window IS NOT NULL
+                        """,
+                        (compound_name,)
+                    )
+                ]
 
             # Fall back to compound default if no EIC data exists
-            if tr_window_value is None:
+            if not tr_windows:
                 compound_data = read_compound(compound_name)
-                tr_window_value = getattr(compound_data, "tr_window", 0.2)
+                tr_windows = [getattr(compound_data, "tr_window", 0.2)]
 
+            tr_window_text = self._format_range(tr_windows)
+            self._shown_tr_window = (tr_window_text, max(tr_windows))
             tr_window_field = self.findChild(QLineEdit, "tr_window_input")
             if tr_window_field:
-                tr_window_field.setText(self._format_number(tr_window_value))
+                tr_window_field.setText(tr_window_text)
 
 
         except Exception as e:
@@ -819,9 +829,15 @@ class IntegrationWindow(QGroupBox):
                 
                 # Get current RT window value
                 tr_window_field = self.findChild(QLineEdit, "tr_window_input")
-                current_tr_window = (
-                    float(tr_window_field.text()) if tr_window_field and tr_window_field.text() else 0.2
+                current_tr_window = _widest_tr_window(
+                    tr_window_field.text() if tr_window_field else "",
+                    self._shown_tr_window,
                 )
+                if current_tr_window is None:
+                    self._show_message(
+                        "warning", "Invalid Input", "tR Window must be a valid number"
+                    )
+                    return
 
                 min_required_window = calculate_minimum_rt_window(
                     loffset, roffset, buffer=DEFAULT_RT_WINDOW_BUFFER
@@ -1040,11 +1056,10 @@ class IntegrationWindow(QGroupBox):
                 tr_window_field.setFocus()
                 return
 
-            # Handle range format (take first value like other fields)
-            if " - " in tr_window_text:
-                tr_window_text = tr_window_text.split(" - ")[0]
-
-            tr_window = float(tr_window_text)
+            # An unchanged range keeps the widest stored window, so no sample loses data
+            tr_window = _widest_tr_window(tr_window_text, self._shown_tr_window)
+            if tr_window is None:
+                raise ValueError(tr_window_text)
 
             if tr_window <= 0:
                 self._show_message(

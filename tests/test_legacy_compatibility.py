@@ -10,6 +10,7 @@ from openpyxl import Workbook
 
 from manic.io.legacy_raw_values_reader import read_raw_values_workbook
 from manic.io.in_memory_provider import InMemoryDataProvider
+from manic.io.legacy_rebuild import _read_compounds_as_dicts
 from manic.io.changelog_sections import (
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
@@ -236,3 +237,37 @@ def test_in_memory_provider_corrected_vector(tmp_path: Path):
     assert all(v >= 0 for v in corr['A'])
     # B: unlabeled, copied as-is
     assert corr['B'] == [5.0]
+
+def write_blank_std_mix_inputs(tmp_path: Path) -> tuple[str, str]:
+    """IS has a blank AmountInStdMix; both compounds are measured in one MM file."""
+    compounds_path = tmp_path / 'compounds.csv'
+    compounds_path.write_text(
+        'name,tr,mass0,loffset,roffset,labelatoms,amountinstdmix,intstdamount,mmfiles\n'
+        'IS,1.0,100,0.1,0.1,0,,2.0,*MM*\n'
+        'Ala,2.0,116,0.1,0.1,0,5.0,,*MM*\n'
+    )
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Raw Values'
+    for row, label in enumerate(['Compound Name', 'Mass', 'Isotope', 'tR'], start=1):
+        ws.cell(row=row, column=1, value=label)
+    for col, header in enumerate([('IS', 100.0, 0, 1.0), ('Ala', 116.0, 0, 2.0)], start=3):
+        for row, value in enumerate(header, start=1):
+            ws.cell(row=row, column=col, value=value)
+    for row, sample in enumerate(['MM_01', 'S1'], start=5):
+        ws.cell(row=row, column=2, value=sample)
+        ws.cell(row=row, column=3, value=100.0)
+        ws.cell(row=row, column=4, value=50.0)
+    raw_path = tmp_path / 'raw_values.xlsx'
+    wb.save(raw_path)
+    return str(compounds_path), str(raw_path)
+
+
+def test_blank_std_mix_amount_defaults_to_one_in_mrrf(tmp_path: Path):
+    compounds_path, raw_path = write_blank_std_mix_inputs(tmp_path)
+    compounds = _read_compounds_as_dicts(compounds_path)
+    samples, raw = read_raw_values_workbook(raw_path)
+    prov = InMemoryDataProvider(compounds, samples, raw)
+
+    # Ala: (50 / 5.0) / (100 / 1.0), the IS concentration falling back to 1.0 as in the main app
+    assert prov.get_mrrf_values(compounds, 'IS') == {'IS': 1.0, 'Ala': 0.1}

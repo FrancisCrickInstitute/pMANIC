@@ -1417,7 +1417,13 @@ class MainWindow(QMainWindow):
         current_compound = self.graph_view.get_current_compound()
         all_samples = self.graph_view.get_current_samples()
 
-        if current_compound:
+        if not current_compound:
+            # The plots were cleared (e.g. the last compound was deleted)
+            self.toolbar.integration.populate_fields_from_plots("", [])
+            self.toolbar.isotopologue_ratios._clear_chart()
+            self.toolbar.total_abundance._clear_chart()
+            self.toolbar.targeted_qc.clear()
+        else:
             self.toolbar.integration.populate_fields_from_plots(
                 current_compound, selected_samples, all_samples
             )

@@ -4,16 +4,21 @@ import zlib
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QThreadPool, QTimer
+from PySide6.QtWidgets import QMessageBox
 
 from manic.io.compound_reader import read_compound_with_session
+from manic.io.data_provider import DataProvider
 from manic.models import database
+from manic.models.analysis import AnalysisMode
 from manic.processors import chromatographic_peak_deconvolution as deconvolution
 from manic.processors.display_deconvolution import plot_display
 from manic.processors.eic_processing import get_eics_for_compound
-from manic.processors.tile_y_scale import TileScaleInput, axes_for_tiles
+from manic.processors.tile_y_scale import TileScaleInput, YScalePolicy, axes_for_tiles
 from manic.ui.graphs import GraphView
 from manic.ui.isotopologue_ratio_widget import IsotopologueRatioWidget
+from manic.validation.peak_verdict import PeakVerdict
+from manic.validation.unlabelled_identity import IdentityStatus
 
 from conftest import _gaussian, _make_window
 
@@ -190,3 +195,132 @@ def test_results_for_a_compound_left_mid_fit_are_dropped(qapp, window, gated_fit
     np.testing.assert_array_equal(
         window.toolbar.isotopologue_ratios._current_ratios, _synchronous_ratios("Beta")
     )
+
+
+def test_peak_verdicts_against_an_internal_standard_are_computed_off_the_gui_thread(
+    qapp, window, gated_fits, monkeypatch
+):
+    gate, calls = gated_fits
+    monkeypatch.setattr(window.toolbar, "get_internal_standard", lambda: "Alpha")
+    window.min_peak_height_ratio = 1.0
+
+    _navigate(window, "Beta")
+
+    assert calls["gui"] == 0
+    graph = window.graph_view
+    assert {p.parent().verdict for p in graph._current_plots} == {PeakVerdict.PASS}
+
+    gate.set()
+    _wait_for_fits(qapp, window)
+    assert calls["gui"] == 0
+    verdicts = {p.sample_name: p.parent().verdict for p in graph._current_plots}
+    assert verdicts == {
+        "S1": PeakVerdict.FAIL,
+        "S2": PeakVerdict.FAIL,
+        "S3": PeakVerdict.PASS,
+    }
+    assert verdicts == window._peak_verdicts("Beta", SAMPLES)
+
+
+@pytest.fixture
+def unlabelled_window(qapp, monkeypatch):
+    _insert("Alpha", 5.0, [100.0, 140.0, 80.0])
+    _insert("Beta", 6.0, [60.0, 90.0, 120.0])
+    with database.get_connection() as conn:
+        conn.execute("UPDATE compounds SET rt_tolerance = 0.5")
+        for name in ["Alpha", "Beta"]:
+            conn.execute(
+                "INSERT INTO compound_ions (compound_name, role, ordinal, mz) "
+                "VALUES (?, 'quantifier', 0, 217)",
+                (name,),
+            )
+            conn.execute(
+                "INSERT INTO compound_ions (compound_name, role, ordinal, mz, "
+                "expected_ratio, ratio_tolerance) VALUES (?, 'qualifier', 1, 218, 0.3, 0.2)",
+                (name,),
+            )
+    window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
+    window.resize(1200, 800)
+    window.show()
+    yield window
+    window.graph_view.cancel_fits()
+    window.close()
+    qapp.processEvents()
+
+
+def test_unlabelled_identity_is_assessed_off_the_gui_thread(
+    qapp, unlabelled_window, gated_fits
+):
+    gate, calls = gated_fits
+    window = unlabelled_window
+
+    _navigate(window, "Beta")
+
+    assert calls["gui"] == 0
+    gate.set()
+    _wait_for_fits(qapp, window)
+    assert calls["gui"] == 0
+    expected = DataProvider().assess_unlabelled_identities("Beta", SAMPLES)
+    assert [s.qc.status for s in expected.samples] == [IdentityStatus.SUPPORTED] * 3
+    assert window.graph_view._identity == expected
+    assert window.toolbar.targeted_qc._identity == expected
+
+
+def test_cache_only_replot_finishes_a_pending_sidebar_refresh(qapp, window):
+    deconvolution._fit_single_component_model_cached.cache_clear()
+    deconvolution._fit_joint_component_model_cached.cache_clear()
+    _navigate(window, "Beta")
+    assert window.graph_view.fits_pending
+    # The worker finishes, but its queued results have not reached the GUI yet.
+    assert QThreadPool.globalInstance().waitForDone(30000)
+
+    window.graph_view.set_y_scale_policy(YScalePolicy.SHARED_EXTRACT)
+    _wait_for_fits(qapp, window)
+
+    np.testing.assert_array_equal(
+        window.toolbar.isotopologue_ratios._current_ratios, _synchronous_ratios("Beta")
+    )
+
+
+def _hold_fit_results(window, gated_fits):
+    gate, _calls = gated_fits
+    delivered = []
+    window.graph_view.fits_finished.connect(lambda: delivered.append(True))
+    _navigate(window, "Beta")
+    assert window.graph_view.fits_pending
+    return gate, delivered
+
+
+def test_new_session_drops_fit_results_from_the_old_session(
+    qapp, window, gated_fits, monkeypatch
+):
+    database.init_db()  # clear_database needs the migrated schema
+    gate, delivered = _hold_fit_results(window, gated_fits)
+    monkeypatch.setattr(
+        window, "_show_question_dialog", lambda *args, **kwargs: QMessageBox.Yes
+    )
+    monkeypatch.setattr(window, "_show_message", pytest.fail)
+
+    window.new_analysis_session(preset_mode=AnalysisMode.LABELLED)
+    gate.set()
+    assert QThreadPool.globalInstance().waitForDone(30000)
+    qapp.processEvents()
+
+    assert not window.graph_view.fits_pending
+    assert delivered == []
+    replacement = qapp._manic_main_window
+    replacement._skip_close_guard = True
+    replacement.close()
+    qapp._manic_main_window = None
+
+
+def test_closing_the_window_drops_pending_fit_results(qapp, window, gated_fits):
+    gate, delivered = _hold_fit_results(window, gated_fits)
+
+    window.close()
+    gate.set()
+    assert QThreadPool.globalInstance().waitForDone(30000)
+    qapp.processEvents()
+
+    assert not window.graph_view.fits_pending
+    assert delivered == []

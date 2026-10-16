@@ -38,7 +38,8 @@ def _read_compound(db_path):
     conn.row_factory = sqlite3.Row
     row = conn.execute(
         "SELECT baseline_correction, deconvolution_level, deconvolution_fit_type, "
-        "deconvolution_noise_gate FROM compounds WHERE compound_name = 'Alanine'"
+        "deconvolution_noise_gate, amount_in_std_mix "
+        "FROM compounds WHERE compound_name = 'Alanine'"
     ).fetchone()
     conn.close()
     return row
@@ -59,18 +60,28 @@ def test_session_export_includes_method_settings(temp_method_db):
     assert compound["baseline_correction"] == 0
 
 
-def test_session_import_restores_method_settings(temp_method_db):
+@pytest.mark.parametrize("deleted", [False, True])
+def test_session_import_restores_method_settings(temp_method_db, deleted):
     db_path, tmp_path = temp_method_db
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE compounds SET amount_in_std_mix = 17 WHERE compound_name = 'Alanine'"
+    )
+    conn.commit()
+    conn.close()
+    if deleted:
+        database.soft_delete_compound("Alanine")
 
     assert session_export.export_session_method(str(tmp_path / "method"))
     json_path = tmp_path / "manic_session_export" / "method.json"
 
     # Reset the compound's settings to defaults, simulating a fresh re-import.
+    database.restore_compounds(["Alanine"])
     conn = sqlite3.connect(db_path)
     conn.execute(
         "UPDATE compounds SET baseline_correction = 1, deconvolution_level = '4', "
-        "deconvolution_fit_type = 'auto', deconvolution_noise_gate = 'balanced' "
-        "WHERE compound_name = 'Alanine'"
+        "deconvolution_fit_type = 'auto', deconvolution_noise_gate = 'balanced', "
+        "amount_in_std_mix = 3 WHERE compound_name = 'Alanine'"
     )
     conn.commit()
     conn.close()
@@ -83,6 +94,7 @@ def test_session_import_restores_method_settings(temp_method_db):
     assert row["deconvolution_fit_type"] == "emg"
     assert row["deconvolution_noise_gate"] == "aggressive"
     assert row["baseline_correction"] == 0
+    assert row["amount_in_std_mix"] == 17
 
 
 def test_session_import_backward_compatible_without_settings(temp_method_db):

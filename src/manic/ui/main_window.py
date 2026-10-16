@@ -163,6 +163,8 @@ class MainWindow(QMainWindow):
 
         # Mass tolerance setting (default 0.2 Da)
         self.mass_tolerance = 0.2
+        # Session file whose re-extraction waits for a tolerance reload to stop.
+        self._pending_session_reextraction: str | None = None
 
         # Minimum peak area ratio setting (fraction of internal std reference peak)
         self.min_peak_height_ratio = DEFAULT_MIN_PEAK_HEIGHT_RATIO
@@ -1659,6 +1661,10 @@ class MainWindow(QMainWindow):
             # Start the background work
             self._mass_tol_thread.started.connect(self._mass_tol_worker.run)
             self._mass_tol_thread.finished.connect(self._mass_tol_thread.deleteLater)
+            # Connected before start so a quick reload cannot finish unobserved.
+            self._mass_tol_thread.finished.connect(
+                self._start_pending_session_reextraction
+            )
             self._mass_tol_thread.start()
 
         except Exception as e:
@@ -1711,6 +1717,8 @@ class MainWindow(QMainWindow):
 
     def _mass_tolerance_reload_failed(self, error_msg: str):
         """Handle mass tolerance reload failure"""
+        # A failed reload confirms no tolerance to extract the imported session at.
+        self._pending_session_reextraction = None
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
 
@@ -1912,6 +1920,9 @@ class MainWindow(QMainWindow):
         """Import session overrides from a session file."""
         from PySide6.QtWidgets import QFileDialog
 
+        if self._background_work_running("importing a session"):
+            return
+
         # Get import file path
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -2028,7 +2039,10 @@ class MainWindow(QMainWindow):
                 )
                 msg_box.exec()
                 logger.info(f"Session overrides imported from {file_path}")
-                self._reextract_after_session_import(file_path)
+                self._pending_session_reextraction = file_path
+                self._apply_imported_processing_settings(file_path)
+                if self._running_background_thread() != "_mass_tol_thread":
+                    self._start_pending_session_reextraction()
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -2157,8 +2171,15 @@ class MainWindow(QMainWindow):
         if standard is not None and standard not in active_compounds:
             self.toolbar.on_internal_standard_cleared()
 
+    def _start_pending_session_reextraction(self):
+        import_path = self._pending_session_reextraction
+        self._pending_session_reextraction = None
+        if import_path is not None:
+            self._reextract_after_session_import(import_path)
+
     def _reextract_after_session_import(self, import_path: str):
-        self._session_import_path = import_path
+        if self._background_work_running("re-extracting the imported session"):
+            return
         self.regen_progress_dialog = self._build_progress_dialog(
             "Re-extracting EIC data for the imported session..."
         )
@@ -2190,7 +2211,6 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
         self._refresh_after_session_import()
-        self._apply_imported_processing_settings(self._session_import_path)
         if result.failed:
             self._show_message(
                 "warning",

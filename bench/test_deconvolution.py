@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from manic.processors.chromatographic_peak_deconvolution import (
+    _deconvolve_channel_matrix_cached,
     _fit_joint_component_model_cached,
     _fit_single_component_model_cached,
     deconvolve_channel_matrix,
@@ -16,6 +17,7 @@ LEVELS = {"4": ("auto", "balanced"), "7": ("auto", "off")}
 
 
 def _clear_fit_caches() -> None:
+    _deconvolve_channel_matrix_cached.cache_clear()
     _fit_single_component_model_cached.cache_clear()
     _fit_joint_component_model_cached.cache_clear()
 

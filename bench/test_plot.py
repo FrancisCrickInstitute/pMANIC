@@ -8,6 +8,7 @@ from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.models.analysis import AnalysisContext
 from manic.processors.chromatographic_peak_deconvolution import (
+    _deconvolve_channel_matrix_cached,
     _fit_joint_component_model_cached,
     _fit_single_component_model_cached,
 )
@@ -16,6 +17,7 @@ from manic.utils.utils import apply_app_stylesheet
 
 
 def _clear_fit_caches() -> None:
+    _deconvolve_channel_matrix_cached.cache_clear()
     _fit_single_component_model_cached.cache_clear()
     _fit_joint_component_model_cached.cache_clear()
 

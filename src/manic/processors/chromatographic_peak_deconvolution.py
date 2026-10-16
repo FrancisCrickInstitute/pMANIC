@@ -321,8 +321,37 @@ def deconvolve_channel_matrix(
     noise_gate: str | None = DEFAULT_NOISE_GATE,
 ) -> ChannelDeconvolutionBundle:
     time = np.asarray(time_data, dtype=np.float64)
-    intensity = np.asarray(intensity_data, dtype=np.float64)
-    matrix, _ = _as_trace_matrix(intensity)
+    matrix, _ = _as_trace_matrix(np.asarray(intensity_data, dtype=np.float64))
+    return _deconvolve_channel_matrix_cached(
+        time.tobytes(),
+        matrix.tobytes(),
+        matrix.shape,
+        retention_time,
+        loffset,
+        roffset,
+        normalize_stringency(stringency),
+        normalize_fit_type(fit_type),
+        normalize_noise_gate(noise_gate),
+    )
+
+
+# The tile display, the Label Incorporation chart and peak validation each
+# deconvolve the same trace on a compound visit; keying on the exact data and
+# settings lets them share one bundle. Sized for every sample of one visit.
+@functools.lru_cache(maxsize=256)
+def _deconvolve_channel_matrix_cached(
+    time_bytes: bytes,
+    matrix_bytes: bytes,
+    matrix_shape: tuple[int, int],
+    retention_time: float | None,
+    loffset: float | None,
+    roffset: float | None,
+    stringency: str,
+    fit_type: str,
+    noise_gate: str,
+) -> ChannelDeconvolutionBundle:
+    time = np.frombuffer(time_bytes, dtype=np.float64)
+    matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
     channels = []
     for index in range(matrix.shape[0]):
         result = deconvolve_eic(

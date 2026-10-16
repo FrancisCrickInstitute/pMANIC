@@ -1187,6 +1187,7 @@ class MainWindow(QMainWindow):
                 loffset=compound.loffset,
                 roffset=compound.roffset,
                 channel_count=channel_count,
+                use_legacy=self.use_legacy_integration,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
                 chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
@@ -1268,6 +1269,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         current_eics = self._get_current_eics()
         if self.analysis_mode is AnalysisMode.LABELLED:
+            self.toolbar.isotopologue_ratios.use_legacy = self.use_legacy_integration
             self.toolbar.isotopologue_ratios.update_ratios(
                 compound_name, current_eics
             )
@@ -2820,7 +2822,8 @@ class MainWindow(QMainWindow):
 
             # Read selection and persist to window state
             chosen_use_legacy = radio_legacy.isChecked()
-            self.use_legacy_integration = chosen_use_legacy
+            if chosen_use_legacy != self.use_legacy_integration:
+                self.apply_use_legacy_integration(chosen_use_legacy)
             if self.analysis_mode is AnalysisMode.LABELLED:
                 include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
 

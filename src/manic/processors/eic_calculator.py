@@ -69,21 +69,16 @@ def _extract_eic_with_times(
     if idx.size == 0:
         raise EmptyRtWindowError("no scans inside RT window")
 
-    starts = cdf.scan_index[idx]
+    # Scan times are monotonic, so the in-window scans are contiguous.
+    start = cdf.scan_index[idx[0]]
     if idx[-1] + 1 < len(cdf.scan_index):
-        ends = cdf.scan_index[idx + 1]
+        stop = cdf.scan_index[idx[-1] + 1]
     else:
-        ends = np.append(cdf.scan_index[idx[1:]], len(cdf.mass))
-
-    start_end_array = np.array([starts, ends]).T
-    all_relevant_mass = np.concatenate(
-        [cdf.mass[s:e] for s, e in start_end_array]
-    )
-    all_relevant_intensity = np.concatenate(
-        [cdf.intensity[s:e] for s, e in start_end_array]
-    )
-    scan_indices = np.concatenate(
-        [np.full(e - s, i, dtype=int) for i, (s, e) in enumerate(start_end_array)]
+        stop = len(cdf.mass)
+    all_relevant_mass = cdf.mass[start:stop]
+    all_relevant_intensity = cdf.intensity[start:stop]
+    scan_indices = np.repeat(
+        np.arange(idx.size), np.diff(np.append(cdf.scan_index[idx], stop))
     )
 
     num_scans = len(idx)

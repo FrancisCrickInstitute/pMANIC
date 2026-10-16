@@ -952,21 +952,25 @@ class MainWindow(QMainWindow):
         self.progress_dialog = self._build_progress_dialog("Importing CDF data…")
         self.progress_dialog.show()
 
-        self._thread = QThread(self)  # background thread
-        self._worker = CdfImportWorker(path, self.mass_tolerance)  # heavy lifting
-        self._worker.moveToThread(self._thread)
+        try:
+            self._thread = QThread(self)  # background thread
+            self._worker = CdfImportWorker(path, self.mass_tolerance)  # heavy lifting
+            self._worker.moveToThread(self._thread)
 
-        # progress updates
-        self._worker.progress.connect(self._update_import_progress)
-        # finish / fail
-        self._worker.finished.connect(self._import_ok)
-        self._worker.failed.connect(self._import_fail)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.failed.connect(self._thread.quit)
+            # progress updates
+            self._worker.progress.connect(self._update_import_progress)
+            # finish / fail
+            self._worker.finished.connect(self._import_ok)
+            self._worker.failed.connect(self._import_fail)
+            self._worker.finished.connect(self._thread.quit)
+            self._worker.failed.connect(self._thread.quit)
 
-        self._thread.started.connect(self._worker.run)
-        self._thread.finished.connect(self._thread.deleteLater)
-        self._thread.start()
+            self._thread.started.connect(self._worker.run)
+            self._thread.finished.connect(self._thread.deleteLater)
+            self._thread.start()
+        except Exception as e:
+            logger.error(f"Failed to start CDF import: {e}")
+            self._import_fail(f"Could not start the import. {e}")
 
     def _update_import_progress(self, current: int, total: int):
         pct = int(current / total * 100)
@@ -1658,14 +1662,7 @@ class MainWindow(QMainWindow):
             self._mass_tol_thread.start()
 
         except Exception as e:
-            logger.error(f"Failed to start mass tolerance reload: {e}")
-            self._re_enable_ui_actions()
-            msg_box = self._create_message_box(
-                "critical",
-                "Reload Error",
-                f"Failed to start EIC regeneration: {str(e)}",
-            )
-            msg_box.exec()
+            self._mass_tolerance_reload_failed(f"could not start the reload. {e}")
 
     def _update_mass_tolerance_progress(self, current: int, total: int):
         """Update mass tolerance regeneration progress dialog"""
@@ -2167,19 +2164,23 @@ class MainWindow(QMainWindow):
         )
         self.regen_progress_dialog.show()
 
-        self._regen_thread = QThread(self)
-        self._regen_worker = SessionReextractionWorker(
-            import_path, mass_tol=self.mass_tolerance
-        )
-        self._regen_worker.moveToThread(self._regen_thread)
-        self._regen_worker.progress.connect(self._update_regeneration_progress)
-        self._regen_worker.finished.connect(self._session_reextraction_finished)
-        self._regen_worker.failed.connect(self._session_reextraction_failed)
-        self._regen_worker.finished.connect(self._regen_thread.quit)
-        self._regen_worker.failed.connect(self._regen_thread.quit)
-        self._regen_thread.started.connect(self._regen_worker.run)
-        self._regen_thread.finished.connect(self._regen_thread.deleteLater)
-        self._regen_thread.start()
+        try:
+            self._regen_thread = QThread(self)
+            self._regen_worker = SessionReextractionWorker(
+                import_path, mass_tol=self.mass_tolerance
+            )
+            self._regen_worker.moveToThread(self._regen_thread)
+            self._regen_worker.progress.connect(self._update_regeneration_progress)
+            self._regen_worker.finished.connect(self._session_reextraction_finished)
+            self._regen_worker.failed.connect(self._session_reextraction_failed)
+            self._regen_worker.finished.connect(self._regen_thread.quit)
+            self._regen_worker.failed.connect(self._regen_thread.quit)
+            self._regen_thread.started.connect(self._regen_worker.run)
+            self._regen_thread.finished.connect(self._regen_thread.deleteLater)
+            self._regen_thread.start()
+        except Exception as e:
+            logger.error(f"Failed to start session re-extraction: {e}")
+            self._session_reextraction_failed(f"Could not start re-extraction. {e}")
 
     def _session_reextraction_failed(self, error: str):
         self._session_reextraction_finished(SessionReextraction(0, (error,)))

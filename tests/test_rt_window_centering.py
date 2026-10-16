@@ -10,7 +10,7 @@ from netCDF4 import Dataset
 from PySide6.QtWidgets import QLineEdit
 
 from manic.constants import DEFAULT_RT_WINDOW
-from manic.io.cdf_reader import CdfFileData
+from manic.io.cdf_reader import CdfFileData, read_cdf_file, read_cdf_window
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.io.eic_reader import read_eics_batch
 from manic.io.eic_importer import (
@@ -1358,6 +1358,64 @@ def test_regenerate_reads_only_the_scans_inside_the_window(tmp_path, monkeypatch
         [7.0, 7.1, 7.2, 7.3]
     )
     assert np.frombuffer(zlib.decompress(y_axis)).tolist() == [5.0, 6.0, 7.0, 8.0]
+
+
+@pytest.mark.parametrize(
+    "times,masses,attrs,expected",
+    [
+        # A masked scan time inside the window drops that scan from the EIC.
+        (
+            [60.0, 9.969209968386869e36, 72.0, 78.0],
+            [100.0, 100.0, 100.0, 100.0],
+            {"scan_acquisition_time": {"_FillValue": 9.969209968386869e36}},
+            [1.0, 3.0],
+        ),
+        # Masked float32 masses (a fill value, one outside valid_range): both
+        # reads must hand extract_eic the same masked arrays.
+        (
+            [60.0, 66.0, 72.0, 78.0],
+            [100.0, -1.0, 99.9, 100.1],
+            {"mass_values": {"_FillValue": -1.0, "valid_range": [99.95, 200.0]}},
+            [1.0, 0.0, 3.0],
+        ),
+    ],
+)
+def test_window_read_extracts_the_same_eic_as_the_full_read(
+    tmp_path, times, masses, attrs, expected
+):
+    path = tmp_path / "s1.cdf"
+    scans = {
+        "scan_acquisition_time": np.array(times),
+        "scan_index": np.arange(4, dtype=np.int32),
+        "point_count": np.ones(4, dtype=np.int32),
+        "total_intensity": np.zeros(4),
+    }
+    points = {
+        "mass_values": np.array(masses, dtype=np.float32),
+        "intensity_values": np.array([1.0, 2.0, 3.0, 4.0]),
+    }
+    with Dataset(path, "w") as cdf:
+        cdf.createDimension("scan_number", 4)
+        cdf.createDimension("point_number", 4)
+        for dimension, variables in (("scan_number", scans), ("point_number", points)):
+            for name, values in variables.items():
+                meta = dict(attrs.get(name, {}))
+                variable = cdf.createVariable(
+                    name,
+                    values.dtype,
+                    (dimension,),
+                    fill_value=meta.pop("_FillValue", None),
+                )
+                for key, value in meta.items():
+                    variable.setncattr(key, np.asarray(value, dtype=values.dtype))
+                variable.set_auto_maskandscale(False)
+                variable[:] = values
+
+    def _eic(cdf):
+        return extract_eic("T", 1.1, 100.0, cdf, 0.2, 0.11).intensity.tolist()
+
+    assert _eic(read_cdf_file(path)) == expected
+    assert _eic(read_cdf_window(path, 1.1, 0.11)) == expected
 
 
 class TestRegenerationCompletion:

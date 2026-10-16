@@ -859,9 +859,12 @@ class MainWindow(QMainWindow):
 
     def _after_compound_added(self, compound_name: str) -> None:
         first_compound = not self.compound_data_loaded
-        self.toolbar.update_compound_list(
-            list_compound_names(), selected_name=compound_name
-        )
+        samples = list_active_samples() if self.cdf_data_loaded else []
+        # With samples, list it once its EICs exist; earlier shows "Missing data".
+        if not samples:
+            self.toolbar.update_compound_list(
+                list_compound_names(), selected_name=compound_name
+            )
         if first_compound:
             self.compound_data_loaded = True
             self.toolbar.update_label_colours(False, True)
@@ -872,14 +875,12 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
 
-        if self.cdf_data_loaded:
-            samples = list_active_samples()
-            if not samples:
-                return
+        if samples:
             try:
                 compound = read_compound(compound_name)
             except Exception as exc:
                 self._show_message("warning", "Add Compound", str(exc))
+                self._list_added_compound(compound_name, select=False)
                 return
             required = minimum_extract_rt_window(compound.loffset, compound.roffset)
             tr_window = max(DEFAULT_RT_WINDOW, required)
@@ -890,7 +891,22 @@ class MainWindow(QMainWindow):
                 tr_window,
                 samples,
                 compound.retention_time,
+                select_when_done=True,
             )
+
+    def _list_added_compound(self, compound_name: str, select: bool) -> None:
+        self.toolbar.update_compound_list(
+            list_compound_names(),
+            selected_name=(
+                compound_name if select else self.toolbar.get_selected_compound()
+            ),
+        )
+
+    def _on_added_compound_extracted(self, _count: int) -> None:
+        self._list_added_compound(self.sender().compound_name, select=True)
+
+    def _on_added_compound_failed(self, _error_msg: str) -> None:
+        self._list_added_compound(self.sender().compound_name, select=False)
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(
@@ -1507,6 +1523,7 @@ class MainWindow(QMainWindow):
         tr_window: float,
         sample_names: list,
         retention_time: float | dict[str, float],
+        select_when_done: bool = False,
     ):
         """Handle data regeneration request - start background regeneration with progress dialog"""
         rt_description = (
@@ -1543,6 +1560,11 @@ class MainWindow(QMainWindow):
             self._regen_worker.progress.connect(self._update_regeneration_progress)
 
             # Connect completion/failure handlers
+            if select_when_done:
+                # Bound to this worker so no other regeneration selects it early;
+                # connected first so the compound is plotted before the refresh.
+                self._regen_worker.finished.connect(self._on_added_compound_extracted)
+                self._regen_worker.failed.connect(self._on_added_compound_failed)
             self._regen_worker.finished.connect(self._regeneration_completed)
             self._regen_worker.failed.connect(self._regeneration_failed)
             self._regen_worker.finished.connect(self._regen_thread.quit)
@@ -1555,6 +1577,8 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to start regeneration: {e}")
+            if select_when_done:
+                self._list_added_compound(compound_name, select=False)
             self._regeneration_failed(
                 f"Could not start data regeneration. "
                 f"No changes were applied. {e}"

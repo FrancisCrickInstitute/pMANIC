@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import re
+import zlib
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtWidgets import QMessageBox, QWidget
 
 from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import (
@@ -25,6 +28,8 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.ui.add_compound_dialog import AddCompoundDialog
 from manic.ui.compound_list_widget import CompoundListWidget
 from manic.ui.main_window import MainWindow
+
+from conftest import _gaussian, _make_window
 
 
 def _labelled_row(**overrides) -> CompoundRow:
@@ -412,7 +417,7 @@ def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
         cdf_data_loaded=True,
         _validation_provider=None,
         toolbar=SimpleNamespace(update_compound_list=lambda *args, **kwargs: None),
-        on_data_regeneration_requested=lambda *args: regen.append(args),
+        on_data_regeneration_requested=lambda *args, **_kwargs: regen.append(args),
         _show_message=lambda *args: None,
     )
 
@@ -544,3 +549,106 @@ def test_unlabelled_import_rejects_negative_values(empty_db, tmp_path, column, m
     with pytest.raises(ValueError, match=re.escape(message)):
         import_compound_excel(path, AnalysisMode.UNLABELLED)
     assert taken_compound_names() == set()
+
+
+def _insert_compound(name: str) -> None:
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, "
+            "roffset, mass0, label_atoms) VALUES (?, 5.0, 0.2, 0.2, 100.0, 0)",
+            (name,),
+        )
+
+
+def _insert_eic(sample: str, compound: str) -> None:
+    time = np.linspace(4.5, 5.5, 200)
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO samples (sample_name, file_name) VALUES (?, ?)",
+            (sample, f"/fake/{sample}.cdf"),
+        )
+        conn.execute(
+            "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, "
+            "rt_window) VALUES (?, ?, ?, ?, 0.5)",
+            (
+                sample,
+                compound,
+                zlib.compress(time.tobytes()),
+                zlib.compress(_gaussian(time, 5.0, 0.03, 1e5).tobytes()),
+            ),
+        )
+
+
+class _HeldWorker(QObject):
+    """Regeneration worker that finishes only when the test says so."""
+
+    progress = Signal(int, int)
+    finished = Signal(int)
+    failed = Signal(str)
+
+    def __init__(self, compound_name, *_args, **_kwargs):
+        super().__init__()
+        self.compound_name = compound_name
+
+    def run(self):
+        pass
+
+
+@pytest.fixture
+def held_workers(qapp, monkeypatch):
+    workers = []
+
+    def make(*args, **kwargs):
+        workers.append(_HeldWorker(*args, **kwargs))
+        return workers[-1]
+
+    monkeypatch.setattr("manic.ui.main_window.EicRegenerationWorker", make)
+    _insert_compound("A")
+    _insert_eic("S1", "A")
+    window = _make_window(monkeypatch)
+    window.boxes = []
+    monkeypatch.setattr(
+        QMessageBox, "exec", lambda self: window.boxes.append(self.windowTitle())
+    )
+    window.compound_data_loaded = window.cdf_data_loaded = True
+    window.toolbar.update_sample_list(["S1"])
+    window.toolbar.update_compound_list(["A"], "A")
+    _insert_compound("NewOne")
+    yield window, workers
+    for thread in window.findChildren(QThread):
+        thread.quit()
+        thread.wait(2000)
+    window.close()
+
+
+def _listed_names(window):
+    names = window.toolbar.compound_list
+    return [names.item(row).text() for row in range(names.count())]
+
+
+def test_added_compound_is_selected_only_when_its_own_eics_exist(held_workers):
+    window, workers = held_workers
+    window._after_compound_added("NewOne")
+    # A tR-window regeneration for another compound finishes first.
+    window.on_data_regeneration_requested("A", 1.0, ["S1"], 5.0)
+    workers[1].finished.emit(1)
+
+    assert window.toolbar.get_selected_compound() == "A"
+    assert "NewOne" not in _listed_names(window)
+
+    _insert_eic("S1", "NewOne")
+    workers[0].finished.emit(1)
+
+    assert window.boxes == ["Regeneration Complete"] * 2
+    assert window.toolbar.get_selected_compound() == "NewOne"
+    assert window.graph_view.get_current_compound() == "NewOne"
+
+
+def test_failed_extraction_lists_added_compound_unselected(held_workers):
+    window, workers = held_workers
+    window._after_compound_added("NewOne")
+    workers[0].failed.emit("CDF files moved")
+
+    assert window.boxes == ["Regeneration Blocked"]
+    assert window.toolbar.get_selected_compound() == "A"
+    assert "NewOne" in _listed_names(window)

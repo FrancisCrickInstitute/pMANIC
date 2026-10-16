@@ -27,7 +27,7 @@ $$x = A^{-1} \cdot b$$
 
 This is a single solve of $A x = b$. There is no later scaling by the diagonal of $A$.
 
-> **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by less than half a percentage point.**
+> **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. This change alone moves the ratio sheets by less than half a percentage point. Correcting the integrated areas (section 3) moves them further for small peaks.**
 > Versions up to 4.x performed the solve and then divided each isotopologue by
 > the matching diagonal element of $A$, an extra step inherited from the legacy
 > MATLAB flow. That step has no basis in $A x = b$ and inflated every channel by
@@ -50,7 +50,11 @@ This is a single solve of $A x = b$. There is no later scaling by the diagonal o
 > **What this means for you.** Do not compare 4.x Corrected Values, or 4.x
 > abundances of compounds without MM-file calibration, against 5.0 output;
 > reprocess the older data with 5.0 first. Ratio sheets and calibrated nmol
-> amounts from 4.x remain usable. The README's *Upgrading to MANIC 5* section
+> amounts from 4.x stay within the margins above for this change alone, but
+> 5.0 also corrects the integrated areas instead of every scan (see
+> [Correct the Integrated Areas](#3-correct-the-integrated-areas)), which moves
+> the ratio sheets for small peaks. Reprocess older data with 5.0 before
+> comparing any sheet. The README's *Upgrading to MANIC 5* section
 > has the full tables.
 
 MANIC treats the tracer as 99% isotopically pure. One percent of labelled positions still carry the light isotope. That is a fixed constant, typical of commercial ¹³C tracers. Get in touch if your tracer differs.
@@ -111,7 +115,7 @@ The solve is linear, so correcting the areas gives the same answer as correcting
 > **What we measured.** Simulated unlabelled lactate (2 TBDMS, 3 label atoms)
 > with shot noise and detector noise, baseline correction on, 200 replicates.
 > At a 200,000-count apex the label shown fell from 0.12% to 0.03%; at 20,000
-> counts, from 0.52% to 0.16%. When M+3 is scanned 0.3 of a scan after M+0,
+> counts, from 0.51% to 0.16%. When M+3 is scanned 0.3 of a scan after M+0,
 > as on a quadrupole, the old order showed 0.47% and 0.62%, against 0.03% and
 > 0.17% now.
 >

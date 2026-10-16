@@ -330,7 +330,8 @@ Right-click any plot in the main grid and select **View Detailed...** to open th
 * **Mass Spectrum:** The actual mass spectrum at the peak's retention time. Use this to confirm the spectral fingerprint matches your metabolite.
 
 ### Expanded Summary Plots
-The left toolbar contains two summary charts: **Label Incorporation** and **Total Abundance**.
+The left toolbar contains two summary charts: **Isotopologue Ratio** and **Total Abundance**.
+* **Isotopologue Ratio:** Each bar splits a sample into each isotopologue's share (M+0, M+1, ...) of its total area. With the natural-abundance preview on, this matches the **Isotope Ratio** sheet. With it off (the default), the shares come from raw areas. The chart is not **% Label Incorporation**, which also subtracts the MM background.
 * **Action:** **Double-click** either chart to open it in a large, interactive popup window.
 * **Feature:** The expanded view reveals the specific sample names on the axes, which are hidden in the compact toolbar view to save space.
 
@@ -407,7 +408,7 @@ Two ticks sit under **Baseline correction**.
 ### Natural Abundance Correction
 **Settings → Natural Abundance**
 * Checkbox: **Preview natural-abundance-corrected data in plots**. Off by default.
-* **Function:** Controls what the main chromatogram plots and the Label Incorporation bars show.
+* **Function:** Controls what the main chromatogram plots and the Isotopologue Ratio bars show.
     * Ticked: Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * Unticked: Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
 * **Usage:** Toggle this to check how correction redistributes the isotopologue signals.

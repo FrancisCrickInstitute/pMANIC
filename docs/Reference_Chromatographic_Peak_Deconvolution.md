@@ -188,7 +188,7 @@ In summary, when deconvolution is on, every fittable channel is offered a peak m
 
 ## Natural Abundance Correction preview
 
-**Settings → Natural Abundance** changes only what the UI draws and what the Label Incorporation bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
+**Settings → Natural Abundance** changes only what the UI draws and what the Isotopologue Ratio bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
 
 Preview on:
 

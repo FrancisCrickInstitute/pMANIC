@@ -45,6 +45,7 @@ from manic.ui.left_toolbar import Toolbar
 from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
 from manic.ui.chart_popup_dialog import ChartPopupDialog
+from manic.ui.isotopologue_ratio_widget import IsotopologueRatioWidget
 from manic.ui.targeted_qc_widget import TargetedQcWidget
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
@@ -457,6 +458,30 @@ def test_identity_chart_popup_hover_maps_live_cell(qapp, monkeypatch):
         assert hidden == [True]
     finally:
         dialog.deleteLater()
+
+
+def test_isotopologue_ratio_chart_titles_and_colours_every_isotopologue(
+    qapp, monkeypatch
+):
+    ratios = np.full((1, 12), 1 / 12)
+    widget = IsotopologueRatioWidget()
+    widget._current_ratios = ratios
+    widget._current_sample_names = ["S1"]
+    widget._update_chart(ratios, ["S1"])
+    shown = []
+    monkeypatch.setattr(ChartPopupDialog, "exec", lambda self: shown.append(self))
+
+    widget._show_popup_chart()
+
+    def colours(chart):
+        return [bar.color().getRgb()[:3] for bar in chart.series()[0].barSets()]
+
+    toolbar = colours(widget.chart)
+    assert widget.chart.title() == "Isotopologue Ratio"
+    assert shown[0].chart.title() == "Isotopologue Ratio"
+    assert toolbar[:10] == [colour.getRgb()[:3] for colour in label_colors]
+    assert toolbar[10:] == [(174, 199, 232), (255, 187, 120)]
+    assert colours(shown[0].chart) == toolbar
 
 
 def test_channel_trace_styles_keep_q_steel_blue_and_solid():

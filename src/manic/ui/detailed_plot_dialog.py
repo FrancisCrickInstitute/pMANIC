@@ -51,7 +51,7 @@ from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
 from manic.models.analysis import IonRole
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
-from manic.ui.colors import channel_trace_styles, label_colors
+from manic.ui.colors import channel_trace_styles, label_color, label_colors
 from manic.validation.unlabelled_identity import IdentitySampleAssessment
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
 logger = logging.getLogger(__name__)
@@ -705,7 +705,7 @@ class DetailedPlotDialog(QDialog):
     def _style_color(self, index: int):
         if 0 <= index < len(self._channel_styles):
             return self._channel_styles[index].color
-        return label_colors[index % len(label_colors)]
+        return label_color(index)
 
     def _mpl_line_style(self, index: int) -> str:
         if 0 <= index < len(self._channel_styles):

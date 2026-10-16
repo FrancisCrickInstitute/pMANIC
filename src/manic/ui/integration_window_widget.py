@@ -437,6 +437,7 @@ class IntegrationWindow(QGroupBox):
                 sample_name = selected_samples[0]
 
                 # Get EIC data to capture data window bounds (per-sample)
+                self._data_window_bounds.pop((compound_name, sample_name), None)
                 try:
                     eics = get_eics_for_compound(compound_name, [sample_name])
                     if eics and len(eics) > 0 and len(eics[0].time) > 0:
@@ -475,6 +476,10 @@ class IntegrationWindow(QGroupBox):
         import logging
         logger = logging.getLogger(__name__)
         
+        # A sample whose EIC is gone must not keep bounds from an earlier visit
+        for sample_name in sample_names:
+            self._data_window_bounds.pop((compound_name, sample_name), None)
+
         try:
             # Get EIC data for all specified samples
             eics = get_eics_for_compound(compound_name, sample_names)
@@ -485,11 +490,10 @@ class IntegrationWindow(QGroupBox):
                 return
 
             # Store data window bounds for all samples
-            for idx, sample_name in enumerate(sample_names):
-                if idx < len(eics) and len(eics[idx].time) > 0:
-                    time_data = eics[idx].time
-                    key = (compound_name, sample_name)
-                    self._data_window_bounds[key] = (time_data.min(), time_data.max())
+            for eic in eics:
+                if len(eic.time) > 0:
+                    key = (compound_name, eic.sample_name)
+                    self._data_window_bounds[key] = (eic.time.min(), eic.time.max())
 
             # Get compound data for each sample (including session overrides)
             rt_times = []

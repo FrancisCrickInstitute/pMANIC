@@ -1,7 +1,7 @@
 from unittest import mock
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtTest import QTest
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
@@ -247,6 +247,59 @@ def test_mass_tolerance_save_writes_literal_value(labelled_window):
 
     settings.save_button.click()
     assert labelled_window.mass_tolerance == 0.35
+    assert not settings.save_button.isEnabled()
+
+
+class _FailingReloadWorker(QObject):
+    progress = Signal(int, int)
+    finished = Signal(int)
+    failed = Signal(str)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+    def moveToThread(self, thread):
+        pass
+
+    def run(self):
+        self.failed.emit("disk unplugged")
+
+
+def _raise_on_start(*args, **kwargs):
+    raise RuntimeError("no threads left")
+
+
+@pytest.mark.parametrize("worker", [_FailingReloadWorker, _raise_on_start])
+def test_failed_mass_tolerance_reload_restores_old_value(
+    labelled_window, monkeypatch, worker
+):
+    messages = []
+    monkeypatch.setattr(
+        main_window_module,
+        "QThread",
+        mock.Mock(return_value=mock.Mock(**{"isRunning.return_value": False})),
+    )
+    monkeypatch.setattr(main_window_module, "MassToleranceReloadWorker", worker)
+    monkeypatch.setattr(
+        labelled_window,
+        "_create_message_box",
+        lambda *args: messages.append(args) or mock.Mock(),
+    )
+    labelled_window.cdf_data_loaded = True
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    _select_page(settings, "Mass Tolerance")
+    page = settings.page_named("Mass Tolerance")
+
+    page.spin.setValue(0.35)
+    settings.save_button.click()
+    if worker is _FailingReloadWorker:
+        assert page.spin.value() == 0.35
+        labelled_window._mass_tol_worker.run()
+
+    assert [m[0] for m in messages] == ["critical"]
+    assert labelled_window.mass_tolerance == 0.2
+    assert page.spin.value() == 0.2
     assert not settings.save_button.isEnabled()
 
 

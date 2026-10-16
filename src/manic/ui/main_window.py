@@ -1256,8 +1256,12 @@ class MainWindow(QMainWindow):
 
     def _run_deferred_mode_charts(self) -> None:
         deferred, self._deferred_mode_charts = self._deferred_mode_charts, None
-        if deferred is not None:
-            deferred(identity=self.graph_view.identity)
+        if deferred is None:
+            return
+        _, qc_samples = deferred.args
+        # The grid's identity covers every tile; a selection is assessed on its own.
+        whole_grid = qc_samples in (None, self.graph_view.get_current_samples())
+        deferred(identity=self.graph_view.identity if whole_grid else None)
 
     def _update_total_abundance(
         self, compound_name: str, provider: DataProvider | None = None

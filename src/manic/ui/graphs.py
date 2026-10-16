@@ -402,10 +402,13 @@ class GraphView(QWidget):
         if annotate is not None:
             try:
                 with cached_fits_only():
-                    validation_data, identity = annotate()
+                    annotated_verdicts, identity = annotate()
                 self._annotate = None
+                # Verdicts passed in were applied after this annotation was asked for.
+                if validation_data is None:
+                    validation_data = annotated_verdicts
             except FitCacheMiss:
-                validation_data, identity = None, None
+                identity = None
 
         if identity is not None and identity.compound_name != compound_name:
             identity = None
@@ -592,7 +595,9 @@ class GraphView(QWidget):
             validation_data, self._identity = annotations
             # Identity sets each channel's trace style.
             restyle_traces = self._identity is not None
-            self.apply_peak_verdicts(validation_data)
+            # Verdicts applied while fitting (a review or standard change) are newer.
+            if self._last_validation_data is None:
+                self.apply_peak_verdicts(validation_data)
         # A shared y-scale can move with every fit; settle it once all are in.
         final_axes = axes_for_tiles(self._y_scale_policy, self._tile_inputs)
         for index, axis in enumerate(final_axes):

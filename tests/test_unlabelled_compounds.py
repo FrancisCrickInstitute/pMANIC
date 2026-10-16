@@ -616,7 +616,9 @@ def test_a_malformed_eic_only_blanks_its_own_qualifier_qc_row(empty_db, tmp_path
     workbook.close()
 
     good = next(row for row in rows if "Good" in row)
-    assert good[-2:] == ("PASS", "Pass")
+    bad = next(row for row in rows if "Bad" in row)
+    assert good[-5:] == (0.4, 0.4, 0.25, "PASS", "Pass")
+    assert bad[-2:] == ("N/A", "No qualifiers")
 
 
 def test_identity_reads_a_sample_first_stored_eic_like_read_eic(empty_db, tmp_path):

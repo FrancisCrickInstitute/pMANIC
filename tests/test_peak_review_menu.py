@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint
 from PySide6.QtWidgets import QWidget
 
 from manic.ui.graphs import GraphView
@@ -34,7 +34,8 @@ def grid(qapp):
     )
     emitted = []
     view.peak_review_changed.connect(lambda c, s, r: emitted.append((c, s, r)))
-    return view, tiles, emitted
+    yield view, tiles, emitted
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def _actions(view: GraphView, chart: FakeChart):

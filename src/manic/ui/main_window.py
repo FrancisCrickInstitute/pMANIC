@@ -1440,30 +1440,11 @@ class MainWindow(QMainWindow):
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
             _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            # Re-selecting the plots emits selection_changed, which refreshes the
+            # integration fields and side charts for the shown compound.
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )
-
-            # After refreshing plots, update the integration window to show the new values
-            # Add a small delay to ensure the plot refresh is fully complete
-            from PySide6.QtCore import QTimer
-
-            def update_integration_window():
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                if compound_name:
-                    self.toolbar.integration.populate_fields_from_plots(
-                        compound_name, current_selected, all_samples
-                    )
-
-            # Use a timer to delay the update slightly
-            QTimer.singleShot(100, update_integration_window)
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data update: {e}")
@@ -1483,26 +1464,6 @@ class MainWindow(QMainWindow):
             current_samples = self.graph_view.get_current_samples()
             _provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(identity=identity)
-
-            # After refreshing plots, update the integration window to show the default values
-            from PySide6.QtCore import QTimer
-
-            def update_integration_window():
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                if compound_name:
-                    self.toolbar.integration.populate_fields_from_plots(
-                        compound_name, current_selected, all_samples
-                    )
-
-            # Use a timer to delay the update slightly
-            QTimer.singleShot(100, update_integration_window)
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data restore: {e}")
@@ -1532,13 +1493,6 @@ class MainWindow(QMainWindow):
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )
-
-            from PySide6.QtCore import QTimer
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
 
         except Exception as e:
             logger.error(
@@ -1774,16 +1728,11 @@ class MainWindow(QMainWindow):
                 self.toolbar.integration._pending_session_update = None
 
             current_compound = self.graph_view.get_current_compound()
-            current_selected = self.graph_view.get_selected_samples()
             current_samples = self.graph_view.get_current_samples()
 
             if current_compound and current_samples:
                 if self._validation_provider is not None:
                     self._validation_provider.invalidate_cache()
-
-                self.toolbar.integration.populate_fields_from_plots(
-                    current_compound, current_selected, current_samples
-                )
 
                 self.toolbar.integration.populate_tr_window_field(current_compound)
 
@@ -1793,12 +1742,6 @@ class MainWindow(QMainWindow):
                 )
                 self.graph_view.refresh_plots_with_session_data(
                     validation_data, identity=identity
-                )
-                self._refresh_mode_charts(
-                    current_compound,
-                    current_samples,
-                    identity=identity,
-                    provider=_provider,
                 )
             else:
                 self.graph_view.refresh_plots_with_session_data()

@@ -590,6 +590,46 @@ def test_unlabelled_export_db_connections_do_not_grow_with_samples(
     assert connections[0] == connections[1]
 
 
+def _import_qualified_target(tmp_path) -> None:
+    _import_targets(
+        tmp_path,
+        name="Target",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+        **{"Qualifier 1 Ratio": 0.4, "Qualifier 1 Tolerance": 0.25},
+    )
+
+
+def test_a_malformed_eic_only_blanks_its_own_qualifier_qc_row(empty_db, tmp_path):
+    _import_qualified_target(tmp_path)
+    _insert_eic("Good", "Target", [0.0, 1.0, 2.0], [[0, 10, 0], [0, 4, 0]], 1.1)
+    # Three channels where the compound has two: this trace cannot be read.
+    _insert_eic("Bad", "Target", [0.0, 1.0, 2.0], [[0, 10, 0], [0, 4, 0], [0, 2, 0]], 1.1)
+
+    path = tmp_path / "export.xlsx"
+    assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(path))
+    workbook = openpyxl.load_workbook(path)
+    rows = list(workbook["Qualifier QC"].values)[1:]
+    workbook.close()
+
+    good = next(row for row in rows if "Good" in row)
+    assert good[-2:] == ("PASS", "Pass")
+
+
+def test_identity_reads_a_sample_first_stored_eic_like_read_eic(empty_db, tmp_path):
+    _import_qualified_target(tmp_path)
+    _insert_eic("S1", "Target", [0.0, 1.0, 2.0], [[0, 10, 0], [0, 4, 0]], 1.1)
+    # A duplicate row, as an import retry can leave, peaking at 1.5 min.
+    _insert_eic("S1", "Target", [0.0, 1.5, 2.0], [[0, 10, 0], [0, 4, 0]], 1.1)
+
+    qc = DataProvider().assess_unlabelled_identity("S1", "Target")
+
+    assert qc.observed_rt == pytest.approx(1.0)
+
+
 def test_peak_review_store_round_trip(empty_db):
     set_peak_review("Target", "S1", PeakReview.ACCEPTED)
     set_peak_review("Std", "S1", PeakReview.REJECTED)

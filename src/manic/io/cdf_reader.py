@@ -39,3 +39,28 @@ def read_cdf_file(path: str | Path) -> CdfFileData:
             point_count=read("point_count"),
             total_intensity=read("total_intensity", np.float64),
         )
+
+
+def read_cdf_window(path: str | Path, t_r: float, rt_window: float) -> CdfFileData:
+    """Read only the scans within t_r ± rt_window minutes, with scan_index rebased."""
+    path = Path(path).expanduser()
+    with Dataset(path, "r") as cdf:
+        variables = cdf.variables
+        scan_time = variables["scan_acquisition_time"][:]
+        scan_index = variables["scan_index"][:]
+        # Same mask arithmetic as extract_eic, so it selects the same scans.
+        times = np.asarray(scan_time / 60.0, dtype=np.float64)
+        idx = np.flatnonzero((times >= t_r - rt_window) & (times <= t_r + rt_window))
+        first, last = (int(idx[0]), int(idx[-1]) + 1) if idx.size else (0, 0)
+        bounds = np.append(scan_index, variables["mass_values"].shape[0])
+        start, stop = int(bounds[first]), int(bounds[last])
+        return CdfFileData(
+            sample_name=path.stem,
+            file_path=str(path),
+            scan_time=scan_time[first:last],
+            mass=variables["mass_values"][start:stop],
+            intensity=variables["intensity_values"][start:stop],
+            scan_index=scan_index[first:last] - start,
+            point_count=variables["point_count"][first:last],
+            total_intensity=variables["total_intensity"][first:last],
+        )

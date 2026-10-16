@@ -105,7 +105,7 @@ class TotalAbundanceWidget(QWidget):
         )
 
         # Reverse order so top graph corresponds to top bar
-        ordered_eics.reverse()
+        ordered_eics = ordered_eics[::-1]  # copy: eics is the caller's list
         ordered_abundances = np.flip(ordered_abundances)  # Flip array
         
         # Store current data for popup

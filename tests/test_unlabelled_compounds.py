@@ -4,6 +4,7 @@ import json
 import sqlite3
 import zlib
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 import openpyxl
@@ -34,7 +35,7 @@ from manic.processors.integration import calculate_peak_areas
 from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.validation.unlabelled_identity import IdentityStatus
 
-from conftest import _gaussian
+from conftest import SCHEMA, _gaussian
 
 SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
 
@@ -530,6 +531,63 @@ def test_unlabelled_excel_export_baseline_off_header_is_blue(empty_db, tmp_path)
     assert header.value == "Target"
     assert header.font.color.rgb == "FF1F5FBF"
     assert header.fill.patternType != "solid"
+
+
+def test_unlabelled_export_db_connections_do_not_grow_with_samples(
+    tmp_path, monkeypatch
+):
+    connections = []
+    for sample_count in (2, 6):
+        monkeypatch.setattr(database, "DB_FILE", tmp_path / f"{sample_count}.db")
+        with database.get_connection() as conn:
+            conn.executescript(SCHEMA.read_text(encoding="utf-8"))
+        _import_targets(
+            tmp_path,
+            name="Target",
+            tR=1.0,
+            lOffset=1.1,
+            rOffset=1.1,
+            QIon=217,
+            QualifierIon1=147,
+            **{"Qualifier 1 Ratio": 0.4, "Qualifier 1 Tolerance": 0.25},
+        )
+        _import_targets(
+            tmp_path,
+            name="Std",
+            tR=2.0,
+            lOffset=1.1,
+            rOffset=1.1,
+            QIon=318,
+            QualifierIon1=217,
+            **{"Amount in StdMix": 1.0, "Int Std amount": 10.0, "MM Files": "S1"},
+        )
+        for index in range(1, sample_count + 1):
+            _insert_eic(
+                f"S{index}",
+                "Target",
+                [0.0, 1.0, 2.0],
+                [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
+                rt_window=1.1,
+            )
+            _insert_eic(
+                f"S{index}",
+                "Std",
+                [1.0, 2.0, 3.0],
+                [[0.0, 20.0, 0.0], [0.0, 6.0, 0.0]],
+                rt_window=1.1,
+            )
+
+        exporter = DataExporter(AnalysisMode.UNLABELLED)
+        exporter.set_internal_standard("Std")
+        exporter.set_min_peak_area_ratio(0.05)
+
+        connect = Mock(wraps=sqlite3.connect)
+        with monkeypatch.context() as patch:
+            patch.setattr(sqlite3, "connect", connect)
+            assert exporter.export_to_excel(str(tmp_path / f"{sample_count}.xlsx"))
+        connections.append(connect.call_count)
+
+    assert connections[0] == connections[1]
 
 
 def test_peak_review_store_round_trip(empty_db):

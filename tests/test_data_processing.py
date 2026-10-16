@@ -19,7 +19,7 @@ from manic.io.cdf_data_extractor import (
 )
 from manic.io.cdf_reader import CdfFileData, read_cdf_file
 from manic.io.eic_importer import _extract_eic_optimized, import_eics
-from manic.io.ms_reader import store_ms_data_batch
+from manic.io.ms_reader import read_ms_at_time, store_ms_data_batch
 from manic.io.tic_reader import read_tic, store_tic_data
 from manic.models import database
 from manic.processors.eic_calculator import extract_eic
@@ -156,6 +156,84 @@ def test_import_stores_one_row_per_spectrum_and_per_tic():
     assert ms.time == 1.5
     assert ms.mz.tolist() == [100.0, 102.0]
     assert ms.intensity.tolist() == [30.0, 6.0]
+
+
+def test_import_drops_missing_cdf_intensities_from_spectrum_and_tic(tmp_path):
+    from netCDF4 import Dataset
+
+    with Dataset(tmp_path / "S1.cdf", "w", format="NETCDF3_CLASSIC") as cdf:
+        cdf.createDimension("scan", 2)
+        cdf.createDimension("point", 3)
+        for name, dtype, dim, values in [
+            ("scan_acquisition_time", "f8", "scan", [60.0, 66.0]),
+            ("scan_index", "i4", "scan", [0, 3]),
+            ("point_count", "i4", "scan", [3, 0]),
+            ("mass_values", "f8", "point", [100.0, 101.0, 102.0]),
+        ]:
+            cdf.createVariable(name, dtype, (dim,))[:] = values
+        cdf.createVariable("intensity_values", "f8", ("point",), fill_value=1e20)[:] = (
+            np.ma.array([10.0, 0.0, 20.0], mask=[False, True, False])
+        )
+        cdf.createVariable("total_intensity", "f8", ("scan",), fill_value=1e20)[:] = (
+            np.ma.array([30.0, 0.0], mask=[False, True])
+        )
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms) "
+            "VALUES ('C1', 1.0, 100.0, 0)"
+        )
+
+    import_eics(tmp_path)
+
+    ms = read_ms_at_time("S1", 1.0)
+    assert ms.mz.tolist() == [100.0, 102.0]
+    assert ms.intensity.tolist() == [10.0, 20.0]
+    tic = read_tic("S1")
+    assert tic.time.tolist() == [1.0]
+    assert tic.intensity.tolist() == [30.0]
+
+
+def test_init_db_migrates_row_per_point_tic_and_spectra():
+    with database.get_connection() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE tic_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_name TEXT NOT NULL,
+                time REAL NOT NULL,
+                intensity REAL NOT NULL,
+                deleted INTEGER DEFAULT 0,
+                UNIQUE(sample_name, time)
+            );
+            CREATE TABLE ms_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sample_name TEXT NOT NULL,
+                time REAL NOT NULL,
+                mz REAL NOT NULL,
+                intensity REAL NOT NULL,
+                deleted INTEGER DEFAULT 0,
+                UNIQUE(sample_name, time, mz)
+            );
+            INSERT INTO samples (sample_name, file_name, deleted) VALUES ('S1', '/missing/S1.cdf', 0);
+            INSERT INTO tic_data (sample_name, time, intensity, deleted) VALUES
+                ('S1', 70.0, 32.0, 0), ('S1', 60.0, 16.0, 0), ('S1', 50.0, 99.0, 1);
+            INSERT INTO ms_data (sample_name, time, mz, intensity, deleted) VALUES
+                ('S1', 1.5, 102.0, 6.0, 0), ('S1', 1.5, 100.0, 30.0, 0),
+                ('S1', 1.5, 101.0, 9.0, 1), ('S1', 1.0, 100.0, 10.0, 0);
+            """
+        )
+
+    database.init_db()
+
+    tic = read_tic("S1")
+    assert tic.time.tolist() == [60.0, 70.0]
+    assert tic.intensity.tolist() == [16.0, 32.0]
+    ms = ensure_ms_data_for_time("S1", 1.5)
+    assert ms.mz.tolist() == [100.0, 102.0]
+    assert ms.intensity.tolist() == [30.0, 6.0]
+    with database.get_connection() as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
+    assert not {"tic_data", "ms_data"} & tables
 
 
 def test_extract_eic_labeled_three_isotopologues():
@@ -428,16 +506,20 @@ def test_import_skips_masked_cdf_intensities_in_spectra_like_main(
 
     import_eics(tmp_path)
 
+    def unpack(blob):
+        return np.frombuffer(zlib.decompress(blob)).tolist()
+
     with database.get_connection() as conn:
-        spectra = conn.execute(
-            "SELECT time, mz, intensity FROM ms_data ORDER BY mz"
-        ).fetchall()
-        tic = conn.execute(
-            "SELECT time, intensity FROM tic_data ORDER BY time"
-        ).fetchall()
+        spectra = sorted(
+            (row["time"], mz, intensity)
+            for row in conn.execute("SELECT time, mz, intensity FROM ms_spectrum")
+            for mz, intensity in zip(unpack(row["mz"]), unpack(row["intensity"]))
+        )
+        tic_row = conn.execute("SELECT time, intensity FROM tic_trace").fetchone()
         eic = conn.execute("SELECT x_axis, y_axis FROM eic").fetchone()
-    assert [tuple(row) for row in spectra] == [(70.0 / 60.0, 101.0, 3.0)]
-    assert [tuple(row) for row in tic] == [
+    tic = list(zip(unpack(tic_row["time"]), unpack(tic_row["intensity"])))
+    assert spectra == [(70.0 / 60.0, 101.0, 3.0)]
+    assert tic == [
         (1.0, 12.0),
         (70.0 / 60.0, 10.0),
         (80.0 / 60.0, 13.0),

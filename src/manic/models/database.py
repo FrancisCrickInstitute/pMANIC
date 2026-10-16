@@ -1,9 +1,14 @@
 import logging
 import sqlite3
 import time
+import zlib
 from contextlib import contextmanager
+from itertools import groupby
+from operator import itemgetter
 from pathlib import Path
 from typing import Iterable, List, Optional
+
+import numpy as np
 
 from manic.utils.paths import resource_path
 
@@ -33,6 +38,7 @@ def init_db() -> None:
         # Apply base schema
         with SCHEMA_SQL_PATH.open("r", encoding="utf-8") as fh:
             conn.executescript(fh.read())
+        _migrate_point_rows_to_blobs(conn)
 
     logger.info("database ready at %s", DB_FILE)
 
@@ -61,56 +67,6 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError as e:
         # Table doesn't exist yet, will be created by schema.sql
         logger.debug(f"Migration check: {e}")
-        pass
-
-    # Migration for TIC and MS data tables (v4.0.0)
-    try:
-        existing_tables = [
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
-        ]
-
-        if "tic_data" not in existing_tables:
-            logger.info("Creating tic_data table for v4.0.0")
-            conn.execute("""
-                CREATE TABLE tic_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sample_name TEXT NOT NULL,
-                    time REAL NOT NULL,
-                    intensity REAL NOT NULL,
-                    deleted INTEGER DEFAULT 0,
-                    FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
-                    UNIQUE(sample_name, time)
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX idx_tic_sample_time ON tic_data(sample_name, time)"
-            )
-            conn.commit()
-
-        if "ms_data" not in existing_tables:
-            logger.info("Creating ms_data table for v4.0.0")
-            conn.execute("""
-                CREATE TABLE ms_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sample_name TEXT NOT NULL,
-                    time REAL NOT NULL,
-                    mz REAL NOT NULL,
-                    intensity REAL NOT NULL,
-                    deleted INTEGER DEFAULT 0,
-                    FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
-                    UNIQUE(sample_name, time, mz)
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX idx_ms_sample_time ON ms_data(sample_name, time)"
-            )
-            conn.commit()
-
-    except sqlite3.OperationalError as e:
-        logger.error(f"Migration error for TIC/MS tables: {e}")
         pass
 
     try:
@@ -224,6 +180,51 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         logger.error(f"Migration error for compounds table: {e}")
         pass
 
+
+def _pack(values) -> bytes:
+    return zlib.compress(np.array(values, dtype=np.float64).tobytes())
+
+
+def _migrate_point_rows_to_blobs(conn: sqlite3.Connection) -> None:
+    """Fold the row-per-scan tic_data and row-per-peak ms_data tables into blob rows."""
+    tables = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+
+    if "tic_data" in tables:
+        logger.info("Migrating tic_data rows to tic_trace")
+        points = conn.execute(
+            "SELECT sample_name, time, intensity FROM tic_data "
+            "WHERE deleted = 0 AND sample_name IN (SELECT sample_name FROM samples) "
+            "ORDER BY sample_name, time"
+        )
+        traces = []
+        for sample_name, rows in groupby(points, key=itemgetter(0)):
+            rows = list(rows)
+            traces.append(
+                (sample_name, _pack([r[1] for r in rows]), _pack([r[2] for r in rows]))
+            )
+        conn.executemany("INSERT OR REPLACE INTO tic_trace VALUES (?, ?, ?)", traces)
+        conn.execute("DROP TABLE tic_data")
+
+    if "ms_data" in tables:
+        logger.info("Migrating ms_data rows to ms_spectrum")
+        peaks = conn.execute(
+            "SELECT sample_name, time, mz, intensity FROM ms_data "
+            "WHERE deleted = 0 AND sample_name IN (SELECT sample_name FROM samples) "
+            "ORDER BY sample_name, time, mz"
+        )
+        spectra = []
+        for (sample_name, scan_time), rows in groupby(peaks, key=itemgetter(0, 1)):
+            rows = list(rows)
+            spectra.append(
+                (sample_name, scan_time, _pack([r[2] for r in rows]), _pack([r[3] for r in rows]))
+            )
+        conn.executemany("INSERT OR REPLACE INTO ms_spectrum VALUES (?, ?, ?, ?)", spectra)
+        conn.execute("DROP TABLE ms_data")
+
+    conn.commit()
 
 
 @contextmanager
@@ -510,8 +511,8 @@ def _clear_database_fast(progress_callback=None):
         DELETE FROM sample_fit_type;
         DELETE FROM eic_corrected;
         DELETE FROM eic;
-        DELETE FROM tic_data;  
-        DELETE FROM ms_data;
+        DELETE FROM tic_trace;
+        DELETE FROM ms_spectrum;
         DELETE FROM samples;
         DELETE FROM compound_ions;
         DELETE FROM compounds;
@@ -551,8 +552,8 @@ def _clear_database_detailed(progress_callback=None):
         ("sample_fit_type", "Clearing per-sample fit types..."),
         ("eic_corrected", "Clearing corrected EIC data..."),
         ("eic", "Clearing raw EIC data..."),
-        ("tic_data", "Clearing TIC chromatograms..."),
-        ("ms_data", "Clearing mass spectra..."),
+        ("tic_trace", "Clearing TIC chromatograms..."),
+        ("ms_spectrum", "Clearing mass spectra..."),
         ("samples", "Clearing sample records..."),
         ("compound_ions", "Clearing diagnostic ion definitions..."),
         ("compounds", "Clearing compound definitions...")

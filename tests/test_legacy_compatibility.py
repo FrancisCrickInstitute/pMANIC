@@ -5,8 +5,9 @@ and legacy data import/export.
 """
 
 from pathlib import Path
+from unittest.mock import Mock
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from manic.io.legacy_raw_values_reader import read_raw_values_workbook
 from manic.io.in_memory_provider import InMemoryDataProvider
@@ -271,3 +272,52 @@ def test_blank_std_mix_amount_defaults_to_one_in_mrrf(tmp_path: Path):
 
     # Ala: (50 / 5.0) / (100 / 1.0), the IS concentration falling back to 1.0 as in the main app
     assert prov.get_mrrf_values(compounds, 'IS') == {'IS': 1.0, 'Ala': 0.1}
+
+
+def run_update_old_data(tmp_path: Path, monkeypatch, reply):
+    """Drive File > Process External Data with IS selected; return (question titles, message titles)."""
+    from PySide6.QtWidgets import QDialog, QFileDialog
+
+    from conftest import _make_window
+    from manic.ui import update_old_data_dialog
+
+    compounds_path, raw_path = write_blank_std_mix_inputs(tmp_path)
+    out_path = tmp_path / 'out.xlsx'
+
+    dialog = Mock(**{'exec.return_value': QDialog.Accepted, 'get_internal_standard.return_value': 'IS'})
+    dialog.get_paths.return_value = compounds_path, raw_path
+    monkeypatch.setattr(update_old_data_dialog, 'UpdateOldDataDialog', Mock(return_value=dialog))
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', staticmethod(lambda *a, **k: (str(out_path), '')))
+
+    window = _make_window(monkeypatch)
+    questions: list[str] = []
+    messages: list[str] = []
+    monkeypatch.setattr(window, '_show_question_dialog', lambda title, *a, **k: questions.append(title) or reply)
+    monkeypatch.setattr(window, '_create_message_box', lambda kind, title, *a, **k: messages.append(title) or Mock())
+    try:
+        window.update_old_data()
+    finally:
+        window.close()
+    return questions, messages, out_path
+
+
+def test_update_old_data_continues_in_peak_area_mode_when_is_metadata_missing(qapp, tmp_path: Path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    questions, messages, out_path = run_update_old_data(tmp_path, monkeypatch, QMessageBox.Yes)
+
+    assert questions == ['Internal Standard Metadata Missing']
+    assert messages == ['Update Complete']
+    ws = load_workbook(out_path, read_only=True)['Abundances']
+    units = next(ws.iter_rows(min_row=5, max_row=5, min_col=3, values_only=True))
+    assert list(units) == ['Peak Area', 'Peak Area']
+
+
+def test_update_old_data_stops_when_is_metadata_missing_and_cancelled(qapp, tmp_path: Path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    questions, messages, out_path = run_update_old_data(tmp_path, monkeypatch, QMessageBox.No)
+
+    assert questions == ['Internal Standard Metadata Missing']
+    assert messages == []
+    assert not out_path.exists()

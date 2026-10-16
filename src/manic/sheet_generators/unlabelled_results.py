@@ -251,18 +251,26 @@ def _write_qualifier_qc(
         for outcome, fill in QUALIFIER_OUTCOME_FILL.items()
     }
 
+    qcs = {}
+    for compound_index, compound in enumerate(compounds, start=1):
+        try:
+            assess = provider.unlabelled_identity_assessor(
+                compound.compound_name, samples
+            )
+        except (LookupError, ValueError):
+            assess = None
+        for sample in samples:
+            try:
+                qcs[sample, compound.compound_name] = assess(sample) if assess else None
+            except (LookupError, ValueError):
+                qcs[sample, compound.compound_name] = None
+        if progress_callback:
+            progress_callback(60 + int(compound_index / len(compounds) * 40))
+
     qc_row = 1
-    total = max(1, len(samples) * len(compounds))
-    completed = 0
     for sample in samples:
         for compound in compounds:
-            try:
-                qc = provider.assess_unlabelled_identity(
-                    sample, compound.compound_name
-                )
-            except (LookupError, ValueError):
-                qc = None
-
+            qc = qcs[sample, compound.compound_name]
             outcome = qualifier_outcome(qc)
             row_format = outcome_formats[outcome]
             areas = bulk_data.get(sample, {}).get(compound.compound_name)
@@ -293,7 +301,3 @@ def _write_qualifier_qc(
                 for column, value in enumerate(values):
                     qc_sheet.write(qc_row, column, value, row_format)
                 qc_row += 1
-
-            completed += 1
-            if progress_callback:
-                progress_callback(60 + int(completed / total * 40))

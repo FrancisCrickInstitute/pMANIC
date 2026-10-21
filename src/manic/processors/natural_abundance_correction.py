@@ -25,6 +25,35 @@ class NaturalAbundanceCorrectionError(ValueError):
     pass
 
 
+_ELEMENT_COUNT_RE = re.compile(r"([A-Z][a-z]?)(\d*)")
+
+
+def formula_element_counts(formula: str) -> Dict[str, int]:
+    """Parse a molecular formula string into element counts.
+
+    The whole string must be readable as element symbols followed by optional
+    counts; anything left over (brackets, stray digits, punctuation) raises
+    :class:`NaturalAbundanceCorrectionError` instead of being silently
+    skipped, because a partially read formula is a different molecule and the
+    correction would use the wrong atom counts.
+    """
+    cleaned = formula.replace(" ", "")
+    elements: Dict[str, int] = {}
+    pos = 0
+    while pos < len(cleaned):
+        match = _ELEMENT_COUNT_RE.match(cleaned, pos)
+        if match is None:
+            raise NaturalAbundanceCorrectionError(
+                f"formula {formula!r} cannot be read completely: "
+                f"stopped at {cleaned[pos:]!r}"
+            )
+        element, count_str = match.groups()
+        count = int(count_str) if count_str else 1
+        elements[element] = elements.get(element, 0) + count
+        pos = match.end()
+    return elements
+
+
 class NaturalAbundances:
     """Natural isotope abundances for common elements.
 
@@ -104,30 +133,7 @@ class NaturalAbundanceCorrector:
         if not formula:
             return {}
 
-        # Remove spaces if present (for space-separated format)
-        formula_clean = formula.replace(" ", "")
-
-        # Parse elements and counts using regex
-        # Matches element symbols (with optional lowercase) followed by optional numbers
-        pattern = r"([A-Z][a-z]?)(\d*)"
-        matches = re.findall(pattern, formula_clean)
-
-        elements = {}
-        for element, count_str in matches:
-            # Skip if element is just whitespace or empty
-            if not element or element.isspace():
-                continue
-
-            # Parse count (default to 1 if not specified)
-            count = int(count_str) if count_str else 1
-
-            # Store or update count
-            if element in elements:
-                elements[element] += count
-            else:
-                elements[element] = count
-
-        return elements
+        return formula_element_counts(formula)
 
     def calculate_derivative_formula(
         self, base_formula: str, tbdms: int = 0, meox: int = 0, me: int = 0

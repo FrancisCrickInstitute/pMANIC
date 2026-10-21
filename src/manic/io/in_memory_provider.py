@@ -10,6 +10,8 @@ from manic.processors.natural_abundance_correction import (
     NaturalAbundanceCorrector,
 )
 
+from manic.io.mm_matching import resolve_mm_samples_from_names
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,19 +93,7 @@ class InMemoryDataProvider:
         return corrected
 
     def resolve_mm_samples(self, mm_files_field: Optional[str]) -> List[str]:
-        if not mm_files_field:
-            return []
-        tokens = [t.strip().replace('*', '') for t in mm_files_field.split(',') if t.strip()]
-        if not tokens:
-            return []
-        matched = set()
-        for s in self._samples:
-            low = s.lower()
-            for t in tokens:
-                if t.lower() in low:
-                    matched.add(s)
-                    break
-        return sorted(matched)
+        return resolve_mm_samples_from_names(mm_files_field, self._samples)
 
     def get_background_ratios(self, compounds: List[dict]) -> Dict[str, float]:
         from manic.processors.calibration import calculate_background_ratios

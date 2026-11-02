@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QValidator
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from manic.constants import DEFAULT_RT_WINDOW_BUFFER, minimum_extract_rt_window
 from manic.io.compound_reader import read_compound, read_compound_with_session
+from manic.io.eic_importer import samples_needing_recut
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
@@ -80,31 +81,6 @@ def _parse_rt_text(rt_text: str) -> tuple[str, float, Optional[tuple[float, floa
     return "single", rt, None
 
 
-def calculate_integration_boundaries(
-    rt: float, loffset: float, roffset: float
-) -> tuple[float, float]:
-
-    """
-    Calculate left and right integration boundaries from retention time and offsets.
-
-    Integration boundaries define the time range where peak area integration occurs.
-    These boundaries must fit within the stored EIC data window.
-
-    Args:
-        rt: Retention time (minutes)
-        loffset: Left offset from retention time (minutes)
-        roffset: Right offset from retention time (minutes)
-
-    Returns:
-        Tuple of (left_boundary, right_boundary) in minutes
-
-    Example:
-        >>> calculate_integration_boundaries(10.0, 0.5, 0.5)
-        (9.5, 10.5)
-    """
-    return rt - loffset, rt + roffset
-
-
 def calculate_minimum_rt_window(
     loffset: float, roffset: float, buffer: float = DEFAULT_RT_WINDOW_BUFFER
 ) -> float:
@@ -137,39 +113,6 @@ def _widest_offset(text: str) -> float | None:
         return max(float(part) for part in parts)
     except ValueError:
         return None
-
-
-def check_boundaries_within_window(
-    left_boundary: float,
-    right_boundary: float,
-    window_min: float,
-    window_max: float,
-    tolerance: float = 0.001,
-) -> bool:
-    """
-    Check if integration boundaries fit within the stored data window.
-
-    Determines whether the current EIC data window contains the integration boundaries.
-    If boundaries exceed the window, EIC data must be reloaded with a new RT center.
-
-    Args:
-        left_boundary: Left integration boundary (minutes)
-        right_boundary: Right integration boundary (minutes)
-        window_min: Minimum time in stored EIC data (minutes)
-        window_max: Maximum time in stored EIC data (minutes)
-        tolerance: Tolerance for floating point comparison (minutes, default: 0.001)
-
-    Returns:
-        True if boundaries fit within window (no reload needed), False otherwise
-
-    Example:
-        >>> check_boundaries_within_window(9.5, 10.5, 9.0, 11.0)
-        True  # Boundaries fit comfortably within window
-        >>> check_boundaries_within_window(8.5, 10.5, 9.0, 11.0)
-        False  # Left boundary exceeds window minimum
-    """
-    return (left_boundary >= window_min - tolerance and
-            right_boundary <= window_max + tolerance)
 
 
 class IntegrationWindow(QGroupBox):
@@ -207,10 +150,6 @@ class IntegrationWindow(QGroupBox):
         self._current_compound: str = ""
         self._selected_samples: List[str] = []
         self._all_samples: List[str] = []
-
-        # Track data window bounds for reload detection (per-sample)
-        # Maps (compound_name, sample_name) to (min_time, max_time) of stored EIC data
-        self._data_window_bounds: Dict[Tuple[str, str], Tuple[float, float]] = {}
 
         self._pending_session_update: PendingRegeneration | None = None
 
@@ -436,16 +375,6 @@ class IntegrationWindow(QGroupBox):
             if len(selected_samples) == 1:
                 sample_name = selected_samples[0]
 
-                # Get EIC data to capture data window bounds (per-sample)
-                try:
-                    eics = get_eics_for_compound(compound_name, [sample_name])
-                    if eics and len(eics) > 0 and len(eics[0].time) > 0:
-                        time_data = eics[0].time
-                        key = (compound_name, sample_name)
-                        self._data_window_bounds[key] = (time_data.min(), time_data.max())
-                except Exception:
-                    pass  # Bounds capture is best-effort
-
                 compound_data = read_compound_with_session(compound_name, sample_name)
                 compound_dict = {
                     "loffset": compound_data.loffset,
@@ -483,13 +412,6 @@ class IntegrationWindow(QGroupBox):
                 logger.warning(f"No EIC data found for compound {compound_name}")
                 self._clear_fields()
                 return
-
-            # Store data window bounds for all samples
-            for idx, sample_name in enumerate(sample_names):
-                if idx < len(eics) and len(eics[idx].time) > 0:
-                    time_data = eics[idx].time
-                    key = (compound_name, sample_name)
-                    self._data_window_bounds[key] = (time_data.min(), time_data.max())
 
             # Get compound data for each sample (including session overrides)
             rt_times = []
@@ -617,143 +539,6 @@ class IntegrationWindow(QGroupBox):
         regenerate_tooltip = "Update tR window and recalculate EIC data"
         self.regenerate_button.setToolTip(regenerate_tooltip)
 
-    def _get_samples_needing_reload(
-        self,
-        new_rt: float,
-        new_loffset: float,
-        new_roffset: float,
-        samples_to_check: List[str]
-    ) -> List[str]:
-        """
-        Determine which samples need EIC data reload based on integration boundaries.
-        
-        For each sample, checks if the new integration boundaries (RT ± offsets) 
-        fall outside that sample's stored data window. Only samples whose boundaries 
-        exceed their window need to be regenerated.
-        
-        Args:
-            new_rt: New retention time (minutes)
-            new_loffset: New left offset (minutes)
-            new_roffset: New right offset (minutes)
-            samples_to_check: List of sample names to check
-            
-        Returns:
-            List of sample names that need reload (empty if none need reload)
-        """
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        samples_needing_reload = []
-        
-        # Calculate new integration boundaries using tested helper function
-        left_boundary, right_boundary = calculate_integration_boundaries(
-            new_rt, new_loffset, new_roffset
-        )
-        
-        # Check each sample independently
-        for sample_name in samples_to_check:
-            key = (self._current_compound, sample_name)
-            
-            # If no bounds info, reload to be safe
-            if key not in self._data_window_bounds:
-                logger.debug(f"No bounds info for {sample_name} - marking for reload")
-                samples_needing_reload.append(sample_name)
-                continue
-            
-            window_min, window_max = self._data_window_bounds[key]
-            
-            # Check if boundaries fit within this sample's window using tested helper
-            boundaries_fit = check_boundaries_within_window(
-                left_boundary, right_boundary, window_min, window_max
-            )
-            
-            if not boundaries_fit:
-                logger.debug(
-                    f"Sample {sample_name}: boundaries [{left_boundary:.3f}, {right_boundary:.3f}] "
-                    f"exceed window [{window_min:.3f}, {window_max:.3f}] - marking for reload"
-                )
-                samples_needing_reload.append(sample_name)
-        
-        return samples_needing_reload
-
-    def _get_samples_needing_reload_with_sample_rts(
-        self,
-        sample_rts: Dict[str, float],
-        new_loffset: float,
-        new_roffset: float,
-        samples_to_check: List[str],
-    ) -> List[str]:
-        """Like _get_samples_needing_reload, but uses per-sample RTs.
-
-        This supports "offset-only" applies when the UI shows a tR range.
-        """
-        import logging
-
-        logger = logging.getLogger(__name__)
-
-        samples_needing_reload: List[str] = []
-
-        for sample_name in samples_to_check:
-            if sample_name not in sample_rts:
-                samples_needing_reload.append(sample_name)
-                continue
-
-            new_rt = sample_rts[sample_name]
-            left_boundary, right_boundary = calculate_integration_boundaries(
-                new_rt, new_loffset, new_roffset
-            )
-
-            key = (self._current_compound, sample_name)
-            if key not in self._data_window_bounds:
-                logger.debug(f"No bounds info for {sample_name} - marking for reload")
-                samples_needing_reload.append(sample_name)
-                continue
-
-            window_min, window_max = self._data_window_bounds[key]
-            boundaries_fit = check_boundaries_within_window(
-                left_boundary, right_boundary, window_min, window_max
-            )
-            if not boundaries_fit:
-                samples_needing_reload.append(sample_name)
-
-        return samples_needing_reload
-
-    def refresh_data_window_bounds(self, compound_name: str, sample_names: List[str]):
-        """
-        Refresh stored data window bounds after EIC reload.
-
-        This should be called after EIC data is regenerated to update the stored
-        time window bounds used for boundary checking.
-
-        Args:
-            compound_name: Name of the compound to refresh bounds for
-            sample_names: List of sample names to refresh bounds for
-        """
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        try:
-            for sample_name in sample_names:
-                key = (compound_name, sample_name)
-                try:
-                    eics = get_eics_for_compound(
-                        compound_name, [sample_name], use_corrected=False
-                    )
-                except LookupError:
-                    self._data_window_bounds.pop(key, None)
-                    continue
-                if eics and len(eics[0].time) > 0:
-                    time_data = eics[0].time
-                    self._data_window_bounds[key] = (time_data.min(), time_data.max())
-                    logger.debug(
-                        f"Refreshed bounds for {sample_name}: "
-                        f"[{time_data.min():.3f}, {time_data.max():.3f}]"
-                    )
-                else:
-                    self._data_window_bounds.pop(key, None)
-        except Exception as e:
-            logger.warning(f"Failed to refresh data window bounds: {e}")
-
     def _on_apply_clicked(self):
         """Handle apply button click - validate inputs and update session data"""
         if not self._current_compound:
@@ -792,8 +577,6 @@ class IntegrationWindow(QGroupBox):
 
             preserve_sample_rts = (len(samples_to_apply) > 1 and rt_mode == "range")
 
-            # Determine which samples need reload (check each sample independently)
-            # In offset-only mode, use each sample's existing RT for boundary checks.
             if preserve_sample_rts:
                 sample_rts = {
                     sample_name: read_compound_with_session(
@@ -801,13 +584,11 @@ class IntegrationWindow(QGroupBox):
                     ).retention_time
                     for sample_name in samples_to_apply
                 }
-                samples_needing_reload = self._get_samples_needing_reload_with_sample_rts(
-                    sample_rts, loffset, roffset, samples_to_apply
-                )
             else:
-                samples_needing_reload = self._get_samples_needing_reload(
-                    retention_time, loffset, roffset, samples_to_apply
-                )
+                sample_rts = dict.fromkeys(samples_to_apply, retention_time)
+            samples_needing_reload = samples_needing_recut(
+                self._current_compound, sample_rts, loffset, roffset
+            )
 
             if samples_needing_reload:
                 import logging

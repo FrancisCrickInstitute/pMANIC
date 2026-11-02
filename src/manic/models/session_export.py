@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, Iterable, Optional
 import numpy as np
 
 from manic.constants import DEFAULT_MASS_TOLERANCE
-from manic.io.eic_importer import regenerate_compound_eics
+from manic.io.eic_importer import eic_needs_recut, regenerate_compound_eics
 from manic.models.database import (
     get_connection,
     restore_compounds,
@@ -560,10 +560,10 @@ def reextract_session_eics(
     mass_tol: float = DEFAULT_MASS_TOLERANCE,
     progress_cb: Optional[Callable[[int, int], None]] = None,
 ) -> SessionReextraction:
-    """Re-extract EICs that no longer cover an imported session.
+    """Re-extract EICs that are not centred on an imported session's tR.
 
     Call after import_session_overrides. A stored EIC is re-extracted around
-    its restored tR when the integration window falls outside it, or when
+    its restored tR when the Apply rule (eic_needs_recut) says so, or when
     the file saved a different tR Window for it. Files without saved tR
     Windows keep the stored windows.
     """
@@ -597,15 +597,11 @@ def reextract_session_eics(
     for row in rows:
         key = (row["compound_name"], row["sample_name"])
         rt_window = saved_windows.get(key, row["rt_window"])
-        # Same coverage test and slack as the live-edit reload check.
         time = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
         rt = row["retention_time"]
-        covered = (
-            time.size > 0
-            and rt - row["loffset"] >= time.min() - 0.001
-            and rt + row["roffset"] <= time.max() + 0.001
-        )
-        if covered and rt_window == row["rt_window"]:
+        if rt_window == row["rt_window"] and not eic_needs_recut(
+            time, rt, row["loffset"], row["roffset"]
+        ):
             continue
         if not row["file_name"] or not Path(row["file_name"]).exists():
             failed.append(f"{key[0]} / {key[1]}: CDF file not found")

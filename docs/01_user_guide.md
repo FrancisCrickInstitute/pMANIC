@@ -170,7 +170,7 @@ Locate the **Integration Window** panel (middle-left).
 2.  Click **Apply** (or press Enter).
 3.  The plots will refresh immediately to show the new boundaries.
 
-> **Auto-Regeneration Feature:** If you widen the boundaries beyond the data MANIC originally extracted from the CDF file, the software will automatically re-read the raw file to fetch the missing data. A progress bar will appear during this process.
+> **Auto-Regeneration Feature:** If you change the `tR`, or widen the boundaries beyond the tR Window, MANIC re-reads the raw file around the new `tR`. Each plot stays centred on its `tR`, and samples with the same `tR` show the same time range. A progress bar appears while MANIC reads the files.
 
 #### 6. Troubleshooting: Fixing Cut-off Peaks
 Sometimes a peak may shift so far that part of it is completely missing from the plot (cut off by the edge of the extracted data). You cannot integrate what isn't there.
@@ -304,8 +304,8 @@ MANIC can save the state of your analysis, including compound definitions, integ
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
     3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, internal standard, mass tolerance, and peak-validation threshold. If the saved mass tolerance differs from the current one, MANIC regenerates every EIC, as it does when you change it in **Settings**.
-* **Re-extraction:** After the import, MANIC re-reads the CDF files for any sample whose restored integration window falls outside its stored EIC, or whose saved tR Window differs from the stored one. A progress bar shows while this runs. If a CDF file has moved since you loaded it, MANIC lists the affected compound and sample pairs. Their areas can be zero until you restore the files and import the session again.
-* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared. A file with no mass tolerance or peak-validation threshold keeps the current Settings values. A file with no saved tR Windows keeps the current ones and re-extracts only the samples whose integration window falls outside their stored EIC.
+* **Re-extraction:** After the import, MANIC re-reads the CDF files for any sample whose stored EIC is not centred on its restored `tR`, is narrower than its offsets, or has a different saved tR Window. A progress bar shows while this runs. If a CDF file has moved since you loaded it, MANIC lists the affected compound and sample pairs. Their areas can be zero until you restore the files and import the session again.
+* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current toolbar selection unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared. A file with no mass tolerance or peak-validation threshold keeps the current Settings values. A file with no saved tR Windows keeps the current ones and re-extracts only the samples whose stored EIC is not centred on the restored `tR` or is narrower than its offsets.
 
 ---
 

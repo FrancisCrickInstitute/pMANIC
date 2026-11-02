@@ -1,4 +1,4 @@
-"""Session import re-extracts EICs whose restored window falls outside them."""
+"""Session import re-extracts EICs that are not centred on the restored tR."""
 
 import importlib
 import sys
@@ -106,6 +106,40 @@ def test_session_round_trip_restores_moved_windows_and_tr_window(
         1, ("Pyruvate / Bio_001: CDF file not found",)
     )
     assert _eic_rt_window("Bio_002") == 0.5
+
+
+def test_session_import_re_centres_a_tr_moved_inside_the_stored_eic(
+    tmp_path, monkeypatch
+):
+    cdf_dir = tmp_path / "cdf"
+    cdf_dir.mkdir()
+    _write_drifted_cdf(cdf_dir / "Bio_001.cdf")
+    moved_rt = LIBRARY_RT + 0.03
+
+    _load_fresh_session(tmp_path / "original.db", cdf_dir, monkeypatch)
+    regenerate_compound_eics(
+        "Pyruvate",
+        0.2,
+        ["Bio_001"],
+        retention_time={"Bio_001": moved_rt},
+        pending_regeneration=PendingRegeneration(
+            "Pyruvate", moved_rt, 0.05, 0.05, ("Bio_001",), ("Bio_001",)
+        ),
+    )
+    assert session_export.export_session_method(str(tmp_path / "session.json"))
+
+    _load_fresh_session(tmp_path / "restored.db", cdf_dir, monkeypatch)
+    session_path = tmp_path / "manic_session_export" / "session.json"
+    session_export.import_session_overrides(str(session_path))
+    result = session_export.reextract_session_eics(str(session_path), mass_tol=0.2)
+
+    assert result == session_export.SessionReextraction(1, ())
+    with database.get_connection() as conn:
+        x_axis = conn.execute(
+            "SELECT x_axis FROM eic WHERE sample_name = 'Bio_001'"
+        ).fetchone()["x_axis"]
+    time = np.frombuffer(zlib.decompress(x_axis), dtype=np.float64)
+    assert (time.min() + time.max()) / 2 == pytest.approx(moved_rt, abs=0.01)
 
 
 @pytest.mark.parametrize("reload_fails", [False, True])

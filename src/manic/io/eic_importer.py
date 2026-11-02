@@ -533,18 +533,18 @@ def import_eics(
 
 
 def eic_needs_recut(
-    time: np.ndarray,
-    rt_window: float | None,
-    retention_time: float,
-    loffset: float,
-    roffset: float,
+    time: np.ndarray, retention_time: float, loffset: float, roffset: float
 ) -> bool:
-    """True when a stored EIC is not centred on ``retention_time`` or is narrower than the offsets."""
-    if rt_window is None or time.size < 2:
+    """True when a stored EIC is not centred on ``retention_time`` or does not cover the offsets."""
+    if time.size < 2:
         return True
-    centre = (time.min() + time.max()) / 2
-    off_centre = abs(centre - retention_time) > np.diff(time).max()
-    return bool(off_centre) or max(loffset, roffset) > rt_window
+    scan = np.median(np.diff(time))
+    start, end = time.min(), time.max()
+    uncovered = (
+        retention_time - loffset < start - scan or retention_time + roffset > end + scan
+    )
+    off_centre = abs((start + end) / 2 - retention_time) > scan
+    return bool(uncovered or off_centre)
 
 
 def samples_needing_recut(
@@ -560,7 +560,7 @@ def samples_needing_recut(
             row["sample_name"]: row
             for row in conn.execute(
                 f"""
-                SELECT sample_name, x_axis, rt_window FROM eic
+                SELECT sample_name, x_axis FROM eic
                 WHERE compound_name = ? AND deleted = 0
                   AND sample_name IN ({placeholders})
                 """,
@@ -575,7 +575,6 @@ def samples_needing_recut(
             np.frombuffer(
                 zlib.decompress(stored[sample_name]["x_axis"]), dtype=np.float64
             ),
-            stored[sample_name]["rt_window"],
             retention_time,
             loffset,
             roffset,

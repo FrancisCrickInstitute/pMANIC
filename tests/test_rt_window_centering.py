@@ -11,6 +11,7 @@ from manic.io.eic_reader import read_eics_batch
 from manic.io.eic_importer import (
     _compress,
     regenerate_compound_eics,
+    eic_needs_recut,
     samples_needing_recut,
 )
 from manic.models import database
@@ -86,6 +87,16 @@ class TestPerSampleReloadChecking:
             "s4",
         ]
         assert samples_needing_recut("Glucose", {"s2": 7.17}, 0.3, 0.1) == ["s2"]
+
+    def test_recut_when_a_clipped_or_gapped_trace_misses_the_offsets(self):
+        clipped_at_run_start = np.round(np.arange(0.0, 0.4001, 0.01), 2)
+        assert eic_needs_recut(clipped_at_run_start, 0.2, 0.05, 0.25) is True
+        assert eic_needs_recut(clipped_at_run_start, 0.2, 0.05, 0.15) is False
+
+        gapped = np.round(
+            np.concatenate([np.arange(9.8, 9.9201, 0.01), np.arange(10.08, 10.2001, 0.01)]), 2
+        )
+        assert eic_needs_recut(gapped, 10.1, 0.15, 0.15) is True
 
     def test_offset_only_reload_emits_each_sample_retention_time(self, monkeypatch):
         sample_rts = {"s1": 7.1, "s2": 7.5}

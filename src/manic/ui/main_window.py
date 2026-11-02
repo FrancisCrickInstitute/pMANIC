@@ -1699,19 +1699,7 @@ class MainWindow(QMainWindow):
 
         try:
             pending_update = self.toolbar.integration._pending_session_update
-            if pending_update is not None:
-                if pending_update.regenerated_sample_names:
-                    logger.info(
-                        f"Refreshing bounds for "
-                        f"{len(pending_update.regenerated_sample_names)} "
-                        f"regenerated samples"
-                    )
-                    self.toolbar.integration.refresh_data_window_bounds(
-                        pending_update.compound_name,
-                        list(pending_update.regenerated_sample_names),
-                    )
-
-                self.toolbar.integration._pending_session_update = None
+            self.toolbar.integration._pending_session_update = None
 
             current_compound = self.graph_view.get_current_compound()
             current_selected = self.graph_view.get_selected_samples()
@@ -1743,14 +1731,16 @@ class MainWindow(QMainWindow):
             else:
                 self.graph_view.refresh_plots_with_session_data()
 
-            msg_box = self._create_message_box(
-                "information",
-                "Regeneration Complete",
-                f"Data regeneration completed successfully!\n\n"
-                f"Regenerated {regenerated_count} EIC records.\n"
-                f"Plots have been refreshed with new data.",
-            )
-            msg_box.exec()
+            # Apply re-centres on every tR change, so it finishes silently.
+            if pending_update is None:
+                msg_box = self._create_message_box(
+                    "information",
+                    "Regeneration Complete",
+                    f"Data regeneration completed successfully!\n\n"
+                    f"Regenerated {regenerated_count} EIC records.\n"
+                    f"Plots have been refreshed with new data.",
+                )
+                msg_box.exec()
 
         except Exception as e:
             self.toolbar.integration._pending_session_update = None

@@ -26,29 +26,32 @@ def read_cdf_file(
         variables = cdf.variables
         scan_time = variables["scan_acquisition_time"][:]
         scan_index = variables["scan_index"][:]
-        scans = slice(None)
-        first_point, end_point = 0, None
-        if rt_range is not None:
-            minutes = scan_time / 60.0
-            inside = np.flatnonzero(
-                (minutes >= rt_range[0]) & (minutes <= rt_range[1])
-            )
-            if inside.size == 0:
-                scans = slice(0, 0)
-                end_point = 0
-            else:
-                first, end = int(inside[0]), int(inside[-1]) + 1
-                scans = slice(first, end)
-                first_point = int(scan_index[first])
-                if end < len(scan_index):
-                    end_point = int(scan_index[end])
+        if rt_range is None:
+            scans = points = slice(None)
+        else:
+            scans, points = _window_slices(scan_time, scan_index, rt_range)
+        index = scan_index[scans]
+        if points.start:
+            index = index - index.dtype.type(points.start)
         return CdfFileData(
             sample_name=path.stem,
             file_path=str(path),
             scan_time=scan_time[scans],
-            mass=variables["mass_values"][first_point:end_point],
-            intensity=variables["intensity_values"][first_point:end_point],
-            scan_index=scan_index[scans] - first_point,
+            mass=variables["mass_values"][points],
+            intensity=variables["intensity_values"][points],
+            scan_index=index,
             point_count=variables["point_count"][scans],
             total_intensity=variables["total_intensity"][scans],
         )
+
+
+def _window_slices(scan_time, scan_index, rt_range: tuple[float, float]):
+    minutes = np.asarray(scan_time / 60.0, dtype=np.float64)
+    inside = np.flatnonzero((minutes >= rt_range[0]) & (minutes <= rt_range[1]))
+    if inside.size == 0:
+        return slice(0, 0), slice(0, 0)
+    starts = np.asarray(scan_index)
+    # Keep one scan past the window so extract_eic ends every scan where a whole-file read does.
+    end = min(int(inside[-1]) + 2, starts.size)
+    end_point = int(starts[end]) if end < starts.size else None
+    return slice(int(inside[0]), end), slice(int(starts[inside[0]]), end_point)

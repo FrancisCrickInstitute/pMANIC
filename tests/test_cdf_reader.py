@@ -6,8 +6,9 @@ from manic.io.cdf_reader import read_cdf_file
 from manic.processors.eic_calculator import EmptyRtWindowError, extract_eic
 
 
-def _write_cdf(path):
-    scan_minutes = np.arange(6.0, 8.0, 0.05)
+def _write_cdf(path, scan_minutes=None):
+    if scan_minutes is None:
+        scan_minutes = np.arange(6.0, 8.0, 0.05)
     points_per_scan = 3
     with Dataset(path, "w", format="NETCDF3_CLASSIC") as cdf:
         cdf.createDimension("scan_number", scan_minutes.size)
@@ -43,6 +44,28 @@ def test_window_read_extracts_the_same_eic_as_a_whole_file_read(tmp_path, t_r):
 
     assert window.time.tolist() == whole.time.tolist()
     assert window.intensity.tolist() == whole.intensity.tolist()
+    assert read_cdf_file(path, (t_r - 0.2, t_r + 0.2)).scan_time.size < 40
+
+
+def test_window_read_matches_a_whole_file_read_when_scan_times_are_out_of_order(
+    tmp_path,
+):
+    path = tmp_path / "s1.cdf"
+    _write_cdf(path, np.array([1.0, 2.0, 1.0, 3.0]))
+
+    whole = extract_eic("Pyruvate", 1.0, 174.0, read_cdf_file(path), 0.2, 0.2, 2)
+    window = extract_eic(
+        "Pyruvate", 1.0, 174.0, read_cdf_file(path, (0.8, 1.2)), 0.2, 0.2, 2
+    )
+
+    assert window.intensity.tolist() == whole.intensity.tolist()
+
+
+def test_whole_file_read_keeps_the_stored_scan_index_type(tmp_path):
+    path = tmp_path / "s1.cdf"
+    _write_cdf(path)
+
+    assert read_cdf_file(path).scan_index.dtype == np.int32
 
 
 def test_window_read_outside_the_run_has_no_scans(tmp_path):

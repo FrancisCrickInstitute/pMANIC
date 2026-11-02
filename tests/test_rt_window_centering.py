@@ -8,16 +8,18 @@ import pytest
 
 from manic.io.compound_reader import read_compound
 from manic.io.eic_reader import read_eics_batch
-from manic.io.eic_importer import _compress, regenerate_compound_eics
+from manic.io.eic_importer import (
+    _compress,
+    regenerate_compound_eics,
+    samples_needing_recut,
+)
 from manic.models import database
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.chromatographic_peak_deconvolution import deconvolve_eic
 from manic.processors.eic_calculator import EmptyRtWindowError
 from manic.ui.main_window import MainWindow
 from manic.ui.integration_window_widget import (
-    calculate_integration_boundaries,
     calculate_minimum_rt_window,
-    check_boundaries_within_window,
     IntegrationWindow,
 )
 
@@ -29,180 +31,25 @@ SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql
 @pytest.mark.parametrize(
     "kind,kwargs,expected",
     [
-        ("boundaries", {"rt": 10.0, "loffset": 0.5, "roffset": 0.5}, (9.5, 10.5)),
-        ("boundaries", {"rt": 7.17, "loffset": 0.1, "roffset": 0.3}, (7.07, 7.47)),
-        ("boundaries", {"rt": 5.0, "loffset": 0.0, "roffset": 0.0}, (5.0, 5.0)),
-        ("boundaries", {"rt": 15.0, "loffset": 2.0, "roffset": 3.0}, (13.0, 18.0)),
         ("min_window", {"loffset": 0.2, "roffset": 0.2, "buffer": 0.1}, 0.3),
         ("min_window", {"loffset": 0.5, "roffset": 0.2, "buffer": 0.1}, 0.6),
         ("min_window", {"loffset": 0.1, "roffset": 0.8, "buffer": 0.1}, 0.9),
         ("min_window", {"loffset": 0.3, "roffset": 0.3, "buffer": 0.0}, 0.3),
         ("min_window", {"loffset": 0.2, "roffset": 0.2, "buffer": 0.05}, 0.25),
-        (
-            "fits",
-            {
-                "left_boundary": 9.0,
-                "right_boundary": 11.0,
-                "window_min": 9.0,
-                "window_max": 11.0,
-            },
-            True,
-        ),
-        (
-            "fits",
-            {
-                "left_boundary": 9.5,
-                "right_boundary": 10.5,
-                "window_min": 9.0,
-                "window_max": 11.0,
-            },
-            True,
-        ),
-        (
-            "fits",
-            {
-                "left_boundary": 8.5,
-                "right_boundary": 10.5,
-                "window_min": 9.0,
-                "window_max": 11.0,
-            },
-            False,
-        ),
-        (
-            "fits",
-            {
-                "left_boundary": 9.5,
-                "right_boundary": 11.5,
-                "window_min": 9.0,
-                "window_max": 11.0,
-            },
-            False,
-        ),
-        (
-            "fits",
-            {
-                "left_boundary": 8.5,
-                "right_boundary": 11.5,
-                "window_min": 9.0,
-                "window_max": 11.0,
-            },
-            False,
-        ),
-        (
-            "fits",
-            {
-                "left_boundary": 8.9999,
-                "right_boundary": 10.5,
-                "window_min": 9.0,
-                "window_max": 11.0,
-                "tolerance": 0.001,
-            },
-            True,
-        ),
-        (
-            "fits",
-            {
-                "left_boundary": 8.998,
-                "right_boundary": 10.5,
-                "window_min": 9.0,
-                "window_max": 11.0,
-                "tolerance": 0.001,
-            },
-            False,
-        ),
-        (
-            "fits",
-            {
-                "left_boundary": 9.0,
-                "right_boundary": 11.0,
-                "window_min": 9.0,
-                "window_max": 11.0,
-                "tolerance": 0.0,
-            },
-            True,
-        ),
-        (
-            "reload",
-            {"rt": 10.05, "loffset": 0.1, "roffset": 0.1, "window": (9.8, 10.2)},
-            True,
-        ),
-        (
-            "reload",
-            {"rt": 11.0, "loffset": 0.1, "roffset": 0.1, "window": (9.8, 10.2)},
-            False,
-        ),
-        (
-            "reload",
-            {"rt": 10.0, "loffset": 0.3, "roffset": 0.3, "window": (9.8, 10.2)},
-            False,
-        ),
-        (
-            "reload",
-            {"rt": 10.0, "loffset": 0.1, "roffset": 0.1, "window": (9.8, 10.2)},
-            True,
-        ),
-        (
-            "reload",
-            {"rt": 7.17, "loffset": 0.1, "roffset": 0.5, "window": (6.97, 7.37)},
-            False,
-        ),
-        (
-            "reload",
-            {"rt": 10.0, "loffset": 0.01, "roffset": 0.01, "window": (9.99, 10.01)},
-            True,
-        ),
-        (
-            "reload",
-            {"rt": 10.0, "loffset": 1.0, "roffset": 1.0, "window": (5.0, 15.0)},
-            True,
-        ),
         ("expand", {"loffset": 0.5, "roffset": 0.4, "buffer": 0.1}, 0.6),
     ],
     ids=[
-        "boundaries_symmetric",
-        "boundaries_asymmetric",
-        "boundaries_zero",
-        "boundaries_large",
         "min_window_symmetric",
         "min_window_larger_left",
         "min_window_larger_right",
         "min_window_zero_buffer",
         "min_window_custom_buffer",
-        "fits_exactly",
-        "fits_with_margin",
-        "fits_left_exceeds",
-        "fits_right_exceeds",
-        "fits_both_exceed",
-        "fits_within_tolerance",
-        "fits_outside_tolerance",
-        "fits_zero_tolerance",
-        "reload_small_rt",
-        "reload_large_rt",
-        "reload_offset_increase",
-        "reload_offset_decrease",
-        "reload_asymmetric",
-        "reload_tiny_window",
-        "reload_huge_window",
         "expand_min_0.6",
     ],
 )
 def test_rt_window_arithmetic(kind, kwargs, expected):
-    if kind == "boundaries":
-        left, right = calculate_integration_boundaries(**kwargs)
-        assert (left, right) == pytest.approx(expected)
-        return
     if kind == "min_window":
         assert calculate_minimum_rt_window(**kwargs) == pytest.approx(expected)
-        return
-    if kind == "fits":
-        assert check_boundaries_within_window(**kwargs) is expected
-        return
-    if kind == "reload":
-        window = kwargs.pop("window")
-        left, right = calculate_integration_boundaries(
-            kwargs["rt"], kwargs["loffset"], kwargs["roffset"]
-        )
-        assert check_boundaries_within_window(left, right, window[0], window[1]) is expected
         return
     if kind == "expand":
         min_required = calculate_minimum_rt_window(**kwargs)
@@ -210,13 +57,6 @@ def test_rt_window_arithmetic(kind, kwargs, expected):
         assert min_required == expected
         return
     raise AssertionError(kind)
-
-
-class TestEdgeCases:
-    def test_negative_offsets_invalid(self):
-        left, right = calculate_integration_boundaries(10.0, -0.1, -0.1)
-        assert left == 10.1
-        assert right == 9.9
 
 
 class TestBufferConstant:
@@ -232,29 +72,27 @@ class TestBufferConstant:
 
 
 class TestPerSampleReloadChecking:
-    def test_reload_check_uses_per_sample_rt(self):
-        # Avoid constructing QWidget subclasses in tests (requires a QApplication).
-        w = IntegrationWindow.__new__(IntegrationWindow)
-        w._current_compound = "cmpd"
-        w._data_window_bounds = {
-            ("cmpd", "s1"): (9.0, 11.0),
-            ("cmpd", "s2"): (19.0, 21.0),
-        }
+    def test_recut_when_off_centre_too_narrow_or_missing(self, tmp_path, monkeypatch):
+        db_path = tmp_path / "eics.db"
+        monkeypatch.setattr(database, "DB_FILE", db_path)
+        _seed_eic_db(db_path, {name: tmp_path / f"{name}.cdf" for name in ("s1", "s2", "s3")})
+        centred_on_717 = np.round(np.arange(6.97, 7.3701, 0.01), 2)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("UPDATE eic SET x_axis = ?", (_compress(centred_on_717),))
 
-        sample_rts = {"s1": 10.0, "s2": 20.0}
-
-        need_reload = w._get_samples_needing_reload_with_sample_rts(
-            sample_rts, new_loffset=0.5, new_roffset=0.5, samples_to_check=["s1", "s2"]
-        )
-        assert need_reload == []
-
-        need_reload = w._get_samples_needing_reload_with_sample_rts(
-            sample_rts, new_loffset=2.0, new_roffset=2.0, samples_to_check=["s1", "s2"]
-        )
-        assert set(need_reload) == {"s1", "s2"}
+        moved_inside_old_trace = {"s1": 7.12, "s2": 7.17, "s3": 7.175, "s4": 7.17}
+        assert samples_needing_recut("Glucose", moved_inside_old_trace, 0.03, 0.03) == [
+            "s1",
+            "s4",
+        ]
+        assert samples_needing_recut("Glucose", {"s2": 7.17}, 0.3, 0.1) == ["s2"]
 
     def test_offset_only_reload_emits_each_sample_retention_time(self, monkeypatch):
         sample_rts = {"s1": 7.1, "s2": 7.5}
+        monkeypatch.setattr(
+            "manic.ui.integration_window_widget.samples_needing_recut",
+            lambda _compound, rts, *_offsets: list(rts),
+        )
         monkeypatch.setattr(
             "manic.ui.integration_window_widget.read_compound_with_session",
             lambda _compound, sample: SimpleNamespace(
@@ -271,9 +109,6 @@ class TestPerSampleReloadChecking:
             _selected_samples=["s1", "s2"],
             _all_samples=["s1", "s2"],
             _get_validated_inputs=lambda: (7.1, 2.0, 2.0),
-            _get_samples_needing_reload_with_sample_rts=(
-                lambda *_args: ["s1", "s2"]
-            ),
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
                 emit=lambda *args: emitted.append(args)
@@ -545,23 +380,6 @@ def test_batch_read_falls_back_to_raw_per_sample(tmp_path, monkeypatch):
 
 
 class TestRecoveryAfterEmptyExtract:
-    def test_refresh_drops_bounds_when_eic_missing(self, monkeypatch):
-        w = IntegrationWindow.__new__(IntegrationWindow)
-        w._current_compound = "cmpd"
-        w._data_window_bounds = {("cmpd", "s1"): (6.97, 7.37)}
-
-        def _no_eics(*_args, **_kwargs):
-            raise LookupError("No EIC data found")
-
-        monkeypatch.setattr(
-            "manic.ui.integration_window_widget.get_eics_for_compound",
-            _no_eics,
-        )
-        w.refresh_data_window_bounds("cmpd", ["s1"])
-
-        assert ("cmpd", "s1") not in w._data_window_bounds
-        assert w._get_samples_needing_reload(7.17, 0.1, 0.1, ["s1"]) == ["s1"]
-
     def test_failed_extract_rejects_change_and_keeps_existing_eic(
         self, tmp_path, monkeypatch
     ):
@@ -1200,7 +1018,6 @@ class TestRegenerationCompletion:
                 sample_names=("s1",),
                 regenerated_sample_names=("s1",),
             ),
-            refresh_data_window_bounds=lambda *_args: calls.append("bounds"),
             populate_fields_from_plots=lambda *_args: calls.append("fields"),
             populate_tr_window_field=lambda *_args: calls.append("window"),
         )
@@ -1226,13 +1043,12 @@ class TestRegenerationCompletion:
         MainWindow._regeneration_completed(window, 1)
 
         assert calls == [
-            "bounds",
             "fields",
             "window",
             "plots",
             "charts",
         ]
-        assert messages[0][0:2] == ("information", "Regeneration Complete")
+        assert messages == []
 
     def test_refresh_failure_does_not_claim_complete(self):
         def _refresh_fails(*_args):

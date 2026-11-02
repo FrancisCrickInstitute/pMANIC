@@ -170,7 +170,7 @@ Locate the **Integration Window** panel (middle-left).
 2.  Click **Apply** (or press Enter).
 3.  The plots will refresh immediately to show the new boundaries.
 
-> **Auto-Regeneration Feature:** If you widen the boundaries beyond the data MANIC originally extracted from the CDF file, the software will automatically re-read the raw file to fetch the missing data. A progress bar will appear during this process.
+> **Auto-Regeneration Feature:** If you change the `tR`, or widen the boundaries beyond the tR Window, MANIC re-reads the raw file around the new `tR`. Each plot stays centred on its `tR`, and samples with the same `tR` show the same time range. A progress bar appears while MANIC reads the files.
 
 #### 6. Troubleshooting: Fixing Cut-off Peaks
 Sometimes a peak may shift so far that part of it is completely missing from the plot (cut off by the edge of the extracted data). You cannot integrate what isn't there.

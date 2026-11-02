@@ -532,6 +532,57 @@ def import_eics(
     return inserted
 
 
+def eic_needs_recut(
+    time: np.ndarray,
+    rt_window: float | None,
+    retention_time: float,
+    loffset: float,
+    roffset: float,
+) -> bool:
+    """True when a stored EIC is not centred on ``retention_time`` or is narrower than the offsets."""
+    if rt_window is None or time.size < 2:
+        return True
+    centre = (time.min() + time.max()) / 2
+    off_centre = abs(centre - retention_time) > np.diff(time).max()
+    return bool(off_centre) or max(loffset, roffset) > rt_window
+
+
+def samples_needing_recut(
+    compound_name: str,
+    sample_rts: Mapping[str, float],
+    loffset: float,
+    roffset: float,
+) -> list[str]:
+    """Samples whose stored EIC is missing or needs re-extracting around its tR."""
+    placeholders = ", ".join("?" * len(sample_rts))
+    with get_connection() as conn:
+        stored = {
+            row["sample_name"]: row
+            for row in conn.execute(
+                f"""
+                SELECT sample_name, x_axis, rt_window FROM eic
+                WHERE compound_name = ? AND deleted = 0
+                  AND sample_name IN ({placeholders})
+                """,
+                (compound_name, *sample_rts),
+            )
+        }
+    return [
+        sample_name
+        for sample_name, retention_time in sample_rts.items()
+        if sample_name not in stored
+        or eic_needs_recut(
+            np.frombuffer(
+                zlib.decompress(stored[sample_name]["x_axis"]), dtype=np.float64
+            ),
+            stored[sample_name]["rt_window"],
+            retention_time,
+            loffset,
+            roffset,
+        )
+    ]
+
+
 def regenerate_compound_eics(
     compound_name: str,
     tr_window: float,

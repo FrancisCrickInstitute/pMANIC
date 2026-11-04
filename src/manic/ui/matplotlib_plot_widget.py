@@ -19,7 +19,8 @@ from matplotlib.backend_bases import _Mode
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.colors import to_hex, to_rgba, to_rgba_array
 from matplotlib.figure import Figure
-from PySide6.QtWidgets import QHBoxLayout, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QVBoxLayout, QWidget
 
 from manic.ui import theme
 from manic.ui.theme import COLORS
@@ -43,10 +44,7 @@ from manic.constants import (
     PLOT_TITLE_FONTSIZE,
     PLOT_TITLE_PADDING,
     SCIENTIFIC_NOTATION_THRESHOLD,
-    TOOLBAR_BUTTON_MARGIN,
-    TOOLBAR_BUTTON_PADDING,
     TOOLBAR_MAX_HEIGHT,
-    TOOLBAR_SPACING,
 )
 
 matplotlib.use("Qt5Agg")
@@ -134,7 +132,10 @@ def matplotlib_cleanup():
 
 
 class CompactNavigationToolbar(QWidget):
-    """Reset, Pan and Zoom for a set of plots; each mode applies to every plot."""
+    """Reset all, and a Pan/Zoom toggle; each mode applies to every plot.
+
+    Double-click a single plot, or right-click it, to reset only that plot.
+    """
 
     def __init__(self, plots, parent=None):
         super().__init__(parent)
@@ -144,49 +145,59 @@ class CompactNavigationToolbar(QWidget):
     def _setup_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(TOOLBAR_SPACING)
+        layout.setSpacing(8)
 
+        # Same segmented shape as the grid's Compact/Comfortable switch.
         theme.style(
             self,
-            f"""
-            QToolButton {{
-                border: 1px solid transparent;
-                padding: {TOOLBAR_BUTTON_PADDING}px 10px;
-                margin: {TOOLBAR_BUTTON_MARGIN}px;
-                background-color: transparent;
-                border-radius: 6px;
-                color: @text_secondary;
-                font-size: 12px;
-            }}
-            QToolButton:hover {{
-                background-color: @surface_hover;
-            }}
-            QToolButton:checked {{
-                background-color: @accent_soft;
-                color: @accent;
-            }}
+            """
+            QToolButton {
+                font-size: 11px; color: @text_secondary;
+                background: @surface; border: 1px solid @border_strong;
+                border-radius: 6px; padding: 2px 9px; min-height: 18px;
+            }
+            QToolButton:hover { background: @surface_hover; }
+            QToolButton:checked {
+                color: @text; background: @accent_soft; border-color: @accent;
+                font-weight: 600;
+            }
+            QToolButton#chartPan {
+                border-top-right-radius: 0; border-bottom-right-radius: 0;
+                border-right: none;
+            }
+            QToolButton#chartZoom {
+                border-top-left-radius: 0; border-bottom-left-radius: 0;
+            }
             """,
         )
 
         self.home_btn = QToolButton()
-        self.home_btn.setText("↻ Reset")
-        self.home_btn.setToolTip("Fit all three charts to their data")
+        self.home_btn.setText("↻ Reset all")
+        self.home_btn.setToolTip(
+            "Fit all three charts to their data. Double-click a chart to reset only that chart."
+        )
         self.home_btn.clicked.connect(self._reset_view)
         layout.addWidget(self.home_btn)
 
+        modes = QHBoxLayout()
+        modes.setContentsMargins(0, 0, 0, 0)
+        modes.setSpacing(0)
         self.pan_btn = QToolButton()
+        self.pan_btn.setObjectName("chartPan")
         self.pan_btn.setText("Pan")
         self.pan_btn.setToolTip("Drag any chart to pan it")
         self.pan_btn.setCheckable(True)
         self.pan_btn.clicked.connect(self._on_pan)
-        layout.addWidget(self.pan_btn)
+        modes.addWidget(self.pan_btn)
 
         self.zoom_btn = QToolButton()
+        self.zoom_btn.setObjectName("chartZoom")
         self.zoom_btn.setText("Zoom")
         self.zoom_btn.setToolTip("Drag a rectangle on any chart to zoom it")
         self.zoom_btn.setCheckable(True)
         self.zoom_btn.clicked.connect(self._on_zoom)
-        layout.addWidget(self.zoom_btn)
+        modes.addWidget(self.zoom_btn)
+        layout.addLayout(modes)
 
         self.setMaximumHeight(TOOLBAR_MAX_HEIGHT)
 
@@ -291,6 +302,9 @@ class MatplotlibPlotWidget(QWidget):
         self._peak_labels = []
         self.canvas.mpl_connect("resize_event", self._fit_margins)
         self.canvas.mpl_connect("draw_event", self._declutter_peak_labels)
+        self.canvas.mpl_connect("button_press_event", self._reset_on_double_click)
+        self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.canvas.customContextMenuRequested.connect(self._show_context_menu)
 
         layout.addWidget(self.canvas)
 
@@ -609,6 +623,27 @@ class MatplotlibPlotWidget(QWidget):
             self.nav.pan()
         else:
             self.nav.zoom()
+
+    def _reset_on_double_click(self, event) -> None:
+        if event.dblclick and event.button == 1:
+            self.reset_view()
+
+    def context_menu(self) -> QMenu | None:
+        # Pan and Zoom use the right button themselves; a menu would swallow
+        # the release and leave their drag running.
+        if self.mode():
+            return None
+        menu = QMenu(self)
+        menu.setAttribute(Qt.WA_DeleteOnClose)
+        reset = menu.addAction("Reset This Chart")
+        reset.setToolTip("Or double-click the chart")
+        reset.triggered.connect(self.reset_view)
+        return menu
+
+    def _show_context_menu(self, pos) -> None:
+        menu = self.context_menu()
+        if menu is not None:
+            menu.popup(self.canvas.mapToGlobal(pos))
 
     def mode(self) -> str:
         return {_Mode.PAN: "pan", _Mode.ZOOM: "zoom"}.get(self.nav.mode, "")

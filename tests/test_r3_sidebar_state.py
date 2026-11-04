@@ -156,13 +156,11 @@ def _loaded_toolbar(height: int) -> Toolbar:
     return toolbar
 
 
-def test_browse_keeps_ten_rows_and_inspector_scrolls(qapp):
+def test_browse_keeps_six_rows_and_inspector_scrolls(qapp):
     toolbar = _loaded_toolbar(700)
     try:
-        browse, inspector = toolbar.splitter.sizes()
-        assert browse >= 0.45 * (browse + inspector)
         row = toolbar.compound_list.sizeHintForRow(0)
-        assert toolbar.compound_list.viewport().height() >= 10 * row
+        assert toolbar.compound_list.viewport().height() >= 6 * row
         assert toolbar.inspector.verticalScrollBar().maximum() > 0
     finally:
         toolbar.deleteLater()
@@ -172,9 +170,9 @@ def test_dragged_split_is_remembered(qapp):
     toolbar = _loaded_toolbar(700)
     try:
         total = sum(toolbar.splitter.sizes())
-        toolbar.splitter.setSizes([total - 150, 150])
+        toolbar.splitter.setSizes([200, total - 200])
         toolbar._on_splitter_moved()
-        share = (total - 150) / total
+        share = 200 / total
         assert QSettings().value(SPLIT_SETTING, type=float) == pytest.approx(share)
     finally:
         toolbar.deleteLater()

@@ -446,7 +446,8 @@ class Toolbar(QWidget):
         clear = menu.addAction("No internal standard")
         clear.setEnabled(self.standard.internal_standard is not None)
         clear.triggered.connect(self.on_internal_standard_cleared)
-        menu.exec(self.standard.mapToGlobal(self.standard.rect().bottomLeft()))
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        menu.popup(self.standard.mapToGlobal(self.standard.rect().bottomLeft()))
 
     # --- Signal Handlers ---
     def on_samples_selection_changed(self):

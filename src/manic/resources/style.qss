@@ -120,28 +120,31 @@ QPushButton[variant="primary"]:focus {
 
 QPushButton:default:disabled,
 QPushButton[variant="primary"]:disabled {
-    background-color: @accent_soft;
-    color: @surface;
-    border: 1px solid @accent_soft;
+    background-color: @surface_alt;
+    color: @text_tertiary;
+    border: 1px solid @border;
 }
 
-/* After :default so a destructive default button stays red. */
-QPushButton[variant="danger"] {
+/* Named with :default too, so a destructive default button stays red. */
+QPushButton[variant="danger"],
+QPushButton[variant="danger"]:default {
     background-color: @danger;
     color: white;
     border: 1px solid @danger;
 }
 
 QPushButton[variant="danger"]:hover,
-QPushButton[variant="danger"]:focus {
+QPushButton[variant="danger"]:focus,
+QPushButton[variant="danger"]:default:hover,
+QPushButton[variant="danger"]:default:focus {
     background-color: @danger_hover;
     border: 1px solid @danger_hover;
 }
 
 QPushButton[variant="danger"]:disabled {
-    background-color: @danger_soft;
-    color: @surface;
-    border: 1px solid @danger_soft;
+    background-color: @surface_alt;
+    color: @text_tertiary;
+    border: 1px solid @border;
 }
 
 QPushButton[variant="ghost"] {

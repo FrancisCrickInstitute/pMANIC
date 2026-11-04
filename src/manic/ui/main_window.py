@@ -86,6 +86,7 @@ from manic.ui.left_toolbar import Toolbar
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
 from manic.ui.settings_window import SettingsWindow
 from manic.ui.start_panel import StartPanel
+from manic.ui.theme import set_style_property
 from manic.ui.toast_notification import show_status_toast
 from manic.ui.window_placement import show_over_parent
 from manic.ui.total_abundance_widget import abundances_from_provider
@@ -553,6 +554,8 @@ class MainWindow(QMainWindow):
         self.workspace.setCurrentWidget(
             self.graph_view if self.cdf_data_loaded else self.start_panel
         )
+        if not self.compound_data_loaded:
+            self.update_deconvolution_indicator(None)
         self._update_selection_status()
 
     def _update_selection_status(self) -> None:
@@ -2575,7 +2578,7 @@ class MainWindow(QMainWindow):
         )
         clear_button = confirm.button(QMessageBox.Yes)
         clear_button.setText("Clear Session")
-        clear_button.setProperty("variant", "danger")
+        set_style_property(clear_button, "variant", "danger")
         confirm.button(QMessageBox.No).setText("Cancel")
         reply = confirm.exec()
 

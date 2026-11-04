@@ -170,7 +170,7 @@ class StartPanel(QWidget):
         guide.setProperty("variant", "link")
         guide.setCursor(Qt.CursorShape.PointingHandCursor)
         guide.clicked.connect(self.documentation_requested.emit)
-        switch = QPushButton("Change analysis type…")
+        switch = QPushButton("Change analysis mode…")
         switch.setProperty("variant", "link")
         switch.setCursor(Qt.CursorShape.PointingHandCursor)
         switch.clicked.connect(self.new_session_requested.emit)

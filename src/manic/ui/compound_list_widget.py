@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from manic.models.database import get_deleted_compounds, soft_delete_compound
 from manic.ui.compound_recovery_dialog import CompoundRecoveryDialog
+from manic.ui.theme import set_style_property
 
 
 class CompoundListWidget(QListWidget):
@@ -164,7 +165,7 @@ class CompoundListWidget(QListWidget):
 
         confirm = msg_box.button(QMessageBox.StandardButton.Yes)
         confirm.setText("Delete")
-        confirm.setProperty("variant", "danger")
+        set_style_property(confirm, "variant", "danger")
         msg_box.button(QMessageBox.StandardButton.No).setText("Cancel")
 
         reply = msg_box.exec()

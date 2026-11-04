@@ -33,5 +33,8 @@ def test_sample_recovery_shows_empty_state(qapp, monkeypatch):
     monkeypatch.setattr(sample_recovery_dialog, "get_deleted_samples", lambda: [])
     dialog = SampleRecoveryDialog()
     assert dialog.item_list.count() == 0
-    assert dialog._body.currentIndex() == 1
-    assert not dialog.restore_btn.isEnabled()
+    assert dialog.title.text() == "No deleted samples"
+    for widget in (dialog.description, dialog.item_list, dialog.status_label):
+        assert widget.isHidden()
+    visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
+    assert visible == ["Close"]

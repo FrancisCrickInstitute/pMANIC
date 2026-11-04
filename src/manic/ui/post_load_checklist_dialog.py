@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QUrl, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -27,6 +29,7 @@ from manic.ui.dialog_kit import (
     button_box,
     description_label,
     hint_label,
+    resize_to_screen,
     section_label,
     set_variant,
     status_icon,
@@ -84,7 +87,7 @@ def _summary_text(report: list[MmFileStatus]) -> str:
 
 
 class _MmFileTable(QTableWidget):
-    """Opens showing up to eight rows; shrinks to three when the screen is short."""
+    """Opens showing up to eight rows; never fewer than four, so a short screen scrolls the dialog."""
 
     preferred_height = 0
 
@@ -111,8 +114,13 @@ class PostLoadChecklistDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(680)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        outer.setSpacing(16)
+        self.body = QWidget()
+        self.body.setObjectName("checklistBody")
+        layout = QVBoxLayout(self.body)
+        layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(8)
 
         title = title_label("Check your data setup")
@@ -192,10 +200,23 @@ class PostLoadChecklistDialog(QDialog):
             )
         )
 
-        layout.addSpacing(SECTION_SPACING - 8)
-        layout.addWidget(section_label("Changing a pattern"))
         layout.addLayout(self._source_file_row(compound_list_path))
-        layout.addWidget(hint_label(_CHANGE_PATTERN_STEPS))
+        self.change_pattern_toggle = QPushButton()
+        self.change_pattern_toggle.setObjectName("changePatternToggle")
+        self.change_pattern_toggle.setCheckable(True)
+        set_variant(self.change_pattern_toggle, "link")
+        self.change_pattern_toggle.setCursor(Qt.PointingHandCursor)
+        self.change_pattern_toggle.setAutoDefault(False)
+        self.change_pattern_toggle.toggled.connect(self._show_change_pattern_steps)
+        toggle_row = QHBoxLayout()
+        toggle_row.addWidget(self.change_pattern_toggle)
+        toggle_row.addStretch(1)
+        layout.addLayout(toggle_row)
+        self.change_pattern_steps = hint_label(_CHANGE_PATTERN_STEPS)
+        self.change_pattern_steps.setObjectName("changePatternSteps")
+        self.change_pattern_steps.setContentsMargins(16, 0, 0, 0)
+        layout.addWidget(self.change_pattern_steps)
+        self._show_change_pattern_steps(False)
 
         self.user_guide_link = QLabel('<a href="guide">Open the user guide</a>')
         self.user_guide_link.setObjectName("userGuideLink")
@@ -207,11 +228,39 @@ class PostLoadChecklistDialog(QDialog):
         )
         layout.addWidget(self.user_guide_link)
 
-        layout.addSpacing(8)
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("checklistScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setWidget(self.body)
+        self.scroll.viewport().setAutoFillBackground(False)
+        self.body.setAutoFillBackground(False)
+        outer.addWidget(self.scroll, stretch=1)
+
         buttons, _apply = button_box("Apply", "Continue without changes")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        outer.addWidget(buttons)
+        self._fit_to_screen()
+
+    def _fit_to_screen(self) -> None:
+        """As tall as the body, or as the screen allows; the body scrolls above the buttons."""
+        width = max(self.width(), self.minimumWidth())
+        chrome = self.sizeHint().height() - self.scroll.sizeHint().height()
+        body = self.body.layout().totalHeightForWidth(width - 2 * MARGIN)
+        resize_to_screen(self, width, chrome + body)
+
+    def _show_change_pattern_steps(self, shown: bool) -> None:
+        arrow = "▾" if shown else "▸"
+        self.change_pattern_toggle.setText(f"{arrow} How do I change a pattern?")
+        self.change_pattern_steps.setVisible(shown)
+        if shown:
+            self._fit_to_screen()
+            # After the body has laid out the steps, or it scrolls to where they were.
+            QTimer.singleShot(
+                0, lambda: self.scroll.ensureWidgetVisible(self.change_pattern_steps, 0, 0)
+            )
 
     def _source_file_row(self, path: str | None) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -296,5 +345,5 @@ class PostLoadChecklistDialog(QDialog):
         row_h = table.verticalHeader().defaultSectionSize()
         frame = 2 * table.frameWidth()
         rows = max(table.rowCount(), 1)
-        table.setMinimumHeight(header + min(rows, 3) * row_h + frame)
+        table.setMinimumHeight(header + min(rows, 4) * row_h + frame)
         table.preferred_height = header + min(rows, 8) * row_h + frame

@@ -79,6 +79,11 @@ from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.models.sample_fit_type import set_sample_fit_type
 from manic.validation.peak_verdict import PeakVerdict
 from manic.ui.documentation_viewer import DocumentationViewer
+from manic.processors.fit_prefetch import (
+    discard_prefetched,
+    prefetch_display_fits,
+    start_pool,
+)
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
@@ -137,6 +142,7 @@ class MainWindow(QMainWindow):
 
         # Mass tolerance setting (default 0.2 Da)
         self.mass_tolerance = 0.2
+        self._reusing_fits = False
 
         # Minimum peak area ratio setting (fraction of internal std reference peak)
         self.min_peak_height_ratio = DEFAULT_MIN_PEAK_HEIGHT_RATIO
@@ -934,6 +940,12 @@ class MainWindow(QMainWindow):
         QCoreApplication.processEvents()
 
     def _import_ok(self, rows: int):
+        # Spawn the fit workers while the user picks a compound. Only a speed-up:
+        # without workers each plot fits in this thread, as before.
+        try:
+            start_pool()
+        except Exception:
+            logger.warning("Could not start fit workers", exc_info=True)
         self.progress_dialog.close()
 
         # Non-blocking success notification (avoid modal popup)
@@ -1020,6 +1032,12 @@ class MainWindow(QMainWindow):
 
         try:
             if samples:
+                if not self._reusing_fits:
+                    prefetch_display_fits(
+                        compound_name,
+                        samples,
+                        use_corrected=self.graph_view.use_corrected,
+                    )
                 with measure_time("total_plotting_speed"):
                     validation_data = self._peak_verdicts(compound_name, samples)
 
@@ -1056,6 +1074,8 @@ class MainWindow(QMainWindow):
                 "warning", "Error", f"Error plotting: {str(e)}"
             )
             msg_box.exec()
+        finally:
+            discard_prefetched()
 
     def _get_current_eics(self):
         """Get EICs for the current compound and samples"""
@@ -1330,7 +1350,12 @@ class MainWindow(QMainWindow):
 
     def on_samples_selected(self, samples_selected):
         compound = self.toolbar.get_selected_compound()
-        self.on_plot_button(compound, samples_selected)
+        # Re-selecting samples of the compound on screen reuses its cached fits.
+        self._reusing_fits = compound == self.graph_view.get_current_compound()
+        try:
+            self.on_plot_button(compound, samples_selected)
+        finally:
+            self._reusing_fits = False
 
     def focus_on_samples(self, names: list[str]) -> None:
         self.toolbar.set_selected_samples(names)

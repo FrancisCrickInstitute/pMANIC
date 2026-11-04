@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import threading
 import warnings
 from dataclasses import dataclass
 from typing import Literal
@@ -604,6 +605,29 @@ def _deconvolve_matrix(
     )
 
 
+class FitMissing(Exception):
+    """Raised by a fit cache while a render is probed for the fits it lacks."""
+
+
+# Fits computed ahead of a render on worker processes (see fit_prefetch), keyed
+# like the caches below; each is consumed once, on its cache miss.
+_prefetched: dict[tuple, FittedComponentModel | None] = {}
+# While this thread's ``keys`` is a list, cache misses record their key there
+# and raise FitMissing. Thread-local so a background export never probes.
+_probe = threading.local()
+
+
+def _cached_fit(fit, *args) -> FittedComponentModel | None:
+    key = (fit.__name__, *args)
+    if key in _prefetched:
+        return _prefetched.pop(key)
+    keys = getattr(_probe, "keys", None)
+    if keys is not None:
+        keys.append(key)
+        raise FitMissing
+    return fit(*args)
+
+
 @functools.lru_cache(maxsize=8192)
 def _fit_single_component_model_cached(
     time_bytes: bytes,
@@ -611,6 +635,18 @@ def _fit_single_component_model_cached(
     matrix_shape: tuple[int, int],
     params: ChromatographicPeakDeconvolutionParameters,
     target_rt: float | None = None,
+) -> FittedComponentModel | None:
+    return _cached_fit(
+        _fit_single_from_bytes, time_bytes, matrix_bytes, matrix_shape, params, target_rt
+    )
+
+
+def _fit_single_from_bytes(
+    time_bytes: bytes,
+    matrix_bytes: bytes,
+    matrix_shape: tuple[int, int],
+    params: ChromatographicPeakDeconvolutionParameters,
+    target_rt: float | None,
 ) -> FittedComponentModel | None:
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
@@ -643,6 +679,18 @@ def _fit_joint_component_model_cached(
     different key and never returns a stale result; the cost is only memory (each
     entry is one window's small fit result).
     """
+    return _cached_fit(
+        _fit_joint_from_bytes, time_bytes, matrix_bytes, matrix_shape, params, target_rt
+    )
+
+
+def _fit_joint_from_bytes(
+    time_bytes: bytes,
+    matrix_bytes: bytes,
+    matrix_shape: tuple[int, int],
+    params: ChromatographicPeakDeconvolutionParameters,
+    target_rt: float | None,
+) -> FittedComponentModel | None:
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
     return _fit_joint_component_model(time, matrix, params, target_rt=target_rt)

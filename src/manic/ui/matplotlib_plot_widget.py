@@ -573,6 +573,9 @@ class MatplotlibPlotWidget(QWidget):
             return
         _apply_theme_rc()
         remap_figure_colors(self.figure, remap)
+        # A text's background box is not one of the figure's children.
+        for label in self._peak_labels:
+            label.get_bbox_patch().set_facecolor(COLORS["surface"])
         self.ax.tick_params(colors=COLORS["border_strong"], labelcolor=COLORS["text_secondary"])
         self.ax.grid(True, color=COLORS["grid_line"])
         self.canvas.draw_idle()
@@ -642,14 +645,41 @@ class MatplotlibPlotWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to reset view: {e}")
 
-    def label_peaks(self, x_data, y_data, *, limit: int = 8, decimals: int = 2) -> None:
-        """Label up to ``limit`` of the tallest peaks; labels that would overlap
-        a taller peak's label are hidden at draw time."""
+    def label_peaks(
+        self,
+        x_data,
+        y_data,
+        *,
+        own_mz=(),
+        limit: int = 5,
+        min_fraction: float = 0.05,
+        decimals: int = 2,
+    ) -> None:
+        """Label the compound's own ions (``own_mz``), then up to ``limit`` of
+        the tallest other peaks. Peaks below ``min_fraction`` of the tallest
+        are baseline and stay unlabelled. Where labels would share a column,
+        own ions win over others, and the tallest own ion over the rest, so a
+        crowded isotopologue cluster is named at its top stem."""
         x_data = np.asarray(x_data, dtype=np.float64)
         y_data = np.asarray(y_data, dtype=np.float64)
         keep = (y_data > 0) & np.isfinite(x_data) & np.isfinite(y_data)
         x_data, y_data = x_data[keep], y_data[keep]
-        for index in np.argsort(y_data)[::-1][:limit]:
+        if not len(y_data):
+            return
+        floor = min_fraction * float(np.max(y_data))
+        own = []
+        for mz in own_mz:
+            nearest = int(np.argmin(np.abs(x_data - mz)))
+            # Channels sit 1 Da apart: half that finds a channel's peak
+            # without taking its neighbour's.
+            if abs(x_data[nearest] - mz) <= 0.5 and y_data[nearest] >= floor and nearest not in own:
+                own.append(nearest)
+        others = [
+            int(index) for index in np.argsort(y_data)[::-1]
+            if y_data[index] >= floor and index not in own
+        ][:limit]
+        own.sort(key=lambda index: -y_data[index])
+        for index in own + others:
             self._peak_labels.append(
                 self.ax.annotate(
                     f"{x_data[index]:.{decimals}f}",
@@ -659,7 +689,8 @@ class MatplotlibPlotWidget(QWidget):
                     ha="center",
                     va="bottom",
                     fontsize=PLOT_TICK_FONTSIZE,
-                    color=COLORS["text_secondary"],
+                    color=COLORS["text"] if index in own else COLORS["text_secondary"],
+                    fontweight="semibold" if index in own else "normal",
                     annotation_clip=True,
                     # Opaque so a guide line through the label never cuts it.
                     bbox={"boxstyle": "square,pad=0.15", "fc": COLORS["surface"], "ec": "none"},

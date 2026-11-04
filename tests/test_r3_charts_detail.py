@@ -70,7 +70,7 @@ def _spectrum_widget(qapp, width: int):
 def test_spectrum_labels_never_share_a_column(qapp):
     widget = _spectrum_widget(qapp, 900)
     try:
-        assert widget.visible_peak_labels() == ["174.99", "73.02", "147.00", "280.99", "207.01"]
+        assert widget.visible_peak_labels() == ["174.99"]
         widget.ax.set_xlim(172.0, 179.0)
         widget.canvas.draw()
         widget.canvas.draw()

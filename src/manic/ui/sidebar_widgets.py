@@ -315,6 +315,7 @@ class CollapsibleSection(QWidget):
 
         layout.addWidget(self.header)
         layout.addWidget(body)
+        self._headless = False
         self._expanded = not expanded
         self.set_expanded(expanded)
 
@@ -331,6 +332,12 @@ class CollapsibleSection(QWidget):
             return
         self._expanded = expanded
         self._chevron.setText("▾" if expanded else "▸")
-        self.body.setVisible(expanded)
+        self.body.setVisible(expanded or self._headless)
         self.header.setToolTip("Collapse" if expanded else "Expand")
         self.toggled.emit(expanded)
+
+    def set_headless(self, headless: bool) -> None:
+        """Hide the heading and always show the body, while a switcher stands in for it."""
+        self._headless = headless
+        self.header.setVisible(not headless)
+        self.body.setVisible(headless or self._expanded)

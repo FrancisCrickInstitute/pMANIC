@@ -5,6 +5,7 @@ from typing import List, NamedTuple
 from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -13,7 +14,9 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMenu,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -44,8 +47,10 @@ from .total_abundance_widget import TotalAbundanceWidget
 
 logger = logging.getLogger(__name__)
 
-# Before the inspector takes the rest, the lists keep this many rows each (compounds,
-# samples) and together this share of the sidebar. The Peak window always stays whole.
+# The lists always keep this many rows each (compounds, samples), even if the Peak
+# window must scroll. Then the Peak window stays whole, then the lists grow to
+# BROWSE_MIN_ROWS and together this share of the sidebar.
+BROWSE_KEEP_ROWS = (4, 3)
 BROWSE_MIN_ROWS = (6, 4)
 BROWSE_MIN_SHARE = 0.45
 # Room past each list's floor goes compounds:samples in this ratio, up to each one's rows.
@@ -59,7 +64,8 @@ SUMMARY_SETTING = "sidebar/summary_expanded"
 
 class _BrowseList(NamedTuple):
     widget: QListWidget
-    floor: int  # height of the rows it keeps
+    keep: int  # height of the rows it never gives up
+    floor: int  # height of the rows it keeps while the Peak window fits
     full: int  # height of every row the filter leaves
     weight: int
 
@@ -201,7 +207,7 @@ class Toolbar(QWidget):
         inspector_content = QWidget()
         inspector_content.setObjectName("sidebarInspector")
         inspector_layout = QVBoxLayout(inspector_content)
-        inspector_layout.setContentsMargins(16, 12, 16, 12)
+        inspector_layout.setContentsMargins(16, 8, 16, 8)
         inspector_layout.setSpacing(12)
         # Programmatic checkbox updates set this so they refresh summaries and
         # menus through toggled without committing anything.
@@ -236,7 +242,8 @@ class Toolbar(QWidget):
         )
         self._refresh_peak_summary()
         inspector_layout.addWidget(self.peak_section)
-        inspector_layout.addWidget(divider())
+        self._inspector_dividers = [divider(), divider()]
+        inspector_layout.addWidget(self._inspector_dividers[0])
 
         display_body = QWidget()
         display_layout = QVBoxLayout(display_body)
@@ -278,7 +285,7 @@ class Toolbar(QWidget):
             checkbox.toggled.connect(self._refresh_display_summary)
         self._refresh_display_summary()
         inspector_layout.addWidget(self.display_section)
-        inspector_layout.addWidget(divider())
+        inspector_layout.addWidget(self._inspector_dividers[1])
 
         summary = QWidget()
         summary_layout = QVBoxLayout(summary)
@@ -306,11 +313,43 @@ class Toolbar(QWidget):
         self.inspector.setFrameShape(QFrame.NoFrame)
         self.inspector.setWidget(inspector_content)
 
+        # On a short sidebar this stands in for the section headings: one section at a time.
+        self._compact = False
+        self._pane = self.peak_section
+        self.section_switcher = QWidget()
+        self.section_switcher.setObjectName("inspectorSwitcher")
+        switcher_layout = QHBoxLayout(self.section_switcher)
+        switcher_layout.setContentsMargins(16, 4, 16, 0)
+        switcher_layout.setSpacing(0)
+        self._switch_buttons = QButtonGroup(self.section_switcher)
+        for key, text, section in (
+            ("peak", "Peak window", self.peak_section),
+            ("display", "Display", self.display_section),
+            ("summary", "Summary", self.summary_section),
+        ):
+            button = QToolButton()
+            button.setObjectName(f"switch_{key}")
+            button.setText(text)
+            button.setCheckable(True)
+            button.setChecked(section is self._pane)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            button.clicked.connect(lambda _checked=False, s=section: self.show_pane(s))
+            self._switch_buttons.addButton(button)
+            switcher_layout.addWidget(button)
+        self.section_switcher.hide()
+
+        self._inspector_pane = QWidget()
+        pane_layout = QVBoxLayout(self._inspector_pane)
+        pane_layout.setContentsMargins(0, 0, 0, 0)
+        pane_layout.setSpacing(0)
+        pane_layout.addWidget(self.section_switcher)
+        pane_layout.addWidget(self.inspector, 1)
+
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(5)
         self.splitter.addWidget(browse)
-        self.splitter.addWidget(self.inspector)
+        self.splitter.addWidget(self._inspector_pane)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.handle(1).setToolTip("Drag to share space between lists and inspector")
@@ -416,6 +455,7 @@ class Toolbar(QWidget):
         self.samples_section.summary.setText(summary)
 
         self.inspector.setVisible(self._raw_loaded)
+        self._inspector_pane.setVisible(self._raw_loaded)
         self._fit_timer.start()
 
     def _on_splitter_moved(self, *_args) -> None:
@@ -444,19 +484,30 @@ class Toolbar(QWidget):
     def _browse_lists(self) -> list[_BrowseList]:
         lists = (self.compound_list, self.sample_list)
         return [
-            _BrowseList(lst, self._rows_height(lst, keep), self._rows_height(lst), weight)
-            for lst, keep, weight in zip(lists, BROWSE_MIN_ROWS, BROWSE_WEIGHTS)
+            _BrowseList(
+                lst,
+                self._rows_height(lst, keep),
+                self._rows_height(lst, floor),
+                self._rows_height(lst),
+                weight,
+            )
+            for lst, keep, floor, weight in zip(
+                lists, BROWSE_KEEP_ROWS, BROWSE_MIN_ROWS, BROWSE_WEIGHTS
+            )
             if lst.isVisibleTo(self)
         ]
 
     @staticmethod
     def _share_lists(space: int, lists: list[_BrowseList]) -> list[int]:
-        """Each list its floor first (scaled down if short), then by weight up to its rows."""
-        floors = [item.floor for item in lists]
-        if space <= sum(floors):
-            return [space * floor // max(sum(floors), 1) for floor in floors]
-        heights = list(floors)
-        rest = space - sum(floors)
+        """Kept rows, then floors (each shared in proportion if short), then by weight up to every row."""
+        heights = [0] * len(lists)
+        for target in ([item.keep for item in lists], [item.floor for item in lists]):
+            need = [max(goal - height, 0) for goal, height in zip(target, heights)]
+            rest = space - sum(heights)
+            if rest <= sum(need):
+                return [h + rest * n // max(sum(need), 1) for h, n in zip(heights, need)]
+            heights = [max(h, goal) for h, goal in zip(heights, target)]
+        rest = space - sum(heights)
         for _ in lists:
             growing = [i for i, item in enumerate(lists) if heights[i] < item.full]
             if rest <= 0 or not growing:
@@ -475,21 +526,78 @@ class Toolbar(QWidget):
             self.samples_section, int(self.samples_section.is_expanded())
         )
         self.inspector.widget().layout().setStretchFactor(
-            self.summary_section, int(self.summary_section.is_expanded())
+            self.summary_section,
+            int(self.summary_section.is_expanded() or self._compact),
         )
         for item, height in zip(lists, self._share_lists(browse - chrome, lists)):
             item.widget.setMinimumHeight(min(LIST_MIN_HEIGHT, height))
             item.widget.setMaximumHeight(height)
 
-    def _peak_height(self) -> int:
+    def _inspector_width(self) -> int:
+        margins = self.inspector.widget().layout().contentsMargins()
+        return self.inspector.viewport().width() - margins.left() - margins.right()
+
+    @staticmethod
+    def _section_height(section: CollapsibleSection, width: int, body: int | None = None) -> int:
+        """Heading plus, if open, the body (or ``body`` px of it), whether or not the switcher shows."""
+        height = section.header.sizeHint().height()
+        if section.is_expanded():
+            if body is None:
+                body = section.body.heightForWidth(width)
+                if body < 0:
+                    body = section.body.sizeHint().height()
+            height += section.layout().spacing() + body
+        return height
+
+    def _peak_height(self, compact: bool | None = None) -> int:
         """Inspector height that shows the whole Peak window without scrolling."""
-        content = self.inspector.widget()
-        margins = content.layout().contentsMargins()
-        width = self.inspector.viewport().width() - margins.left() - margins.right()
-        height = self.peak_section.heightForWidth(width)
-        if height < 0:
-            height = self.peak_section.sizeHint().height()
-        return margins.top() + height + margins.bottom()
+        margins = self.inspector.widget().layout().contentsMargins()
+        peak = self._section_height(self.peak_section, self._inspector_width())
+        if compact is None:
+            compact = self._compact
+        if compact:
+            peak += self.section_switcher.sizeHint().height() - (
+                self.peak_section.header.sizeHint().height()
+                + self.peak_section.layout().spacing()
+            )
+        return margins.top() + peak + margins.bottom()
+
+    def _full_inspector_height(self) -> int:
+        """Height for the whole Peak window, then Display and Summary as the user left them."""
+        layout = self.inspector.widget().layout()
+        width = self._inspector_width()
+        dividers = len(self._inspector_dividers) * (2 * layout.spacing() + 1)
+        return (
+            self._peak_height(compact=False)
+            + dividers
+            + self._section_height(self.display_section, width)
+            + self._section_height(self.summary_section, width, SUMMARY_MIN_CHART)
+        )
+
+    def is_compact(self) -> bool:
+        return self._compact
+
+    def _set_compact(self, compact: bool) -> None:
+        """Too short for every section: the switcher shows one at a time, in place of their headings."""
+        if compact == self._compact:
+            return
+        self._compact = compact
+        self.section_switcher.setVisible(compact)
+        for line in self._inspector_dividers:
+            line.setVisible(not compact)
+        self.show_pane(self._pane)
+
+    def show_pane(self, section: CollapsibleSection) -> None:
+        """Pick the section the switcher shows; it shows every section again once there is room."""
+        self._pane = section
+        for button, candidate in zip(
+            self._switch_buttons.buttons(),
+            (self.peak_section, self.display_section, self.summary_section),
+        ):
+            button.setChecked(candidate is section)
+            candidate.set_headless(self._compact)
+            candidate.setVisible(not self._compact or candidate is section)
+        self.inspector.verticalScrollBar().setValue(0)
 
     def _start_summary(self, inspector: int) -> None:
         """Summary starts open only if its first chart fits, unless the user already chose."""
@@ -511,17 +619,30 @@ class Toolbar(QWidget):
         )
         full = chrome + sum(item.full for item in lists)
         floor = chrome + sum(item.floor for item in lists)
-        # The lists never take more than their rows, nor room the Peak window needs.
-        cap = min(full, total - self._peak_height())
-        if self._browse_share is not None:
-            browse = min(int(total * self._browse_share), cap)
-        else:
-            browse = min(max(floor, int(total * BROWSE_MIN_SHARE)), cap)
+        keep = chrome + sum(item.keep for item in lists)
+
+        def browse_for(peak: int) -> tuple[int, int]:
+            # The lists never take more than their rows, nor room the Peak window
+            # needs once they have their kept rows.
+            cap = min(full, max(total - peak, keep))
+            if self._browse_share is not None:
+                return min(int(total * self._browse_share), cap), cap
+            return min(max(floor, int(total * BROWSE_MIN_SHARE)), cap), cap
+
+        # Judged before the lists grow into spare room, and without the switcher's own
+        # height, so the answer does not depend on which layout shows now.
+        inspector = total - browse_for(self._peak_height(compact=False))[0]
         if not self._summary_started:
-            self._start_summary(total - browse)
+            self._start_summary(inspector)
+        self._set_compact(inspector < self._full_inspector_height())
+        browse, cap = browse_for(self._peak_height())
         if self._browse_share is None:
-            wanted = self.inspector.widget().minimumSizeHint().height()
-            browse = min(max(browse, total - wanted), cap)
+            if self._compact:
+                # One section shows at a time, so the lists take what the Peak window leaves.
+                browse = cap
+            else:
+                wanted = self.inspector.widget().minimumSizeHint().height()
+                browse = min(max(browse, total - wanted), cap)
         self._set_list_heights(browse, chrome, lists)
         if self.splitter.sizes()[0] != browse:
             self.splitter.setSizes([browse, total - browse])

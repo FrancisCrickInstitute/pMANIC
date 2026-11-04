@@ -61,8 +61,7 @@ def test_closing_samples_gives_its_room_back_without_a_resize(qapp):
         closed = toolbar.splitter.sizes()
         toolbar.samples_section.set_expanded(True)
         _settle(toolbar)
-        opened = toolbar.splitter.sizes()
-        assert opened[0] > closed[0]
+        assert _rows(toolbar.sample_list) >= 3
         toolbar.samples_section.set_expanded(False)
         _settle(toolbar)
         assert toolbar.splitter.sizes() == closed
@@ -131,6 +130,8 @@ def test_switching_compound_scrolls_the_inspector_back_to_the_top(qapp, monkeypa
     QSettings().setValue(SUMMARY_SETTING, True)
     toolbar = _toolbar(560)
     try:
+        toolbar.show_pane(toolbar.summary_section)
+        _settle(toolbar)
         bar = toolbar.inspector.verticalScrollBar()
         bar.setValue(bar.maximum())
         assert bar.value() > 0

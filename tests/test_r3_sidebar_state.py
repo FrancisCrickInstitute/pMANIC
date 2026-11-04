@@ -156,12 +156,12 @@ def _loaded_toolbar(height: int) -> Toolbar:
     return toolbar
 
 
-def test_browse_keeps_six_rows_and_inspector_scrolls(qapp):
+def test_browse_keeps_six_rows_and_inspector_switches_sections(qapp):
     toolbar = _loaded_toolbar(700)
     try:
         row = toolbar.compound_list.sizeHintForRow(0)
         assert toolbar.compound_list.viewport().height() >= 6 * row
-        assert toolbar.inspector.verticalScrollBar().maximum() > 0
+        assert toolbar.section_switcher.isVisible()
     finally:
         toolbar.deleteLater()
 

@@ -916,3 +916,38 @@ QDialog#settingsWindow QStackedWidget,
 QDialog#settingsWindow QStackedWidget > QWidget {
     background-color: transparent;
 }
+
+/* The inspector's section switcher on a short sidebar: same shape as the grid's density switch. */
+QWidget#inspectorSwitcher QToolButton {
+    font-size: 11px;
+    color: @text_secondary;
+    background-color: @surface;
+    border: 1px solid @border_strong;
+    padding: 2px 6px;
+    min-height: 18px;
+}
+
+QWidget#inspectorSwitcher QToolButton:hover {
+    background-color: @surface_hover;
+}
+
+QWidget#inspectorSwitcher QToolButton:checked {
+    color: @text;
+    background-color: @surface_alt;
+    font-weight: 600;
+}
+
+QWidget#inspectorSwitcher QToolButton#switch_peak {
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
+    border-right: none;
+}
+
+QWidget#inspectorSwitcher QToolButton#switch_display {
+    border-right: none;
+}
+
+QWidget#inspectorSwitcher QToolButton#switch_summary {
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+}

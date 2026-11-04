@@ -437,7 +437,7 @@ class InternalStandardPage(SettingsPage):
         layout.addStretch()
 
     def _compound_names(self) -> list[str]:
-        return self.host.toolbar.compound_list.real_names()
+        return self.host.compound_names()
 
     def editable(self) -> tuple[bool, str]:
         if not self._compound_names():
@@ -494,10 +494,7 @@ class InternalStandardPage(SettingsPage):
     def save(self) -> None:
         chosen = self.standard_combo.currentData()
         if chosen != self.host.internal_standard_name():
-            if chosen is None:
-                self.host.toolbar.on_internal_standard_cleared()
-            else:
-                self.host.toolbar.on_internal_standard_selected(chosen)
+            self.host.apply_internal_standard(chosen)
         self.host.apply_internal_standard_reference_isotope(self.combo.currentData() or 0)
 
 

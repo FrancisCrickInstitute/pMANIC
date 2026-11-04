@@ -26,7 +26,7 @@ def _host(mode: AnalysisMode) -> SimpleNamespace:
         selected_sample_names=lambda: [],
         qualifier_channels=lambda _name: [],
         deconvolution_settings=lambda _name: ("4", "auto", "balanced"),
-        toolbar=SimpleNamespace(compound_list=SimpleNamespace(real_names=lambda: [])),
+        compound_names=lambda: [],
     )
 
 

@@ -2478,6 +2478,15 @@ class MainWindow(QMainWindow):
     def internal_standard_name(self) -> str | None:
         return self.toolbar.get_internal_standard()
 
+    def compound_names(self) -> list[str]:
+        return self.toolbar.compound_list.real_names()
+
+    def apply_internal_standard(self, name: str | None) -> None:
+        if name is None:
+            self.toolbar.on_internal_standard_cleared()
+        else:
+            self.toolbar.on_internal_standard_selected(name)
+
     def internal_standard_label_atoms(self) -> int:
         internal_standard = self.toolbar.get_internal_standard()
         if not internal_standard:

@@ -301,7 +301,7 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
         assert not y_axis.labelsVisible()
-        assert widget.header.detail.text() == "2 samples · 1 failed"
+        assert widget.header.detail.text() == "2 samples · 1 sample failed"
         assert "Failed&nbsp;<b>1</b>" in widget.key.text()
         widget.clear()
         assert widget._identity is None
@@ -1200,7 +1200,7 @@ def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(qapp, mon
         dialog._plot_eic()
         dialog._update_info_label()
         assert dialog.info_label.text().startswith("EIC plot failed: finalize failed")
-        assert "plot failed" in dialog.eic_plot.ax.get_title()
+        assert "plot failed" in dialog.eic_plot.ax.get_title(loc="left")
     finally:
         dialog.deleteLater()
 

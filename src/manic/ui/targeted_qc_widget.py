@@ -6,7 +6,11 @@ from PySide6.QtGui import QMouseEvent, QPainter
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
 from manic.ui.chart_header import ChartHeader
-from manic.ui.chart_popup_dialog import ChartPopupDialog, identity_key_html
+from manic.ui.chart_popup_dialog import (
+    ChartPopupDialog,
+    identity_key_html,
+    identity_key_tooltip,
+)
 from manic.ui.chart_style import style_chart, text_style
 from manic.ui.identity_chart import (
     IdentityGridBinding,
@@ -44,8 +48,9 @@ class TargetedQcWidget(QWidget):
 
         self.key = QLabel()
         self.key.setTextFormat(Qt.RichText)
+        self.key.setWordWrap(True)
+        self.key.setAlignment(Qt.AlignHCenter)
         theme.style(self.key, text_style("text_secondary", 11))
-        self.key.setToolTip("Qualifier ion cells by QC result, across all samples")
         self.key.hide()
 
         layout = QVBoxLayout(self)
@@ -53,7 +58,7 @@ class TargetedQcWidget(QWidget):
         layout.setSpacing(2)
         layout.addWidget(self.header)
         layout.addWidget(self.chart_view)
-        layout.addWidget(self.key, alignment=Qt.AlignHCenter)
+        layout.addWidget(self.key)
         self.setMinimumHeight(200)
         self.setMaximumHeight(330)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -78,9 +83,10 @@ class TargetedQcWidget(QWidget):
         count = len(identity.samples)
         self.header.set_has_data(
             True, f"{count} sample{'s' if count != 1 else ''}"
-            + (f" · {failed} failed" if failed else "")
+            + (f" · {failed} sample{'s' if failed != 1 else ''} failed" if failed else "")
         )
         self.key.setText(identity_key_html(identity))
+        self.key.setToolTip(identity_key_tooltip(identity))
         self.key.show()
 
     def clear(self) -> None:

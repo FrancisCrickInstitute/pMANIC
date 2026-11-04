@@ -96,7 +96,7 @@ def test_action_applies_to_every_selected_tile(grid):
     view, tiles, emitted = grid
     view._selected_plots = {tiles["A"][1], tiles["C"][1]}
     menu, actions = _actions(view, tiles["A"][1])
-    actions["Mark peak as bad"].trigger()
+    actions["Mark 2 peaks as bad"].trigger()
     menu.close()
     compound, samples, review = emitted[-1]
     assert compound == "Cmp"

@@ -15,6 +15,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backend_bases import _Mode
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.colors import to_hex, to_rgba, to_rgba_array
 from matplotlib.figure import Figure
@@ -44,7 +45,6 @@ from manic.constants import (
     SCIENTIFIC_NOTATION_THRESHOLD,
     TOOLBAR_BUTTON_MARGIN,
     TOOLBAR_BUTTON_PADDING,
-    TOOLBAR_MARGINS,
     TOOLBAR_MAX_HEIGHT,
     TOOLBAR_SPACING,
 )
@@ -116,6 +116,8 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
 
 logger = logging.getLogger(__name__)
 
+STEM_HEADROOM = 1.18
+
 
 @contextmanager
 def matplotlib_cleanup():
@@ -132,33 +134,24 @@ def matplotlib_cleanup():
 
 
 class CompactNavigationToolbar(QWidget):
-    """Streamlined navigation toolbar with essential plot controls.
+    """Reset, Pan and Zoom for a set of plots; each mode applies to every plot."""
 
-    Provides a minimal interface for plot interaction
-    with zoom, pan, and reset functionality.
-    """
-
-    def __init__(self, canvas, parent=None):
+    def __init__(self, plots, parent=None):
         super().__init__(parent)
-        self.canvas = canvas
-        self.toolbar = NavigationToolbar(canvas, self)
-        self.toolbar.setVisible(False)  # Hide the original toolbar
-
+        self.plots = list(plots)
         self._setup_ui()
 
     def _setup_ui(self):
-        """Create a compact toolbar with essential buttons."""
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(
-            TOOLBAR_MARGINS, TOOLBAR_MARGINS, TOOLBAR_MARGINS, TOOLBAR_MARGINS
-        )
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(TOOLBAR_SPACING)
 
-        button_style = f"""
-            QWidget {{ background-color: @surface; }}
+        theme.style(
+            self,
+            f"""
             QToolButton {{
-                border: none;
-                padding: {TOOLBAR_BUTTON_PADDING}px 8px;
+                border: 1px solid transparent;
+                padding: {TOOLBAR_BUTTON_PADDING}px 10px;
                 margin: {TOOLBAR_BUTTON_MARGIN}px;
                 background-color: transparent;
                 border-radius: 6px;
@@ -172,120 +165,50 @@ class CompactNavigationToolbar(QWidget):
                 background-color: @accent_soft;
                 color: @accent;
             }}
-        """
-        theme.style(self, button_style)
+            """,
+        )
 
-        # Reset button: returns plot to a deterministic data-fitted view state
         self.home_btn = QToolButton()
         self.home_btn.setText("↻ Reset")
-        self.home_btn.setToolTip("Reset view")
+        self.home_btn.setToolTip("Fit all three charts to their data")
         self.home_btn.clicked.connect(self._reset_view)
         layout.addWidget(self.home_btn)
 
-        # Drag button: enables plot panning functionality
         self.pan_btn = QToolButton()
         self.pan_btn.setText("Pan")
-        self.pan_btn.setToolTip("Drag the plot to pan")
+        self.pan_btn.setToolTip("Drag any chart to pan it")
         self.pan_btn.setCheckable(True)
         self.pan_btn.clicked.connect(self._on_pan)
         layout.addWidget(self.pan_btn)
 
-        # Zoom button: activates rectangular zoom selection
         self.zoom_btn = QToolButton()
         self.zoom_btn.setText("Zoom")
-        self.zoom_btn.setToolTip("Drag a rectangle to zoom")
+        self.zoom_btn.setToolTip("Drag a rectangle on any chart to zoom it")
         self.zoom_btn.setCheckable(True)
         self.zoom_btn.clicked.connect(self._on_zoom)
         layout.addWidget(self.zoom_btn)
 
-        layout.addStretch()
-
-        # Constrain toolbar height for space efficiency
         self.setMaximumHeight(TOOLBAR_MAX_HEIGHT)
 
+    def _set_mode(self, mode: str) -> None:
+        self.pan_btn.setChecked(mode == "pan")
+        self.zoom_btn.setChecked(mode == "zoom")
+        for plot in self.plots:
+            plot.set_mode(mode)
+
     def _on_pan(self):
-        """Toggle plot panning mode with exclusive button state management."""
-        if self.pan_btn.isChecked():
-            self.zoom_btn.setChecked(False)
-            self.toolbar.pan()
-        else:
-            self.toolbar.pan()  # Toggle off
+        self._set_mode("pan" if self.pan_btn.isChecked() else "")
 
     def _on_zoom(self):
-        """Toggle rectangular zoom mode with exclusive button state management."""
-        if self.zoom_btn.isChecked():
-            self.pan_btn.setChecked(False)
-            self.toolbar.zoom()
-        else:
-            self.toolbar.zoom()  # Toggle off
+        self._set_mode("zoom" if self.zoom_btn.isChecked() else "")
 
     def _reset_view(self):
-        """Reset to a fit-to-data view.
-
-        Matplotlib's nav-stack home can become unstable in Qt embed cases,
-        especially for stem plots. This computes limits from the artists we draw.
-        """
-        try:
-            # Turn off active modes first
-            if self.pan_btn.isChecked():
-                self.pan_btn.setChecked(False)
-                self.toolbar.pan()
-            if self.zoom_btn.isChecked():
-                self.zoom_btn.setChecked(False)
-                self.toolbar.zoom()
-
-            fig = getattr(self.canvas, "figure", None)
-            if fig is None or not fig.axes:
-                return
-            ax = fig.axes[0]
-
-            # Prefer stored line data when available
-            data_lines = getattr(self.parent(), "data_lines", None)
-            stem_data = getattr(self.parent(), "_last_stem_data", None)
-
-            if stem_data is not None:
-                x_data, y_data = stem_data
-                if x_data is None or y_data is None or len(x_data) == 0:
-                    return
-                x_min = float(np.min(x_data))
-                x_max = float(np.max(x_data))
-                x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 10.0
-                ax.set_xlim(max(0.0, x_min - x_padding), x_max + x_padding)
-
-                y_max = float(np.max(y_data))
-                ax.set_ylim(0.0, y_max * 1.1 if y_max > 0 else 1.0)
-            elif data_lines:
-                all_x = []
-                all_y = []
-                for x_vals, y_vals in data_lines:
-                    if x_vals is None or y_vals is None or len(x_vals) == 0:
-                        continue
-                    all_x.append(np.asarray(x_vals, dtype=np.float64))
-                    all_y.append(np.asarray(y_vals, dtype=np.float64))
-                if not all_x or not all_y:
-                    return
-                x_concat = np.concatenate(all_x)
-                y_concat = np.concatenate(all_y)
-                x_min = float(np.min(x_concat))
-                x_max = float(np.max(x_concat))
-                y_min = float(np.min(y_concat))
-                y_max = float(np.max(y_concat))
-                x_pad = (x_max - x_min) * 0.02 if x_max > x_min else 1.0
-                y_pad = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
-                ax.set_xlim(x_min - x_pad, x_max + x_pad)
-                ax.set_ylim(y_min - y_pad, y_max + y_pad)
-            else:
-                ax.relim()
-                ax.autoscale_view()
-
-            self.canvas.draw_idle()
-        except Exception as e:
-            logger.error(f"Failed to reset view: {e}")
+        self._set_mode("")
+        for plot in self.plots:
+            plot.reset_view()
 
     def cleanup(self):
-        """Cleanup toolbar resources."""
-        if hasattr(self, "toolbar") and self.toolbar:
-            self.toolbar = None
+        self.plots = []
 
 
 class MatplotlibPlotWidget(QWidget):
@@ -327,7 +250,6 @@ class MatplotlibPlotWidget(QWidget):
         self.figure = Figure(
             figsize=(PLOT_FIGURE_WIDTH, PLOT_FIGURE_HEIGHT),
             dpi=PLOT_DPI,
-            tight_layout=False,
             facecolor=COLORS["surface"],
             edgecolor=COLORS["surface"],
         )
@@ -350,9 +272,7 @@ class MatplotlibPlotWidget(QWidget):
         self.ax.spines["bottom"].set_linewidth(PLOT_AXIS_SPINE_WIDTH)
 
         # Initialize plot labels and title
-        self.ax.set_title(
-            self.title, fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING
-        )
+        self._set_axes_title(self.title)
         self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
 
@@ -364,11 +284,14 @@ class MatplotlibPlotWidget(QWidget):
 
         theme.notifier.changed.connect(self._on_theme_changed)
 
-        # Integrate custom navigation toolbar
-        self.toolbar = CompactNavigationToolbar(self.canvas, self)
+        # Matplotlib's own toolbar drives pan and zoom; a shared
+        # CompactNavigationToolbar presses its buttons.
+        self.nav = NavigationToolbar(self.canvas, self)
+        self.nav.setVisible(False)
+        self._peak_labels = []
+        self.canvas.mpl_connect("resize_event", self._fit_margins)
+        self.canvas.mpl_connect("draw_event", self._declutter_peak_labels)
 
-        # Add widgets to layout
-        layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
 
         # Define minimum widget dimensions
@@ -379,9 +302,8 @@ class MatplotlibPlotWidget(QWidget):
         self.ax.clear()
         self.data_lines = []
         self.ax.set_facecolor(COLORS["surface"])
-        self.ax.set_title(
-            self.title, fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING
-        )
+        self._peak_labels = []
+        self._set_axes_title(self.title)
         self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.grid(
@@ -512,9 +434,9 @@ class MatplotlibPlotWidget(QWidget):
             stemlines.set_color(color)
             stemlines.set_linewidth(width)
 
-            # Ensure Y axis starts at 0
-            y_min, y_max = self.ax.get_ylim()
-            self.ax.set_ylim(0, y_max * 1.1)
+            # Ensure Y axis starts at 0, with room above the tallest peak for its label
+            y_max = float(np.max(y_data))
+            self.ax.set_ylim(0, y_max * STEM_HEADROOM)
 
             # Set X axis limits based on actual data range with small padding
             x_min, x_max = x_data.min(), x_data.max()
@@ -594,13 +516,8 @@ class MatplotlibPlotWidget(QWidget):
             if not labels:
                 return
 
-            # Slightly smaller font than axis labels for a clean look
-            legend = self.ax.legend(
-                loc=loc,
-                fontsize=max(PLOT_LABEL_FONTSIZE - 1, 6),
-                frameon=True,
-                **kwargs,
-            )
+            kwargs.setdefault("frameon", True)
+            legend = self.ax.legend(loc=loc, fontsize=PLOT_LABEL_FONTSIZE, **kwargs)
             # Keep a reference if needed later (optional)
             self._legend = legend
 
@@ -663,13 +580,127 @@ class MatplotlibPlotWidget(QWidget):
     def set_title(self, title: str):
         """Update the plot title."""
         self.title = title
-        self.ax.set_title(title, fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING)
+        self._set_axes_title(title)
         # Don't draw yet
+
+    def _set_axes_title(self, title: str) -> None:
+        self.ax.set_title(
+            title, loc="left", fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING + 4
+        )
+
+    def _fit_margins(self, _event=None) -> None:
+        """Fixed pixel margins, so axes line up across plots of any width."""
+        width, height = self.canvas.get_width_height()
+        if width < 100 or height < 100:
+            return
+        self.figure.subplots_adjust(
+            left=64 / width, right=1 - 16 / width, top=1 - 34 / height, bottom=40 / height
+        )
+
+    def set_mode(self, mode: str) -> None:
+        """'pan', 'zoom' or '' (neither), whatever the current mode is."""
+        current = {_Mode.PAN: "pan", _Mode.ZOOM: "zoom"}.get(self.nav.mode, "")
+        if current == mode:
+            return
+        if mode == "pan" or (current == "pan" and not mode):
+            self.nav.pan()
+        else:
+            self.nav.zoom()
+
+    def mode(self) -> str:
+        return {_Mode.PAN: "pan", _Mode.ZOOM: "zoom"}.get(self.nav.mode, "")
+
+    def reset_view(self) -> None:
+        """Fit the view to the drawn data.
+
+        Matplotlib's nav-stack home can become unstable in Qt embed cases,
+        especially for stem plots, so limits come from the stored data.
+        """
+        try:
+            if self._last_stem_data is not None:
+                x_data, y_data = self._last_stem_data
+                if len(x_data) == 0:
+                    return
+                x_min, x_max = float(np.min(x_data)), float(np.max(x_data))
+                x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 10.0
+                self.ax.set_xlim(max(0.0, x_min - x_padding), x_max + x_padding)
+                y_max = float(np.max(y_data))
+                self.ax.set_ylim(0.0, y_max * STEM_HEADROOM if y_max > 0 else 1.0)
+            elif self.data_lines:
+                x_concat = np.concatenate([x for x, _y in self.data_lines])
+                y_concat = np.concatenate([y for _x, y in self.data_lines])
+                x_min, x_max = float(np.min(x_concat)), float(np.max(x_concat))
+                y_min, y_max = float(np.min(y_concat)), float(np.max(y_concat))
+                x_pad = (x_max - x_min) * 0.02 if x_max > x_min else 1.0
+                y_pad = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
+                self.ax.set_xlim(x_min - x_pad, x_max + x_pad)
+                self.ax.set_ylim(y_min - y_pad, y_max + y_pad)
+            else:
+                self.ax.relim()
+                self.ax.autoscale_view()
+            self.canvas.draw_idle()
+        except Exception as e:
+            logger.error(f"Failed to reset view: {e}")
+
+    def label_peaks(self, x_data, y_data, *, limit: int = 8, decimals: int = 2) -> None:
+        """Label up to ``limit`` of the tallest peaks; labels that would overlap
+        a taller peak's label are hidden at draw time."""
+        x_data = np.asarray(x_data, dtype=np.float64)
+        y_data = np.asarray(y_data, dtype=np.float64)
+        keep = (y_data > 0) & np.isfinite(x_data) & np.isfinite(y_data)
+        x_data, y_data = x_data[keep], y_data[keep]
+        for index in np.argsort(y_data)[::-1][:limit]:
+            self._peak_labels.append(
+                self.ax.annotate(
+                    f"{x_data[index]:.{decimals}f}",
+                    (x_data[index], y_data[index]),
+                    xytext=(0, 2),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=PLOT_TICK_FONTSIZE,
+                    color=COLORS["text_secondary"],
+                    annotation_clip=True,
+                    # Opaque so a guide line through the label never cuts it.
+                    bbox={"boxstyle": "square,pad=0.15", "fc": COLORS["surface"], "ec": "none"},
+                )
+            )
+
+    def visible_peak_labels(self) -> list[str]:
+        return [label.get_text() for label in self._peak_labels if label.get_visible()]
+
+    def _declutter_peak_labels(self, _event=None) -> None:
+        if not self._peak_labels:
+            return
+        renderer = self.canvas.get_renderer()
+        area = self.ax.get_window_extent(renderer)
+        placed = []
+        changed = False
+        for label in self._peak_labels:  # tallest first, so they win
+            was_visible = label.get_visible()
+            label.set_visible(True)  # hidden text measures as an empty box
+            box = label.get_window_extent(renderer)
+            # One label per column: a label stacked above a neighbour's is
+            # ambiguous about which stem it names.
+            span = (box.x0 - 4, box.x1 + 4)
+            show = (
+                box.y1 <= area.y1 + 1
+                and box.x0 >= area.x0 - 1
+                and box.x1 <= area.x1 + 1
+                and not any(span[0] < right and left < span[1] for left, right in placed)
+            )
+            if show:
+                placed.append(span)
+            label.set_visible(show)
+            changed |= was_visible != show
+        if changed:
+            # Settles in one more draw: the same layout gives the same answer.
+            self.canvas.draw_idle()
 
     def finalize_plot(self):
         """Finalize plot after all data is added - single draw call for speed."""
-        # Ensure grid is visible
-        self.ax.grid(True, alpha=0.2, linestyle="-", linewidth=0.5)
+        self.ax.grid(True, color=COLORS["grid_line"], linestyle="-", linewidth=PLOT_GRID_LINEWIDTH)
+        self._fit_margins()
 
         # For time axis, format nicely
         if "time" in self.x_label.lower() or "min" in self.x_label.lower():
@@ -699,11 +730,9 @@ class MatplotlibPlotWidget(QWidget):
             if hasattr(self, "canvas") and self.canvas:
                 self.canvas = None
 
-            # Clear toolbar reference
-            if hasattr(self, "toolbar") and self.toolbar:
-                if hasattr(self.toolbar, "cleanup"):
-                    self.toolbar.cleanup()
-                self.toolbar = None
+            if getattr(self, "nav", None) is not None:
+                self.nav = None
+            self._peak_labels = []
 
             # Clear data storage
             if hasattr(self, "data_lines"):

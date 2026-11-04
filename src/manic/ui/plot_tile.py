@@ -175,21 +175,29 @@ class PlotTile(QWidget):
         theme.style(self.scale_label, text_style("text_tertiary", 10))
         self.scale_label.setToolTip("Intensity axis multiplier")
 
-        self._badge_row = QHBoxLayout()
+        self._badge_box = QWidget()
+        self._badge_row = QHBoxLayout(self._badge_box)
         self._badge_row.setContentsMargins(0, 0, 0, 0)
         self._badge_row.setSpacing(4)
+        self._badge_box.hide()
+        self._badges_inline = True
 
-        header = QHBoxLayout()
-        header.setContentsMargins(6, 0, 4, 0)
-        header.setSpacing(6)
-        header.addWidget(self.caption, stretch=1)
-        header.addLayout(self._badge_row)
-        header.addWidget(self.scale_label)
+        self._header = QHBoxLayout()
+        self._header.setContentsMargins(6, 0, 4, 0)
+        self._header.setSpacing(6)
+        self._header.addWidget(self.caption, stretch=1)
+        self._header.addWidget(self._badge_box)
+        self._header.addWidget(self.scale_label)
+        # Badges drop to this line when they would cut off the sample name.
+        self._badge_line = QHBoxLayout()
+        self._badge_line.setContentsMargins(6, 2, 4, 0)
+        self._badge_line.addStretch()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(3, 5, 3, 3)
         layout.setSpacing(0)
-        layout.addLayout(header)
+        layout.addLayout(self._header)
+        layout.addLayout(self._badge_line)
         layout.addWidget(chart_view, stretch=1)
         self._refresh_caption_colour()
 
@@ -200,10 +208,46 @@ class PlotTile(QWidget):
     def set_caption(self, text: str) -> None:
         self.caption.setText(text)
         self.caption.setToolTip(text)
+        self._place_badges()
 
     def set_scale(self, exponent: int) -> None:
         self.scale_label.setText(scale_text(exponent))
         self.scale_label.setVisible(bool(exponent))
+        self._place_badges()
+
+    def badges_inline(self) -> bool:
+        return self._badges_inline
+
+    def _place_badges(self) -> None:
+        """Badges sit beside the caption when the full name still fits, else below it."""
+        self.caption.ensurePolished()
+        spacing = self._header.spacing()
+        margins = self.layout().contentsMargins()
+        header_margins = self._header.contentsMargins()
+        room = (
+            self.width() - margins.left() - margins.right()
+            - header_margins.left() - header_margins.right()
+        )
+        if self.scale_label.isVisibleTo(self):
+            room -= self.scale_label.sizeHint().width() + spacing
+        needed = (
+            QFontMetrics(self.caption.font()).horizontalAdvance(self.caption.fullText())
+            + spacing + self._badge_box.sizeHint().width()
+        )
+        inline = not self._badges or needed <= room
+        if inline == self._badges_inline:
+            return
+        self._badges_inline = inline
+        if inline:
+            self._badge_line.removeWidget(self._badge_box)
+            self._header.insertWidget(1, self._badge_box)
+        else:
+            self._header.removeWidget(self._badge_box)
+            self._badge_line.insertWidget(0, self._badge_box)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._place_badges()
 
     def set_badges(self, badges: list[TileBadge]) -> None:
         if badges == self._badges:
@@ -215,6 +259,8 @@ class PlotTile(QWidget):
             widget.deleteLater()
         for badge in badges:
             self._badge_row.addWidget(_badge_label(badge))
+        self._badge_box.setVisible(bool(badges))
+        self._place_badges()
         self._tint = tile_tint(badges)
         self.update()
 

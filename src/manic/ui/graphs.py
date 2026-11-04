@@ -46,7 +46,7 @@ from manic.validation.unlabelled_identity import (
     IdentitySampleAssessment,
 )
 
-from .channel_chips import ChannelChipRow
+from .channel_chips import CHIP_HEIGHT, ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
 from .chart_style import set_nice_ticks, style_axis, style_chart, text_style
 from .icon_button import icon_button
@@ -63,13 +63,29 @@ from .colors import (
 )
 from .sidebar_widgets import shortcut_text
 from .plot_tile import DENSITY_MIN_TILE, TILE_GAP, PlotTile, grid_columns, tile_badges
-from .theme import color
+from .theme import FONT_SIZE_TITLE, color
 from manic.ui import theme
 
 logger = logging.getLogger(__name__)
 
 PLOT_Y_AXIS_HEADROOM = 1.05
 
+
+
+def _minutes(value: float) -> str:
+    # Same rounding as the sidebar's tR field.
+    return f"{float(value):.3f}".rstrip("0").rstrip(".") or "0"
+
+
+def retention_time_text(values: Iterable[float]) -> str:
+    """'tR 7.09' for the grid title, or 'tR 7.05–7.12' when samples differ."""
+    values = [float(v) for v in values if v is not None]
+    if not values:
+        return ""
+    low, high = min(values), max(values)
+    if abs(high - low) < 1e-6:
+        return f"tR {_minutes(low)}"
+    return f"tR {_minutes(low)}–{_minutes(high)}"
 
 
 def tile_caption(sample_name: str, fit_type: str | None) -> str:
@@ -176,18 +192,41 @@ class GraphView(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
         header = QHBoxLayout()
-        header.setContentsMargins(8, 6, 6, 2)
+        header.setContentsMargins(TILE_GAP + 2, 6, 6, 0)
         header.setSpacing(8)
-        self.channel_legend = ChannelChipRow()
-        # The legend and key shrink on narrow windows instead of setting the
-        # window's minimum width.
-        self.channel_legend.setMinimumWidth(1)
-        header.addWidget(self.channel_legend)
+        self.compound_title = QLabel()
+        theme.style(self.compound_title, text_style("text", FONT_SIZE_TITLE, 600))
+        self.compound_title.hide()
+        header.addWidget(self.compound_title)
+        # "tR 7.09 · 30 samples", or "· 3 of 30 selected" once plots are picked.
+        self.selection_summary = QLabel()
+        self.selection_summary.setMinimumWidth(1)
+        theme.style(self.selection_summary, text_style("text_secondary", 12))
+        self.selection_summary.setToolTip(
+            f"Click a plot to select it. {shortcut_text('Ctrl+A')} selects all, Esc clears, "
+            "arrow keys move, Space toggles, Enter opens the detailed view."
+        )
+        header.addWidget(self.selection_summary, stretch=1)
+        header.addWidget(self._build_density_toggle())
+        self.docs_button = icon_button("docsButton", "docs_book.svg", "Documentation")
+        self.docs_button.clicked.connect(self.documentation_requested.emit)
+        self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
+        self.settings_button.clicked.connect(self.settings_requested.emit)
+        for button in (self.docs_button, self.settings_button):
+            button.setProperty("variant", "ghost")
+            button.setIconSize(button.iconSize() * 0.9)
+            button.setFixedSize(28, 28)
+            button.setFocusPolicy(Qt.NoFocus)
+            header.addWidget(button)
+        outer_layout.addLayout(header)
+
         self.qc_key = QLabel()
         self.qc_key.setTextFormat(Qt.RichText)
+        self.qc_key.setFixedHeight(CHIP_HEIGHT)
         theme.style(self.qc_key, text_style("text_secondary", 11))
         self.qc_key.setToolTip(
-            "Qualifier ion traces are coloured by each sample's qualifier QC result."
+            "Qualifier ion traces are coloured by each sample's qualifier QC result.\n"
+            "Grey means no verdict: the qualifier is absent, not assessed, or unavailable."
         )
         self.qc_key.setText(
             "Qualifier colour = QC&nbsp;&nbsp;"
@@ -201,28 +240,12 @@ class GraphView(QWidget):
             )
         )
         self.qc_key.hide()
-        self.qc_key.setMinimumWidth(1)
-        header.addWidget(self.qc_key)
-        header.addStretch()
-        self.selection_summary = QLabel()
-        theme.style(self.selection_summary, text_style("text_secondary", 11))
-        self.selection_summary.setToolTip(
-            f"Click a plot to select it. {shortcut_text('Ctrl+A')} selects all, Esc clears, "
-            "arrow keys move, Space toggles, Enter opens the detailed view."
-        )
-        header.addWidget(self.selection_summary)
-        header.addWidget(self._build_density_toggle())
-        self.docs_button = icon_button("docsButton", "docs_book.svg", "Documentation")
-        self.docs_button.clicked.connect(self.documentation_requested.emit)
-        self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
-        self.settings_button.clicked.connect(self.settings_requested.emit)
-        for button in (self.docs_button, self.settings_button):
-            button.setProperty("variant", "ghost")
-            button.setIconSize(button.iconSize() * 0.9)
-            button.setFixedSize(28, 28)
-            button.setFocusPolicy(Qt.NoFocus)
-            header.addWidget(button)
-        outer_layout.addLayout(header)
+        # Chips and the QC key wrap onto a second row instead of truncating.
+        self.channel_legend = ChannelChipRow(trailing=self.qc_key)
+        legend_row = QHBoxLayout()
+        legend_row.setContentsMargins(TILE_GAP + 2, 4, 6, 2)
+        legend_row.addWidget(self.channel_legend)
+        outer_layout.addLayout(legend_row)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -287,6 +310,7 @@ class GraphView(QWidget):
 
         # Install event filter on self to handle background drags
         self.installEventFilter(self)
+        self._tr_text = ""
         self.selection_changed.connect(self._update_selection_summary)
 
     def _build_density_toggle(self) -> QWidget:
@@ -353,14 +377,14 @@ class GraphView(QWidget):
 
     def _update_selection_summary(self, *_args) -> None:
         total = len(self._current_plots)
-        if not total:
-            self.selection_summary.clear()
-            return
         selected = len(self._selected_plots)
         noun = "sample" if total == 1 else "samples"
-        self.selection_summary.setText(
-            f"{selected} of {total} selected" if selected else f"{total} {noun}"
+        count = (
+            "" if not total
+            else f"{selected} of {total} selected" if selected
+            else f"{total} {noun}"
         )
+        self.selection_summary.setText(" · ".join(p for p in (self._tr_text, count) if p))
 
     def eventFilter(self, obj, event):
         """
@@ -501,9 +525,11 @@ class GraphView(QWidget):
 
         # Begin compound plotting - logging removed to reduce noise
         self._clear_layout()
+        self._set_title(compound_name)
         if not samples:
             self._hide_unused_tiles()
             self._hide_legend()
+            self._update_selection_summary()
             return
 
         # Store current compound and samples for integration window updates
@@ -526,8 +552,10 @@ class GraphView(QWidget):
 
         prepared_displays = []
         scale_inputs: list[TileScaleInput] = []
+        retention_times = []
         for eic in eics:
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
+            retention_times.append(compound.retention_time)
             prepared = plot_display(
                 eic.time,
                 eic.intensity,
@@ -547,6 +575,7 @@ class GraphView(QWidget):
             for eic, prepared in zip(eics, prepared_displays)
         }
         tile_axes = axes_for_tiles(self._y_scale_policy, scale_inputs)
+        self._tr_text = retention_time_text(retention_times)
 
         self._update_channel_legend(compound_name, eics)
 
@@ -655,6 +684,11 @@ class GraphView(QWidget):
     def _hide_legend(self) -> None:
         self.channel_legend.hide()
         self.qc_key.hide()
+
+    def _set_title(self, compound_name: str) -> None:
+        self._tr_text = ""
+        self.compound_title.setText(compound_name)
+        self.compound_title.setVisible(bool(compound_name))
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:
         """One chip per plotted channel above the grid, in both analysis modes."""
@@ -840,9 +874,19 @@ class GraphView(QWidget):
             detailed_action.setToolTip("Right-click a specific plot to view details")
 
         context_menu.addSeparator()
-        accept_action = context_menu.addAction("Accept peak (below threshold)")
+        accept_count = reject_count = fit_count = 1
+        if clicked_plot is not None:
+            accept_count = len(self._peak_review_targets(clicked_plot, PeakReview.ACCEPTED)[1])
+            reject_count = len(self._peak_review_targets(clicked_plot, PeakReview.REJECTED)[1])
+            fit_count = len(self._curve_fit_targets(clicked_plot))
+        accept_action = context_menu.addAction(
+            f"Accept {accept_count} peaks (below threshold)" if accept_count > 1
+            else "Accept peak (below threshold)"
+        )
         accept_action.setCheckable(True)
-        reject_action = context_menu.addAction("Mark peak as bad")
+        reject_action = context_menu.addAction(
+            f"Mark {reject_count} peaks as bad" if reject_count > 1 else "Mark peak as bad"
+        )
         reject_action.setCheckable(True)
         if clicked_plot is None:
             accept_action.setEnabled(False)
@@ -862,7 +906,9 @@ class GraphView(QWidget):
                 lambda: self._toggle_peak_review(clicked_plot, PeakReview.REJECTED)
             )
 
-        fit_menu = context_menu.addMenu("Curve fit")
+        fit_menu = context_menu.addMenu(
+            f"Curve fit for {fit_count} samples" if fit_count > 1 else "Curve fit"
+        )
         if clicked_plot is None:
             fit_menu.setEnabled(False)
         else:
@@ -883,9 +929,10 @@ class GraphView(QWidget):
             return PeakReview.REJECTED
         return None
 
-    def _toggle_peak_review(
+    def _peak_review_targets(
         self, clicked_plot: ClickableChartView, review: PeakReview
-    ) -> None:
+    ) -> tuple[PeakReview | None, set[ClickableChartView]]:
+        """The review a menu toggle sets, and the plots it sets it on."""
         new_review = None if self._review_for_plot(clicked_plot) is review else review
         plots = (
             self._selected_plots
@@ -898,6 +945,12 @@ class GraphView(QWidget):
                 for plot in plots
                 if self._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
             }
+        return new_review, plots
+
+    def _toggle_peak_review(
+        self, clicked_plot: ClickableChartView, review: PeakReview
+    ) -> None:
+        new_review, plots = self._peak_review_targets(clicked_plot, review)
         sample_names = [plot.sample_name for plot in plots]
         self.peak_review_changed.emit(
             clicked_plot.compound_name, sample_names, new_review
@@ -1038,9 +1091,11 @@ class GraphView(QWidget):
         self._current_samples = []
         self._identity = None
         self._hide_legend()
+        self._set_title("")
         # Note: _current_plots will be cleared in _clear_layout
         self._clear_layout(force_destroy=force_destroy)
         self._hide_unused_tiles()
+        self._update_selection_summary()
 
         # Force immediate update to prevent visual artifacts
         self.update()

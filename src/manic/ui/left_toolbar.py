@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Iterable
-from typing import List
+from typing import List, NamedTuple
 
 from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup
@@ -55,6 +55,13 @@ LIST_MIN_HEIGHT = 72
 SUMMARY_MIN_CHART = 100
 SPLIT_SETTING = "sidebar/browse_share"
 SUMMARY_SETTING = "sidebar/summary_expanded"
+
+
+class _BrowseList(NamedTuple):
+    widget: QListWidget
+    floor: int  # height of the rows it keeps
+    full: int  # height of every row the filter leaves
+    weight: int
 
 
 def _deconvolution_on(compound_name: str) -> bool:
@@ -285,7 +292,8 @@ class Toolbar(QWidget):
         self.summary_section = CollapsibleSection(
             "Summary", summary, expanded=True, settings_key=SUMMARY_SETTING
         )
-        inspector_layout.addWidget(self.summary_section, 1)
+        inspector_layout.addWidget(self.summary_section)
+        inspector_layout.addStretch(0)
 
         if self.analysis_mode is AnalysisMode.UNLABELLED:
             self.isotopologue_ratios.hide()
@@ -433,43 +441,45 @@ class Toolbar(QWidget):
         rows = shown if rows is None else min(rows, shown)
         return rows * max(lst.sizeHintForRow(0), 1) + 2 * lst.frameWidth()
 
-    def _browse_lists(self) -> list[tuple[QListWidget, int, int, int]]:
-        """Each showing list with the height it keeps, the height of all its rows, its weight."""
+    def _browse_lists(self) -> list[_BrowseList]:
         lists = (self.compound_list, self.sample_list)
         return [
-            (lst, self._rows_height(lst, keep), self._rows_height(lst), weight)
+            _BrowseList(lst, self._rows_height(lst, keep), self._rows_height(lst), weight)
             for lst, keep, weight in zip(lists, BROWSE_MIN_ROWS, BROWSE_WEIGHTS)
             if lst.isVisibleTo(self)
         ]
 
     @staticmethod
-    def _share_lists(space: int, lists) -> list[int]:
+    def _share_lists(space: int, lists: list[_BrowseList]) -> list[int]:
         """Each list its floor first (scaled down if short), then by weight up to its rows."""
-        floors = [floor for _lst, floor, _rows, _w in lists]
+        floors = [item.floor for item in lists]
         if space <= sum(floors):
             return [space * floor // max(sum(floors), 1) for floor in floors]
         heights = list(floors)
         rest = space - sum(floors)
         for _ in lists:
-            growing = [i for i, item in enumerate(lists) if heights[i] < item[2]]
+            growing = [i for i, item in enumerate(lists) if heights[i] < item.full]
             if rest <= 0 or not growing:
                 break
-            weight = sum(lists[i][3] for i in growing)
+            weight = sum(lists[i].weight for i in growing)
             pool = rest
             for i in growing:
-                add = min(pool * lists[i][3] // weight, lists[i][2] - heights[i])
+                add = min(pool * lists[i].weight // weight, lists[i].full - heights[i])
                 heights[i] += add
                 rest -= add
         return heights
 
-    def _set_list_heights(self, browse: int, chrome: int, lists) -> None:
-        # A closed section must not grow; an open one grows up to its list's height.
+    def _set_list_heights(self, browse: int, chrome: int, lists: list[_BrowseList]) -> None:
+        # A closed section must not grow; an open one grows up to its content.
         self.splitter.widget(0).layout().setStretchFactor(
             self.samples_section, int(self.samples_section.is_expanded())
         )
-        for (lst, *_rest), height in zip(lists, self._share_lists(browse - chrome, lists)):
-            lst.setMinimumHeight(min(LIST_MIN_HEIGHT, height))
-            lst.setMaximumHeight(height)
+        self.inspector.widget().layout().setStretchFactor(
+            self.summary_section, int(self.summary_section.is_expanded())
+        )
+        for item, height in zip(lists, self._share_lists(browse - chrome, lists)):
+            item.widget.setMinimumHeight(min(LIST_MIN_HEIGHT, height))
+            item.widget.setMaximumHeight(height)
 
     def _peak_height(self) -> int:
         """Inspector height that shows the whole Peak window without scrolling."""
@@ -497,10 +507,10 @@ class Toolbar(QWidget):
             return
         lists = self._browse_lists()
         chrome = self.splitter.widget(0).minimumSizeHint().height() - sum(
-            lst.minimumHeight() for lst, *_rest in lists
+            item.widget.minimumHeight() for item in lists
         )
-        full = chrome + sum(rows for _lst, _floor, rows, _w in lists)
-        floor = chrome + sum(floor for _lst, floor, _rows, _w in lists)
+        full = chrome + sum(item.full for item in lists)
+        floor = chrome + sum(item.floor for item in lists)
         # The lists never take more than their rows, nor room the Peak window needs.
         cap = min(full, total - self._peak_height())
         if self._browse_share is not None:

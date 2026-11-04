@@ -279,7 +279,7 @@ class IsotopologueRatioWidget(QWidget):
 
         # Add series to chart
         self.chart.addSeries(bar_series)
-        # Header, axis and key take about 80 px around the bars.
+        # The header, key and axis take about 80 px around the bars.
         self.setMinimumHeight(summary_chart_height(len(sample_names), 80))
 
         # Setup axes

@@ -369,30 +369,29 @@ class MainWindow(QMainWindow):
         # About carries a role so a native macOS menubar moves it into the
         # application menu. Documentation and Check for Updates stay put; giving
         # them ApplicationSpecificRole made Qt list them twice.
-        manic_menu = menu_bar.addMenu("Help")
-        self.help_menu = manic_menu
+        self.help_menu = help_menu = menu_bar.addMenu("Help")
 
         self.documentation_action = QAction("Documentation", self)
         self.documentation_action.setMenuRole(QAction.NoRole)
         self.documentation_action.setShortcut(QKeySequence.HelpContents)
         self.documentation_action.triggered.connect(self.open_documentation_window)
-        manic_menu.addAction(self.documentation_action)
+        help_menu.addAction(self.documentation_action)
 
         self.check_setup_action = QAction("Check Data Setup...", self)
         self.check_setup_action.setMenuRole(QAction.NoRole)
         self.check_setup_action.triggered.connect(self.show_post_load_checklist)
-        manic_menu.addAction(self.check_setup_action)
+        help_menu.addAction(self.check_setup_action)
 
         self.check_updates_action = QAction("Check for Updates...", self)
         self.check_updates_action.setMenuRole(QAction.NoRole)
         self.check_updates_action.triggered.connect(self._check_for_updates)
-        manic_menu.addAction(self.check_updates_action)
+        help_menu.addAction(self.check_updates_action)
 
-        manic_menu.addSeparator()
+        help_menu.addSeparator()
         self.about_action = QAction("About MANIC...", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        manic_menu.addAction(self.about_action)
+        help_menu.addAction(self.about_action)
 
         # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)

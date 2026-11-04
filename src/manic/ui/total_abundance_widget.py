@@ -189,7 +189,7 @@ class TotalAbundanceWidget(QWidget):
 
         # Add series to chart
         self.chart.addSeries(bar_series)
-        # Header, axis take about 64 px around the bars.
+        # The header and axis take about 64 px around the bars.
         self.setMinimumHeight(summary_chart_height(len(sample_names), 64))
 
         # Setup axes

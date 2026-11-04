@@ -279,11 +279,15 @@ class IntegrationWindow(QWidget):
             fields.addWidget(edt, row, 1)
         layout.addLayout(fields)
 
-        # Action buttons
-        button_row = QHBoxLayout()
+        # Reset and Apply; the sidebar pins this row when the fields scroll.
+        self.action_row = QWidget()
+        self.action_row.setObjectName("peakActions")
+        button_row = QHBoxLayout(self.action_row)
+        button_row.setContentsMargins(0, 0, 0, 0)
         button_row.setSpacing(8)
         self.restore_button = QPushButton("Reset")
         self.restore_button.setObjectName("RestoreButton")
+        self.restore_button.setToolTip("Restore the compound's default peak window")
         self.restore_button.clicked.connect(self._on_restore_clicked)
         button_row.addWidget(self.restore_button, 1)
 
@@ -292,7 +296,7 @@ class IntegrationWindow(QWidget):
         self.apply_button.setProperty("variant", "primary")
         self.apply_button.clicked.connect(self._on_apply_clicked)
         button_row.addWidget(self.apply_button, 2)
-        layout.addLayout(button_row)
+        layout.addWidget(self.action_row)
 
         # tR Window field for data regeneration
         tr_window_row = QHBoxLayout()
@@ -309,6 +313,7 @@ class IntegrationWindow(QWidget):
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
         self.regenerate_button = QPushButton("Apply window")
         self.regenerate_button.setObjectName("RegenerateButton")
+        self.regenerate_button.setToolTip("Ignores the plot selection")
         self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
         tr_window_row.addWidget(tr_window_lbl)
         tr_window_row.addWidget(self.tr_window_edit, 1)
@@ -598,54 +603,32 @@ class IntegrationWindow(QWidget):
         self._update_apply_button_state()
 
     def _update_apply_button_state(self):
-        """Say who an edit applies to, on the scope line and the Apply button."""
+        """State once, on the scope line, whom Apply and Reset change; Apply window states its own."""
         selected = self._selected_samples
         targets = selected or self._all_samples
         for button in (self.apply_button, self.restore_button, self.regenerate_button):
             button.setEnabled(bool(targets))
         count = len(targets)
-        noun = "sample" if count == 1 else "samples"
         if not self._current_compound:
             scope = "Select a compound to edit its peak window."
-            apply_text = "Apply"
         elif not targets:
-            scope = "No samples shown. Nothing to apply to."
-            apply_text = "Apply"
+            scope = ""  # the canvas explains an empty grid
         elif selected:
             scope = (
                 f"Applies to {selected[0]}"
                 if count == 1
                 else f"Applies to {count} selected samples"
             )
-            apply_text = f"Apply to {count} {noun}"
         else:
-            scope = f"Applies to all {count} {noun}"
-            apply_text = f"Apply to {count} {noun}"
+            scope = "Applies to all shown samples"
         self.scope_label.setText(scope)
+        self.scope_label.setVisible(bool(scope))
         set_style_property(self.scope_label, "state", "selected" if selected else "all")
-        self.apply_button.setText(apply_text)
         shown = len(self._all_samples)
         self.window_scope_label.setText(
             f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
         )
         self.window_scope_label.setVisible(bool(self._current_compound and shown))
-
-        if not selected:
-            apply_tooltip = "Apply changes to all plots"
-            restore_tooltip = "Restore all plots to defaults"
-        elif count == 1:
-            apply_tooltip = f"Apply changes to {selected[0]}"
-            restore_tooltip = f"Restore {selected[0]} to defaults"
-        else:
-            apply_tooltip = f"Apply changes to {count} selected samples"
-            restore_tooltip = f"Restore {count} selected samples to defaults"
-
-        self.apply_button.setToolTip(apply_tooltip)
-        self.restore_button.setToolTip(restore_tooltip)
-        self.regenerate_button.setToolTip(
-            "Re-extract the chromatogram of every shown sample with this tR window "
-            "width, whichever samples are selected"
-        )
 
     def _get_samples_needing_reload(
         self,

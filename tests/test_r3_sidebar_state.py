@@ -125,20 +125,22 @@ def test_sample_checkboxes_keep_list_order_and_count_matches(qapp):
         toolbar.deleteLater()
 
 
-def test_filter_with_no_match_offers_to_clear_it(qapp):
+def test_filter_with_no_match_shows_the_count_and_escape_clears_it(qapp):
     toolbar = Toolbar(AnalysisMode.LABELLED)
     try:
         toolbar.update_label_colours(False, True)
         toolbar.update_compound_list(["Alanine", "Glycine"])
         toolbar.compound_filter.setText("zzz")
-        assert toolbar.compound_no_match.isVisibleTo(toolbar)
         assert not toolbar.compound_list.isVisibleTo(toolbar)
         assert toolbar.compound_count_label.text() == "0 of 2"
 
-        toolbar.compound_no_match.clear_button.click()
+        QApplication.sendEvent(
+            toolbar.compound_filter,
+            QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key_Escape, Qt.NoModifier),
+        )
         assert toolbar.compound_filter.text() == ""
         assert toolbar.compound_list.isVisibleTo(toolbar)
-        assert not toolbar.compound_no_match.isVisibleTo(toolbar)
+        assert toolbar.compound_count_label.text() == "2"
     finally:
         toolbar.deleteLater()
 

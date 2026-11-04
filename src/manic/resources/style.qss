@@ -837,10 +837,10 @@ QLabel#peakScope[state="selected"] {
 
 /* ---------- Start panel ---------- */
 
-/* The empty canvas is the drop target; it lights only for a drop the window takes. */
+/* The empty canvas is the drop target: no outline at rest, lit only for a drop the window takes. */
 QFrame#dropZone {
     background-color: transparent;
-    border: 2px dashed @border;
+    border: 2px dashed transparent;
     border-radius: 12px;
 }
 
@@ -931,6 +931,11 @@ QDialog#settingsWindow QScrollArea > QWidget,
 QDialog#settingsWindow QStackedWidget,
 QDialog#settingsWindow QStackedWidget > QWidget {
     background-color: transparent;
+}
+
+/* Reset and Apply pinned across the bottom of a short inspector, over the fields that scroll. */
+QWidget#peakActions[pinned="true"] {
+    border-top: 1px solid @border;
 }
 
 /* The inspector's section switcher on a short sidebar: same shape as the grid's density switch. */

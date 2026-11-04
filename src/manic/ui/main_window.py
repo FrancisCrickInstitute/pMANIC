@@ -250,7 +250,7 @@ class MainWindow(QMainWindow):
 
         # The grid replaces the start panel once raw data is loaded.
         self.graph_view = GraphView()
-        self.start_panel = StartPanel(self.analysis_mode)
+        self.start_panel = StartPanel()
         self.workspace = QStackedWidget()
         self.workspace.setObjectName("workspace")
         self.no_samples_panel = self._build_no_samples_panel()
@@ -441,8 +441,6 @@ class MainWindow(QMainWindow):
         ):
             chart.sample_activated.connect(self._on_qc_sample_activated)
 
-        self.toolbar.load_compounds_requested.connect(self.load_compound_action.trigger)
-        self.toolbar.load_raw_data_requested.connect(self.load_cdf_action.trigger)
         self.start_panel.load_compounds_requested.connect(
             self.load_compound_action.trigger
         )
@@ -507,8 +505,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.show_samples_action)
 
         self.show_all_samples_action = QAction("Show All Samples", self)
-        self.show_all_samples_action.triggered.connect(self.show_all_samples)
-        view_menu.addAction(self.show_all_samples_action)
+        self.show_all_samples_action.triggered.connect(self.show_all_samples)  # listed in Review
 
     def _mirror_checkbox(self, checkbox: QCheckBox, text: str, shortcut: str) -> QAction:
         """A menu action that toggles a sidebar checkbox and follows it."""
@@ -621,9 +618,6 @@ class MainWindow(QMainWindow):
     def _setup_status_bar(self) -> None:
         bar = self.statusBar()
         bar.setSizeGripEnabled(False)
-        self.selection_status_label = QLabel()
-        self.selection_status_label.setObjectName("selectionStatus")
-        bar.addWidget(self.selection_status_label, 1)
         self.deconvolution_indicator_label = QPushButton()
         self.deconvolution_indicator_label.setObjectName("statusDeconvolution")
         self.deconvolution_indicator_label.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -647,7 +641,7 @@ class MainWindow(QMainWindow):
         title.setProperty("role", "title")
         detail = QLabel(
             "Every sample is unchecked in the Samples list.\n"
-            "Check the ones to plot, or show them all."
+            "Check the ones to plot."
         )
         detail.setProperty("role", "secondary")
         detail.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -670,12 +664,11 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_shell(self) -> None:
-        """Workspace page, start steps and status text from the loaded-data state."""
+        """Workspace page and start panel from the loaded-data state."""
         if not hasattr(self, "start_panel"):
             return
         self.start_panel.refresh(
             self.compound_data_loaded,
-            self.toolbar.compound_list.real_count(),
             self.load_compound_action.isEnabled(),
             self.load_cdf_action.isEnabled(),
             self._recent_compounds.paths(),
@@ -690,27 +683,6 @@ class MainWindow(QMainWindow):
         self.workspace.setCurrentWidget(page)
         if not self.compound_data_loaded:
             self.update_deconvolution_indicator(None)
-        self._update_selection_status()
-
-    def _update_selection_status(self) -> None:
-        if not hasattr(self, "selection_status_label"):
-            return
-        compound = self.graph_view.get_current_compound()
-        samples = self.graph_view.get_current_samples()
-        selected = self.graph_view.get_selected_samples()
-        if self.cdf_data_loaded and compound and samples:
-            noun = "sample" if len(samples) == 1 else "samples"
-            parts = [compound, f"{len(samples)} {noun}"]
-            if selected:
-                parts.append(f"{len(selected)} selected")
-            text = " · ".join(parts)
-        elif self._no_samples_shown():
-            text = "No samples shown"
-        elif self.compound_data_loaded:
-            text = "Compound list loaded. Load a raw data folder next."
-        else:
-            text = "No data loaded. Start by loading a compound list."
-        self.selection_status_label.setText(text)
 
     def dragEnterEvent(self, event):
         if self._dropped_path(event) is not None:
@@ -1072,6 +1044,7 @@ class MainWindow(QMainWindow):
         self._recent_compounds.clear()
         self._recent_cdf.clear()
         self.open_recent_menu.setEnabled(False)
+        self._refresh_shell()
 
     def load_compound_list_data(self: QMainWindow) -> None:
         """
@@ -1652,7 +1625,6 @@ class MainWindow(QMainWindow):
         current_compound = self.graph_view.get_current_compound()
         all_samples = self.graph_view.get_current_samples()
 
-        self._update_selection_status()
         if current_compound:
             self.toolbar.integration.populate_fields_from_plots(
                 current_compound, selected_samples, all_samples

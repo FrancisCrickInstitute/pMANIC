@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -14,7 +15,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from manic.models.analysis import AnalysisMode
 from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.theme import set_style_property
 
@@ -35,7 +35,7 @@ class StartPanel(QWidget):
     new_session_requested = Signal()
     documentation_requested = Signal()
 
-    def __init__(self, mode: AnalysisMode, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("startPanel")
         outer = QVBoxLayout(self)
@@ -79,19 +79,18 @@ class StartPanel(QWidget):
         zone.addStretch(3)
         centred = QHBoxLayout()
         centred.addStretch(1)
-        centred.addWidget(self._footer(mode), 1000)  # grows to its cap before the margins do
+        centred.addWidget(self._footer(), 1000)  # grows to its cap before the margins do
         centred.addStretch(1)
         zone.addLayout(centred)
         self._compounds_next = True
-        self.refresh(False, 0, True, False, [], [])
+        self.refresh(False, True, False, [], [])
 
-    def _footer(self, mode: AnalysisMode) -> QWidget:
+    def _footer(self) -> QWidget:
         footer = QWidget()
         row = QHBoxLayout(footer)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
         switch = _footer_link("Change analysis mode", self.new_session_requested)
-        switch.setToolTip(f"This window runs a {mode.display_name.lower()} analysis")
         session = QLabel("Saved session: load its data, then File → Import Session")
         session.setProperty("role", "hint")
         for widget in (
@@ -111,7 +110,6 @@ class StartPanel(QWidget):
     def refresh(
         self,
         compounds_loaded: bool,
-        compound_count: int,
         can_load_compounds: bool,
         can_load_raw: bool,
         recent_compound_lists: list[str],
@@ -134,6 +132,7 @@ class StartPanel(QWidget):
         while self._recent_box.count():
             widget = self._recent_box.takeAt(0).widget()
             if widget is not None:
+                widget.hide()
                 widget.deleteLater()
         for path in paths[:RECENT_LIMIT]:
             self._recent_box.addWidget(_recent_row(path, enabled, signal))
@@ -184,15 +183,32 @@ def _recent_row(path: str, enabled: bool, signal) -> QWidget:
     button = QPushButton(Path(path).name or path)
     button.setObjectName("recentName")
     button.setCursor(Qt.CursorShape.PointingHandCursor)
-    button.setToolTip(path)
     button.setEnabled(enabled)
     button.clicked.connect(lambda: signal.emit(path))
-    where = ElidedLabel(_home_relative(Path(path).parent))
+    where = _FolderLabel(_home_relative(Path(path).parent), path)
     where.setProperty("role", "hint")
-    where.setToolTip(path)
     layout.addWidget(button)
     layout.addWidget(where, 1)
     return row
+
+
+class _FolderLabel(ElidedLabel):
+    """Elides in the middle, keeping the home and the nearest folders; the full path shows on hover only then."""
+
+    def __init__(self, text: str, path: str):
+        self._path = path
+        super().__init__(text)
+
+    def _elide(self) -> None:
+        width = max(self.width(), 0)
+        full = self.full_text()
+        shown = (
+            QFontMetrics(self.font()).elidedText(full, Qt.TextElideMode.ElideMiddle, width)
+            if width
+            else full
+        )
+        QLabel.setText(self, shown)
+        self.setToolTip(self._path if shown != full else "")
 
 
 def _home_relative(folder: Path) -> str:

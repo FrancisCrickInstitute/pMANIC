@@ -2,7 +2,7 @@ from manic.ui.sidebar_widgets import StatusRow
 
 
 class StandardIndicator(StatusRow):
-    """Header row for the optional internal standard. Unset is neutral, not an error."""
+    """Header row for the internal standard. Unset is neutral, not an error."""
 
     def __init__(self, parent=None):
         super().__init__("Internal standard", parent)
@@ -12,11 +12,9 @@ class StandardIndicator(StatusRow):
     def set_internal_standard(self, compound_name: str):
         self.internal_standard = compound_name
         self.set_state("done", compound_name)
-        self.setToolTip(f"Internal standard: {compound_name}\nClick to change")
+        self.setToolTip("Click to change")
 
     def clear_internal_standard(self):
         self.internal_standard = None
-        self.set_state("optional", "None (optional)")
-        self.setToolTip(
-            "No internal standard (optional)\nClick to choose one from the compounds"
-        )
+        self.set_state("optional", "None")
+        self.setToolTip("Click to choose one")

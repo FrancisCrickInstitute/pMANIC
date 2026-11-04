@@ -1,8 +1,10 @@
 import logging
+import tempfile
 from collections.abc import Iterable
+from pathlib import Path
 from typing import List, NamedTuple
 
-from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -27,6 +29,9 @@ from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
 )
 from manic.processors.tile_y_scale import YScalePolicy, available_y_scale_policies
+from manic.ui import theme
+from manic.ui.theme import set_style_property
+from manic.utils.paths import resource_path
 
 from .compound_list_widget import CompoundListWidget
 from .integration_window_widget import IntegrationWindow
@@ -36,7 +41,6 @@ from .sample_list_widget import SampleListWidget
 from .sidebar_widgets import (
     CollapsibleSection,
     FilterField,
-    NoMatchHint,
     divider,
     section_heading,
     shortcut_text,
@@ -68,6 +72,64 @@ class _BrowseList(NamedTuple):
     floor: int  # height of the rows it keeps while the Peak window fits
     full: int  # height of every row the filter leaves
     weight: int
+
+
+class _PinnedRow(QObject):
+    """Keeps a row of a scroll area's content whole: in its place while that is in view,
+    else pinned across the bottom of the viewport, never half shown."""
+
+    PAD = 8
+
+    def __init__(self, row: QWidget, area: QScrollArea):
+        super().__init__(row)
+        self._row = row
+        self._area = area
+        self._slot = QWidget()
+        self._slot.setFixedHeight(row.sizeHint().height())
+        row.parentWidget().layout().replaceWidget(row, self._slot)
+        row.setParent(area.viewport())
+        row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._slot.installEventFilter(self)
+        area.viewport().installEventFilter(self)
+        area.verticalScrollBar().valueChanged.connect(self.place)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (
+            QEvent.Type.Move,
+            QEvent.Type.Resize,
+            QEvent.Type.Show,
+            QEvent.Type.Hide,
+        ):
+            self.place()
+        return False
+
+    def place(self, *_args) -> None:
+        viewport, row, slot = self._area.viewport(), self._row, self._slot
+        row.setVisible(slot.isVisibleTo(viewport))
+        if row.isHidden():
+            return
+        at = slot.mapTo(viewport, QPoint(0, 0))
+        pinned = at.y() + slot.height() > viewport.height()
+        if pinned:
+            right = viewport.width() - at.x() - slot.width()
+            row.layout().setContentsMargins(at.x(), self.PAD, right, self.PAD)
+            height = slot.height() + 2 * self.PAD
+            row.setGeometry(0, viewport.height() - height, viewport.width(), height)
+        else:
+            row.layout().setContentsMargins(0, 0, 0, 0)
+            row.setGeometry(QRect(at, slot.size()))
+        set_style_property(row, "pinned", "true" if pinned else None)
+        row.raise_()
+
+
+def _menu_check_image() -> str:
+    """The app's checkmark in the text colour, for a menu tick; macOS draws its own jagged."""
+    colour = theme.color("text").name()
+    path = Path(tempfile.gettempdir()) / f"manic-menu-check-{colour[1:]}.svg"
+    if not path.exists():
+        svg = Path(resource_path("resources", "checkmark.svg")).read_text()
+        path.write_text(svg.replace('fill="white"', f'fill="{colour}"'))
+    return path.as_posix()
 
 
 def _deconvolution_on(compound_name: str) -> bool:
@@ -108,9 +170,6 @@ class Toolbar(QWidget):
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
     y_scale_policy_changed = Signal(object)
-
-    load_compounds_requested = Signal()
-    load_raw_data_requested = Signal()
 
     def __init__(
         self,
@@ -166,16 +225,6 @@ class Toolbar(QWidget):
         )
         browse_layout.addWidget(self.compound_filter)
         browse_layout.addWidget(self.compound_list, 1)
-        self.compound_no_match = NoMatchHint(
-            "No matching compounds", self.compound_filter
-        )
-        browse_layout.addWidget(self.compound_no_match)
-        self.compound_empty = QLabel(
-            "Compounds appear here once you load a compound list."
-        )
-        self.compound_empty.setProperty("role", "hint")
-        self.compound_empty.setWordWrap(True)
-        browse_layout.addWidget(self.compound_empty)
 
         browse_layout.addWidget(divider())
 
@@ -185,17 +234,9 @@ class Toolbar(QWidget):
         samples_body_layout.setContentsMargins(0, 0, 0, 0)
         samples_body_layout.setSpacing(8)
         self.sample_filter = FilterField(self.sample_list, "Filter samples")
-        self.sample_filter.setToolTip(
-            "Type to filter. Checked samples are the ones shown in the grid."
-        )
+        self.sample_filter.setToolTip("Checked samples are the ones shown in the grid")
         samples_body_layout.addWidget(self.sample_filter)
         samples_body_layout.addWidget(self.sample_list, 1)
-        self.sample_no_match = NoMatchHint("No matching samples", self.sample_filter)
-        samples_body_layout.addWidget(self.sample_no_match)
-        self.sample_empty = QLabel("Samples appear here once you load raw data.")
-        self.sample_empty.setProperty("role", "hint")
-        self.sample_empty.setWordWrap(True)
-        samples_body_layout.addWidget(self.sample_empty)
         self.samples_section = CollapsibleSection(
             "Samples", samples_body, settings_key="sidebar/samples_expanded"
         )
@@ -285,6 +326,10 @@ class Toolbar(QWidget):
             checkbox.toggled.connect(self._refresh_display_summary)
         self._refresh_display_summary()
         inspector_layout.addWidget(self.display_section)
+        # An open section's own controls show its state, so the heading summary is for closed ones.
+        for section in (self.peak_section, self.display_section):
+            section.toggled.connect(section.summary.setHidden)
+            section.summary.setHidden(section.is_expanded())
         inspector_layout.addWidget(self._inspector_dividers[1])
 
         summary = QWidget()
@@ -312,6 +357,13 @@ class Toolbar(QWidget):
         self.inspector.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.inspector.setFrameShape(QFrame.NoFrame)
         self.inspector.setWidget(inspector_content)
+        # On a short sidebar Reset and Apply stay under the scrolling fields, never cut through.
+        self._pinned_actions = _PinnedRow(self.integration.action_row, self.inspector)
+        QWidget.setTabOrder(
+            self.integration.findChild(QLineEdit, "ro_input"), self.integration.restore_button
+        )
+        QWidget.setTabOrder(self.integration.restore_button, self.integration.apply_button)
+        QWidget.setTabOrder(self.integration.apply_button, self.integration.tr_window_edit)
 
         # On a short sidebar this stands in for the section headings: one section at a time.
         self._compact = False
@@ -414,20 +466,16 @@ class Toolbar(QWidget):
             self._syncing_checkboxes = False
 
     def _refresh_data_state(self) -> None:
-        """Header rows, counts and empty hints from what is loaded right now."""
+        """Header rows, counts and filter hints from what is loaded right now."""
         compounds = self.compound_list.real_count()
         samples = self.sample_list.real_count()
-        self.loaded_data.update_status(
-            self._raw_loaded, self._compounds_loaded, compounds, samples
-        )
+        self.loaded_data.update_status(self._raw_loaded, self._compounds_loaded)
 
         has_compounds = compounds > 0
         visible = self.compound_filter.visible_count()
         no_match = has_compounds and visible == 0
         self.compound_list.setVisible(has_compounds and not no_match)
         self.compound_filter.setVisible(has_compounds)
-        self.compound_no_match.setVisible(no_match)
-        self.compound_empty.setVisible(not has_compounds)
         self.compound_count_label.setText(
             ""
             if not has_compounds
@@ -441,8 +489,6 @@ class Toolbar(QWidget):
         filtering = has_samples and bool(self.sample_filter.text().strip())
         self.sample_list.setVisible(has_samples and matching > 0)
         self.sample_filter.setVisible(has_samples)
-        self.sample_no_match.setVisible(has_samples and matching == 0)
-        self.sample_empty.setVisible(not has_samples)
         shown = len(self.get_selected_samples())
         if not has_samples:
             summary = ""
@@ -669,22 +715,7 @@ class Toolbar(QWidget):
         self.sample_list.shown_changed.connect(self._refresh_data_state)
         self.compound_filter.filtered.connect(self._refresh_data_state)
         self.sample_filter.filtered.connect(self._refresh_data_state)
-        self.loaded_data.compounds_row.clicked.connect(self._on_compounds_row_clicked)
-        self.loaded_data.raw_data_row.clicked.connect(self._on_raw_data_row_clicked)
         self.standard.clicked.connect(self._show_internal_standard_menu)
-
-    def _on_compounds_row_clicked(self) -> None:
-        if self._compounds_loaded:
-            self.focus_compound_filter()
-        else:
-            self.load_compounds_requested.emit()
-
-    def _on_raw_data_row_clicked(self) -> None:
-        if self._raw_loaded:
-            self.samples_section.set_expanded(True)
-            self.sample_filter.setFocus()
-        else:
-            self.load_raw_data_requested.emit()
 
     def focus_compound_filter(self) -> None:
         self.compound_filter.setFocus()
@@ -706,6 +737,7 @@ class Toolbar(QWidget):
 
     def _show_internal_standard_menu(self) -> None:
         menu = QMenu(self.standard)
+        menu.setStyleSheet(f'QMenu::indicator:checked {{ image: url("{_menu_check_image()}"); }}')
         # One exclusive group, so the current choice (or none) carries the check.
         choices = QActionGroup(menu)
         current = self.standard.internal_standard

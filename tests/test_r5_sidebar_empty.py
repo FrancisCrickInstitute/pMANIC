@@ -39,16 +39,16 @@ def test_unchecking_every_sample_empties_the_workspace(qapp, empty_db, monkeypat
         assert window.workspace.currentWidget() is window.no_samples_panel
         assert window.graph_view.get_current_samples() == []
         assert window.toolbar.samples_section.summary.full_text() == "0 of 3 shown"
-        assert integration.scope_label.text() == "No samples shown. Nothing to apply to."
+        # The canvas explains the empty grid; the inspector does not repeat it.
+        assert integration.scope_label.isHidden()
         assert integration.apply_button.text() == "Apply"
         assert not integration.apply_button.isEnabled()
         assert not integration.regenerate_button.isEnabled()
-        assert window.selection_status_label.text() == "No samples shown"
 
         window.show_all_samples_button.click()
         assert window.workspace.currentWidget() is window.graph_view
         assert window.graph_view.get_current_samples() == ["S1", "S2", "S3"]
-        assert integration.apply_button.text() == "Apply to 3 samples"
+        assert not integration.scope_label.isHidden()
         assert integration.apply_button.isEnabled()
     finally:
         window.close()

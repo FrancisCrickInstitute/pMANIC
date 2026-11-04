@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QMimeData, QPoint, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from manic.models.analysis import AnalysisMode
 
@@ -15,14 +15,18 @@ def _drop(path) -> SimpleNamespace:
     return SimpleNamespace(mimeData=lambda: data)
 
 
-def test_title_start_panel_and_status_before_data(qapp, monkeypatch):
+def test_title_start_panel_and_quiet_status_bar_before_data(qapp, monkeypatch):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
         assert window.windowTitle() == "MANIC — Labelled analysis"
         assert window.workspace.currentWidget() is window.start_panel
-        assert window.selection_status_label.text() == (
-            "No data loaded. Start by loading a compound list."
-        )
+        # The canvas owns the next step; the status bar keeps only transient messages.
+        status_text = [
+            label.text()
+            for label in window.statusBar().findChildren(QLabel)
+            if label.isVisibleTo(window) and label.text()
+        ]
+        assert status_text == []
         assert window.deconvolution_indicator_label.isHidden()
     finally:
         window.close()

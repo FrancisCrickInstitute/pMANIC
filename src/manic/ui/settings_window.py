@@ -28,6 +28,7 @@ from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.ui.combo_box import ComboBox
 from manic.ui.dialog_kit import (
+    FORM_LABEL_WIDTH,
     MARKED_ROLE,
     description_label,
     form_layout,
@@ -45,6 +46,8 @@ from manic.ui.dialog_kit import (
 from manic.ui.window_placement import show_over_parent
 
 _ALL_MODES = frozenset(AnalysisMode)
+# A short number reads better in a narrow field than stretched across the page.
+_NUMBER_FIELD_WIDTH = 120
 
 
 def _count_samples(names: list[str]) -> str:
@@ -143,6 +146,7 @@ class MassTolerancePage(SettingsPage):
         form = form_layout()
         self.spin = QDoubleSpinBox()
         self.spin.setObjectName("massToleranceSpin")
+        self.spin.setMaximumWidth(_NUMBER_FIELD_WIDTH)
         self.spin.setRange(0.01, 1.0)
         self.spin.setSingleStep(0.01)
         self.spin.setDecimals(3)
@@ -174,14 +178,16 @@ class PeakValidationPage(SettingsPage):
         layout.addWidget(
             description_label(
                 "Peak validation compares each compound's total peak area with the "
-                "internal standard's reference peak. Peaks below the minimum ratio "
-                "are highlighted with a red background."
+                "internal standard's reference peak. A peak below the minimum ratio "
+                "gets an amber Below threshold badge on its plot. Right-click the "
+                "plot to accept the peak or mark it as bad."
             )
         )
 
         form = form_layout()
         self.spin = QDoubleSpinBox()
         self.spin.setObjectName("minPeakAreaSpin")
+        self.spin.setMaximumWidth(_NUMBER_FIELD_WIDTH)
         self.spin.setRange(0.0, 1.0)
         self.spin.setSingleStep(0.001)
         self.spin.setDecimals(3)
@@ -236,8 +242,10 @@ class QualifierRatioPage(SettingsPage):
         self._spins: dict[int, QDoubleSpinBox] = {}
         for ordinal in self._ORDINALS:
             label = QLabel()
+            label.setMinimumWidth(FORM_LABEL_WIDTH)
             spin = QDoubleSpinBox()
             spin.setObjectName(f"qualifier{ordinal}ToleranceSpin")
+            spin.setFixedWidth(_NUMBER_FIELD_WIDTH)
             spin.setRange(0.0, 10.0)
             spin.setDecimals(3)
             spin.setSingleStep(0.01)
@@ -249,8 +257,8 @@ class QualifierRatioPage(SettingsPage):
             field = QWidget()
             field_layout = QHBoxLayout(field)
             field_layout.setContentsMargins(0, 0, 0, 0)
-            field_layout.addWidget(spin, stretch=1)
-            field_layout.addWidget(ratio_label)
+            field_layout.addWidget(spin)
+            field_layout.addWidget(ratio_label, stretch=1)
             form.addRow(label, field)
             self._labels[ordinal] = label
             self._ratio_labels[ordinal] = ratio_label
@@ -264,7 +272,7 @@ class QualifierRatioPage(SettingsPage):
         if not name:
             return (
                 False,
-                "Load compounds and select one in the toolbar to change this.",
+                "Load compounds and select one in the Compounds list to change this.",
             )
         if not self.host.qualifier_channels(name):
             return False, f"{name} has no qualifier ions."
@@ -276,8 +284,8 @@ class QualifierRatioPage(SettingsPage):
             return f"Unsaved changes for {self._compound_name}"
         return (
             f"Unsaved changes for {self._compound_name}. "
-            f"The toolbar now selects {selected or 'nothing'}; Save still writes to "
-            f"{self._compound_name}."
+            f"The selected compound is now {selected or 'none'}; "
+            f"Save still writes to {self._compound_name}."
         )
 
     def load(self) -> None:
@@ -421,6 +429,7 @@ class InternalStandardPage(SettingsPage):
         form = form_layout()
         self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
+        self.combo.setMaximumWidth(_NUMBER_FIELD_WIDTH)
         self.combo.currentIndexChanged.connect(self._mark_dirty)
         self._inputs.append(self.combo)
         form_row(form, "Reference peak", self.combo)
@@ -430,7 +439,11 @@ class InternalStandardPage(SettingsPage):
     def editable(self) -> tuple[bool, str]:
         name = self.host.internal_standard_name()
         if not name:
-            return False, "Select an internal standard in the toolbar to change this."
+            return (
+                False,
+                "Choose an internal standard from the Internal standard row at the "
+                "top of the sidebar to change this.",
+            )
         if self.host.internal_standard_label_atoms() == 0:
             return (
                 False,
@@ -594,7 +607,7 @@ class DeconvolutionPage(SettingsPage):
             return True, ""
         return (
             False,
-            "Load compounds and select one in the toolbar to change this.",
+            "Load compounds and select one in the Compounds list to change this.",
         )
 
     def set_inputs_enabled(self, enabled: bool) -> None:
@@ -610,8 +623,8 @@ class DeconvolutionPage(SettingsPage):
         else:
             hint = (
                 f"Unsaved changes for {self._compound_name}. "
-                f"The toolbar now selects {selected or 'nothing'}; Save still writes to "
-                f"{self._compound_name}."
+                f"The selected compound is now {selected or 'none'}; "
+                f"Save still writes to {self._compound_name}."
             )
         current_samples = list(self.host.selected_sample_names())
         if current_samples != self._sample_names:
@@ -859,6 +872,10 @@ class SettingsWindow(QDialog):
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(self._save_current)
         footer.addWidget(self.save_button, alignment=Qt.AlignBottom)
+        # The macOS style gives a default button different layout margins, which
+        # put Save 8px above Discard; lay both out by their visible rects.
+        for button in (self.reset_button, self.save_button):
+            button.setAttribute(Qt.WA_LayoutUsesWidgetRect)
 
         right.addLayout(footer)
         root.addLayout(right, stretch=1)

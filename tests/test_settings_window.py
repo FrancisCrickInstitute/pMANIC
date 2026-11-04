@@ -81,7 +81,8 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     assert not internal.combo.isEnabled()
     assert (
         settings.hint_label.text()
-        == "Select an internal standard in the toolbar to change this."
+        == "Choose an internal standard from the Internal standard row at the "
+        "top of the sidebar to change this."
     )
 
     _select_page(settings, "Deconvolution")
@@ -90,7 +91,7 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     assert not deconvolution.level_combo.isEnabled()
     assert (
         settings.hint_label.text()
-        == "Load compounds and select one in the toolbar to change this."
+        == "Load compounds and select one in the Compounds list to change this."
     )
 
 
@@ -137,11 +138,11 @@ def test_qualifier_ratios_not_editable_without_a_selected_compound(
         assert isinstance(page, QualifierRatioPage)
         assert page.editable() == (
             False,
-            "Load compounds and select one in the toolbar to change this.",
+            "Load compounds and select one in the Compounds list to change this.",
         )
         assert not page._spins[1].isEnabled()
         assert settings.hint_label.text() == (
-            "Load compounds and select one in the toolbar to change this."
+            "Load compounds and select one in the Compounds list to change this."
         )
     finally:
         if window.settings_window is not None:

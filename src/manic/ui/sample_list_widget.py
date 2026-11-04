@@ -69,15 +69,17 @@ class SampleListWidget(QListWidget):
         self.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
 
     def update_samples(self, samples: List[str]):
-        self.clear()
-        if not samples:
-            self._show_empty()
-        else:
-            for s in samples:
-                self.addItem(QListWidgetItem(s))
-            self.selectAll()
-
-        self._center_current_item_if_single_selected()
+        # clear() emits one selection change per selected item it removes, and
+        # each one replots the grid, so announce only the final selection.
+        with QSignalBlocker(self):
+            self.clear()
+            if not samples:
+                self._show_empty()
+            else:
+                for s in samples:
+                    self.addItem(QListWidgetItem(s))
+                self.selectAll()
+        self.itemSelectionChanged.emit()
 
     def set_selected_samples(self, names: Iterable[str]) -> None:
         wanted = set(names)

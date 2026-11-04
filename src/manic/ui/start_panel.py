@@ -128,6 +128,15 @@ class StartPanel(QWidget):
         card_layout.addWidget(divider())
         card_layout.addWidget(self.raw_step)
         layout.addWidget(card)
+        layout.addSpacing(8)
+        after = QLabel(
+            "Then confirm the data setup and review each compound's plots. "
+            "The Review menu lists every review command and its key."
+        )
+        after.setObjectName("startNextSteps")
+        after.setProperty("role", "hint")
+        after.setWordWrap(True)
+        layout.addWidget(after)
 
         layout.addSpacing(24)
         self._recent_heading = section_heading("Recent")
@@ -149,7 +158,7 @@ class StartPanel(QWidget):
         layout.addSpacing(4)
         session = QLabel(
             "Have a saved session? Load the same data, then choose "
-            f"File › Import Session ({shortcut_text('Ctrl+I')})."
+            f"File → Import Session ({shortcut_text('Ctrl+I')})."
         )
         session.setProperty("role", "hint")
         session.setWordWrap(True)

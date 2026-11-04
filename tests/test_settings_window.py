@@ -7,6 +7,7 @@ from manic.models import database
 from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.models.sample_fit_type import get_sample_fit_types
 import manic.ui.main_window as main_window_module
+from manic.ui.dialog_kit import MARKED_ROLE
 from manic.ui.main_window import MainWindow
 from manic.ui.settings_window import (
     DeconvolutionPage,
@@ -220,6 +221,38 @@ def test_peak_validation_keeps_unsaved_edit_across_pages(labelled_window):
     settings.reset_button.click()
     assert page.spin.value() == DEFAULT_MIN_PEAK_HEIGHT_RATIO
     assert not settings.save_button.isEnabled()
+
+
+def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    settings.page_named("Mass Tolerance").spin.setValue(0.35)
+    settings.page_named("Peak Validation").spin.setValue(0.123)
+    _select_page(settings, "Integration")
+
+    marked = [
+        settings.page_list.item(row).text()
+        for row in range(settings.page_list.count())
+        if settings.page_list.item(row).data(MARKED_ROLE)
+    ]
+    assert marked == ["Mass Tolerance", "Peak Validation"]
+    assert settings.isWindowModified()
+    assert settings.pending_label.isVisible()
+    assert "Mass Tolerance" in settings.pending_label.text()
+    assert not settings.save_button.isEnabled()
+
+    settings.pending_label.linkActivated.emit("0")
+    assert settings.heading.text() == "Mass Tolerance"
+    settings.save_button.click()
+    assert labelled_window.mass_tolerance == 0.35
+    assert labelled_window.min_peak_height_ratio == DEFAULT_MIN_PEAK_HEIGHT_RATIO
+    assert not settings.page_list.item(0).data(MARKED_ROLE)
+    assert settings.page_list.item(1).data(MARKED_ROLE)
+
+    _select_page(settings, "Peak Validation")
+    settings.reset_button.click()
+    assert not settings.isWindowModified()
+    assert not settings.pending_label.isVisible()
 
 
 def test_legacy_radio_save_enables_legacy_integration(labelled_window):

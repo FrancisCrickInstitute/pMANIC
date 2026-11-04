@@ -11,8 +11,8 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QEvent, QMargins, QMetaMethod, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QCursor, QPainter, QPen
+from PySide6.QtCore import QEvent, QMargins, QMetaMethod, QPoint, QPointF, QRect, QRectF, Qt, Signal
+from PySide6.QtGui import QCursor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -25,10 +25,12 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QToolTip,
     QVBoxLayout,
+    QWidget,
 )
 
 from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
 from manic.ui.chart_style import (
+    AXIS_LABEL_PX,
     scale_text,
     set_nice_ticks,
     style_axis,
@@ -45,11 +47,13 @@ from manic.ui.colors import (
     label_colors,
 )
 from manic.ui.identity_chart import (
+    IDENTITY_COLUMN_HEADERS,
     STATUS_MARKS,
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
     identity_chart_height,
+    identity_unassessed_note,
     show_identity_tooltip,
 )
 from manic.ui.theme import FONT_SIZE_TITLE, color
@@ -58,8 +62,8 @@ from manic.validation.unlabelled_identity import IdentityAssessmentSet, Qualifie
 
 # Every sample gets this much height so its name is never elided.
 ROW_HEIGHT = 22
-# Room for the value axis, its title and the chart margins.
-_AXIS_SPACE = 64
+# The chart margins above and below the rows; the axis text is pinned outside.
+_AXIS_SPACE = 16
 
 
 def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
@@ -141,6 +145,86 @@ def bar_value_text(value: float) -> str:
     return f"{value:.2f}"
 
 
+def category_rect(chart: QChart, category: int) -> QRectF:
+    """One category's row across the plot, in chart coordinates."""
+    series = chart.series()[0]
+    top = chart.mapToPosition(QPointF(0, category + 0.5), series).y()
+    bottom = chart.mapToPosition(QPointF(0, category - 0.5), series).y()
+    return QRectF(2, top, chart.plotArea().right() - 2, bottom - top)
+
+
+def value_axis_ticks(axis: QValueAxis) -> list[tuple[float, str]]:
+    """The (value, text) of each tick ``axis`` would label."""
+    low, high = axis.min(), axis.max()
+    if axis.tickType() == QValueAxis.TicksDynamic:
+        values = np.arange(axis.tickAnchor(), high + axis.tickInterval() / 1e6, axis.tickInterval())
+    else:
+        values = np.linspace(low, high, axis.tickCount())
+    return [(float(v), axis.labelFormat() % v) for v in values if low <= v <= high + 1e-9]
+
+
+class PinnedAxis(QWidget):
+    """A chart's top axis text, kept above the scroll area its rows move in.
+
+    Each tick is drawn at the x its value maps to in ``view``'s chart, so the
+    labels stay over their gridlines however far the rows are scrolled.
+    """
+
+    def __init__(self, view: QChartView, parent=None, *, font_px: int = AXIS_LABEL_PX):
+        super().__init__(parent)
+        self._view = view
+        self._title = ""
+        self._ticks: list[tuple[float, str]] = []
+        self._font = ui_font(font_px)
+        self._title_font = ui_font(11)
+        view.chart().plotAreaChanged.connect(self.update)
+        self.hide()
+
+    def set_axis(self, title: str, ticks: list[tuple[float, str]]) -> None:
+        self._title = title
+        self._ticks = list(ticks)
+        height = QFontMetrics(self._font).height() + 4
+        if title:
+            height += QFontMetrics(self._title_font).height() + 2
+        self.setFixedHeight(height)
+        self.setVisible(bool(ticks))
+        self.update()
+
+    def title(self) -> str:
+        return self._title
+
+    def _x(self, value: float) -> int:
+        chart = self._view.chart()
+        point = chart.mapToScene(chart.mapToPosition(QPointF(value, 0), chart.series()[0]))
+        window = self.window()
+        return self.mapFrom(window, self._view.mapTo(window, self._view.mapFromScene(point))).x()
+
+    def tick_positions(self) -> list[tuple[str, int]]:
+        if not self._view.chart().series():
+            return []
+        return [(text, self._x(value)) for value, text in self._ticks]
+
+    def paintEvent(self, _event) -> None:
+        ticks = self.tick_positions()
+        if not ticks:
+            return
+        painter = QPainter(self)
+        painter.setPen(color("text_secondary"))
+        y = 0
+        if self._title:
+            painter.setFont(self._title_font)
+            line = QFontMetrics(self._title_font).height()
+            left, right = ticks[0][1], ticks[-1][1]
+            painter.drawText(QRect(left, 0, max(right - left, 1), line), Qt.AlignCenter, self._title)
+            y = line + 2
+        painter.setFont(self._font)
+        metrics = QFontMetrics(self._font)
+        for text, x in ticks:
+            width = metrics.horizontalAdvance(text)
+            left = min(max(x - width // 2, 0), self.width() - width)
+            painter.drawText(QPoint(left, y + metrics.ascent()), text)
+
+
 class _BackedText(QGraphicsSimpleTextItem):
     """Text on a panel-coloured patch, so a gridline never strikes through it."""
 
@@ -186,6 +270,9 @@ class ChartPopupDialog(QDialog):
         self._total_abundance_scale_exp: int = 0
         self._value_labels: list[tuple[QGraphicsSimpleTextItem, float, int]] = []
         self._current_row: int | None = None
+        # Tooltip for each row that has nothing drawn, by category index.
+        self._row_notes: dict[int, str] = {}
+        self._note_shown: int | None = None
 
         self.setWindowTitle(f"{title} — MANIC")
         self.setModal(True)
@@ -203,6 +290,9 @@ class ChartPopupDialog(QDialog):
         self.chart.plotAreaChanged.connect(self._place_row_marker)
         self.chart_view.viewport().setMouseTracking(True)
         self.chart_view.viewport().installEventFilter(self)
+        # Whichever of these has focus, the row keys still reach the rows.
+        self._scroll.installEventFilter(self)
+        self.chart_view.installEventFilter(self)
 
     @classmethod
     def for_identity(
@@ -262,16 +352,31 @@ class ChartPopupDialog(QDialog):
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setFrameShape(QFrame.NoFrame)
         self.chart_view.setStyleSheet("background: transparent;")
+        self.chart_view.setFocusPolicy(Qt.StrongFocus)
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setFocusPolicy(Qt.NoFocus)
         self._scroll.setWidget(self.chart_view)
         theme.style(
             self._scroll,
             "QScrollArea { background: @surface; border: 1px solid @border; border-radius: 8px; }",
         )
-        layout.addWidget(self._scroll, stretch=1)
+        self.pinned_axis = PinnedAxis(
+            self.chart_view, font_px=11 if self.chart_type == "identity" else AXIS_LABEL_PX
+        )
+        # Tight to the rows it labels, not a layout gap away.
+        rows = QVBoxLayout()
+        rows.setSpacing(2)
+        rows.addWidget(self.pinned_axis)
+        rows.addWidget(self._scroll, stretch=1)
+        layout.addLayout(rows, stretch=1)
+        self.empty_note = QLabel()
+        self.empty_note.setWordWrap(True)
+        theme.style(self.empty_note, text_style("text_secondary", 13))
+        self.empty_note.hide()
+        layout.addWidget(self.empty_note)
 
         self.status_legend = QLabel("")
         self.status_legend.setTextFormat(Qt.RichText)
@@ -306,6 +411,10 @@ class ChartPopupDialog(QDialog):
         screen = self.screen() or QApplication.primaryScreen()
         max_height = int(screen.availableGeometry().height() * 0.85) if screen else 900
         chrome = 150 + (30 if self.ion_legend.isVisibleTo(self) else 0)
+        chrome += self.pinned_axis.height() if self.pinned_axis.isVisibleTo(self) else 0
+        if self.empty_note.isVisibleTo(self):
+            self.resize(640, 200)
+            return
         self.resize(820, min(max_height, self.chart_view.height() + chrome))
 
     def _populate_chart(self):
@@ -355,11 +464,13 @@ class ChartPopupDialog(QDialog):
         # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
-        self._add_value_labels(bar_series, scaled)
+        self._add_value_labels(bar_series, list(enumerate(scaled)))
 
-    def _add_value_labels(self, series: QHorizontalBarSeries, values: list[float]) -> None:
-        """Value text past each bar end. QtCharts' own labels can only print raw numbers."""
-        for index, value in enumerate(values):
+    def _add_value_labels(
+        self, series: QAbstractBarSeries, values: list[tuple[int, float]]
+    ) -> None:
+        """Text past the bar end of each (category, value). QtCharts' own labels can only print raw numbers."""
+        for index, value in values:
             item = _BackedText(bar_value_text(value), self.chart)
             item.setFont(ui_font(10))
             # Above QtCharts' gridlines, which sit over plain chart children.
@@ -434,15 +545,35 @@ class ChartPopupDialog(QDialog):
         stacked_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         stacked_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
 
+        # A row with no ratio would otherwise be blank, with no bar to hover.
+        totals = np.nansum(self.data, axis=1) if self.data.ndim > 1 else np.ones(len(self.data))
+        empty = [index for index, total in enumerate(totals) if not total > 0]
+        for index in empty:
+            self._row_notes[index] = (
+                f"{self.sample_names[index]}\n"
+                "No ratio: this sample has no integrated peak area for this compound."
+            )
+        if empty:
+            self._add_value_labels(stacked_series, [(index, 0.0) for index in empty])
+
     def _create_identity_chart(self):
         if self._identity is None or not self._identity.samples:
             return
 
         labels, styles = identity_key_chips(self._identity.channels)
         self.ion_legend.set_channels(labels, styles)
+        note = identity_unassessed_note(self._identity)
+        if note is not None:
+            self.empty_note.setText(note)
+            self.empty_note.show()
+            self._scroll.hide()
+            self._hover_hint = ""
+            self._hint.clear()
+            return
         self._identity_binding = add_identity_grid(
             self.chart, self._identity.samples, label_font_size=11
         )
+        self.pinned_axis.set_axis("", IDENTITY_COLUMN_HEADERS)
         self.status_legend.setText(identity_key_html(self._identity))
         self.status_legend.setToolTip(identity_key_tooltip(self._identity))
         self.status_legend.show()
@@ -550,17 +681,21 @@ class ChartPopupDialog(QDialog):
         x_axis.setRange(0, scaled_max * 1.15)
         style_axis(x_axis, grid=True)
         set_nice_ticks(x_axis, 0, scaled_max * 1.15, max_ticks=4)
-        x_axis.setTitleText(
-            f"Total abundance  {scale_text(scale_exp)}" if scale_exp else "Total abundance"
-        )
-
         y_axis = self._sample_axis(list(self.sample_names))
 
-        # Value axis on top so it stays in view while a long list scrolls.
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
+        self._pin_value_axis(
+            x_axis, f"Total abundance  {scale_text(scale_exp)}" if scale_exp else "Total abundance"
+        )
 
         self._hover_categories = list(self.sample_names)
+
+    def _pin_value_axis(self, axis: QValueAxis, title: str) -> None:
+        """Gridlines stay in the scrolled chart; the tick text and unit move above it."""
+        axis.setLabelsVisible(False)
+        axis.setLineVisible(False)
+        self.pinned_axis.set_axis(title, value_axis_ticks(axis))
 
     def _setup_isotopologue_axes(self):
         """Setup axes for isotopologue chart."""
@@ -572,14 +707,13 @@ class ChartPopupDialog(QDialog):
         x_axis.setLabelFormat("%.1f")
         style_axis(x_axis, grid=True)
         x_axis.setTickCount(6)
-        x_axis.setTitleText("Isotopologue ratio")
 
         y_axis = self._sample_axis(list(self.sample_names))
         self._hover_categories = list(self.sample_names)
 
-        # Value axis on top so it stays in view while a long list scrolls.
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
+        self._pin_value_axis(x_axis, "Isotopologue ratio")
 
     def row_names(self) -> list[str]:
         """Sample names top to bottom, as the rows read."""
@@ -597,9 +731,13 @@ class ChartPopupDialog(QDialog):
         super().showEvent(event)
         if self._rows_active():
             self._hint.setText(
-                " · ".join(p for p in (self._hover_hint, "Click a sample to show its plot") if p)
+                " · ".join(
+                    p for p in (self._hover_hint, "Click a sample, or ↑↓ and Return, to show its plot")
+                    if p
+                )
             )
             self.chart_view.viewport().setCursor(Qt.PointingHandCursor)
+            self.chart_view.setFocus(Qt.OtherFocusReason)
 
     def _row_at(self, viewport_pos) -> int | None:
         series = self.chart.series()
@@ -618,19 +756,28 @@ class ChartPopupDialog(QDialog):
         self._place_row_marker()
 
     def _place_row_marker(self, *_args) -> None:
-        series = self.chart.series()
-        if self._current_row is None or not series:
+        if self._current_row is None or not self.chart.series():
             self._row_marker.hide()
             return
-        category = len(self.row_names()) - 1 - self._current_row
-        top = self.chart.mapToPosition(QPointF(0, category + 0.5), series[0]).y()
-        bottom = self.chart.mapToPosition(QPointF(0, category - 0.5), series[0]).y()
-        area = self.chart.plotArea()
-        self._row_marker.setRect(QRectF(2, top, area.right() - 2, bottom - top))
+        rect = category_rect(self.chart, len(self.row_names()) - 1 - self._current_row)
+        self._row_marker.setRect(rect)
         self._row_marker.setPen(QPen(color("accent"), 1.5))
         self._row_marker.show()
         centre = self.chart_view.mapFromScene(self._row_marker.sceneBoundingRect().center())
-        self._scroll.ensureVisible(centre.x(), centre.y(), 0, int(bottom - top))
+        self._scroll.ensureVisible(centre.x(), centre.y(), 0, int(rect.height()))
+
+    def row_note(self, row: int) -> str | None:
+        """The tooltip for a row (top to bottom) with nothing drawn, if it has one."""
+        return self._row_notes.get(len(self.sample_names) - 1 - row)
+
+    def _show_row_note(self, viewport_pos) -> None:
+        row = self._row_at(viewport_pos)
+        note = None if row is None else self.row_note(row)
+        if note is not None:
+            QToolTip.showText(self.chart_view.viewport().mapToGlobal(viewport_pos), note, self.chart_view)
+        elif self._note_shown is not None:
+            QToolTip.hideText()
+        self._note_shown = None if note is None else row
 
     def activate_row(self, row: int) -> None:
         names = self.row_names()
@@ -640,6 +787,10 @@ class ChartPopupDialog(QDialog):
         self.accept()
 
     def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.KeyPress and obj in (self._scroll, self.chart_view):
+            return self._row_key(event.key())
+        if obj is self.chart_view.viewport() and event.type() == QEvent.MouseMove:
+            self._show_row_note(event.position().toPoint())
         if obj is self.chart_view.viewport() and self._rows_active():
             if event.type() == QEvent.MouseMove:
                 row = self._row_at(event.position().toPoint())
@@ -655,17 +806,28 @@ class ChartPopupDialog(QDialog):
                     return True
         return super().eventFilter(obj, event)
 
-    def keyPressEvent(self, event) -> None:
+    def _row_key(self, key: int) -> bool:
+        """Move or activate the current row; False for a key rows do not use."""
         rows = len(self.row_names())
-        if self._rows_active() and rows:
-            key = event.key()
-            if key in (Qt.Key_Down, Qt.Key_Up):
-                step = 1 if key == Qt.Key_Down else -1
-                start = -1 if step == 1 else rows
-                current = start if self._current_row is None else self._current_row
-                self.set_current_row(min(max(current + step, 0), rows - 1))
-                return
-            if key in (Qt.Key_Return, Qt.Key_Enter) and self._current_row is not None:
-                self.activate_row(self._current_row)
-                return
-        super().keyPressEvent(event)
+        if not (self._rows_active() and rows):
+            return False
+        current = self._current_row
+        if key in (Qt.Key_Down, Qt.Key_Up):
+            step = 1 if key == Qt.Key_Down else -1
+            start = -1 if step == 1 else rows
+            self.set_current_row(min(max((start if current is None else current) + step, 0), rows - 1))
+        elif key in (Qt.Key_Home, Qt.Key_End):
+            self.set_current_row(0 if key == Qt.Key_Home else rows - 1)
+        elif key in (Qt.Key_Return, Qt.Key_Enter):
+            # The first press shows which row Return would open.
+            if current is None:
+                self.set_current_row(0)
+            else:
+                self.activate_row(current)
+        else:
+            return False
+        return True
+
+    def keyPressEvent(self, event) -> None:
+        if not self._row_key(event.key()):
+            super().keyPressEvent(event)

@@ -2,25 +2,44 @@ from __future__ import annotations
 
 from PySide6.QtCharts import QBarSet, QChart, QChartView
 from PySide6.QtCore import QMargins, Qt, Signal
-from PySide6.QtGui import QMouseEvent, QPainter
-from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QToolTip, QVBoxLayout, QWidget
+from PySide6.QtGui import QFontMetrics, QMouseEvent, QPainter, QPen
+from PySide6.QtWidgets import (
+    QFrame,
+    QGraphicsRectItem,
+    QLabel,
+    QScrollArea,
+    QSizePolicy,
+    QToolTip,
+    QVBoxLayout,
+    QWidget,
+)
 
 from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import (
     ChartPopupDialog,
+    PinnedAxis,
+    category_rect,
     identity_key_html,
     identity_key_tooltip,
 )
 from manic.ui.chart_style import style_chart, text_style
 from manic.ui.identity_chart import (
+    IDENTITY_COLUMN_HEADERS,
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
     identity_chart_height,
+    identity_unassessed_note,
     show_identity_tooltip,
 )
 from manic.ui import theme
+from manic.ui.theme import color
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
+
+# Tall enough for each row's state mark and sample name.
+SIDEBAR_ROW = 18
+# Rows in view before the grid scrolls inside the sidebar.
+SIDEBAR_VISIBLE_ROWS = 8
 
 
 class TargetedQcWidget(QWidget):
@@ -37,8 +56,7 @@ class TargetedQcWidget(QWidget):
         self.chart_view.setFrameShape(QFrame.NoFrame)
         self.chart_view.setStyleSheet("background: transparent; border: none;")
         self.chart_view.setToolTip(
-            "One row per sample. Click a row to select that sample; "
-            "double-click to enlarge with sample names."
+            "One row per sample. Click a row to select its plot; double-click to enlarge."
         )
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
@@ -46,6 +64,22 @@ class TargetedQcWidget(QWidget):
 
         self.header = ChartHeader("Identity")
         self.header.expand_button.clicked.connect(self._show_popup_chart)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._scroll.setWidget(self.chart_view)
+        self._scroll.hide()
+        self.columns = PinnedAxis(self.chart_view)
+
+        self.note = QLabel()
+        self.note.setWordWrap(True)
+        # In line with the header's title.
+        self.note.setContentsMargins(8, 0, 4, 0)
+        theme.style(self.note, text_style("text_secondary", 11))
+        self.note.hide()
 
         self.key = QLabel()
         self.key.setTextFormat(Qt.RichText)
@@ -58,15 +92,20 @@ class TargetedQcWidget(QWidget):
         layout.setContentsMargins(1, 1, 1, 4)
         layout.setSpacing(2)
         layout.addWidget(self.header)
-        layout.addWidget(self.chart_view)
+        layout.addWidget(self.columns)
+        layout.addWidget(self._scroll)
+        layout.addWidget(self.note)
         layout.addWidget(self.key)
-        layout.addStretch()
-        self.setMinimumHeight(200)
-        self.setMaximumHeight(330)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        # As tall as its rows and no taller, so no band opens below one sample.
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
         self._identity: IdentityAssessmentSet | None = None
         self._binding: IdentityGridBinding | None = None
+        self._highlighted: set[str] = set()
+        self._marks: list[QGraphicsRectItem] = []
+        self.chart.plotAreaChanged.connect(self._paint_highlight)
+        self.chart.plotAreaChanged.connect(self._fit_names)
+        theme.notifier.changed.connect(self._paint_highlight)
 
     def update_results(self, identity: IdentityAssessmentSet) -> None:
         if not identity.samples:
@@ -74,11 +113,21 @@ class TargetedQcWidget(QWidget):
             return
 
         self._identity = identity
-        self._binding = add_identity_grid(
-            self.chart, identity.samples, show_sample_names=False
+        self._binding = add_identity_grid(self.chart, identity.samples)
+        height = identity_chart_height(len(identity.samples), SIDEBAR_ROW)
+        self.chart_view.setFixedHeight(height)
+        self._scroll.setFixedHeight(
+            min(height, identity_chart_height(SIDEBAR_VISIBLE_ROWS, SIDEBAR_ROW))
         )
-        self.chart_view.setMaximumHeight(identity_chart_height(len(identity.samples)))
+        self.columns.set_axis("", IDENTITY_COLUMN_HEADERS)
+        note = identity_unassessed_note(identity)
+        self.note.setText(note or "")
+        self.note.setVisible(note is not None)
+        self._scroll.setVisible(note is None)
+        self.columns.setVisible(note is None)
         self._connect_cell_signals()
+        self._fit_names()
+        self._paint_highlight()
         failed = sum(
             any(q.status is QualifierStatus.FAILED for q in sample.qualifiers)
             for sample in identity.samples
@@ -90,15 +139,58 @@ class TargetedQcWidget(QWidget):
         )
         self.key.setText(identity_key_html(identity))
         self.key.setToolTip(identity_key_tooltip(identity))
-        self.key.show()
+        self.key.setVisible(note is None)
 
     def clear(self) -> None:
         self._identity = None
         self._binding = None
         self.header.set_has_data(False)
-        self.key.hide()
-        self.chart_view.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
+        for widget in (self.key, self.note, self._scroll, self.columns):
+            widget.hide()
         add_identity_grid(self.chart, ())
+        self._paint_highlight()
+
+    def _fit_names(self, *_args) -> None:
+        axes = self.chart.axes(Qt.Vertical)
+        if self._identity is None or not axes:
+            return
+        # QtCharts gives the name axis at most 40% of the chart and lets a
+        # longer name run off its edge, so names are shortened in the middle.
+        width = int(self.chart_view.width() * 0.4) - 8
+        metrics = QFontMetrics(axes[0].labelsFont())
+        names = [
+            metrics.elidedText(sample.sample_name, Qt.ElideMiddle, width)
+            for sample in reversed(self._identity.samples)
+        ]
+        # A category axis needs unique names; hover still gives the full one.
+        if len(set(names)) == len(names) and names != axes[0].categories():
+            axes[0].setCategories(names)
+
+    def set_highlighted(self, sample_names) -> None:
+        """Outline the rows of the samples selected in the grid; every row stays."""
+        self._highlighted = set(sample_names)
+        self._paint_highlight()
+
+    def highlighted_rows(self) -> list[str]:
+        return [mark.data(0) for mark in self._marks]
+
+    def _paint_highlight(self, *_args) -> None:
+        for mark in self._marks:
+            if mark.scene() is not None:
+                mark.scene().removeItem(mark)
+        self._marks = []
+        if self._identity is None or not self.chart.series():
+            return
+        names = [sample.sample_name for sample in self._identity.samples]
+        for row, name in enumerate(names):
+            if name not in self._highlighted:
+                continue
+            mark = QGraphicsRectItem(category_rect(self.chart, len(names) - 1 - row), self.chart)
+            mark.setPen(QPen(color("accent"), 1.5))
+            mark.setBrush(Qt.NoBrush)
+            mark.setZValue(20)
+            mark.setData(0, name)
+            self._marks.append(mark)
 
     def _connect_cell_signals(self) -> None:
         if self._binding is None:

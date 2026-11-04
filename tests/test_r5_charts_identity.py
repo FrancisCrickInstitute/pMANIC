@@ -10,7 +10,7 @@ from manic.models.analysis import IonChannel, IonRole
 from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.graphs import GraphView
 from manic.ui.identity_chart import identity_chart_height
-from manic.ui.targeted_qc_widget import TargetedQcWidget
+from manic.ui.targeted_qc_widget import SIDEBAR_ROW, TargetedQcWidget
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentityQcResult,
@@ -97,13 +97,13 @@ def test_one_sample_is_a_slim_strip_not_a_slab(qapp):
         widget.show()
         dialog.show()
         qapp.processEvents()
-        assert widget.chart_view.height() == identity_chart_height(1) == 46
-        assert dialog.chart_view.height() == identity_chart_height(1)
+        assert widget.chart_view.height() == identity_chart_height(1, SIDEBAR_ROW) == 18
+        assert dialog.chart_view.height() == identity_chart_height(1) == 24
         assert dialog.chart_view.y() == 0
-        headers = [item for item in dialog.chart.childItems() if getattr(item, "cell", (0, 0))[1] is None]
-        assert [h.text() for h in headers] == ["Qualifier 1", "Qualifier 2"]
-        # The headers sit wholly above the cells, inside the chart.
-        assert all(0 <= h.y() and h.y() + h.boundingRect().height() <= dialog.chart.plotArea().top() for h in headers)
+        # The column headers sit above the scrolled rows, not inside them.
+        for header, scroll in ((dialog.pinned_axis, dialog._scroll), (widget.columns, widget._scroll)):
+            assert [text for text, _x in header.tick_positions()] == ["Qualifier 1", "Qualifier 2"]
+            assert header.isVisible() and header.geometry().bottom() < scroll.geometry().top()
     finally:
         widget.deleteLater()
         dialog.deleteLater()

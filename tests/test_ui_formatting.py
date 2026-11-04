@@ -46,6 +46,7 @@ from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
 from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.targeted_qc_widget import TargetedQcWidget
+from manic.ui import theme
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -276,19 +277,20 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert widget._binding is not None
         bar_sets = widget._binding.bar_sets
         assert len(bar_sets) == 4
+        surface, outline = theme.color("surface"), theme.color("border_strong")
         expected = (
-            ("S2", QualifierStatus.FAILED, QUALIFIER_RED),
-            ("S2", QualifierStatus.ABSENT, QUALIFIER_GREY),
-            ("S1", QualifierStatus.VALIDATED, QUALIFIER_GREEN),
-            ("S1", QualifierStatus.ABSENT, QUALIFIER_GREY),
+            ("S2", QualifierStatus.FAILED, QUALIFIER_RED, surface),
+            ("S2", QualifierStatus.ABSENT, surface, outline),
+            ("S1", QualifierStatus.VALIDATED, QUALIFIER_GREEN, surface),
+            ("S1", QualifierStatus.ABSENT, surface, outline),
         )
-        for bar_set, (sample_name, status, color) in zip(bar_sets, expected):
+        for bar_set, (sample_name, status, fill, border) in zip(bar_sets, expected):
             cell = widget._binding.cell_for(bar_set)
             assert cell.sample_name == sample_name
             assert cell.qualifier.status is status
-            assert bar_set.color() == color
-            assert bar_set.color() == QUALIFIER_STATUS_COLORS[status]
-            assert bar_set.borderColor() == QColor("white")
+            # An ion the method lacks is an outlined empty slot, not a grey fill.
+            assert bar_set.color() == fill
+            assert bar_set.borderColor() == border
         assert [set_.at(0) for set_ in bar_sets] == [1.0, 1.0, 0.0, 0.0]
         assert [set_.at(1) for set_ in bar_sets] == [0.0, 0.0, 1.0, 1.0]
         value_axes, category_axes = _horizontal_axes(widget.chart)
@@ -296,11 +298,12 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert value_axes[0].min() == 0
         assert value_axes[0].max() == 2
         assert not value_axes[0].labelsVisible()
-        assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
+        assert category_axes == []
+        assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1", "Qualifier 2"]
         y_axis = widget.chart.axes(Qt.Vertical)[0]
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
-        assert not y_axis.labelsVisible()
+        assert y_axis.labelsVisible()
         assert widget.header.detail.text() == "2 samples · 1 sample failed"
         assert "Failed&nbsp;<b>1</b>" in widget.key.text()
         widget.clear()
@@ -405,8 +408,9 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         assert list(y_axis.categories()) == ["S2", "S1"]
         assert y_axis.labelsVisible()
         assert y_axis.labelsFont().pixelSize() == 11
-        value_axes, category_axes = _horizontal_axes(dialog.chart)
-        assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
+        assert [text for text, _x in dialog.pinned_axis.tick_positions()] == [
+            "Qualifier 1", "Qualifier 2"
+        ]
         assert dialog._identity_binding is not None
         bar_sets = dialog._identity_binding.bar_sets
         assert len(bar_sets) == 4

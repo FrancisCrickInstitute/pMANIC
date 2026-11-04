@@ -26,7 +26,7 @@ def identity_key_chips(
     """Chips for the Identity view: every channel with its expectation, plus a
     dotted placeholder for each of the two qualifier slots the method left empty."""
     labels = [
-        f"{channel.label}   {qualifier_expectation(channel)}"
+        f"{channel.label}   {_expectation(channel)}"
         if channel.role is IonRole.QUALIFIER
         else channel.label
         for channel in channels
@@ -38,6 +38,12 @@ def identity_key_chips(
             labels.append(f"Qualifier ion {ordinal}   not in the method")
             styles.append(ChannelTraceStyle(QUALIFIER_GREY, Qt.DotLine))
     return labels, styles
+
+
+def _expectation(channel: IonChannel) -> str:
+    if channel.expected_ratio is None:
+        return "no expected ratio"
+    return qualifier_expectation(channel)
 
 
 class ChannelChip(QWidget):

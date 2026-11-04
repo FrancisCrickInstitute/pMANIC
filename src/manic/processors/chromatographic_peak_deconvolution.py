@@ -8,9 +8,28 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-from scipy.optimize import least_squares, nnls
-from scipy.signal import find_peaks, peak_widths
-from scipy.special import erfcx
+
+
+def _imported_on_first_call(module: str, name: str):
+    # SciPy takes ~0.4 s to import, which the window does not need to open.
+    def load(*args, **kwargs):
+        # A plain import statement, so PyInstaller still bundles these modules.
+        from scipy import optimize, signal, special
+
+        modules = {"optimize": optimize, "signal": signal, "special": special}
+        function = getattr(modules[module], name)
+        if globals()[name] is load:  # a test may have patched the name since
+            globals()[name] = function
+        return function(*args, **kwargs)
+
+    return load
+
+
+least_squares = _imported_on_first_call("optimize", "least_squares")
+nnls = _imported_on_first_call("optimize", "nnls")
+find_peaks = _imported_on_first_call("signal", "find_peaks")
+peak_widths = _imported_on_first_call("signal", "peak_widths")
+erfcx = _imported_on_first_call("special", "erfcx")
 
 ChromatographicPeakDeconvolutionStringency = Literal[
     "off",

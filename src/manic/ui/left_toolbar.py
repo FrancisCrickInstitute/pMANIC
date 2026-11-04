@@ -2,12 +2,13 @@ import logging
 from collections.abc import Iterable
 from typing import List
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QScrollArea,
     QSplitter,
@@ -30,6 +31,7 @@ from .sample_list_widget import SampleListWidget
 from .sidebar_widgets import (
     CollapsibleSection,
     FilterField,
+    NoMatchHint,
     divider,
     section_heading,
     shortcut_text,
@@ -40,7 +42,10 @@ from .total_abundance_widget import TotalAbundanceWidget
 
 logger = logging.getLogger(__name__)
 
-BROWSE_MIN_HEIGHT = 240
+# Browsing keeps at least this many compound rows and this share of the sidebar.
+BROWSE_MIN_ROWS = 10
+BROWSE_MIN_SHARE = 0.45
+SPLIT_SETTING = "sidebar/browse_share"
 
 
 def _deconvolution_on(compound_name: str) -> bool:
@@ -139,6 +144,10 @@ class Toolbar(QWidget):
         )
         browse_layout.addWidget(self.compound_filter)
         browse_layout.addWidget(self.compound_list, 3)
+        self.compound_no_match = NoMatchHint(
+            "No matching compounds", self.compound_filter
+        )
+        browse_layout.addWidget(self.compound_no_match)
         self.compound_empty = QLabel(
             "Compounds appear here once you load a compound list."
         )
@@ -155,15 +164,19 @@ class Toolbar(QWidget):
         samples_body_layout.setSpacing(8)
         self.sample_filter = FilterField(self.sample_list, "Filter samples")
         self.sample_filter.setToolTip(
-            "Type to filter. Selected samples are the ones shown in the grid."
+            "Type to filter. Checked samples are the ones shown in the grid."
         )
         samples_body_layout.addWidget(self.sample_filter)
         samples_body_layout.addWidget(self.sample_list, 1)
+        self.sample_no_match = NoMatchHint("No matching samples", self.sample_filter)
+        samples_body_layout.addWidget(self.sample_no_match)
         self.sample_empty = QLabel("Samples appear here once you load raw data.")
         self.sample_empty.setProperty("role", "hint")
         self.sample_empty.setWordWrap(True)
         samples_body_layout.addWidget(self.sample_empty)
-        self.samples_section = CollapsibleSection("Samples", samples_body)
+        self.samples_section = CollapsibleSection(
+            "Samples", samples_body, settings_key="sidebar/samples_expanded"
+        )
         self.samples_section.toggled.connect(self._on_samples_section_toggled)
         browse_layout.addWidget(self.samples_section)
         # Holds the empty space while there is no compound list to fill it.
@@ -176,15 +189,16 @@ class Toolbar(QWidget):
         inspector_layout = QVBoxLayout(inspector_content)
         inspector_layout.setContentsMargins(16, 12, 16, 12)
         inspector_layout.setSpacing(12)
+        # Programmatic checkbox updates set this so they refresh summaries and
+        # menus through toggled without committing anything.
+        self._syncing_checkboxes = False
 
+        peak_body = QWidget()
+        peak_layout = QVBoxLayout(peak_body)
+        peak_layout.setContentsMargins(0, 0, 0, 0)
+        peak_layout.setSpacing(8)
         self.integration = IntegrationWindow(self.analysis_mode)
-        inspector_layout.addWidget(self.integration)
-        inspector_layout.addWidget(divider())
-
-        display_body = QWidget()
-        display_layout = QVBoxLayout(display_body)
-        display_layout.setContentsMargins(16, 0, 0, 0)
-        display_layout.setSpacing(6)
+        peak_layout.addWidget(self.integration)
 
         self.baseline_checkbox = QCheckBox("Baseline correction")
         self.baseline_checkbox.setObjectName("baseline_correction_checkbox")
@@ -194,7 +208,26 @@ class Toolbar(QWidget):
             "and subtracts the area under this baseline from the peak area."
         )
         self.baseline_checkbox.stateChanged.connect(self._on_baseline_checkbox_toggled)
-        display_layout.addWidget(self.baseline_checkbox)
+        peak_layout.addWidget(self.baseline_checkbox)
+
+        self.peak_section = CollapsibleSection(
+            "Peak window",
+            peak_body,
+            expanded=True,
+            settings_key="sidebar/peak_window_expanded",
+        )
+        self.baseline_checkbox.toggled.connect(self._refresh_peak_summary)
+        self.integration.findChild(QLineEdit, "tr_input").textChanged.connect(
+            self._refresh_peak_summary
+        )
+        self._refresh_peak_summary()
+        inspector_layout.addWidget(self.peak_section)
+        inspector_layout.addWidget(divider())
+
+        display_body = QWidget()
+        display_layout = QVBoxLayout(display_body)
+        display_layout.setContentsMargins(16, 0, 0, 0)
+        display_layout.setSpacing(6)
 
         self.shared_yscale_checkbox = QCheckBox("Shared y-scale")
         self.shared_yscale_checkbox.setObjectName("shared_yscale_checkbox")
@@ -224,7 +257,9 @@ class Toolbar(QWidget):
             )
             display_layout.addWidget(self.selected_peak_yscale_checkbox)
 
-        self.display_section = CollapsibleSection("Display", display_body)
+        self.display_section = CollapsibleSection(
+            "Display", display_body, settings_key="sidebar/display_expanded"
+        )
         for checkbox in self.display_checkboxes():
             checkbox.toggled.connect(self._refresh_display_summary)
         self._refresh_display_summary()
@@ -240,7 +275,10 @@ class Toolbar(QWidget):
         self.total_abundance = TotalAbundanceWidget()
         for chart in (self.isotopologue_ratios, self.targeted_qc, self.total_abundance):
             summary_layout.addWidget(chart, 1)
-        inspector_layout.addWidget(summary, 1)
+        self.summary_section = CollapsibleSection(
+            "Summary", summary, expanded=True, settings_key="sidebar/summary_expanded"
+        )
+        inspector_layout.addWidget(self.summary_section, 1)
 
         if self.analysis_mode is AnalysisMode.UNLABELLED:
             self.isotopologue_ratios.hide()
@@ -260,8 +298,10 @@ class Toolbar(QWidget):
         self.splitter.addWidget(self.inspector)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 1)
-        # Keep the inspector fitted to its content until the user drags the split.
-        self._user_sized = False
+        self.splitter.handle(1).setToolTip("Drag to share space between lists and inspector")
+        # A split the user dragged to is kept, as a share of the height, across runs.
+        saved = QSettings().value(SPLIT_SETTING)
+        self._browse_share = float(saved) if saved is not None else None
         self.splitter.splitterMoved.connect(self._on_splitter_moved)
         self._fit_timer = QTimer(self)
         self._fit_timer.setSingleShot(True)
@@ -280,6 +320,7 @@ class Toolbar(QWidget):
         self._refresh_data_state()
 
     def display_checkboxes(self) -> list[QCheckBox]:
+        """Every view toggle the View menu mirrors, baseline correction included."""
         boxes = [self.baseline_checkbox, self.shared_yscale_checkbox]
         if self.selected_peak_yscale_checkbox is not None:
             boxes.append(self.selected_peak_yscale_checkbox)
@@ -295,8 +336,20 @@ class Toolbar(QWidget):
             scale = "Peak scale"
         else:
             scale = "Own scale"
+        self.display_section.summary.setText(scale)
+
+    def _refresh_peak_summary(self, *_args) -> None:
         baseline = "Baseline on" if self.baseline_checkbox.isChecked() else "No baseline"
-        self.display_section.summary.setText(f"{baseline} · {scale}")
+        tr = self.integration.findChild(QLineEdit, "tr_input").text().strip()
+        self.peak_section.summary.setText(f"tR {tr} · {baseline}" if tr else baseline)
+
+    def _set_checked_quietly(self, checkbox: QCheckBox, checked: bool) -> None:
+        """Show a state that is already committed: summaries and menus follow, nothing is saved."""
+        self._syncing_checkboxes = True
+        try:
+            checkbox.setChecked(checked)
+        finally:
+            self._syncing_checkboxes = False
 
     def _on_samples_section_toggled(self, expanded: bool) -> None:
         # The sample list takes a share of the browse pane only while open.
@@ -312,11 +365,13 @@ class Toolbar(QWidget):
         )
 
         has_compounds = compounds > 0
-        self.compound_list.setVisible(has_compounds)
-        self.compound_filter.setVisible(has_compounds)
-        self.compound_empty.setVisible(not has_compounds)
-        self._compound_stretch.setVisible(not has_compounds)
         visible = self.compound_filter.visible_count()
+        no_match = has_compounds and visible == 0
+        self.compound_list.setVisible(has_compounds and not no_match)
+        self.compound_filter.setVisible(has_compounds)
+        self.compound_no_match.setVisible(no_match)
+        self.compound_empty.setVisible(not has_compounds)
+        self._compound_stretch.setVisible(not has_compounds or no_match)
         self.compound_count_label.setText(
             ""
             if not has_compounds
@@ -326,12 +381,17 @@ class Toolbar(QWidget):
         )
 
         has_samples = samples > 0
-        self.sample_list.setVisible(has_samples)
+        matching = self.sample_filter.visible_count()
+        filtering = has_samples and bool(self.sample_filter.text().strip())
+        self.sample_list.setVisible(has_samples and matching > 0)
         self.sample_filter.setVisible(has_samples)
+        self.sample_no_match.setVisible(has_samples and matching == 0)
         self.sample_empty.setVisible(not has_samples)
         shown = len(self.get_selected_samples())
         if not has_samples:
             summary = ""
+        elif filtering:
+            summary = f"{shown} shown · {matching} match"
         elif shown == samples:
             summary = f"{samples} · all shown"
         else:
@@ -342,7 +402,10 @@ class Toolbar(QWidget):
         self._fit_timer.start()
 
     def _on_splitter_moved(self, *_args) -> None:
-        self._user_sized = True
+        total = sum(self.splitter.sizes())
+        if total > 0:
+            self._browse_share = self.splitter.sizes()[0] / total
+            QSettings().setValue(SPLIT_SETTING, self._browse_share)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.LayoutRequest:
@@ -353,19 +416,37 @@ class Toolbar(QWidget):
         super().resizeEvent(event)
         self._fit_timer.start()
 
+    def browse_floor(self, total: int) -> int:
+        """Height browsing never drops below: ten compound rows or 45%, whichever is more."""
+        browse = self.splitter.widget(0)
+        row = max(self.compound_list.sizeHintForRow(0), 1)
+        rows = BROWSE_MIN_ROWS * row + 2 * self.compound_list.frameWidth()
+        if self.samples_section.is_expanded():
+            # The sample list shares the pane 2:3 with the compound list.
+            rows = rows * 5 // 3
+        chrome = browse.minimumSizeHint().height() - self.compound_list.minimumHeight()
+        if self.samples_section.is_expanded():
+            chrome -= self.sample_list.minimumHeight()
+        return max(chrome + rows, int(total * BROWSE_MIN_SHARE))
+
     def fit_inspector(self) -> None:
-        """Give the inspector the height it needs to show everything; browse gets the rest."""
+        """Browse keeps its floor; the inspector takes the rest and scrolls."""
         total = sum(self.splitter.sizes())
-        if self._user_sized or self.inspector.isHidden() or total <= 0:
+        if self.inspector.isHidden() or total <= 0:
             return
-        wanted = self.inspector.widget().minimumSizeHint().height()
-        browse = max(total - wanted, min(BROWSE_MIN_HEIGHT, total // 2))
+        if self._browse_share is not None:
+            browse = int(total * self._browse_share)
+        else:
+            wanted = self.inspector.widget().minimumSizeHint().height()
+            browse = max(total - wanted, self.browse_floor(total))
+        # The inspector keeps room for at least its first section heading.
+        browse = min(browse, total - 96)
         if self.splitter.sizes()[0] != browse:
             self.splitter.setSizes([browse, total - browse])
 
     def _connect_signals(self):
         """Connect child widget signals to toolbar signal handlers"""
-        self.sample_list.itemSelectionChanged.connect(self.on_samples_selection_changed)
+        self.sample_list.shown_changed.connect(self.on_samples_selection_changed)
         self.compound_list.itemSelectionChanged.connect(
             self.on_compound_selection_changed
         )
@@ -382,8 +463,9 @@ class Toolbar(QWidget):
         )
         self.sample_list.samples_deleted.connect(self.samples_deleted.emit)
         self.sample_list.samples_restored.connect(self.samples_restored.emit)
-        self.sample_list.itemSelectionChanged.connect(self._refresh_data_state)
+        self.sample_list.shown_changed.connect(self._refresh_data_state)
         self.compound_filter.filtered.connect(self._refresh_data_state)
+        self.sample_filter.filtered.connect(self._refresh_data_state)
         self.loaded_data.compounds_row.clicked.connect(self._on_compounds_row_clicked)
         self.loaded_data.raw_data_row.clicked.connect(self._on_raw_data_row_clicked)
         self.standard.clicked.connect(self._show_internal_standard_menu)
@@ -444,12 +526,7 @@ class Toolbar(QWidget):
         Handler for when the selection changes in the samples list widget.
         Emits the custom signal with the selected samples.
         """
-        selected_items = self.sample_list.selectedItems()
-        if selected_items:
-            selected_samples = [item.text() for item in selected_items]
-            self.samples_selected.emit(selected_samples)
-        else:
-            self.samples_selected.emit([])
+        self.samples_selected.emit(self.get_selected_samples())
 
     def on_compound_selection_changed(self):
         """
@@ -498,22 +575,15 @@ class Toolbar(QWidget):
         self._refresh_data_state()
 
     def set_selected_samples(self, names: Iterable[str]) -> None:
-        self.sample_list.set_selected_samples(names)
+        """Show exactly these samples in the grid."""
+        self.sample_list.set_shown_samples(names)
 
     def select_all_samples(self) -> None:
-        self.sample_list.select_all_samples()
+        self.sample_list.show_all_samples()
 
-    def get_selected_samples(self):
-        """
-        Get the currently selected samples without emitting signals.
-        Avoid infinite recursion via signals.
-        Returns a list of strings.
-        """
-        selected_items = self.sample_list.selectedItems()
-        if selected_items:
-            return [item.text() for item in selected_items]
-        else:
-            return []
+    def get_selected_samples(self) -> list[str]:
+        """The samples shown in the grid, in list order, without emitting signals."""
+        return self.sample_list.shown_samples()
 
     def get_selected_compound(self):
         """
@@ -549,13 +619,9 @@ class Toolbar(QWidget):
         try:
             comp = read_compound(compound_name)
             enabled = bool(getattr(comp, "baseline_correction", 0))
-            self.baseline_checkbox.blockSignals(True)
-            self.baseline_checkbox.setChecked(enabled)
-            self.baseline_checkbox.blockSignals(False)
         except Exception:
-            self.baseline_checkbox.blockSignals(True)
-            self.baseline_checkbox.setChecked(False)
-            self.baseline_checkbox.blockSignals(False)
+            enabled = False
+        self._set_checked_quietly(self.baseline_checkbox, enabled)
 
     def sync_selected_peak_checkbox(self, compound_name: str):
         checkbox = self.selected_peak_yscale_checkbox
@@ -566,6 +632,8 @@ class Toolbar(QWidget):
             self._commit_y_scale_policy(YScalePolicy.PER_TILE_EXTRACT)
 
     def _on_shared_yscale_toggled(self, state: int):
+        if self._syncing_checkboxes:
+            return
         self._commit_y_scale_policy(
             YScalePolicy.SHARED_EXTRACT
             if state != 0
@@ -573,6 +641,8 @@ class Toolbar(QWidget):
         )
 
     def _on_selected_peak_yscale_toggled(self, state: int):
+        if self._syncing_checkboxes:
+            return
         self._commit_y_scale_policy(
             YScalePolicy.PER_TILE_SELECTED_PEAK
             if state != 0
@@ -584,24 +654,21 @@ class Toolbar(QWidget):
             policy = YScalePolicy.PER_TILE_EXTRACT
         changed = policy is not self._y_scale_policy
         self._y_scale_policy = policy
-        self.shared_yscale_checkbox.blockSignals(True)
-        self.shared_yscale_checkbox.setChecked(
-            policy is YScalePolicy.SHARED_EXTRACT
+        self._set_checked_quietly(
+            self.shared_yscale_checkbox, policy is YScalePolicy.SHARED_EXTRACT
         )
-        self.shared_yscale_checkbox.blockSignals(False)
         if self.selected_peak_yscale_checkbox is not None:
-            self.selected_peak_yscale_checkbox.blockSignals(True)
-            self.selected_peak_yscale_checkbox.setChecked(
-                policy is YScalePolicy.PER_TILE_SELECTED_PEAK
+            self._set_checked_quietly(
+                self.selected_peak_yscale_checkbox,
+                policy is YScalePolicy.PER_TILE_SELECTED_PEAK,
             )
-            self.selected_peak_yscale_checkbox.blockSignals(False)
         if changed:
             self.y_scale_policy_changed.emit(self._y_scale_policy)
 
     def _on_baseline_checkbox_toggled(self, state: int):
         """Handle baseline correction checkbox toggle - update DB and emit signal."""
         compound_name = self.get_selected_compound()
-        if not compound_name:
+        if self._syncing_checkboxes or not compound_name:
             return
 
         enabled = state != 0

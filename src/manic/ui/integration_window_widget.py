@@ -22,7 +22,6 @@ from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
-from manic.ui.sidebar_widgets import section_heading
 from manic.ui.theme import set_style_property
 
 logger = logging.getLogger(__name__)
@@ -250,7 +249,6 @@ class IntegrationWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        layout.addWidget(section_heading("Peak window"))
         self.scope_label = QLabel()
         self.scope_label.setObjectName("peakScope")
         self.scope_label.setProperty("role", "secondary")
@@ -308,9 +306,9 @@ class IntegrationWindow(QWidget):
         self.tr_window_edit.setObjectName("tr_window_input")
         self.tr_window_edit.setToolTip(tr_window_lbl.toolTip())
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
-        # Enable Enter key to trigger regeneration (same as clicking Update)
+        # Enable Enter key to trigger regeneration (same as clicking Apply window)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
-        self.regenerate_button = QPushButton("Update")
+        self.regenerate_button = QPushButton("Apply window")
         self.regenerate_button.setObjectName("RegenerateButton")
         self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
         tr_window_row.addWidget(tr_window_lbl)
@@ -630,7 +628,7 @@ class IntegrationWindow(QWidget):
         self.apply_button.setToolTip(apply_tooltip)
         self.restore_button.setToolTip(restore_tooltip)
         self.regenerate_button.setToolTip(
-            "Update the tR window and re-extract every sample"
+            "Re-extract every sample's chromatogram with this tR window width"
         )
 
     def _get_samples_needing_reload(

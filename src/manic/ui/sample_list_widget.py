@@ -1,9 +1,9 @@
 from collections.abc import Iterable
+from pathlib import Path
 from typing import List
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -12,12 +12,38 @@ from PySide6.QtWidgets import (
 
 from manic.models.database import get_deleted_samples, soft_delete_samples
 from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
+from manic.ui import theme
 from manic.ui.theme import set_style_property
+from manic.utils.paths import resource_path
+
+
+_INDICATOR_STYLE = """
+QListView::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid @border_strong;
+    border-radius: 4px;
+    background-color: @surface;
+}
+QListView::indicator:hover {
+    border: 1px solid @accent;
+}
+QListView::indicator:checked {
+    background-color: @accent;
+    border: 1px solid @accent;
+    image: url("CHECKMARK");
+}
+"""
 
 
 class SampleListWidget(QListWidget):
+    """Samples with a checkbox each: checked samples are the ones shown in the grid.
+
+    Row selection is separate and only picks rows for the context menu."""
+
     samples_deleted = Signal(list)  # Emits list of deleted sample names
     samples_restored = Signal(list)  # Emits list of restored sample names
+    shown_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -26,7 +52,9 @@ class SampleListWidget(QListWidget):
         self.setUniformItemSizes(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
-        self.itemSelectionChanged.connect(self._center_current_item_if_single_selected)
+        self.itemChanged.connect(self.shown_changed)
+        checkmark = Path(resource_path("resources", "checkmark.svg")).as_posix()
+        theme.style(self, _INDICATOR_STYLE.replace("CHECKMARK", checkmark))
         self._show_empty()
 
     def _show_empty(self):
@@ -35,69 +63,87 @@ class SampleListWidget(QListWidget):
         self.addItem(item)
         self.setCurrentItem(item)
 
-    def _center_current_item_if_single_selected(self):
-        selected_items = self.selectedItems()
-        if len(selected_items) != 1:
-            return
-
-        item = self.currentItem() or selected_items[0]
-        if not item or item.text().startswith("- No"):
-            return
-
-        self.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
+    def _real_items(self) -> list[QListWidgetItem]:
+        return [
+            item
+            for item in (self.item(row) for row in range(self.count()))
+            if item is not None and not item.text().startswith("- No")
+        ]
 
     def update_samples(self, samples: List[str]):
-        self.clear()
-        if not samples:
-            self._show_empty()
-        else:
-            for s in samples:
-                self.addItem(QListWidgetItem(s))
-            self.selectAll()
+        with QSignalBlocker(self):
+            self.clear()
+            if not samples:
+                self._show_empty()
+            for name in samples:
+                item = QListWidgetItem(name)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked)
+                self.addItem(item)
+        self.shown_changed.emit()
 
-        self._center_current_item_if_single_selected()
-
-    def set_selected_samples(self, names: Iterable[str]) -> None:
-        wanted = set(names)
-        matches = [
-            item
-            for item in (self.item(index) for index in range(self.count()))
-            if item is not None
-            and not item.text().startswith("- No")
-            and item.text() in wanted
+    def shown_samples(self) -> List[str]:
+        """Checked samples in list order."""
+        return [
+            item.text()
+            for item in self._real_items()
+            if item.checkState() == Qt.CheckState.Checked
         ]
-        if not matches:
+
+    def _set_checked(self, items, checked: bool) -> None:
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        with QSignalBlocker(self):
+            for item in items:
+                item.setCheckState(state)
+        self.shown_changed.emit()
+
+    def set_shown_samples(self, names: Iterable[str]) -> None:
+        wanted = set(names)
+        items = self._real_items()
+        if not any(item.text() in wanted for item in items):
             return
         with QSignalBlocker(self):
-            self.clearSelection()
-            for item in matches:
-                item.setSelected(True)
-        self.itemSelectionChanged.emit()
+            for item in items:
+                item.setCheckState(
+                    Qt.CheckState.Checked
+                    if item.text() in wanted
+                    else Qt.CheckState.Unchecked
+                )
+        self.shown_changed.emit()
 
-    def select_all_samples(self) -> None:
+    def show_all_samples(self) -> None:
         if self.real_count() == 0:
             return
-        with QSignalBlocker(self):
-            self.selectAll()
-        self.itemSelectionChanged.emit()
+        self._set_checked(self._real_items(), True)
+
+    def keyPressEvent(self, event):
+        # Space toggles every highlighted row together, following the current row.
+        current = self.currentItem()
+        rows = self._valid_selected_items()
+        if (
+            event.key() == Qt.Key.Key_Space
+            and current is not None
+            and current in rows
+            and len(rows) > 1
+        ):
+            self._set_checked(rows, current.checkState() != Qt.CheckState.Checked)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _valid_selected_items(self) -> list[QListWidgetItem]:
+        return [
+            item for item in self.selectedItems() if not item.text().startswith("- No")
+        ]
 
     def _get_valid_selected_samples(self) -> List[str]:
-        """Get selected sample names, excluding placeholder items"""
-        selected = []
-        for item in self.selectedItems():
-            text = item.text()
-            if not text.startswith("- No"):
-                selected.append(text)
-        return selected
+        """Highlighted sample names in list order, excluding placeholder items"""
+        selected = set(self._valid_selected_items())
+        return [item.text() for item in self._real_items() if item in selected]
 
     def real_count(self) -> int:
         """Get total number of real samples (excluding placeholder)"""
-        count = 0
-        for i in range(self.count()):
-            item = self.item(i)
-            if item and not item.text().startswith("- No"):
-                count += 1
-        return count
+        return len(self._real_items())
 
     def _show_context_menu(self, position):
         """Show context menu when right-clicking on the sample list"""
@@ -129,7 +175,24 @@ class SampleListWidget(QListWidget):
             lambda: self._confirm_delete_samples(selected_samples)
         )
 
-        # Separator
+        menu.addSeparator()
+        rows = self._valid_selected_items()
+        show_only = menu.addAction(
+            "Show Only This Sample" if len(rows) == 1 else f"Show Only {len(rows)} Samples"
+        )
+        show_only.setEnabled(bool(rows))
+        show_only.triggered.connect(
+            lambda: self.set_shown_samples(item.text() for item in rows)
+        )
+        hide = menu.addAction(
+            "Hide This Sample" if len(rows) == 1 else f"Hide {len(rows)} Samples"
+        )
+        hide.setEnabled(bool(rows))
+        hide.triggered.connect(lambda: self._set_checked(rows, False))
+        show_all = menu.addAction("Show All Samples")
+        show_all.setEnabled(len(self.shown_samples()) < total_samples)
+        show_all.triggered.connect(self.show_all_samples)
+
         menu.addSeparator()
 
         # Recover action

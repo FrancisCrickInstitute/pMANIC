@@ -681,8 +681,10 @@ class MainWindow(QMainWindow):
         else:
             page = self.graph_view
         self.workspace.setCurrentWidget(page)
-        if not self.compound_data_loaded:
-            self.update_deconvolution_indicator(None)
+        # Loading selects the first compound without on_compound_selected, so name it here.
+        self.update_deconvolution_indicator(
+            self.selected_compound_name() if self.compound_data_loaded else None
+        )
 
     def dragEnterEvent(self, event):
         if self._dropped_path(event) is not None:

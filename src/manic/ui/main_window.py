@@ -124,9 +124,6 @@ class MainWindow(QMainWindow):
         # Flag to prevent cascading sample deletion events
         self._deleting_samples = False
 
-        # Guard: plot selection that originated from the Identity chart
-        # must not rebuild that chart from the newly selected sample alone.
-        self._qc_link_guard = False
 
         # Set window icon
         self._set_window_icon()
@@ -1307,12 +1304,11 @@ class MainWindow(QMainWindow):
                         identity=identity,
                     )
 
-                # After plotting, update integration window to show "All" state
-                # (no plots selected initially)
+                # A re-plot of the same compound keeps its selection (graph view).
                 self.toolbar.integration.populate_fields_from_plots(
                     compound_name,
-                    [],  # No plots selected initially
-                    samples,  # All visible samples
+                    self.graph_view.get_selected_samples(),
+                    samples,
                 )
 
                 self.toolbar.integration.populate_tr_window_field(compound_name)
@@ -1470,6 +1466,7 @@ class MainWindow(QMainWindow):
         selected = self.graph_view.get_selected_samples()
         self.toolbar.total_abundance.set_highlighted(selected)
         self.toolbar.isotopologue_ratios.set_highlighted(selected)
+        self.toolbar.targeted_qc.set_highlighted(selected)
 
     def _update_targeted_qc(self, identity) -> None:
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
@@ -1481,11 +1478,7 @@ class MainWindow(QMainWindow):
 
     def _on_qc_sample_activated(self, sample_name: str) -> None:
         """Highlight the plot for a sample clicked on the Identity chart."""
-        self._qc_link_guard = True
-        try:
-            self.graph_view.select_sample(sample_name)
-        finally:
-            self._qc_link_guard = False
+        self.graph_view.select_sample(sample_name)
 
     def on_compound_selected(self, compound_selected):
         """
@@ -1663,11 +1656,8 @@ class MainWindow(QMainWindow):
                 current_compound, selected_samples, all_samples
             )
 
-            self._refresh_mode_charts(
-                current_compound,
-                selected_samples or all_samples,
-                skip_qc=self._qc_link_guard,
-            )
+            # Verdicts do not depend on the selection; the charts only re-highlight.
+            self._refresh_mode_charts(current_compound, all_samples, skip_qc=True)
 
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")

@@ -30,14 +30,14 @@ class AnalysisModeDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._selected_mode: AnalysisMode | None = None
-        self.setWindowTitle("Choose Analysis Mode")
+        self.setWindowTitle("Choose Analysis Mode — MANIC")
         self.setModal(True)
         self.setMinimumWidth(520)
 
         layout = QVBoxLayout(self)
 
         heading = QLabel("What type of analysis are you performing?")
-        heading.setStyleSheet("font-size: 16px; font-weight: 600;")
+        heading.setProperty("role", "title")
         layout.addWidget(heading)
 
         first_button = None

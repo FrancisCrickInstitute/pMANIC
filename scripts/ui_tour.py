@@ -188,6 +188,12 @@ def tour_steps(tour: Tour) -> None:
         view = views[0]
         pos = view.mapToGlobal(QPoint(view.width() // 2, view.height() // 2))
         tour.window.graph_view._show_context_menu(pos, view)
+        # popup() is asynchronous; grab it now in case it closes before the step ends.
+        tour.pump(0.3)
+        popup = QApplication.activePopupWidget()
+        if popup is not None:
+            tour.save(popup, "__menu")
+            popup.close()
 
     tour.run("plot_context_menu", context_menu)
 
@@ -244,6 +250,20 @@ def tour_steps(tour: Tour) -> None:
         tour.pump(1.5)
 
     tour.run("unlabelled_another_compound", unlabelled_problem_compound)
+
+    def filter_and_samples():
+        toolbar = tour.window.toolbar
+        toolbar.compound_filter.setText("ine")
+        toolbar.samples_section.set_expanded(True)
+        toolbar.sample_filter.setText("0")
+        tour.pump(0.5)
+
+    tour.run("sidebar_filter_and_samples", filter_and_samples)
+    tour.run(
+        "internal_standard_menu",
+        tour.window.toolbar._show_internal_standard_menu,
+        grab_main=False,
+    )
 
 
 def main() -> int:

@@ -2,7 +2,6 @@ from collections.abc import Iterable
 from typing import List
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QListWidget,
@@ -11,9 +10,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from manic.constants import FONT
 from manic.models.database import get_deleted_samples, soft_delete_samples
 from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
+from manic.ui.theme import set_style_property
 
 
 class SampleListWidget(QListWidget):
@@ -23,32 +22,11 @@ class SampleListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        self.setFont(QFont(FONT, 10))
-        self.setMaximumHeight(150)
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(72)
+        self.setUniformItemSizes(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.itemSelectionChanged.connect(self._center_current_item_if_single_selected)
-        # Custom scrollbar styling with rounded edges
-        self.setStyleSheet("""
-            QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 10px;
-                border: none;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 5px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
         self._show_empty()
 
     def _show_empty(self):
@@ -97,7 +75,7 @@ class SampleListWidget(QListWidget):
         self.itemSelectionChanged.emit()
 
     def select_all_samples(self) -> None:
-        if self._get_total_sample_count() == 0:
+        if self.real_count() == 0:
             return
         with QSignalBlocker(self):
             self.selectAll()
@@ -112,7 +90,7 @@ class SampleListWidget(QListWidget):
                 selected.append(text)
         return selected
 
-    def _get_total_sample_count(self) -> int:
+    def real_count(self) -> int:
         """Get total number of real samples (excluding placeholder)"""
         count = 0
         for i in range(self.count()):
@@ -125,35 +103,10 @@ class SampleListWidget(QListWidget):
         """Show context menu when right-clicking on the sample list"""
         menu = QMenu(self)
 
-        # Set menu style to ensure black text on white background
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: white;
-                color: black;
-                border: none;
-            }
-            QMenu::item {
-                background-color: white;
-                color: black;
-                padding: 5px 15px;
-            }
-            QMenu::item:selected {
-                background-color: #e0e0e0;
-                color: black;
-            }
-            QMenu::item:disabled {
-                color: #999999;
-            }
-            QMenu::separator {
-                height: 1px;
-                background-color: #d0d0d0;
-                margin: 4px 10px;
-            }
-        """)
 
         # Get selected samples
         selected_samples = self._get_valid_selected_samples()
-        total_samples = self._get_total_sample_count()
+        total_samples = self.real_count()
 
         # Delete action
         if len(selected_samples) == 1:
@@ -211,40 +164,10 @@ class SampleListWidget(QListWidget):
         )
         msg_box.setDefaultButton(QMessageBox.StandardButton.No)
 
-        # Style the message box with clean styling, no borders or images
-        msg_box.setStyleSheet("""
-            QMessageBox {
-                background-color: white;
-                color: black;
-                border: none;
-            }
-            QMessageBox QLabel {
-                color: black;
-                background-color: transparent;
-                border: none;
-            }
-            QMessageBox QPushButton {
-                background-color: #f0f0f0;
-                color: black;
-                border: none;
-                padding: 8px 20px;
-                border-radius: 4px;
-                min-width: 70px;
-                font-weight: normal;
-            }
-            QMessageBox QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QMessageBox QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-            QMessageBox QFrame {
-                border: none;
-            }
-            QMessageBox * {
-                border: none;
-            }
-        """)
+        confirm = msg_box.button(QMessageBox.StandardButton.Yes)
+        confirm.setText("Delete")
+        set_style_property(confirm, "variant", "danger")
+        msg_box.button(QMessageBox.StandardButton.No).setText("Cancel")
 
         reply = msg_box.exec()
 

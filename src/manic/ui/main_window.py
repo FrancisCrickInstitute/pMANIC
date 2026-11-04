@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, Qt, QThread, QUrl
 from PySide6.QtGui import (
     QAction,
     QDesktopServices,  # Add this for opening URLs
@@ -25,12 +25,14 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QRadioButton,
+    QPushButton,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from manic.__version__ import APP_NAME, __version__
+from manic.__version__ import APP_NAME
 from manic.constants import (
     DEFAULT_MIN_PEAK_HEIGHT_RATIO,
     DEFAULT_RT_WINDOW,
@@ -83,7 +85,9 @@ from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
 from manic.ui.settings_window import SettingsWindow
-from manic.ui.toast_notification import ToastNotification
+from manic.ui.start_panel import StartPanel
+from manic.ui.theme import set_style_property
+from manic.ui.toast_notification import show_status_toast
 from manic.ui.window_placement import show_over_parent
 from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.utils.paths import docs_path, resource_path
@@ -99,6 +103,9 @@ from manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
 
+SIDEBAR_WIDTH = 296
+COMPOUND_LIST_SUFFIXES = {".csv", ".xls", ".xlsx"}
+
 
 class MainWindow(QMainWindow):
     def __init__(self, analysis_context: AnalysisContext | None = None):
@@ -106,8 +113,9 @@ class MainWindow(QMainWindow):
         self.analysis_context = analysis_context or AnalysisContext()
         self.analysis_mode = self.analysis_context.mode
         self.setWindowTitle(
-            f"{APP_NAME} v{__version__} — {self.analysis_mode.display_name} analysis"
+            f"{APP_NAME} — {self.analysis_mode.display_name} analysis"
         )
+        self.setAcceptDrops(True)
         self.setObjectName("mainWindow")
 
         # Flag to prevent cascading compound deletion events
@@ -224,68 +232,43 @@ class MainWindow(QMainWindow):
         else:
             message = "No updates available"
 
-        toast = ToastNotification(message, parent=self, timeout_ms=7000)
-
-        # Place it above the status bar, bottom-right.
-        toast.adjustSize()
-        margin = 16
-        status_h = self.statusBar().height() if self.statusBar() else 0
-        x = self.width() - toast.width() - margin
-        y = self.height() - toast.height() - margin - status_h
-        toast.move(max(margin, x), max(margin, y))
-        toast.show()
-
-        def _reposition():
-            if not toast.isVisible():
-                return
-            status_h_local = self.statusBar().height() if self.statusBar() else 0
-            x_local = self.width() - toast.width() - margin
-            y_local = self.height() - toast.height() - margin - status_h_local
-            toast.move(max(margin, x_local), max(margin, y_local))
-
-        # Reposition once after the window has had a layout pass.
-        QTimer.singleShot(0, _reposition)
+        show_status_toast(self.statusBar(), message)
 
     def setup_ui(self):
         """
         Set up the application UI.
         """
 
-        # Create the main layout
         main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create a horizontal splitter
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(5)  # Makes the grab area slightly larger/easier to hit
+        splitter.setHandleWidth(4)
 
-        # Create the toolbar
         self.toolbar = Toolbar(self.analysis_mode)
         self.toolbar.setObjectName("toolbar")
-        # Add toolbar to splitter instead of layout
         splitter.addWidget(self.toolbar)
 
-        # Create the graph view
+        # The grid replaces the start panel once raw data is loaded.
         self.graph_view = GraphView()
-        # Add graph view to splitter instead of layout
-        splitter.addWidget(self.graph_view)
+        self.start_panel = StartPanel(self.analysis_mode)
+        self.workspace = QStackedWidget()
+        self.workspace.setObjectName("workspace")
+        self.workspace.addWidget(self.start_panel)
+        self.workspace.addWidget(self.graph_view)
+        splitter.addWidget(self.workspace)
 
-        # Set stretch factors for the splitter
-        # Index 0 (Toolbar): Stretch factor 0 (doesn't expand automatically)
-        # Index 1 (GraphView): Stretch factor 1 (takes up all available extra space)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-
-        # Make the toolbar non-collapsible (so it doesn't snap to size 0)
         splitter.setCollapsible(0, False)
-
-        # Add the splitter to the main layout
+        splitter.setSizes([SIDEBAR_WIDTH, 10_000])
         main_layout.addWidget(splitter)
 
-        # Set the main layout as the central widget
         central_widget = QWidget()
         central_widget.setObjectName("centralWidget")
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
+        self._setup_status_bar()
 
         # Create menu bar
         menu_bar = QMenuBar()
@@ -367,6 +350,8 @@ class MainWindow(QMainWindow):
         self.quit_action.setMenuRole(QAction.QuitRole)
         self.quit_action.triggered.connect(self.close)
         file_menu.addAction(self.quit_action)
+
+        self._build_view_menu(menu_bar)
 
         # About and Settings carry roles so a native macOS menubar moves them
         # into the application menu (Qt relabels Settings as "Preferences..."
@@ -451,6 +436,175 @@ class MainWindow(QMainWindow):
         self.toolbar.targeted_qc.sample_activated.connect(
             self._on_qc_sample_activated
         )
+
+        self.toolbar.load_compounds_requested.connect(self.load_compound_action.trigger)
+        self.toolbar.load_raw_data_requested.connect(self.load_cdf_action.trigger)
+        self.start_panel.load_compounds_requested.connect(
+            self.load_compound_action.trigger
+        )
+        self.start_panel.load_raw_data_requested.connect(self.load_cdf_action.trigger)
+        self.start_panel.recent_compound_list_requested.connect(
+            self._load_compound_list_from
+        )
+        self.start_panel.recent_raw_data_requested.connect(self._load_cdf_folder)
+        self.start_panel.new_session_requested.connect(self.new_session_action.trigger)
+        self.start_panel.documentation_requested.connect(
+            self.open_documentation_window
+        )
+        self._refresh_shell()
+        self.start_panel.compounds_step.button.setFocus()
+
+    def _build_view_menu(self, menu_bar: QMenuBar) -> None:
+        """Display toggles mirror the sidebar checkboxes, which stay the source of truth."""
+        view_menu = menu_bar.addMenu("View")
+        self.view_menu = view_menu
+        self.display_actions: list[tuple[QAction, QCheckBox]] = []
+        menu_entries = {
+            "baseline_correction_checkbox": ("Baseline Correction", "Ctrl+Shift+B"),
+            "shared_yscale_checkbox": ("Shared Y-Scale", "Ctrl+Shift+Y"),
+            "scale_selected_peak_checkbox": ("Scale to Selected Peak", "Ctrl+Shift+P"),
+        }
+        for checkbox in self.toolbar.display_checkboxes():
+            text, shortcut = menu_entries[checkbox.objectName()]
+            action = QAction(text, self)
+            action.setCheckable(True)
+            action.setChecked(checkbox.isChecked())
+            action.setShortcut(QKeySequence(shortcut))
+            action.setToolTip(checkbox.toolTip())
+            action.triggered.connect(
+                lambda checked, a=action, c=checkbox: self._toggle_display(a, c, checked)
+            )
+            checkbox.toggled.connect(action.setChecked)
+            view_menu.addAction(action)
+            self.display_actions.append((action, checkbox))
+        view_menu.aboutToShow.connect(self._sync_display_actions)
+
+        view_menu.addSeparator()
+        self.find_compound_action = QAction("Find Compound", self)
+        self.find_compound_action.setShortcut(QKeySequence.Find)
+        self.find_compound_action.triggered.connect(self.toolbar.focus_compound_filter)
+        view_menu.addAction(self.find_compound_action)
+
+        self.previous_compound_action = QAction("Previous Compound", self)
+        self.previous_compound_action.setShortcut(QKeySequence("Ctrl+["))
+        self.previous_compound_action.triggered.connect(
+            lambda: self.toolbar.step_compound(-1)
+        )
+        view_menu.addAction(self.previous_compound_action)
+
+        self.next_compound_action = QAction("Next Compound", self)
+        self.next_compound_action.setShortcut(QKeySequence("Ctrl+]"))
+        self.next_compound_action.triggered.connect(
+            lambda: self.toolbar.step_compound(1)
+        )
+        view_menu.addAction(self.next_compound_action)
+
+        view_menu.addSeparator()
+        self.show_samples_action = QAction("Sample List", self)
+        self.show_samples_action.setCheckable(True)
+        self.show_samples_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self.show_samples_action.toggled.connect(
+            self.toolbar.samples_section.set_expanded
+        )
+        self.toolbar.samples_section.toggled.connect(
+            self.show_samples_action.setChecked
+        )
+        view_menu.addAction(self.show_samples_action)
+
+        self.show_all_samples_action = QAction("Show All Samples", self)
+        self.show_all_samples_action.triggered.connect(self.show_all_samples)
+        view_menu.addAction(self.show_all_samples_action)
+
+    def _toggle_display(self, action: QAction, checkbox: QCheckBox, checked: bool):
+        if checkbox.isEnabled():
+            checkbox.setChecked(checked)
+        action.setChecked(checkbox.isChecked())
+
+    def _sync_display_actions(self) -> None:
+        for action, checkbox in self.display_actions:
+            action.setEnabled(checkbox.isEnabled())
+            action.setChecked(checkbox.isChecked())
+
+    def _setup_status_bar(self) -> None:
+        bar = self.statusBar()
+        bar.setSizeGripEnabled(False)
+        self.selection_status_label = QLabel()
+        self.selection_status_label.setObjectName("selectionStatus")
+        bar.addWidget(self.selection_status_label, 1)
+        self.deconvolution_indicator_label = QPushButton()
+        self.deconvolution_indicator_label.setObjectName("statusDeconvolution")
+        self.deconvolution_indicator_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.deconvolution_indicator_label.setToolTip(
+            "Peak deconvolution for this compound. Click to open Settings."
+        )
+        self.deconvolution_indicator_label.clicked.connect(self.open_settings_window)
+        bar.addPermanentWidget(self.deconvolution_indicator_label)
+
+    def _refresh_shell(self) -> None:
+        """Workspace page, start steps and status text from the loaded-data state."""
+        if not hasattr(self, "start_panel"):
+            return
+        self.start_panel.refresh(
+            self.compound_data_loaded,
+            self.toolbar.compound_list.real_count(),
+            self.load_compound_action.isEnabled(),
+            self.load_cdf_action.isEnabled(),
+            self._recent_compounds.paths(),
+            self._recent_cdf.paths(),
+        )
+        self.workspace.setCurrentWidget(
+            self.graph_view if self.cdf_data_loaded else self.start_panel
+        )
+        if not self.compound_data_loaded:
+            self.update_deconvolution_indicator(None)
+        self._update_selection_status()
+
+    def _update_selection_status(self) -> None:
+        if not hasattr(self, "selection_status_label"):
+            return
+        compound = self.graph_view.get_current_compound()
+        samples = self.graph_view.get_current_samples()
+        selected = self.graph_view.get_selected_samples()
+        if self.cdf_data_loaded and compound and samples:
+            noun = "sample" if len(samples) == 1 else "samples"
+            parts = [compound, f"{len(samples)} {noun}"]
+            if selected:
+                parts.append(f"{len(selected)} selected")
+            text = " · ".join(parts)
+        elif self.compound_data_loaded:
+            text = "Compound list loaded. Load a raw data folder next."
+        else:
+            text = "No data loaded. Start by loading a compound list."
+        self.selection_status_label.setText(text)
+
+    def dragEnterEvent(self, event):
+        if self._dropped_path(event) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        path = self._dropped_path(event)
+        if path is None:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        if path.is_dir():
+            self._load_cdf_folder(str(path))
+        else:
+            self._load_compound_list_from(str(path))
+
+    def _dropped_path(self, event) -> Path | None:
+        """The one local file or folder dropped, if loading it is allowed right now."""
+        urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+        if len(urls) != 1 or not urls[0].isLocalFile():
+            return None
+        path = Path(urls[0].toLocalFile())
+        if path.is_dir():
+            return path if self.load_cdf_action.isEnabled() else None
+        if path.suffix.lower() in COMPOUND_LIST_SUFFIXES:
+            return path if self.load_compound_action.isEnabled() else None
+        return None
 
     def _get_logo_path(self) -> str:
         """Get the path to the MANIC logo."""
@@ -632,6 +786,7 @@ class MainWindow(QMainWindow):
 
         if self.settings_window is not None:
             self.settings_window.refresh()
+        self._refresh_shell()
 
     # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
@@ -937,27 +1092,8 @@ class MainWindow(QMainWindow):
         self.progress_dialog.close()
 
         # Non-blocking success notification (avoid modal popup)
-        toast = ToastNotification(
-            f"Imported {rows} EICs", parent=self, timeout_ms=7000
-        )
-        toast.adjustSize()
-        margin = 16
-        status_h = self.statusBar().height() if self.statusBar() else 0
-        x = self.width() - toast.width() - margin
-        y = self.height() - toast.height() - margin - status_h
-        toast.move(max(margin, x), max(margin, y))
-        toast.show()
-
-        def _reposition():
-            if not toast.isVisible():
-                return
-            status_h_local = self.statusBar().height() if self.statusBar() else 0
-            x_local = self.width() - toast.width() - margin
-            y_local = self.height() - toast.height() - margin - status_h_local
-            toast.move(max(margin, x_local), max(margin, y_local))
-
-        # Reposition once after the window has had a layout pass.
-        QTimer.singleShot(0, _reposition)
+        show_status_toast(self.statusBar(), f"Imported {rows} EICs")
+        self.workspace.setCurrentWidget(self.graph_view)
 
         # set raw data indicator to green
         self.toolbar.update_label_colours(True, True)
@@ -1040,6 +1176,7 @@ class MainWindow(QMainWindow):
                 )
 
                 self.toolbar.integration.populate_tr_window_field(compound_name)
+                self._update_selection_status()
 
                 self._refresh_mode_charts(
                     compound_name,
@@ -1367,6 +1504,7 @@ class MainWindow(QMainWindow):
         current_compound = self.graph_view.get_current_compound()
         all_samples = self.graph_view.get_current_samples()
 
+        self._update_selection_status()
         if current_compound:
             self.toolbar.integration.populate_fields_from_plots(
                 current_compound, selected_samples, all_samples
@@ -2391,74 +2529,59 @@ class MainWindow(QMainWindow):
         return True
 
     def _deconvolution_indicator_text(self, compound_name: str | None) -> str:
-        """Build the status-bar text describing the selected compound's settings."""
+        """Plain-words status-bar text for the selected compound's deconvolution."""
         if not compound_name:
-            return "Deconvolution: -"
+            return ""
         try:
             compound = read_compound_with_session(compound_name)
         except Exception:
-            return "Deconvolution: -"
+            return ""
         level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
         if level == "off":
-            return f"Deconvolution: Off  ({compound_name})"
+            return "Deconvolution off"
         fit_labels = {
-            "auto": "Auto",
-            "gaussian": "Gaussian",
-            "bi_gaussian": "Bi-Gaussian",
-            "emg": "EMG",
+            "auto": "automatic peak shape",
+            "gaussian": "Gaussian peaks",
+            "bi_gaussian": "bi-Gaussian peaks",
+            "emg": "EMG peaks",
         }
         fit = fit_labels.get(
             normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto")),
-            "Auto",
+            "automatic peak shape",
         )
         gate = normalize_noise_gate(
             getattr(compound, "deconvolution_noise_gate", "balanced")
-        ).capitalize()
-        return (
-            f"Deconvolution: On · Level {level} · {fit} · Gate {gate}  ({compound_name})"
         )
+        return f"Deconvolution level {level} · {fit} · {gate} noise gate"
 
     def update_deconvolution_indicator(self, compound_name: str | None) -> None:
         """Refresh the status-bar deconvolution indicator for the given compound."""
-        if not hasattr(self, "deconvolution_indicator_label"):
-            self.deconvolution_indicator_label = QLabel()
-            self.statusBar().addWidget(self.deconvolution_indicator_label)
-        self.deconvolution_indicator_label.setText(
-            self._deconvolution_indicator_text(compound_name)
-        )
+        text = self._deconvolution_indicator_text(compound_name)
+        self.deconvolution_indicator_label.setText(text)
+        self.deconvolution_indicator_label.setVisible(bool(text))
 
     def show_about(self):
         """Show About dialog with version information."""
-        from manic.__version__ import APP_DESCRIPTION
+        from manic.ui.about_dialog import AboutDialog
 
-        about_text = f"""<h2>{APP_NAME} v{__version__}</h2>
-<p><b>{APP_DESCRIPTION}</b></p>
-<p>This application provides tools for analyzing natural isotope composition in mass spectrometry data.</p>
-<p><b>Features:</b></p>
-<ul>
-<li>Compound definition and parameter management</li>
-<li>Raw CDF data processing</li>
-<li>Session export/import for reproducible analysis</li>
-<li>Integration boundary customization</li>
-<li>Isotopologue ratio analysis</li>
-</ul>
-<p><b>Version:</b> v{__version__}</p>"""
-
-        msg_box = self._create_message_box(
-            "information", f"About {APP_NAME}", about_text
-        )
-        msg_box.exec()
+        AboutDialog(self).exec()
 
     def clear_session(self):
         """Clear all loaded data and reset application state with progress tracking."""
         if self._background_work_running("clearing the session"):
             return
 
-        reply = self._show_question_dialog(
+        confirm = self._create_message_box(
+            "question",
             "Clear Session",
             "This will clear all loaded data and reset the application.",
             "All compound data, raw data, and session settings will be removed. This cannot be undone.",
         )
+        clear_button = confirm.button(QMessageBox.Yes)
+        clear_button.setText("Clear Session")
+        set_style_property(clear_button, "variant", "danger")
+        confirm.button(QMessageBox.No).setText("Cancel")
+        reply = confirm.exec()
 
         if reply == QMessageBox.Yes:
             # Create and show progress dialog

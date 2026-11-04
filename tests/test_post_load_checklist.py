@@ -101,7 +101,7 @@ def test_apply_sets_internal_standard_on_toolbar(qapp, empty_db, monkeypatch):
         dialog.accept()
         assert window.toolbar.get_internal_standard() == "Norvaline"
         assert window.toolbar.standard.internal_standard == "Norvaline"
-        assert window.toolbar.standard.toolTip() == "Int Std: Norvaline"
+        assert window.toolbar.standard.value_text() == "Norvaline"
     finally:
         _close_window(window)
 
@@ -119,7 +119,7 @@ def test_continue_without_changes_leaves_internal_standard_unchanged(qapp, empty
         combo.setCurrentText("Norvaline")
         dialog.reject()
         assert window.toolbar.get_internal_standard() == "Alanine"
-        assert window.toolbar.standard.toolTip() == "Int Std: Alanine"
+        assert window.toolbar.standard.value_text() == "Alanine"
     finally:
         _close_window(window)
 

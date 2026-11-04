@@ -7,13 +7,14 @@ from typing import Dict, List, Optional, Tuple
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (
-    QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from manic.constants import DEFAULT_RT_WINDOW_BUFFER, minimum_extract_rt_window
@@ -21,8 +22,8 @@ from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
-from manic.utils.paths import resource_path
-from manic.utils.utils import load_stylesheet
+from manic.ui.sidebar_widgets import section_heading
+from manic.ui.theme import set_style_property
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,7 @@ def check_boundaries_within_window(
             right_boundary <= window_max + tolerance)
 
 
-class IntegrationWindow(QGroupBox):
+class IntegrationWindow(QWidget):
     """
     Integration window widget for modifying compound parameters.
 
@@ -199,7 +200,7 @@ class IntegrationWindow(QGroupBox):
         analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
         parent=None,
     ):
-        super().__init__("Selected Plots: All", parent)
+        super().__init__(parent)
         self.setObjectName("integrationWindow")
         self.analysis_mode = AnalysisMode.coerce(analysis_mode)
 
@@ -216,19 +217,6 @@ class IntegrationWindow(QGroupBox):
 
         self._build_ui()
         self._setup_apply_button_state()
-
-        # Load and apply the stylesheet
-        stylesheet = load_stylesheet(
-            resource_path("resources", "integration_window.qss")
-        )
-        # Replace placeholder with actual checkmark path for the checkbox indicator
-        checkmark_path = resource_path("resources", "checkmark.svg").replace("\\", "/")
-        stylesheet = stylesheet.replace("CHECKMARK_PATH", checkmark_path)
-        self.setStyleSheet(stylesheet)
-
-        font = self.font()
-        font.setBold(True)
-        self.setFont(font)
 
     def _get_main_window(self):
         """Get the main window instance to use its message box helper."""
@@ -259,61 +247,76 @@ class IntegrationWindow(QGroupBox):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
-        # Integration parameter fields
-        for label_text, obj_name in [
-            ("Left Offset", "lo_input"),
-            ("tR", "tr_input"),
-            ("Right Offset", "ro_input"),
-        ]:
-            row = QHBoxLayout()
+        layout.addWidget(section_heading("Peak window"))
+        self.scope_label = QLabel()
+        self.scope_label.setObjectName("peakScope")
+        self.scope_label.setProperty("role", "secondary")
+        self.scope_label.setWordWrap(True)
+        layout.addWidget(self.scope_label)
+
+        fields = QGridLayout()
+        fields.setContentsMargins(0, 4, 0, 0)
+        fields.setHorizontalSpacing(12)
+        fields.setVerticalSpacing(6)
+        fields.setColumnStretch(1, 1)
+        for row, (label_text, obj_name, tip) in enumerate(
+            [
+                ("Left offset", "lo_input", "Minutes before tR where integration starts"),
+                ("tR", "tr_input", "Retention time in minutes"),
+                ("Right offset", "ro_input", "Minutes after tR where integration ends"),
+            ]
+        ):
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
+            lbl.setToolTip(tip)
             edt = QLineEdit()
             edt.setObjectName(obj_name)
+            edt.setToolTip(tip)
             edt.setValidator(ToolbarDecimalValidator(edt))
             # Enable Enter key to trigger apply (same as clicking Apply button)
             edt.returnPressed.connect(self._on_apply_clicked)
-            row.addWidget(lbl)
-            row.addWidget(edt, 1)
-            layout.addLayout(row)
+            fields.addWidget(lbl, row, 0)
+            fields.addWidget(edt, row, 1)
+        layout.addLayout(fields)
 
         # Action buttons
         button_row = QHBoxLayout()
-        self.apply_button = QPushButton("Apply")
-        self.apply_button.setObjectName("ApplyButton")
-        self.apply_button.clicked.connect(self._on_apply_clicked)
-        button_row.addWidget(self.apply_button)
-
+        button_row.setSpacing(8)
         self.restore_button = QPushButton("Reset")
         self.restore_button.setObjectName("RestoreButton")
         self.restore_button.clicked.connect(self._on_restore_clicked)
-        button_row.addWidget(self.restore_button)
+        button_row.addWidget(self.restore_button, 1)
 
+        self.apply_button = QPushButton("Apply")
+        self.apply_button.setObjectName("ApplyButton")
+        self.apply_button.setProperty("variant", "primary")
+        self.apply_button.clicked.connect(self._on_apply_clicked)
+        button_row.addWidget(self.apply_button, 2)
         layout.addLayout(button_row)
 
         # tR Window field for data regeneration
         tr_window_row = QHBoxLayout()
-        tr_window_lbl = QLabel("tR Window")
-        tr_window_lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
+        tr_window_row.setContentsMargins(0, 8, 0, 0)
+        tr_window_row.setSpacing(8)
+        tr_window_lbl = QLabel("tR window")
+        tr_window_lbl.setToolTip(
+            "Width of the extracted chromatogram around tR, in minutes"
+        )
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
+        self.tr_window_edit.setToolTip(tr_window_lbl.toolTip())
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
-        # Enable Enter key to trigger regeneration (same as clicking Update tR Window button)
+        # Enable Enter key to trigger regeneration (same as clicking Update)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
-        tr_window_row.addWidget(tr_window_lbl)
-        tr_window_row.addWidget(self.tr_window_edit, 1)
-        layout.addLayout(tr_window_row)
-
-        # Regeneration button
-        regen_button_row = QHBoxLayout()
-        self.regenerate_button = QPushButton("Update tR Window")
+        self.regenerate_button = QPushButton("Update")
         self.regenerate_button.setObjectName("RegenerateButton")
         self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
-        regen_button_row.addWidget(self.regenerate_button)
-
-        layout.addLayout(regen_button_row)
+        tr_window_row.addWidget(tr_window_lbl)
+        tr_window_row.addWidget(self.tr_window_edit, 1)
+        tr_window_row.addWidget(self.regenerate_button)
+        layout.addLayout(tr_window_row)
 
     def _format_number(self, value: float) -> str:
         if value == 0:
@@ -414,7 +417,6 @@ class IntegrationWindow(QGroupBox):
             # Case 1: No plots selected - show range for all visible plots
             if not selected_samples and all_samples:
                 self._populate_range_fields(compound_name, all_samples)
-                self.setTitle("Selected Plots: All")
                 self._update_apply_button_state()
                 return
 
@@ -428,7 +430,6 @@ class IntegrationWindow(QGroupBox):
                     "tr_window": getattr(compound_data, "tr_window", 0.2),
                 }
                 self.populate_fields(compound_dict)
-                self.setTitle("Selected Plots: All")
                 self._update_apply_button_state()
                 return
 
@@ -454,13 +455,11 @@ class IntegrationWindow(QGroupBox):
                     "tr_window": getattr(compound_data, "tr_window", 0.2),
                 }
                 self.populate_fields(compound_dict)
-                self.setTitle("Selected Plots: 1 sample")
                 self._update_apply_button_state()
                 return
 
             # Case 4: Multiple plots selected - show ranges
             self._populate_range_fields(compound_name, selected_samples)
-            self.setTitle(f"Selected Plots: {len(selected_samples)} samples")
             self._update_apply_button_state()
 
         except Exception as e:
@@ -592,30 +591,47 @@ class IntegrationWindow(QGroupBox):
         self._update_apply_button_state()
 
     def _update_apply_button_state(self):
-        """Update button states and tooltips based on selection"""
+        """Say who an edit applies to, on the scope line and the Apply button."""
         # Both buttons are always enabled, styling handled by QSS
         self.apply_button.setEnabled(True)
         self.restore_button.setEnabled(True)
 
-        # Update tooltips based on selection state
-        if not self._selected_samples:
+        selected = self._selected_samples
+        targets = selected or self._all_samples
+        count = len(targets)
+        noun = "sample" if count == 1 else "samples"
+        if not self._current_compound or not targets:
+            scope = "Select a compound to edit its peak window."
+            apply_text = "Apply"
+        elif selected:
+            scope = (
+                f"Applies to {selected[0]}"
+                if count == 1
+                else f"Applies to {count} selected samples"
+            )
+            apply_text = f"Apply to {count} {noun}"
+        else:
+            scope = f"Applies to all {count} {noun}"
+            apply_text = f"Apply to {count} {noun}"
+        self.scope_label.setText(scope)
+        set_style_property(self.scope_label, "state", "selected" if selected else "all")
+        self.apply_button.setText(apply_text)
+
+        if not selected:
             apply_tooltip = "Apply changes to all plots"
             restore_tooltip = "Restore all plots to defaults"
+        elif count == 1:
+            apply_tooltip = f"Apply changes to {selected[0]}"
+            restore_tooltip = f"Restore {selected[0]} to defaults"
         else:
-            sample_count = len(self._selected_samples)
-            if sample_count == 1:
-                apply_tooltip = f"Apply changes to {self._selected_samples[0]}"
-                restore_tooltip = f"Restore {self._selected_samples[0]} to defaults"
-            else:
-                apply_tooltip = f"Apply changes to {sample_count} selected samples"
-                restore_tooltip = f"Restore {sample_count} selected samples to defaults"
+            apply_tooltip = f"Apply changes to {count} selected samples"
+            restore_tooltip = f"Restore {count} selected samples to defaults"
 
         self.apply_button.setToolTip(apply_tooltip)
         self.restore_button.setToolTip(restore_tooltip)
-
-        # Set tooltip for regenerate button
-        regenerate_tooltip = "Update tR window and recalculate EIC data"
-        self.regenerate_button.setToolTip(regenerate_tooltip)
+        self.regenerate_button.setToolTip(
+            "Update the tR window and re-extract every sample"
+        )
 
     def _get_samples_needing_reload(
         self,

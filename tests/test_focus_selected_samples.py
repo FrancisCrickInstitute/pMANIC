@@ -60,12 +60,14 @@ def test_focus_selected_then_show_all(qapp, empty_db, monkeypatch):
         assert window.toolbar.get_selected_samples() == ["S1", "S2"]
         assert window.graph_view.get_current_samples() == ["S1", "S2"]
         assert window.graph_view.get_selected_samples() == ["S1", "S2"]
-        assert window.toolbar.integration.title() == "Selected Plots: 2 samples"
+        assert window.toolbar.integration.scope_label.text() == "Applies to 2 selected samples"
+        assert window.toolbar.integration.apply_button.text() == "Apply to 2 samples"
 
         window.graph_view.show_all_samples_requested.emit()
         assert window.toolbar.get_selected_samples() == ["S1", "S2", "S3"]
         assert window.graph_view.get_current_samples() == ["S1", "S2", "S3"]
         assert window.graph_view.get_selected_samples() == []
-        assert window.toolbar.integration.title() == "Selected Plots: All"
+        assert window.toolbar.integration.scope_label.text() == "Applies to all 3 samples"
+        assert window.toolbar.integration.apply_button.text() == "Apply to 3 samples"
     finally:
         window.close()

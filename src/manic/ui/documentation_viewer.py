@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from manic.utils.paths import docs_path
 from manic.ui import theme
-from manic.ui.dialog_kit import sidebar_item_size, sidebar_list, window_title
+from manic.ui.dialog_kit import resize_to_screen, sidebar_item_size, sidebar_list, window_title
 from manic.ui.theme import COLORS
 from manic.ui.window_placement import show_over_parent
 
@@ -138,8 +138,8 @@ class DocumentationViewer(QDialog):
         self.setObjectName("documentationWindow")
         self.setWindowTitle(window_title("Documentation"))
         self.setModal(False)
-        self.resize(1200, 780)
-        self.setMinimumSize(800, 520)
+        resize_to_screen(self, 1200, 780)
+        self.setMinimumSize(640, 400)
 
         self.docs_dir = Path(docs_path())
         self.current_file = None

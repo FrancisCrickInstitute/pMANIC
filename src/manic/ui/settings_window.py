@@ -33,6 +33,7 @@ from manic.ui.dialog_kit import (
     form_layout,
     form_row,
     hint_label,
+    resize_to_screen,
     section_label,
     set_variant,
     sidebar_item_size,
@@ -788,8 +789,8 @@ class SettingsWindow(QDialog):
         # [*] lets setWindowModified() mark unsaved pages in the title bar.
         self.setWindowTitle(window_title("Settings[*]"))
         style_dialog(self)
-        self.resize(880, 720)
-        self.setMinimumSize(720, 480)
+        resize_to_screen(self, 880, 720)
+        self.setMinimumSize(640, 400)
 
         self._pages: list[SettingsPage] = [
             page_cls(host)

@@ -10,6 +10,7 @@ from __future__ import annotations
 from PySide6.QtCore import QModelIndex, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QDialogButtonBox,
     QFormLayout,
     QLabel,
@@ -65,6 +66,16 @@ def window_title(thing: str) -> str:
 
 def style_dialog(dialog: QWidget) -> None:
     theme.style(dialog, _DIALOG_STYLE)
+
+
+def resize_to_screen(dialog: QWidget, width: int, height: int) -> None:
+    """Open at ``width`` x ``height``, or smaller on a short or scaled screen."""
+    screen = dialog.screen() or QApplication.primaryScreen()
+    if screen is not None:
+        available = screen.availableGeometry()
+        width = min(width, int(available.width() * 0.9))
+        height = min(height, int(available.height() * 0.9))
+    dialog.resize(width, height)
 
 
 def _role_label(text: str, role: str, *, wrap: bool = True) -> QLabel:

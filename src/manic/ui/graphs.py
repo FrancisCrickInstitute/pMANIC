@@ -160,6 +160,17 @@ class ClickableChartView(QChartView):
             tile.refresh_selection()
 
 
+def _review_command_text(
+    review: PeakReview | None, count: int, set_text: str, clear_text: str
+) -> str:
+    """"Accept 2 Peaks (Below Threshold)" while it sets the review,
+    "Clear Acceptance (2 Peaks)" once every target already has it."""
+    peaks = "Peak" if count <= 1 else f"{count} Peaks"
+    if review is None and count:
+        return clear_text if count == 1 else f"{clear_text} ({peaks})"
+    return set_text.format(peaks)
+
+
 def _show_shortcut(action, sequence) -> None:
     """Label a context-menu action with the grid key that does the same thing.
 
@@ -934,29 +945,27 @@ class GraphView(QWidget):
         else:
             show_only.setText(f"Show Only {shown} Selected Samples")
 
-        accept_count = reject_count = fit_count = 1
-        accepted = rejected = False
+        fit_count = 1
+        accept_review: PeakReview | None = PeakReview.ACCEPTED
+        reject_review: PeakReview | None = PeakReview.REJECTED
+        accept_count = reject_count = 1
         if lead is not None:
             accept_review, accept_plots = self._peak_review_targets(lead, PeakReview.ACCEPTED)
             reject_review, reject_plots = self._peak_review_targets(lead, PeakReview.REJECTED)
             accept_count, reject_count = len(accept_plots), len(reject_plots)
-            # A toggle that would clear the review means the review is already set.
-            accepted = bool(accept_plots) and accept_review is None
-            rejected = reject_review is None
             fit_count = len(self._curve_fit_targets(lead))
-        accept.setCheckable(True)
-        accept.setChecked(accepted)
+        # The label names what the command does; a checkmark could not show a mixed group.
+        accept.setCheckable(False)
         accept.setEnabled(lead is not None and accept_count > 0)
         accept.setText(
-            f"Accept {accept_count} Peaks (Below Threshold)"
-            if accept_count > 1
-            else "Accept Peak (Below Threshold)"
+            _review_command_text(
+                accept_review, accept_count, "Accept {} (Below Threshold)", "Clear Acceptance"
+            )
         )
-        reject.setCheckable(True)
-        reject.setChecked(rejected)
+        reject.setCheckable(False)
         reject.setEnabled(lead is not None)
         reject.setText(
-            f"Mark {reject_count} Peaks as Bad" if reject_count > 1 else "Mark Peak as Bad"
+            _review_command_text(reject_review, reject_count, "Mark {} as Bad", "Clear Bad Mark")
         )
 
         for group in fit_menu.findChildren(QActionGroup):
@@ -991,27 +1000,25 @@ class GraphView(QWidget):
     def _peak_review_targets(
         self, clicked_plot: ClickableChartView, review: PeakReview
     ) -> tuple[PeakReview | None, set[ClickableChartView]]:
-        """The review a menu toggle sets, and the plots it sets it on.
+        """The review a menu command sets, and the plots it sets it on.
 
-        Accept only reaches below-threshold peaks; when the clicked plot is
-        not one, the first eligible plot in grid order decides the toggle.
+        Accept only reaches below-threshold peaks. While any eligible peak
+        lacks `review` the command sets it on those; once all have it, the
+        command clears it from all of them.
         """
         plots = (
             self._selected_plots
             if clicked_plot in self._selected_plots
             else {clicked_plot}
         )
-        basis = clicked_plot
         if review is PeakReview.ACCEPTED:
             plots = {
                 plot
                 for plot in plots
                 if self._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
             }
-            if plots and clicked_plot not in plots:
-                basis = next(plot for plot in self._current_plots if plot in plots)
-        new_review = None if self._review_for_plot(basis) is review else review
-        return new_review, plots
+        missing = {plot for plot in plots if self._review_for_plot(plot) is not review}
+        return (review, missing) if missing else (None, plots)
 
     def toggle_peak_review(
         self, clicked_plot: ClickableChartView, review: PeakReview

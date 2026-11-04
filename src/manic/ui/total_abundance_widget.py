@@ -12,7 +12,7 @@ from PySide6.QtCharts import (
     QHorizontalBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QMargins, Qt
+from PySide6.QtCore import QMargins, Qt, Signal
 from PySide6.QtGui import QCursor, QPainter, QMouseEvent
 from PySide6.QtWidgets import QFrame, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
@@ -52,6 +52,8 @@ class TotalAbundanceWidget(QWidget):
     Companion to the isotopologue ratio widget - same integration logic but
     displays total abundance instead of relative ratios.
     """
+
+    sample_activated = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -322,6 +324,7 @@ class TotalAbundanceWidget(QWidget):
                 parent=self,
                 compound_name=self._current_compound,
             )
+            dialog.sample_activated.connect(self.sample_activated)
             dialog.exec()
             
         except Exception as e:

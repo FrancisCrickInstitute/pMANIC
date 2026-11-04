@@ -12,7 +12,7 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QMargins, QPointF, QRectF, Qt
+from PySide6.QtCore import QMargins, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
@@ -61,6 +61,8 @@ class IsotopologueRatioWidget(QWidget):
 
     Horizontal layout is better for handling many samples as as there is more vertical space.
     """
+
+    sample_activated = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -449,6 +451,7 @@ class IsotopologueRatioWidget(QWidget):
                 parent=self,
                 compound_name=self._current_compound,
             )
+            dialog.sample_activated.connect(self.sample_activated)
             dialog.exec()
 
         except Exception as e:

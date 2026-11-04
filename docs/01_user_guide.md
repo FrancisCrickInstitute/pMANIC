@@ -344,13 +344,13 @@ Right-click any plot in the main grid and select **Inspect *sample*...**, or dou
 ### Expanded Summary Plots
 The **Summary** section of the sidebar contains two charts: **Label incorporation** and **Total abundance**. In unlabelled mode, **Identity** replaces Label incorporation.
 * **Action:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
-* **Feature:** The expanded view reveals the specific sample names on the axes, which are hidden in the compact sidebar view to save space.
+* **Feature:** The expanded view names every sample on its axis. The sidebar chart names its samples only when they fit; otherwise hover a bar or open the expanded view.
 
 ---
 
 ## 8. Settings & Configuration
 
-Open **Settings**, **Documentation**, **Check Data Setup**, **Check for Updates** and **About** from the **Help** menu on Windows. On macOS, **Settings** and **About** sit in the **MANIC** application menu and the other three under **Help**. The book and gear icons at the top right of the plot area open Documentation and Settings too.
+On Windows, **Settings...** is in the **File** menu, and **Documentation**, **Check Data Setup**, **Check for Updates** and **About** are in the **Help** menu. On macOS, **Settings** and **About** sit in the **MANIC** application menu and the other three under **Help**. The book and gear icons at the top right of the plot area open Documentation and Settings too.
 
 **Shortcuts.** **Settings...** is Ctrl+, (Preferences on macOS). **Documentation** is F1 (HelpContents).
 

@@ -160,6 +160,7 @@ class MainWindow(QMainWindow):
         self.settings_window = None
         self.documentation_window = None
         self._post_load_checklist = None
+        self.compound_list_path: str | None = None
         self._update_worker = None
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
@@ -434,10 +435,13 @@ class MainWindow(QMainWindow):
             self.graph_view.set_y_scale_policy
         )
 
-        # Clicking an Identity bar highlights that sample's plot.
-        self.toolbar.targeted_qc.sample_activated.connect(
-            self._on_qc_sample_activated
-        )
+        # Clicking an Identity bar, or a row in a summary popup, highlights that sample's plot.
+        for chart in (
+            self.toolbar.targeted_qc,
+            self.toolbar.total_abundance,
+            self.toolbar.isotopologue_ratios,
+        ):
+            chart.sample_activated.connect(self._on_qc_sample_activated)
 
         self.toolbar.load_compounds_requested.connect(self.load_compound_action.trigger)
         self.toolbar.load_raw_data_requested.connect(self.load_cdf_action.trigger)
@@ -1113,6 +1117,7 @@ class MainWindow(QMainWindow):
                 path,
                 analysis_mode=self.analysis_mode,
             )
+            self.compound_list_path = path
             self.toolbar.update_label_colours(False, True)
             self.toolbar.update_compound_list(list_compound_names())
 
@@ -2422,6 +2427,7 @@ class MainWindow(QMainWindow):
             self.toolbar.get_internal_standard(),
             report,
             self,
+            compound_list_path=self.compound_list_path,
         )
         dialog.open_user_guide_requested.connect(self._open_checklist_guide)
         dialog.accepted.connect(self._apply_checklist)
@@ -2762,6 +2768,7 @@ class MainWindow(QMainWindow):
 
                 # Reset UI state flags first
                 self.compound_data_loaded = False
+                self.compound_list_path = None
                 self.cdf_data_loaded = False
 
                 progress.setValue(20)

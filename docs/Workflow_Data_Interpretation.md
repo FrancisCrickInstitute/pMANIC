@@ -60,7 +60,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 ---
 
 ## 5. % Carbons Labelled (optional)
-**Description:** Off by default. Tick **Include % Carbons Labelled sheet** in **Export Options** to write this sheet. It is the percentage of *excess* label incorporated into the carbon pool, relative to the MM files (standard mixture) background. This is also known as **Atom Percent Excess**.
+**Description:** Off by default. Tick **Include % Carbons Labelled sheet** in **Export Data** to write this sheet. It is the percentage of *excess* label incorporated into the carbon pool, relative to the MM files (standard mixture) background. This is also known as **Atom Percent Excess**.
 
 * **Units:** Percentage (0 to 100%).
 * **Calculation:**

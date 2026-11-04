@@ -70,15 +70,15 @@ def test_accept_enabled_only_on_failed_or_accepted_tiles(grid):
     view, tiles, _emitted = grid
     for sample, enabled in (("A", True), ("B", False), ("C", False)):
         menu, actions = _actions(view, tiles[sample][1])
-        assert actions["Accept peak (below threshold)"].isEnabled() is enabled
-        assert actions["Mark peak as bad"].isEnabled()
+        assert actions["Accept Peak (Below Threshold)"].isEnabled() is enabled
+        assert actions["Mark Peak as Bad"].isEnabled()
         menu.close()
 
 
 def test_accept_emits_review_for_clicked_tile(grid):
     view, tiles, emitted = grid
     menu, actions = _actions(view, tiles["A"][1])
-    actions["Accept peak (below threshold)"].trigger()
+    actions["Accept Peak (Below Threshold)"].trigger()
     menu.close()
     assert emitted == [("Cmp", ["A"], PeakReview.ACCEPTED)]
 
@@ -86,8 +86,8 @@ def test_accept_emits_review_for_clicked_tile(grid):
 def test_toggling_checked_bad_clears_the_review(grid):
     view, tiles, emitted = grid
     menu, actions = _actions(view, tiles["B"][1])
-    assert actions["Mark peak as bad"].isChecked()
-    actions["Mark peak as bad"].trigger()
+    assert actions["Mark Peak as Bad"].isChecked()
+    actions["Mark Peak as Bad"].trigger()
     menu.close()
     assert emitted == [("Cmp", ["B"], None)]
 
@@ -96,7 +96,7 @@ def test_action_applies_to_every_selected_tile(grid):
     view, tiles, emitted = grid
     view._selected_plots = {tiles["A"][1], tiles["C"][1]}
     menu, actions = _actions(view, tiles["A"][1])
-    actions["Mark 2 peaks as bad"].trigger()
+    actions["Mark 2 Peaks as Bad"].trigger()
     menu.close()
     compound, samples, review = emitted[-1]
     assert compound == "Cmp"
@@ -126,7 +126,7 @@ def test_group_accept_skips_passing_tiles(grid):
     view, tiles, emitted = grid
     view._selected_plots = {tiles["A"][1], tiles["B"][1], tiles["C"][1]}
     menu, actions = _actions(view, tiles["A"][1])
-    actions["Accept peak (below threshold)"].trigger()
+    actions["Accept Peak (Below Threshold)"].trigger()
     menu.close()
     assert emitted == [("Cmp", ["A"], PeakReview.ACCEPTED)]
 
@@ -137,7 +137,7 @@ def test_curve_fit_menu_emits_override_for_selected_tiles(grid):
     view.sample_fit_type_changed.connect(lambda c, s, f: fits.append((c, s, f)))
     view._selected_plots = {tiles["A"][1], tiles["C"][1]}
     menu, actions = _actions(view, tiles["A"][1])
-    assert actions["Use compound setting"].isChecked()
+    assert actions["Use Compound Setting"].isChecked()
     assert actions["Gaussian"].isChecked() is False
     actions["Gaussian"].trigger()
     menu.close()
@@ -162,7 +162,7 @@ def test_show_only_selected_uses_clicked_tile_when_not_in_selection(grid):
     focused: list[list[str]] = []
     view.focus_selected_requested.connect(focused.append)
     menu, actions = _actions(view, tiles["B"][1])
-    actions["Show Only Selected Samples"].trigger()
+    actions["Show Only This Sample"].trigger()
     menu.close()
     assert focused == [["B"]]
 
@@ -183,5 +183,5 @@ def test_curve_fit_menu_checks_common_override(grid):
     view._selected_plots = {tiles["A"][1], tiles["B"][1]}
     menu, actions = _actions(view, tiles["A"][1])
     assert actions["EMG"].isChecked()
-    assert actions["Use compound setting"].isChecked() is False
+    assert actions["Use Compound Setting"].isChecked() is False
     menu.close()

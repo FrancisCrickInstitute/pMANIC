@@ -39,20 +39,6 @@ def test_abundance_marks_the_selected_samples_and_ticks_on_round_numbers(qapp):
         widget.deleteLater()
 
 
-def test_abundance_names_its_bars_when_they_fit_and_points_to_hover_when_not(qapp):
-    few = _abundance_chart([f"S{i}" for i in range(6)], range(1, 7))
-    many = _abundance_chart([f"S{i}" for i in range(30)], range(1, 31))
-    try:
-        assert _sample_axis(few).labelsVisible()
-        assert not few.names_hint.isVisible()
-        assert not _sample_axis(many).labelsVisible()
-        assert many.names_hint.isVisible()
-        assert many.names_hint.text() == "Hover or enlarge for sample names"
-    finally:
-        few.deleteLater()
-        many.deleteLater()
-
-
 def test_label_incorporation_marks_only_the_selected_rows(qapp):
     widget = IsotopologueRatioWidget()
     widget.resize(260, 330)

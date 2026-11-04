@@ -59,6 +59,7 @@ from manic.ui.colors import (
 )
 from manic.validation.unlabelled_identity import IdentitySampleAssessment
 from manic.ui.chart_style import text_style
+from manic.ui.identity_chart import STATUS_LABELS
 from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
 from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
@@ -733,7 +734,7 @@ class DetailedPlotDialog(QDialog):
         if channel.role is not IonRole.QUALIFIER:
             return label
         assessment = self.identity.qualifiers.for_ordinal(channel.ordinal)
-        return f"{label} ({assessment.status.value})"
+        return f"{label} ({STATUS_LABELS[assessment.status].lower()})"
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""
@@ -788,12 +789,13 @@ class DetailedPlotDialog(QDialog):
                 width=PLOT_STEM_WIDTH,
             )
 
+            channels = self.compound_info.analysis_channels if self.compound_info else ()
+            isotopologues = all(channel.role is IonRole.ISOTOPOLOGUE for channel in channels)
             self.ms_plot.label_peaks(
                 self.ms_data.mz,
                 self.ms_data.intensity,
-                own_mz=[
-                    channel.mz for channel in self.compound_info.analysis_channels
-                ] if self.compound_info else (),
+                own_mz=[channel.mz for channel in channels],
+                own_names=[f"M+{channel.ordinal}" for channel in channels] if isotopologues else None,
             )
 
             # Mark target m/z position with transparent indicator

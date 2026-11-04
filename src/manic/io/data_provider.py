@@ -659,10 +659,6 @@ class DataProvider:
 
         from manic.io.compound_reader import read_compound_with_session
         from manic.io.eic_reader import read_eic
-        from manic.validation.unlabelled_identity import (
-            assess_identity,
-            quantifier_apex_time,
-        )
 
         compound = read_compound_with_session(compound_name, sample_name)
         if not compound.is_unlabelled_target:
@@ -670,6 +666,66 @@ class DataProvider:
                 f"{compound_name!r} does not have quantifier/qualifier channels"
             )
         eic = read_eic(sample_name, compound, use_corrected=False)
+        return self._assess_identity(sample_name, compound, eic)
+
+    def assess_unlabelled_identity_by_sample(
+        self, compound_name: str, sample_names: Sequence[str]
+    ) -> dict:
+        """``assess_unlabelled_identity`` for many samples, reading the
+        compound, its overrides, and the EICs in a few batched queries.
+
+        Each sample maps to its QC result, or to the exception the single
+        call would have raised.
+        """
+        from manic.io.compound_reader import read_compounds_with_session
+        from manic.io.eic_reader import read_eics_batch
+
+        try:
+            compounds = read_compounds_with_session(compound_name, list(sample_names))
+            first = next(iter(compounds.values()), None)
+            if first is not None and not first.is_unlabelled_target:
+                raise ValueError(
+                    f"{compound_name!r} does not have quantifier/qualifier channels"
+                )
+            eics = {
+                eic.sample_name: eic
+                for eic in read_eics_batch(list(sample_names), first, use_corrected=False)
+            } if first is not None else {}
+        except Exception:
+            # One unreadable sample must not fail the others: read one by one.
+            results: dict = {}
+            for sample_name in sample_names:
+                try:
+                    results[sample_name] = self.assess_unlabelled_identity(
+                        sample_name, compound_name
+                    )
+                except Exception as exc:
+                    results[sample_name] = exc
+            return results
+
+        results: dict = {}
+        for sample_name in sample_names:
+            eic = eics.get(sample_name)
+            if eic is None:
+                results[sample_name] = LookupError(
+                    f"EIC not found for {compound_name} in {sample_name}"
+                )
+                continue
+            try:
+                results[sample_name] = self._assess_identity(
+                    sample_name, compounds[sample_name], eic
+                )
+            except Exception as exc:
+                results[sample_name] = exc
+        return results
+
+    def _assess_identity(self, sample_name: str, compound, eic):
+        from manic.validation.unlabelled_identity import (
+            assess_identity,
+            quantifier_apex_time,
+        )
+
+        compound_name = compound.compound_name
         observed_rt = quantifier_apex_time(
             eic.time,
             eic.intensity,

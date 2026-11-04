@@ -254,14 +254,21 @@ def _write_qualifier_qc(
     qc_row = 1
     total = max(1, len(samples) * len(compounds))
     completed = 0
+    identities = {}
+    for compound in compounds:
+        identities[compound.compound_name] = provider.assess_unlabelled_identity_by_sample(
+            compound.compound_name, samples
+        )
+        if progress_callback:
+            # Keeps the export cancellable while the identities are read.
+            progress_callback(60)
     for sample in samples:
         for compound in compounds:
-            try:
-                qc = provider.assess_unlabelled_identity(
-                    sample, compound.compound_name
-                )
-            except (LookupError, ValueError):
+            qc = identities[compound.compound_name][sample]
+            if isinstance(qc, (LookupError, ValueError)):
                 qc = None
+            elif isinstance(qc, Exception):
+                raise qc
 
             outcome = qualifier_outcome(qc)
             row_format = outcome_formats[outcome]

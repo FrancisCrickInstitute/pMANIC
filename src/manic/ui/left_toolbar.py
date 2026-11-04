@@ -40,7 +40,6 @@ from .total_abundance_widget import TotalAbundanceWidget
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_MIN_HEIGHT = 120
 BROWSE_MIN_HEIGHT = 240
 
 
@@ -236,20 +235,10 @@ class Toolbar(QWidget):
         summary_layout = QVBoxLayout(summary)
         summary_layout.setContentsMargins(0, 0, 0, 0)
         summary_layout.setSpacing(8)
-        summary_heading = QHBoxLayout()
-        summary_heading.addWidget(section_heading("Summary"))
-        summary_heading.addStretch(1)
-        summary_hint = QLabel("Double-click to enlarge")
-        summary_hint.setProperty("role", "hint")
-        summary_heading.addWidget(summary_hint)
-        summary_layout.addLayout(summary_heading)
-
         self.isotopologue_ratios = IsotopologueRatioWidget()
         self.targeted_qc = TargetedQcWidget()
         self.total_abundance = TotalAbundanceWidget()
         for chart in (self.isotopologue_ratios, self.targeted_qc, self.total_abundance):
-            # Shrink with the sidebar rather than push the summaries out of view.
-            chart.setMinimumHeight(SUMMARY_MIN_HEIGHT)
             summary_layout.addWidget(chart, 1)
         inspector_layout.addWidget(summary, 1)
 

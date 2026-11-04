@@ -41,7 +41,7 @@ def test_summaries_and_view_menu_follow_compound_switch(qapp, monkeypatch):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     monkeypatch.setattr(window, "on_plot_button", lambda *_args: None)
     toolbar = window.toolbar
-    actions = {a.text(): a for a in window.view_menu.actions()}
+    actions = {a.text(): a for a in window.review_menu.actions()}
     try:
         toolbar.update_compound_list(["Plain", "Corrected"])
         toolbar.peak_section.set_expanded(False)
@@ -58,7 +58,7 @@ def test_summaries_and_view_menu_follow_compound_switch(qapp, monkeypatch):
         # Showing a compound's setting never writes it back.
         assert (_baseline_in_db("Plain"), _baseline_in_db("Corrected")) == (0, 1)
 
-        # The View action toggles from the live state, then the switch shows the DB.
+        # The Review action toggles from the live state, then the switch shows the DB.
         actions["Baseline Correction"].trigger()
         assert _baseline_in_db("Plain") == 1
         assert toolbar.peak_section.summary.full_text() == "Baseline on"

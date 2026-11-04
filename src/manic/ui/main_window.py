@@ -463,23 +463,13 @@ class MainWindow(QMainWindow):
         self.view_menu = view_menu
         self.display_actions: list[tuple[QAction, QCheckBox]] = []
         menu_entries = {
-            "baseline_correction_checkbox": ("Baseline Correction", "Ctrl+Shift+B"),
             "shared_yscale_checkbox": ("Shared Y-Scale", "Ctrl+Shift+Y"),
             "scale_selected_peak_checkbox": ("Scale to Selected Peak", "Ctrl+Shift+P"),
         }
         for checkbox in self.toolbar.display_checkboxes():
-            text, shortcut = menu_entries[checkbox.objectName()]
-            action = QAction(text, self)
-            action.setCheckable(True)
-            action.setChecked(checkbox.isChecked())
-            action.setShortcut(QKeySequence(shortcut))
-            action.setToolTip(checkbox.toolTip())
-            action.triggered.connect(
-                lambda checked, a=action, c=checkbox: self._toggle_display(a, c, checked)
+            view_menu.addAction(
+                self._mirror_checkbox(checkbox, *menu_entries[checkbox.objectName()])
             )
-            checkbox.toggled.connect(action.setChecked)
-            view_menu.addAction(action)
-            self.display_actions.append((action, checkbox))
         view_menu.aboutToShow.connect(self._sync_display_actions)
 
         view_menu.addSeparator()
@@ -517,6 +507,20 @@ class MainWindow(QMainWindow):
         self.show_all_samples_action = QAction("Show All Samples", self)
         self.show_all_samples_action.triggered.connect(self.show_all_samples)
         view_menu.addAction(self.show_all_samples_action)
+
+    def _mirror_checkbox(self, checkbox: QCheckBox, text: str, shortcut: str) -> QAction:
+        """A menu action that toggles a sidebar checkbox and follows it."""
+        action = QAction(text, self)
+        action.setCheckable(True)
+        action.setChecked(checkbox.isChecked())
+        action.setShortcut(QKeySequence(shortcut))
+        action.setToolTip(checkbox.toolTip())
+        action.triggered.connect(
+            lambda checked: self._toggle_display(action, checkbox, checked)
+        )
+        checkbox.toggled.connect(action.setChecked)
+        self.display_actions.append((action, checkbox))
+        return action
 
     def _build_review_menu(self, menu_bar: QMenuBar) -> None:
         """The plot context menu's review commands, on the menu bar.
@@ -571,12 +575,19 @@ class MainWindow(QMainWindow):
         )
         menu.addAction(self.reject_peak_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
+        menu.addSeparator()
+        # The Peak window section's own toggle, so it sits with the peak commands.
+        self.baseline_action = self._mirror_checkbox(
+            self.toolbar.baseline_checkbox, "Baseline Correction", "Ctrl+Shift+B"
+        )
+        menu.addAction(self.baseline_action)
 
         menu.aboutToShow.connect(self._sync_review_menu)
         self.graph_view.selection_changed.connect(self._sync_review_menu)
         self._sync_review_menu()
 
     def _sync_review_menu(self, *_args) -> None:
+        self._sync_display_actions()
         view = self.graph_view
         self.select_all_plots_action.setEnabled(view.has_plots())
         self.deselect_plots_action.setEnabled(bool(view.get_selected_samples()))

@@ -334,8 +334,8 @@ class Toolbar(QWidget):
         self._refresh_data_state()
 
     def display_checkboxes(self) -> list[QCheckBox]:
-        """Every view toggle the View menu mirrors, baseline correction included."""
-        boxes = [self.baseline_checkbox, self.shared_yscale_checkbox]
+        """The Display section's toggles, which the View menu mirrors."""
+        boxes = [self.shared_yscale_checkbox]
         if self.selected_peak_yscale_checkbox is not None:
             boxes.append(self.selected_peak_yscale_checkbox)
         return boxes

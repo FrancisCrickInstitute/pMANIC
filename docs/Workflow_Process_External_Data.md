@@ -38,10 +38,10 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 
 ### Steps
 1.  Choose **File → Process External Data...**.
-2.  In **Process External Data**, set **Compounds File:** with **Browse…**.
-3.  Set **Raw Values Workbook:** with **Browse…**.
-4.  Optionally choose a value for **Internal Standard (optional):**.
-5.  Click **OK**.
+2.  In **Process external data**, set **Compounds file** with **Browse…**.
+3.  Set **Raw Values workbook** with **Browse…**.
+4.  Optionally choose an **Internal standard**. The list fills in once a compound list is chosen.
+5.  Click **Rebuild export…**.
 6.  In **Save Rebuilt Export**, choose the output workbook and save.
 
 ### Result

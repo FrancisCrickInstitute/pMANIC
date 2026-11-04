@@ -171,7 +171,7 @@ no prompt. Headers are case-insensitive and ignore spaces or underscores
 | `Qualifier 2 Ratio` | | Expected qualifier-2/Q area ratio |
 | `Qualifier 2 Tolerance` | | Fractional tolerance on qualifier-2/Q |
 
-MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds. Tolerances can be changed later in **MANIC ▸ Settings ▸ Qualifier Ratios**.
+MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds. Tolerances can be changed later in **Settings → Qualifier Ratios**.
 
 ### Additional columns
 
@@ -182,7 +182,7 @@ MANIC still imports a list that omits ratios, tolerances or the second qualifier
 | `Int Std amount` | | Amount of internal standard added to samples. Right-click the compound and choose **Select as Internal Standard**. |
 | `MM Files` | | Pattern that matches MM files (standard mixture). Wildcards allowed, e.g. `*_MM_*`. |
 
-After you load CDF files, the **Check your data setup** dialog lists each compound's `MM Files` pattern and how many sample files it matched. A pattern that matches no files will produce empty calibration data at export. Run the same check later from **MANIC ▸ Check Data Setup...**.
+After you load CDF files, the **Check your data setup** dialog lists each compound's `MM Files` pattern and how many sample files it matched. A pattern that matches no files will produce empty calibration data at export. Run the same check later from **MANIC → Check Data Setup...** (under **Help** on macOS).
 
 ### Minimal example
 
@@ -252,9 +252,9 @@ prompt. New lists should use the qualifier names.
 
 Verification:
 
-- The compounds status indicator turns green
-- The compound list populates
-- Selecting a compound shows its Q/qualifier *m/z* in the sidebar indicator
+- The **Compound list** row at the top of the sidebar shows a green check
+- The **Compounds** list populates
+- Selecting a compound shows its Q/qualifier *m/z* in the legend above the plots
 
 ### Step C. Load raw CDF data
 
@@ -272,8 +272,8 @@ Natural-abundance correction is **not** applied in this mode.
 
 1. Select a compound and the samples of interest.
 2. Inspect the EIC tiles and the **Identity** chart in the left sidebar.
-3. Adjust tR or offsets where peaks have drifted, then
-   **Apply**.
+3. Adjust tR or offsets in the **Peak window** section where peaks have
+   drifted, then click **Apply to N samples**.
 4. Use **Shared y-scale** if you want one intensity scale across all sample
    tiles. Off: each tile autoscales to its own tallest peak.
 
@@ -352,12 +352,16 @@ The Identity chart encodes **qualifier/Q only**. Export **Identity Status** also
 tR and whether Q was found.
 
 Hover a bar for expected ratio, tolerance, and observed ratio. Click a bar to
-highlight that sample's plot. Double-click to enlarge the chart. A green bar
+highlight that sample's plot. Click the expand button (↗) or double-click to
+enlarge the chart. A green bar
 does not excuse a tR failure; that still lands in **Identity Reasons**.
 
-Tile borders mark a missing Q peak (grey). Qualifier/Q review stays on the Identity
-chart, not on the tiles. Peak-height validation against an internal standard
-(red tint when enabled) remains a separate check and uses **Q-ion area only**.
+A tile carries a badge when qualifier QC needs attention: **QC partial** (amber),
+**QC fail** (red), or **Not detected** (grey) when the Q peak is missing. A clean
+pass has no badge. Hover the badge for the reasons; the Identity chart shows the
+per-qualifier detail. Peak-area validation against an internal standard (the amber
+**Below threshold** badge, when enabled) remains a separate check and uses
+**Q-ion area only**.
 
 ---
 

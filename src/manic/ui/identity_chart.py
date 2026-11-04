@@ -13,10 +13,12 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QCursor, QFont
+from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import QToolTip, QWidget
 
+from manic.ui.chart_style import style_axis, ui_font
 from manic.ui.colors import QUALIFIER_STATUS_COLORS
+from manic.ui.theme import color
 from manic.validation.unlabelled_identity import (
     IdentitySampleAssessment,
     QualifierAssessment,
@@ -74,7 +76,7 @@ def add_identity_grid(
     chart: QChart,
     samples: Sequence[IdentitySampleAssessment],
     *,
-    label_font_size: int = 8,
+    label_font_size: int = 10,
     show_sample_names: bool = True,
 ) -> IdentityGridBinding:
     chart.removeAllSeries()
@@ -114,8 +116,9 @@ def add_identity_grid(
 
     y_axis = QBarCategoryAxis()
     y_axis.append([sample.sample_name for sample in display])
-    y_axis.setLabelsFont(QFont("Arial", label_font_size))
-    y_axis.setGridLineVisible(False)
+    style_axis(y_axis)
+    y_axis.setLabelsFont(ui_font(label_font_size))
+    y_axis.setLabelsColor(color("text"))
     y_axis.setLineVisible(False)
     y_axis.setLabelsVisible(show_sample_names)
 
@@ -124,8 +127,8 @@ def add_identity_grid(
     top_axis.append("Qualifier 1", 0.5)
     top_axis.append("Qualifier 2", 1.5)
     top_axis.setRange(0, 2)
-    top_axis.setLabelsFont(QFont("Arial", label_font_size))
-    top_axis.setGridLineVisible(False)
+    style_axis(top_axis)
+    top_axis.setLabelsFont(ui_font(label_font_size))
     top_axis.setLineVisible(False)
     top_axis.setLabelsVisible(True)
 

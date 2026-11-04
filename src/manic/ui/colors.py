@@ -20,7 +20,8 @@ from manic.validation.unlabelled_identity import (
 # Steel blue and dark red used in graphs
 steel_blue_colour = QColor(70, 130, 180)
 dark_red_colour = QColor(139, 0, 0)
-selection_color = QColor(144, 238, 144, 50)  # Light green with transparency
+# Total abundance bars, kept apart from the isotopologue palette.
+abundance_colour = QColor(0, 128, 128)
 
 # Colors for isotopologue labels (M+0, M+1, M+2, etc.)
 # Used in both multi-trace plots and isotopologue ratio charts

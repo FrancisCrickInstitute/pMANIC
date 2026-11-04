@@ -60,7 +60,7 @@ The baseline line uses the same color as its corresponding isotopologue trace, m
 
 ### Enabling/Disabling
 
-The baseline correction checkbox is located in the left toolbar, between the Integration Window and the Label Incorporation chart.
+The baseline correction checkbox is in the **Display** section of the sidebar, between the Peak window and the Label Incorporation chart. **View → Baseline Correction** toggles it too.
 
 1. **Select a Compound** from the compound list.
 2. **Toggle the Checkbox** labeled "Baseline correction".

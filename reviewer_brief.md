@@ -6,12 +6,12 @@ current state of the MANIC desktop app against the frozen rubric at
 Read it first and follow its output format exactly.
 
 Read-only on the repository: inspect only, `git diff` and `git log` are fine,
-change no file under `/Users/couttsj/Documents/_code/pythonMANIC`. Write any
+change no file under the repository checkout given in the round context. Write any
 scratch files only under your own folder, given below.
 
 ## What to look at
 
-- Repository: `/Users/couttsj/Documents/_code/pythonMANIC` (PySide6 app,
+- Repository: the checkout given in the round context (PySide6 app,
   UI code in `src/manic/ui/`, stylesheet `src/manic/resources/style.qss`).
 - A screenshot tour already captured for this round is in the `shots/`
   folder given below. View every PNG (open the image files and look at them).
@@ -27,6 +27,13 @@ scratch files only under your own folder, given below.
   `testdata/unlabelled_synthetic` (unlabelled mode, with deliberately
   problematic samples). If the GUI cannot open in your sandbox, say so and
   rate from the provided screenshots plus code.
+- Since round 2 the host is a headless Linux box: run `source ~/.local/qtdeps/env.sh`
+  in every shell before any `uv run` (offscreen Qt with a 1920x1200 screen and
+  bundled fonts; Inter stands in for the system font). `--scheme light|dark`
+  forces the appearance. `QT_SCALE_FACTOR=1.5` with `--size 1280x800` mimics a
+  Windows laptop at 150%. Linux renders are the stand-in for macOS and Windows
+  until CI screenshots from real runners exist; judge layout, colour and
+  hierarchy from them and say what you could not verify per platform.
 - The rubric excludes the science. Never propose changing calculations,
   integration, corrections, or exported values.
 

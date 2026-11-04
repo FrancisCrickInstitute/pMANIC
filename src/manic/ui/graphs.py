@@ -44,6 +44,8 @@ from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentitySampleAssessment,
+    QualifierOutcome,
+    qualifier_outcome,
 )
 
 from .channel_chips import CHIP_HEIGHT, ChannelChipRow
@@ -1579,6 +1581,8 @@ class GraphView(QWidget):
 
         chart = QChart()
         style_chart(chart, QMargins(2, 2, 4, 0))
+        # The card's fill, tinted for a QC problem, runs under the traces too.
+        chart.setPlotAreaBackgroundVisible(False)
 
         scale_factor = axis_scale.scale_factor
         scaled_y_max = axis_scale.scaled_max
@@ -2099,7 +2103,17 @@ class GraphView(QWidget):
     def _restyle_container(self, container: QWidget):
         verdict = getattr(container, "verdict", PeakVerdict.PASS)
         sample_name = getattr(container.chart_view, "sample_name", "")
-        container.set_badges(tile_badges(verdict, self._sample_identity(sample_name)))
+        identity = self._sample_identity(sample_name)
+        container.set_badges(tile_badges(verdict, identity))
+        # Nothing was detected, so the traces are noise: fade them under the badge.
+        faded = (
+            identity is not None
+            and identity.qc is not None
+            and qualifier_outcome(identity.qc) is QualifierOutcome.NOT_DETECTED
+        )
+        if isinstance(container.chart_view, ClickableChartView):
+            for series in container.chart_view.chart().series():
+                series.setOpacity(0.4 if faded else 1.0)
 
     def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:

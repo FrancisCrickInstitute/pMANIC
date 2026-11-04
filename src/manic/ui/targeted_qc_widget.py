@@ -16,6 +16,7 @@ from manic.ui.identity_chart import (
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
+    identity_chart_height,
     show_identity_tooltip,
 )
 from manic.ui import theme
@@ -59,6 +60,7 @@ class TargetedQcWidget(QWidget):
         layout.addWidget(self.header)
         layout.addWidget(self.chart_view)
         layout.addWidget(self.key)
+        layout.addStretch()
         self.setMinimumHeight(200)
         self.setMaximumHeight(330)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -75,6 +77,7 @@ class TargetedQcWidget(QWidget):
         self._binding = add_identity_grid(
             self.chart, identity.samples, show_sample_names=False
         )
+        self.chart_view.setMaximumHeight(identity_chart_height(len(identity.samples)))
         self._connect_cell_signals()
         failed = sum(
             any(q.status is QualifierStatus.FAILED for q in sample.qualifiers)
@@ -94,9 +97,8 @@ class TargetedQcWidget(QWidget):
         self._binding = None
         self.header.set_has_data(False)
         self.key.hide()
-        self.chart.removeAllSeries()
-        for axis in list(self.chart.axes()):
-            self.chart.removeAxis(axis)
+        self.chart_view.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
+        add_identity_grid(self.chart, ())
 
     def _connect_cell_signals(self) -> None:
         if self._binding is None:

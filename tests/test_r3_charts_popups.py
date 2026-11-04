@@ -1,5 +1,6 @@
 import numpy as np
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextDocumentFragment
 from PySide6.QtWidgets import QLabel
 
 from manic.models.analysis import IonChannel, IonRole
@@ -93,7 +94,7 @@ def test_identity_counts_name_their_units_and_grey_states(qapp):
         widget.update_results(_identity())
         assert widget.header.detail.text() == "3 samples · 2 samples failed"
         key = widget.key.text()
-        assert key.startswith("Qualifier cells")
+        assert QTextDocumentFragment.fromHtml(key).toPlainText().startswith("Qualifier cells")
         assert "Validated&nbsp;<b>1</b>" in key
         assert "Failed&nbsp;<b>2</b>" in key
         assert "No verdict&nbsp;<b>3</b>" in key

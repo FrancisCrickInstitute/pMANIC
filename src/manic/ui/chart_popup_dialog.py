@@ -45,9 +45,11 @@ from manic.ui.colors import (
     label_colors,
 )
 from manic.ui.identity_chart import (
+    STATUS_MARKS,
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
+    identity_chart_height,
     show_identity_tooltip,
 )
 from manic.ui.theme import FONT_SIZE_TITLE, color
@@ -74,21 +76,6 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
     return counts
 
 
-def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
-    counts = identity_status_counts(identity) if identity is not None else None
-    parts = []
-    for qcolor, name in (
-        (QUALIFIER_GREEN, "Validated"),
-        (QUALIFIER_RED, "Failed"),
-        (QUALIFIER_GREY, "No verdict"),
-    ):
-        count = "" if counts is None else f"&nbsp;<b>{counts[name]}</b>"
-        parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{name}{count}')
-    # Counts are cells, not samples; the unit leads so it is read first.
-    unit = "" if counts is None else "Qualifier cells&nbsp;&nbsp;"
-    return unit + "&nbsp;&nbsp;&nbsp;".join(parts)
-
-
 _NO_VERDICT_STATES = {
     QualifierStatus.ABSENT: "absent",
     QualifierStatus.NOT_ASSESSED: "not assessed",
@@ -96,13 +83,46 @@ _NO_VERDICT_STATES = {
 }
 
 
-def identity_key_tooltip(identity: IdentityAssessmentSet) -> str:
-    """What the key counts, and which states the grey cells hold."""
+def _grey_counts(identity: IdentityAssessmentSet) -> dict[QualifierStatus, int]:
     grey = {status: 0 for status in _NO_VERDICT_STATES}
     for sample in identity.samples:
         for qualifier in sample.qualifiers:
             if qualifier.status in grey:
                 grey[qualifier.status] += 1
+    return grey
+
+
+def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
+    counts = identity_status_counts(identity) if identity is not None else None
+    parts = []
+    for qcolor, name, mark in (
+        (QUALIFIER_GREEN, "Validated", STATUS_MARKS[QualifierStatus.VALIDATED]),
+        (QUALIFIER_RED, "Failed", STATUS_MARKS[QualifierStatus.FAILED]),
+        (QUALIFIER_GREY, "No verdict", ""),
+    ):
+        count = "" if counts is None else f"&nbsp;<b>{counts[name]}</b>"
+        mark = f"{mark}&nbsp;" if mark else ""
+        parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{mark}{name}{count}')
+    if counts is not None and counts["No verdict"]:
+        # Each grey state by its cell mark, so the key reads without hovering.
+        grey_counts = _grey_counts(identity)
+        grey = ", ".join(
+            f"{STATUS_MARKS[status]}&nbsp;{grey_counts[status]}&nbsp;{label}"
+            for status, label in _NO_VERDICT_STATES.items()
+            if grey_counts[status]
+        )
+        parts[-1] += f" ({grey})"
+    # Counts are cells, not samples; the unit leads so it is read first.
+    unit = "" if counts is None else "Qualifier cells&nbsp;"
+    # Each entry stays whole, so a narrow key wraps between entries.
+    return " ".join(
+        f'<span style="white-space:nowrap">{part}</span>' for part in (unit, *parts) if part
+    )
+
+
+def identity_key_tooltip(identity: IdentityAssessmentSet) -> str:
+    """What the key counts, and which states the grey cells hold."""
+    grey = _grey_counts(identity)
     breakdown = ", ".join(
         f"{grey[status]} {label}" for status, label in _NO_VERDICT_STATES.items()
     )
@@ -277,11 +297,16 @@ class ChartPopupDialog(QDialog):
 
     def _fit_to_rows(self) -> None:
         rows = max(len(self.sample_names), 1)
-        self.chart_view.setMinimumHeight(rows * ROW_HEIGHT + _AXIS_SPACE)
+        # Fixed, top-aligned: a short list keeps slim rows instead of slabs.
+        self.chart_view.setFixedHeight(
+            identity_chart_height(rows) if self.chart_type == "identity"
+            else rows * ROW_HEIGHT + _AXIS_SPACE
+        )
+        self._scroll.setAlignment(Qt.AlignTop)
         screen = self.screen() or QApplication.primaryScreen()
         max_height = int(screen.availableGeometry().height() * 0.85) if screen else 900
         chrome = 150 + (30 if self.ion_legend.isVisibleTo(self) else 0)
-        self.resize(820, min(max_height, rows * ROW_HEIGHT + _AXIS_SPACE + chrome))
+        self.resize(820, min(max_height, self.chart_view.height() + chrome))
 
     def _populate_chart(self):
         """Populate chart based on type and data."""

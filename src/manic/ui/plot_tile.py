@@ -33,9 +33,11 @@ _TONES = {
     "danger": ("danger", "danger_soft"),
     "warning": ("warning", "warning_soft"),
     "success": ("success", "success_soft"),
-    "neutral": ("text_secondary", "surface_alt"),
+    # A grey pill on the grey card tint, so the badge reads as one.
+    "neutral": ("text", "border_strong"),
 }
-_TINT_ORDER = ("danger", "warning", "neutral")
+# Card fill per tone, most serious first.
+_TINTS = {"danger": "danger_soft", "warning": "warning_soft", "neutral": "surface_hover"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +91,7 @@ def tile_badges(
 def tile_tint(badges: list[TileBadge]) -> str | None:
     """Soft card fill token for the most serious badge, so problems stand out."""
     tones = {badge.tone for badge in badges}
-    for tone in _TINT_ORDER:
-        if tone in tones:
-            return _TONES[tone][1]
-    return None
+    return next((tint for tone, tint in _TINTS.items() if tone in tones), None)
 
 
 def grid_columns(

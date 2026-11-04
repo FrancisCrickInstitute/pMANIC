@@ -3,10 +3,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from PySide6.QtCore import QPoint
+from PySide6.QtGui import QColor
 
 from manic.io.compound_reader import Compound
 from manic.processors.tile_y_scale import YScalePolicy
+from manic.ui import theme
 from manic.ui.graphs import GraphView
+from manic.ui.plot_tile import TileBadge, _TONES, tile_tint
 
 
 def _compound():
@@ -127,3 +130,11 @@ def test_density_sets_chart_text_size(grid):
     assert {a.labelsFont().pixelSize() for a in tile.chart_view.chart().axes()} == {11}
     assert "font-size: 13px" in tile.caption.styleSheet()
     assert "font-size: 11px" in tile.scale_label.styleSheet()
+
+
+@pytest.mark.parametrize("scheme", [theme.LIGHT, theme.DARK], ids=["light", "dark"])
+def test_not_detected_badge_is_a_readable_pill_on_its_card(scheme):
+    fg, bg = (QColor(scheme[token]) for token in _TONES["neutral"])
+    tint = QColor(scheme[tile_tint([TileBadge("Not detected", "neutral", "")])])
+    assert theme.contrast(fg, bg) >= 4.5
+    assert bg != tint and QColor(scheme["surface"]) != tint

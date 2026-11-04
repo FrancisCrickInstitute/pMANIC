@@ -118,7 +118,7 @@ def test_not_detected_tile_is_flat_grey_until_reviewed(grid, monkeypatch):
     )
     view.apply_peak_verdicts({"C": PeakVerdict.PASS})
     assert _badge_texts(tiles["C"][0]) == ["Not detected"]
-    assert tiles["C"][0].tint() == "surface_alt"
+    assert tiles["C"][0].tint() == "surface_hover"
 
     view.apply_peak_verdicts({"C": PeakVerdict.REJECTED})
     assert _badge_texts(tiles["C"][0]) == ["Marked bad", "Not detected"]

@@ -26,7 +26,7 @@ def test_apply_window_states_that_it_re_extracts_every_shown_sample(qapp, empty_
 
         integration.populate_fields_from_plots("Alanine", ["S2"], shown)
         assert integration.scope_label.text() == "Applies to S2"
-        assert integration.apply_button.text() == "Apply to 1 sample"
+        assert integration.apply_button.text() == "Apply"
         assert integration.window_scope_label.text() == "Re-extracts all 3 shown samples"
 
         integration.tr_window_edit.setText("0.5")

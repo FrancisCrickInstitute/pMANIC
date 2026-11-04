@@ -131,6 +131,8 @@ def test_switching_compound_scrolls_the_inspector_back_to_the_top(qapp, monkeypa
     toolbar = _toolbar(560)
     try:
         toolbar.show_pane(toolbar.summary_section)
+        # Summaries now shrink to fit, so make the pane overflow to have something to scroll.
+        toolbar.summary_section.body.setMinimumHeight(1000)
         _settle(toolbar)
         bar = toolbar.inspector.verticalScrollBar()
         bar.setValue(bar.maximum())

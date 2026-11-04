@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, Signal
 from PySide6.QtGui import (
     QFont,
     QFontMetrics,
@@ -50,21 +50,22 @@ def section_heading(text: str) -> QLabel:
 # QtCharts dropping labels that would touch.
 NAME_ROW_PX = 16
 SUMMARY_CHART_HEIGHT = (200, 330)
-
-
-def summary_chart_height(count: int, chrome: int) -> int:
-    """Widget height: every row named, between the summary charts' minimum and maximum."""
-    low, high = SUMMARY_CHART_HEIGHT
-    return min(max(low, chrome + count * NAME_ROW_PX), high)
+# Rows a summary keeps when the sidebar is short; the rest scroll under the pinned axis.
+SUMMARY_SHORT_ROWS = 3
 
 
 class SummaryChartArea(QScrollArea):
-    """A summary chart tall enough to name every bar; rows past the widget's height scroll."""
+    """A summary chart tall enough to name every bar; rows past the widget's height scroll.
+
+    It asks for only a few rows, so a short sidebar fits every summary without
+    scrolling around them; the sidebar's stretch gives it more when there is room.
+    """
 
     def __init__(self, chart_view: QWidget, axis_px: int, parent=None):
         super().__init__(parent)
         self._view = chart_view
         self._axis_px = axis_px
+        self._short = axis_px + NAME_ROW_PX
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -73,6 +74,14 @@ class SummaryChartArea(QScrollArea):
 
     def set_rows(self, count: int) -> None:
         self._view.setMinimumHeight(self._axis_px + count * NAME_ROW_PX)
+        self._short = self._axis_px + min(max(count, 1), SUMMARY_SHORT_ROWS) * NAME_ROW_PX
+        self.updateGeometry()
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(super().minimumSizeHint().width(), self._short)
+
+    def sizeHint(self) -> QSize:
+        return QSize(super().sizeHint().width(), self._short)
 
     def show_rows(self, chart, rows: list[int]) -> None:
         """Scroll the topmost of these bar rows into view; row 0 is the bottom bar."""

@@ -12,11 +12,12 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QMargins, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPen
+from PySide6.QtCore import QEvent, QMargins, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QCursor, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsRectItem,
+    QGraphicsSimpleTextItem,
     QLabel,
     QSizePolicy,
     QToolTip,
@@ -30,14 +31,15 @@ from manic.processors.display_deconvolution import integrated_display_areas
 
 from . import theme
 from .chart_header import ChartHeader
-from .chart_style import style_axis, style_chart
+from .chart_popup_dialog import PinnedAxis, missing_ratio_note, value_axis_ticks
+from .chart_style import AXIS_LABEL_PX, style_axis, style_chart, ui_font
 from .colors import label_colors
 from .sidebar_widgets import (
     SUMMARY_CHART_HEIGHT,
     SummaryChartArea,
-    summary_chart_height,
 )
 from .theme import color
+
 
 
 def isotopologue_key_html(count: int) -> str:
@@ -99,18 +101,25 @@ class IsotopologueRatioWidget(QWidget):
         layout.setSpacing(0)
         layout.addWidget(self.header)
         layout.addWidget(self.key)
-        # The value axis takes about 30 px below the bars.
-        self.chart_area = SummaryChartArea(self.chart_view, 30)
+        # The value axis stays above the rows while they scroll, as in the popup.
+        self.value_axis = PinnedAxis(self.chart_view)
+        layout.addWidget(self.value_axis)
+        self.chart_area = SummaryChartArea(self.chart_view, 4)
         layout.addWidget(self.chart_area)
 
         # The grid's selected samples, marked beside their bars.
         self._highlighted: set[str] = set()
         self._marks: list[QGraphicsRectItem] = []
+        # "—" on each row with no ratio, which has no bar to hover.
+        self._dashes: list[QGraphicsSimpleTextItem] = []
+        self.chart.plotAreaChanged.connect(self._place_dashes)
+        theme.notifier.changed.connect(self._place_dashes)
+        self.chart_view.viewport().setMouseTracking(True)
+        self.chart_view.viewport().installEventFilter(self)
         self.chart.plotAreaChanged.connect(self._paint_highlight)
         theme.notifier.changed.connect(self._paint_highlight)
 
         # Responsive height for toolbar integration
-        self.setMinimumHeight(SUMMARY_CHART_HEIGHT[0])
         self.setMaximumHeight(SUMMARY_CHART_HEIGHT[1])
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
@@ -280,8 +289,6 @@ class IsotopologueRatioWidget(QWidget):
 
         # Add series to chart
         self.chart.addSeries(bar_series)
-        # The header, key and axis take about 80 px around the bars.
-        self.setMinimumHeight(summary_chart_height(len(sample_names), 80))
         self.chart_area.set_rows(len(sample_names))
 
         # Setup axes
@@ -292,6 +299,57 @@ class IsotopologueRatioWidget(QWidget):
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._refresh_key()
         self._paint_highlight()
+        self._place_dashes()
+
+    def empty_rows(self) -> list[int]:
+        """Bar rows (0 is the bottom bar) whose sample has no ratio."""
+        if not self._has_data():
+            return []
+        return [i for i, row in enumerate(self._current_ratios) if not np.nansum(row) > 0]
+
+    def _place_dashes(self, *_args) -> None:
+        for dash in self._dashes:
+            if dash.scene() is not None:
+                dash.scene().removeItem(dash)
+        self._dashes = []
+        if not self.chart.series():
+            return
+        series = self.chart.series()[0]
+        for i in self.empty_rows():
+            dash = QGraphicsSimpleTextItem("—", self.chart)
+            dash.setFont(ui_font(AXIS_LABEL_PX))
+            dash.setBrush(color("text_secondary"))
+            dash.setZValue(10)
+            centre = self.chart.mapToPosition(QPointF(0, i), series)
+            dash.setPos(centre.x() + 4, centre.y() - dash.boundingRect().height() / 2)
+            self._dashes.append(dash)
+
+    def dash_rows(self) -> list[str]:
+        return [
+            self._current_sample_names[i] for i in self.empty_rows()
+        ] if self._dashes else []
+
+    def row_at(self, viewport_pos) -> int | None:
+        """The bar row (0 is the bottom bar) under a chart-view position."""
+        if not self._has_data() or not self.chart.series():
+            return None
+        point = self.chart.mapFromScene(self.chart_view.mapToScene(viewport_pos))
+        area = self.chart.plotArea()
+        if not (area.top() <= point.y() <= area.bottom()):
+            return None
+        row = round(self.chart.mapToValue(point, self.chart.series()[0]).y())
+        return row if 0 <= row < len(self._current_sample_names) else None
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.chart_view.viewport() and event.type() == QEvent.MouseMove:
+            row = self.row_at(event.position().toPoint())
+            if row is not None and row in self.empty_rows():
+                QToolTip.showText(
+                    event.globalPosition().toPoint(),
+                    missing_ratio_note(self._current_sample_names[row]),
+                    self.chart_view,
+                )
+        return super().eventFilter(obj, event)
 
     def set_highlighted(self, sample_names) -> None:
         """Mark the bars of the samples selected in the grid and scroll to them."""
@@ -306,34 +364,38 @@ class IsotopologueRatioWidget(QWidget):
         return [mark.data(0) for mark in self._marks if mark.data(0)]
 
     def _paint_highlight(self, *_args) -> None:
-        # An accent outline would vanish against the blue M+0 segment, so the other
-        # rows fade and an accent tick sits beside each selected bar.
+        # An accent outline would vanish against the blue M+0 segment, and fading the
+        # other rows muddies the cohort, so a selected row gets a soft band behind its
+        # name and bar gaps, and an accent tick beside its bar.
         for mark in self._marks:
-            self.chart.scene().removeItem(mark)
+            if mark.scene() is not None:
+                mark.scene().removeItem(mark)
         self._marks = []
         if not self._has_data() or not self.chart.series():
             return
-        names = self._current_sample_names
-        if not self._highlighted.intersection(names):
-            return
         series = self.chart.series()[0]
         plot = self.chart.plotArea()
-        fade = QColor(color("surface"))
-        fade.setAlphaF(0.7)
-        half = series.barWidth() / 2
-        for i, name in enumerate(names):
-            top = self.chart.mapToPosition(QPointF(0, i + half), series).y()
-            bottom = self.chart.mapToPosition(QPointF(0, i - half), series).y()
-            if name in self._highlighted:
-                rect, fill = QRectF(plot.left() - 6, top, 4, bottom - top), color("accent")
-            else:
-                rect, fill = QRectF(plot.left(), top, plot.width(), bottom - top), fade
-            mark = QGraphicsRectItem(rect.normalized(), self.chart)
-            mark.setPen(QPen(Qt.NoPen))
-            mark.setBrush(fill)
-            mark.setZValue(10)
-            mark.setData(0, name if name in self._highlighted else None)
-            self._marks.append(mark)
+        for i, name in enumerate(self._current_sample_names):
+            if name not in self._highlighted:
+                continue
+            top = self.chart.mapToPosition(QPointF(0, i + 0.5), series).y()
+            bottom = self.chart.mapToPosition(QPointF(0, i - 0.5), series).y()
+            half = series.barWidth() / 2
+            bar_top = self.chart.mapToPosition(QPointF(0, i + half), series).y()
+            bar_bottom = self.chart.mapToPosition(QPointF(0, i - half), series).y()
+            # Above the plot fill (z 0), under the grid, axis text and bars.
+            band = QGraphicsRectItem(QRectF(0, top, plot.right(), bottom - top).normalized(), self.chart)
+            band.setPen(QPen(Qt.NoPen))
+            band.setBrush(color("accent_soft"))
+            band.setZValue(0.5)
+            tick = QGraphicsRectItem(
+                QRectF(plot.left() - 5, bar_top, 3, bar_bottom - bar_top).normalized(), self.chart
+            )
+            tick.setPen(QPen(Qt.NoPen))
+            tick.setBrush(color("accent"))
+            tick.setZValue(10)
+            tick.setData(0, name)
+            self._marks += [band, tick]
 
     def _refresh_key(self, *_args) -> None:
         count = 0 if self._current_ratios is None else self._current_ratios.shape[1]
@@ -367,6 +429,7 @@ class IsotopologueRatioWidget(QWidget):
         x_axis.setLabelFormat("%.1f")
         style_axis(x_axis)
         x_axis.setLineVisible(False)
+        x_axis.setLabelsVisible(False)
         x_axis.setTickCount(3)  # 0, 0.5, 1.0
         self.header.set_has_data(True)
 
@@ -374,10 +437,13 @@ class IsotopologueRatioWidget(QWidget):
         y_axis.append(sample_names)
         style_axis(y_axis)
         y_axis.setLineVisible(False)
+        # A long name is shortened, not run off the sidebar's edge; hover gives it whole.
+        y_axis.setTruncateLabels(True)
 
         # Add axes to chart
-        self.chart.addAxis(x_axis, Qt.AlignBottom)
+        self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
+        self.value_axis.set_axis("", value_axis_ticks(x_axis))
 
     def _clear_chart(self) -> None:
         """Clear the chart when no data is available."""
@@ -386,6 +452,7 @@ class IsotopologueRatioWidget(QWidget):
             self.chart.removeAxis(axis)
         self.header.set_has_data(False)
         self.key.hide()
+        self.value_axis.set_axis("", [])
         self.chart_area.set_rows(0)
 
         # Reset data
@@ -396,6 +463,7 @@ class IsotopologueRatioWidget(QWidget):
         self._current_ratios = None
         self._current_sample_names = None
         self._paint_highlight()
+        self._place_dashes()
 
     def get_last_total_abundances(
         self,

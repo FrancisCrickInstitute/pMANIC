@@ -21,10 +21,9 @@ from matplotlib.colors import to_hex, to_rgba, to_rgba_array
 from matplotlib.figure import Figure
 from matplotlib.transforms import offset_copy
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QVBoxLayout, QWidget
 
 from manic.ui import theme
-from manic.ui.chart_style import text_style
 from manic.ui.theme import COLORS
 
 from manic.constants import (
@@ -34,7 +33,6 @@ from manic.constants import (
     PLOT_FIGURE_WIDTH,
     PLOT_GRID_LINEWIDTH,
     PLOT_GUIDELINE_WIDTH,
-    PLOT_LABEL_FONTSIZE,
     PLOT_LINE_WIDTH,
     PLOT_MARGIN_BOTTOM,
     PLOT_MARGIN_LEFT,
@@ -42,14 +40,23 @@ from manic.constants import (
     PLOT_MARGIN_TOP,
     PLOT_MIN_HEIGHT,
     PLOT_STEM_WIDTH,
-    PLOT_TICK_FONTSIZE,
-    PLOT_TITLE_FONTSIZE,
     PLOT_TITLE_PADDING,
     SCIENTIFIC_NOTATION_THRESHOLD,
     TOOLBAR_MAX_HEIGHT,
 )
 
 matplotlib.use("Qt5Agg")
+
+
+def _points(px: float) -> float:
+    """Matplotlib points for a size in logical px, at the figure's DPI."""
+    return px * 72 / PLOT_DPI
+
+
+# The detailed view is for reading values, so its text is a step above the grid's.
+PLOT_TICK_FONTSIZE = _points(11)
+PLOT_LABEL_FONTSIZE = _points(12)
+PLOT_TITLE_FONTSIZE = _points(13)
 # Configure matplotlib rendering parameters for optimal performance
 matplotlib.rcParams["figure.dpi"] = PLOT_DPI  # Optimized DPI for responsive rendering
 matplotlib.rcParams["figure.autolayout"] = (
@@ -172,11 +179,6 @@ class CompactNavigationToolbar(QWidget):
             }
             """,
         )
-
-        # Per-chart reset has no button, so it is said where Reset all sits.
-        self.reset_hint = QLabel("Double-click a chart to reset it")
-        theme.style(self.reset_hint, text_style("text_tertiary", 11))
-        layout.addWidget(self.reset_hint)
 
         self.home_btn = QToolButton()
         self.home_btn.setText("↻ Reset all")
@@ -405,7 +407,7 @@ class MatplotlibPlotWidget(QWidget):
             # Use scientific notation for large numbers
             if np.max(np.abs(y_data)) > SCIENTIFIC_NOTATION_THRESHOLD:
                 self.ax.ticklabel_format(axis="y", style="scientific", scilimits=(0, 0))
-                self.ax.yaxis.get_offset_text().set_fontsize(8)
+                self.ax.yaxis.get_offset_text().set_fontsize(PLOT_TICK_FONTSIZE)
 
             # Defer canvas update for batch rendering
 
@@ -467,7 +469,7 @@ class MatplotlibPlotWidget(QWidget):
             # Use scientific notation for large numbers
             if y_max > SCIENTIFIC_NOTATION_THRESHOLD:
                 self.ax.ticklabel_format(axis="y", style="scientific", scilimits=(0, 0))
-                self.ax.yaxis.get_offset_text().set_fontsize(8)
+                self.ax.yaxis.get_offset_text().set_fontsize(PLOT_TICK_FONTSIZE)
 
             # Defer canvas update for batch rendering
 

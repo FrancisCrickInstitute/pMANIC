@@ -33,7 +33,6 @@ from manic.constants import (
     DETAILED_DIALOG_HEIGHT,
     DETAILED_DIALOG_SCREEN_RATIO,
     DETAILED_DIALOG_WIDTH,
-    DETAILED_EIC_HEIGHT,
     DETAILED_MS_HEIGHT,
     DETAILED_TIC_HEIGHT,
     MS_TIME_TOLERANCE,
@@ -51,9 +50,7 @@ from manic.validation.unlabelled_identity import quantifier_apex_time
 from manic.models.analysis import IonRole
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
 from manic.ui.colors import (
-    abundance_colour,
     channel_trace_styles,
-    dark_red_colour,
     label_colors,
     steel_blue_colour,
 )
@@ -283,10 +280,10 @@ class DetailedPlotDialog(QDialog):
         )
         header_layout.addWidget(self.nav_toolbar)
 
-        # Configure initial plot height proportions
-        splitter.setSizes(
-            [DETAILED_EIC_HEIGHT, DETAILED_TIC_HEIGHT, DETAILED_MS_HEIGHT]
-        )
+        # The chromatogram is what is inspected; it gets half the height.
+        splitter.setSizes([2 * DETAILED_TIC_HEIGHT, DETAILED_TIC_HEIGHT, DETAILED_MS_HEIGHT])
+        for index, stretch in enumerate((2, 1, 1)):
+            splitter.setStretchFactor(index, stretch)
 
         # Add splitter to scroll layout
         scroll_layout.addWidget(splitter)
@@ -578,7 +575,7 @@ class DetailedPlotDialog(QDialog):
                 self.eic_plot.plot_line(
                     baseline_x,
                     baseline_y_vals,
-                    color=dark_red_colour.name(),
+                    color=COLORS["text_secondary"],
                     width=1.2,
                     name="",
                     style="dashed",
@@ -751,7 +748,7 @@ class DetailedPlotDialog(QDialog):
             self.tic_plot.plot_line(
                 self.tic_data.time,
                 self.tic_data.intensity,
-                color=abundance_colour.name(),
+                color=COLORS["text_secondary"],
                 width=1.4,
                 name="Total Ion Chromatogram",
             )
@@ -824,13 +821,7 @@ class DetailedPlotDialog(QDialog):
             if self.compound_info.is_unlabelled_target:
                 if self.observed_rt is not None:
                     info_parts.append(f"Q apex observed {self.observed_rt:.3f} min")
-                info_parts.extend(
-                    channel.label for channel in self.compound_info.analysis_channels
-                )
-            else:
-                info_parts.append(f"m/z {self.compound_info.mass0:.4f}")
-                if self.compound_info.label_atoms:
-                    info_parts.append(f"M+0…M+{self.compound_info.label_atoms}")
+            # Ion identities are named by the EIC legend and spectrum labels, not again here.
 
         if self.eic_data:
             info_parts.append(f"{len(self.eic_data.time)} EIC points")

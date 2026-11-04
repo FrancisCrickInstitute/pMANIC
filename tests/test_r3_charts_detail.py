@@ -44,7 +44,7 @@ def test_footer_separates_facts_with_dots(qapp, monkeypatch):
         dialog.ms_data = SimpleNamespace(mz=np.zeros(17))
         dialog._update_info_label()
         assert dialog.info_label.text() == (
-            "tR 7.090 min  ·  m/z 174.0000  ·  M+0…M+3  ·  48 EIC points  ·  17 MS peaks"
+            "tR 7.090 min  ·  48 EIC points  ·  17 MS peaks"
         )
     finally:
         dialog.deleteLater()

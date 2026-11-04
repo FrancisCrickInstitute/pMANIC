@@ -1452,6 +1452,9 @@ class MainWindow(QMainWindow):
         self.toolbar.total_abundance.update_abundance_from_data(
             compound_name, eics, abundances
         )
+        selected = self.graph_view.get_selected_samples()
+        self.toolbar.total_abundance.set_highlighted(selected)
+        self.toolbar.isotopologue_ratios.set_highlighted(selected)
 
     def _update_targeted_qc(self, identity) -> None:
         if self.analysis_mode is not AnalysisMode.UNLABELLED:

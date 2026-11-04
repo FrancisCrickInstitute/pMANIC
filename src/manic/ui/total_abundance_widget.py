@@ -17,9 +17,17 @@ from PySide6.QtGui import QCursor, QPainter, QMouseEvent
 from PySide6.QtWidgets import QFrame, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
 from manic.io.eic_reader import EIC
+from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
-from manic.ui.chart_style import scale_text, style_axis, style_chart
+from manic.ui.chart_style import scale_text, set_nice_ticks, style_axis, style_chart
 from manic.ui.colors import abundance_colour
+from manic.ui.sidebar_widgets import (
+    SUMMARY_CHART_HEIGHT,
+    fit_sample_names,
+    names_hint,
+    summary_chart_height,
+)
+from manic.ui.theme import color
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +68,7 @@ class TotalAbundanceWidget(QWidget):
         # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
-        style_chart(self.chart, QMargins(4, 0, 8, 0))
+        style_chart(self.chart, QMargins(8, 0, 8, 0))
 
         self.header = ChartHeader("Total abundance")
         self.header.expand_button.clicked.connect(self._show_popup_chart)
@@ -70,10 +78,17 @@ class TotalAbundanceWidget(QWidget):
         layout.setSpacing(0)
         layout.addWidget(self.header)
         layout.addWidget(self.chart_view)
+        self.names_hint = names_hint()
+        layout.addWidget(self.names_hint)
+
+        # The grid's selected samples, drawn in the accent colour.
+        self._highlighted: set[str] = set()
+        self.chart.plotAreaChanged.connect(self._fit_names)
+        theme.notifier.changed.connect(self._paint_highlight)
 
         # Responsive height to match isotopologue widget
-        self.setMinimumHeight(200)
-        self.setMaximumHeight(330)
+        self.setMinimumHeight(SUMMARY_CHART_HEIGHT[0])
+        self.setMaximumHeight(SUMMARY_CHART_HEIGHT[1])
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self.bar_color = abundance_colour
@@ -174,6 +189,8 @@ class TotalAbundanceWidget(QWidget):
 
         # Add series to chart
         self.chart.addSeries(bar_series)
+        # Header, axis take about 64 px around the bars.
+        self.setMinimumHeight(summary_chart_height(len(sample_names), 64))
 
         # Setup axes
         self._setup_axes(sample_names, abundances)
@@ -181,6 +198,37 @@ class TotalAbundanceWidget(QWidget):
         # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+        self._fit_names()
+        self._paint_highlight()
+
+    def set_highlighted(self, sample_names) -> None:
+        """Mark the bars of the samples selected in the grid."""
+        self._highlighted = set(sample_names)
+        self._paint_highlight()
+
+    def highlighted_bars(self) -> list[str]:
+        if not self.chart.series():
+            return []
+        bar_set = self.chart.series()[0].barSets()[0]
+        return [self._current_sample_names[i] for i in sorted(bar_set.selectedBars())]
+
+    def _paint_highlight(self, *_args) -> None:
+        if not self.chart.series() or not self._has_data():
+            return
+        bar_set = self.chart.series()[0].barSets()[0]
+        bar_set.setSelectedColor(color("accent"))
+        bar_set.deselectAllBars()
+        bar_set.selectBars(
+            [
+                i
+                for i, name in enumerate(self._current_sample_names)
+                if name in self._highlighted
+            ]
+        )
+
+    def _fit_names(self, *_args) -> None:
+        count = len(self._current_sample_names) if self._has_data() else 0
+        fit_sample_names(self.chart, count, self.names_hint)
 
     def hover_text(self, index: int) -> str:
         value = float(self._current_abundances[index])
@@ -209,18 +257,17 @@ class TotalAbundanceWidget(QWidget):
         # Scale the range and data
         scaled_max = max_abundance / scale_factor
         x_axis.setRange(0, scaled_max * 1.05)  # Add 5% padding
+        set_nice_ticks(x_axis, 0, scaled_max * 1.05, max_ticks=2)
 
         # Store scale info for later use
         self._scale_exp = scale_exp
         self._scale_factor = scale_factor
 
-        x_axis.setLabelFormat("%.1f")
         style_axis(x_axis, grid=True)
         x_axis.setLineVisible(False)
-        x_axis.setTickCount(3)
         self.header.set_has_data(True, scale_text(scale_exp))
 
-        # Sample names are hidden here; the enlarged view shows them.
+        # Sample names show only when every bar has room for one (_fit_names).
         y_axis = QBarCategoryAxis()
         y_axis.append(sample_names)
         style_axis(y_axis)
@@ -237,6 +284,7 @@ class TotalAbundanceWidget(QWidget):
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
         self.header.set_has_data(False)
+        self.names_hint.hide()
 
         # Reset data
         self._current_eics = None

@@ -278,12 +278,17 @@ def test_invalid_ok_keeps_dialog_open_and_flags_the_field(qapp):
     dialog.close()
 
 
-def test_required_spin_boxes_start_blank_and_still_reject_zero(qapp):
+def test_required_spin_boxes_ask_for_a_blank_value_and_reject_a_typed_zero(qapp):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
     _fill_labelled(dialog)
     dialog.retention_time.lineEdit().setText("")
     dialog.retention_time.interpretText()
     assert dialog.retention_time.value() == 0.0
+    dialog._on_ok()
+    assert dialog.record is None
+    assert dialog.validation_message == "Enter tR."
+    dialog.retention_time.lineEdit().setText("0")
+    dialog.retention_time.interpretText()
     dialog._on_ok()
     assert dialog.record is None
     assert dialog.validation_message == "tR (minutes) must be greater than 0."

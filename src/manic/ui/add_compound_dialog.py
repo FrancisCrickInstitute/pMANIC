@@ -48,10 +48,12 @@ from manic.ui.dialog_kit import (
 
 
 class _BlankZero:
-    """Shows the placeholder instead of 0, and reads a blank field back as 0."""
+    """Shows the placeholder for a blank field and reads it back as 0; a typed 0 stays."""
 
     def textFromValue(self, value):
-        return "" if value == 0 else super().textFromValue(value)
+        if value == 0 and not self.lineEdit().text().strip():
+            return ""
+        return super().textFromValue(value)
 
     def valueFromText(self, text: str):
         return 0 if not text.strip() else super().valueFromText(text)
@@ -203,19 +205,19 @@ class AddCompoundDialog(QDialog):
             problems.append(((self.compound_name,), "Enter a compound name."))
         elif name in self._taken_names:
             problems.append(((self.compound_name,), str(duplicate_name_error(name))))
-        required = [(self.retention_time, "tR (minutes)")]
+        required = [(self.retention_time, "tR (minutes)", "tR")]
         if self._mode is AnalysisMode.UNLABELLED:
             required += [
-                (self.quantifier_mz, "Quantifier ion m/z"),
-                (self.qualifier1_mz, "Qualifier ion 1 m/z"),
+                (self.quantifier_mz, "Quantifier ion m/z", "the quantifier ion m/z"),
+                (self.qualifier1_mz, "Qualifier ion 1 m/z", "the qualifier ion 1 m/z"),
             ]
         else:
-            required.append((self.mass0, "Mass0 (m/z)"))
-        problems += [
-            ((field,), f"{text} must be greater than 0.")
-            for field, text in required
-            if field.value() <= 0
-        ]
+            required.append((self.mass0, "Mass0 (m/z)", "Mass0"))
+        for field, label, noun in required:
+            if not field.cleanText().strip():
+                problems.append(((field,), f"Enter {noun}."))
+            elif field.value() <= 0:
+                problems.append(((field,), f"{label} must be greater than 0."))
         return problems
 
     def _locate_error(self, exc: Exception) -> tuple[tuple[QWidget, ...], str]:

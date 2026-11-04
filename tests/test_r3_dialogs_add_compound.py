@@ -39,8 +39,8 @@ def test_empty_labelled_submit_flags_every_required_field(qapp):
     assert dialog.record is None
     assert dialog.validation_message.splitlines() == [
         "Enter a compound name.",
-        "tR (minutes) must be greater than 0.",
-        "Mass0 (m/z) must be greater than 0.",
+        "Enter tR.",
+        "Enter Mass0.",
     ]
     assert _flagged(dialog) == {"compound_name", "retention_time", "mass0"}
     assert dialog.focusWidget() is dialog.compound_name
@@ -54,9 +54,9 @@ def test_empty_unlabelled_submit_flags_every_required_field(qapp):
     assert dialog.record is None
     assert dialog.validation_message.splitlines() == [
         "Enter a compound name.",
-        "tR (minutes) must be greater than 0.",
-        "Quantifier ion m/z must be greater than 0.",
-        "Qualifier ion 1 m/z must be greater than 0.",
+        "Enter tR.",
+        "Enter the quantifier ion m/z.",
+        "Enter the qualifier ion 1 m/z.",
     ]
     assert _flagged(dialog) == {
         "compound_name",
@@ -72,8 +72,8 @@ def test_editing_one_field_clears_only_its_own_error(qapp):
     dialog._on_ok()
     dialog.quantifier_mz.setValue(273.0)
     assert _flagged(dialog) == {"compound_name", "retention_time", "qualifier1_mz"}
-    assert "Quantifier ion m/z must be greater than 0." not in dialog.validation_message
-    assert "Qualifier ion 1 m/z must be greater than 0." in dialog.validation_message
+    assert "Enter the quantifier ion m/z." not in dialog.validation_message
+    assert "Enter the qualifier ion 1 m/z." in dialog.validation_message
 
 
 def test_duplicate_name_is_reported_with_missing_fields(qapp):
@@ -85,8 +85,8 @@ def test_duplicate_name_is_reported_with_missing_fields(qapp):
     lines = dialog.validation_message.splitlines()
     assert "already exists" in lines[0]
     assert lines[1:] == [
-        "tR (minutes) must be greater than 0.",
-        "Mass0 (m/z) must be greater than 0.",
+        "Enter tR.",
+        "Enter Mass0.",
     ]
 
 

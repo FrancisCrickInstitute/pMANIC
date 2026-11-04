@@ -504,8 +504,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.show_samples_action)
 
         self.show_all_samples_action = QAction("Show All Samples", self)
-        self.show_all_samples_action.triggered.connect(self.show_all_samples)
-        view_menu.addAction(self.show_all_samples_action)
+        self.show_all_samples_action.triggered.connect(self.show_all_samples)  # listed in Review
 
     def _mirror_checkbox(self, checkbox: QCheckBox, text: str, shortcut: str) -> QAction:
         """A menu action that toggles a sidebar checkbox and follows it."""
@@ -641,7 +640,7 @@ class MainWindow(QMainWindow):
         title.setProperty("role", "title")
         detail = QLabel(
             "Every sample is unchecked in the Samples list.\n"
-            "Check the ones to plot, or show them all."
+            "Check the ones to plot."
         )
         detail.setProperty("role", "secondary")
         detail.setAlignment(Qt.AlignmentFlag.AlignHCenter)

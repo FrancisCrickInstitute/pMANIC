@@ -1,5 +1,7 @@
 import logging
+import tempfile
 from collections.abc import Iterable
+from pathlib import Path
 from typing import List, NamedTuple
 
 from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
@@ -27,6 +29,8 @@ from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
 )
 from manic.processors.tile_y_scale import YScalePolicy, available_y_scale_policies
+from manic.ui import theme
+from manic.utils.paths import resource_path
 
 from .compound_list_widget import CompoundListWidget
 from .integration_window_widget import IntegrationWindow
@@ -36,7 +40,6 @@ from .sample_list_widget import SampleListWidget
 from .sidebar_widgets import (
     CollapsibleSection,
     FilterField,
-    NoMatchHint,
     divider,
     section_heading,
     shortcut_text,
@@ -68,6 +71,16 @@ class _BrowseList(NamedTuple):
     floor: int  # height of the rows it keeps while the Peak window fits
     full: int  # height of every row the filter leaves
     weight: int
+
+
+def _menu_check_image() -> str:
+    """The app's checkmark in the text colour, for a menu tick; macOS draws its own jagged."""
+    colour = theme.color("text").name()
+    path = Path(tempfile.gettempdir()) / f"manic-menu-check-{colour[1:]}.svg"
+    if not path.exists():
+        svg = Path(resource_path("resources", "checkmark.svg")).read_text()
+        path.write_text(svg.replace('fill="white"', f'fill="{colour}"'))
+    return path.as_posix()
 
 
 def _deconvolution_on(compound_name: str) -> bool:
@@ -163,10 +176,6 @@ class Toolbar(QWidget):
         )
         browse_layout.addWidget(self.compound_filter)
         browse_layout.addWidget(self.compound_list, 1)
-        self.compound_no_match = NoMatchHint(
-            "No matching compounds", self.compound_filter
-        )
-        browse_layout.addWidget(self.compound_no_match)
 
         browse_layout.addWidget(divider())
 
@@ -176,13 +185,9 @@ class Toolbar(QWidget):
         samples_body_layout.setContentsMargins(0, 0, 0, 0)
         samples_body_layout.setSpacing(8)
         self.sample_filter = FilterField(self.sample_list, "Filter samples")
-        self.sample_filter.setToolTip(
-            "Type to filter. Checked samples are the ones shown in the grid."
-        )
+        self.sample_filter.setToolTip("Checked samples are the ones shown in the grid")
         samples_body_layout.addWidget(self.sample_filter)
         samples_body_layout.addWidget(self.sample_list, 1)
-        self.sample_no_match = NoMatchHint("No matching samples", self.sample_filter)
-        samples_body_layout.addWidget(self.sample_no_match)
         self.samples_section = CollapsibleSection(
             "Samples", samples_body, settings_key="sidebar/samples_expanded"
         )
@@ -415,7 +420,6 @@ class Toolbar(QWidget):
         no_match = has_compounds and visible == 0
         self.compound_list.setVisible(has_compounds and not no_match)
         self.compound_filter.setVisible(has_compounds)
-        self.compound_no_match.setVisible(no_match)
         self.compound_count_label.setText(
             ""
             if not has_compounds
@@ -429,7 +433,6 @@ class Toolbar(QWidget):
         filtering = has_samples and bool(self.sample_filter.text().strip())
         self.sample_list.setVisible(has_samples and matching > 0)
         self.sample_filter.setVisible(has_samples)
-        self.sample_no_match.setVisible(has_samples and matching == 0)
         shown = len(self.get_selected_samples())
         if not has_samples:
             summary = ""
@@ -678,6 +681,7 @@ class Toolbar(QWidget):
 
     def _show_internal_standard_menu(self) -> None:
         menu = QMenu(self.standard)
+        menu.setStyleSheet(f'QMenu::indicator:checked {{ image: url("{_menu_check_image()}"); }}')
         # One exclusive group, so the current choice (or none) carries the check.
         choices = QActionGroup(menu)
         current = self.standard.internal_standard

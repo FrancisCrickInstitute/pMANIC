@@ -53,3 +53,8 @@ Round 4 (re-rating). Commit `5cf5d336` on `feat/ui-ux-overhaul`.
   and the running app. Every menu action, shortcut, context-menu command, setting,
   dialog, popup, filter, multi-select, peak verdict, fit control, scale option and
   integration control on main must still exist and work.
+- New this round: the rubric gained F9 "Taste (not AI slop)" at the user's
+  request, and the user says it is important. Read its anchors in `rubric.md`
+  and judge every screen and every piece of UI copy against them. Rounds 0 to
+  3 had no F9, so also state the F1..F8 mean in your verdict for comparison
+  with round 3; the JSON `overall` is the F1..F9 mean.

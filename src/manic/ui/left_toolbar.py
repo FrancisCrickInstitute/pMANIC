@@ -118,7 +118,7 @@ class Toolbar(QWidget):
         self.standard = StandardIndicator()
         header_layout.addWidget(self.standard)
 
-        # Browse: the compound list is the tallest thing in the sidebar.
+        # Browse: compounds, then samples.
         browse = QWidget()
         browse.setObjectName("sidebarBrowse")
         browse_layout = QVBoxLayout(browse)
@@ -266,7 +266,7 @@ class Toolbar(QWidget):
 
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.setChildrenCollapsible(False)
-        self.splitter.setHandleWidth(1)
+        self.splitter.setHandleWidth(5)
         self.splitter.addWidget(browse)
         self.splitter.addWidget(self.inspector)
         self.splitter.setStretchFactor(0, 1)

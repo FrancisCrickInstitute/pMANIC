@@ -459,16 +459,17 @@ class MainWindow(QMainWindow):
         view_menu = menu_bar.addMenu("View")
         self.view_menu = view_menu
         self.display_actions: list[tuple[QAction, QCheckBox]] = []
-        shortcuts = {
-            "baseline_correction_checkbox": "Ctrl+Shift+B",
-            "shared_yscale_checkbox": "Ctrl+Shift+Y",
-            "scale_selected_peak_checkbox": "Ctrl+Shift+P",
+        menu_entries = {
+            "baseline_correction_checkbox": ("Baseline Correction", "Ctrl+Shift+B"),
+            "shared_yscale_checkbox": ("Shared Y-Scale", "Ctrl+Shift+Y"),
+            "scale_selected_peak_checkbox": ("Scale to Selected Peak", "Ctrl+Shift+P"),
         }
         for checkbox in self.toolbar.display_checkboxes():
-            action = QAction(checkbox.text(), self)
+            text, shortcut = menu_entries[checkbox.objectName()]
+            action = QAction(text, self)
             action.setCheckable(True)
             action.setChecked(checkbox.isChecked())
-            action.setShortcut(QKeySequence(shortcuts[checkbox.objectName()]))
+            action.setShortcut(QKeySequence(shortcut))
             action.setToolTip(checkbox.toolTip())
             action.triggered.connect(
                 lambda checked, a=action, c=checkbox: self._toggle_display(a, c, checked)

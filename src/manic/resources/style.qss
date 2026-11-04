@@ -764,12 +764,15 @@ QWidget#toolbar QListWidget {
     padding: 0px;
 }
 
+/* A 5px grab area drawn as a 1px line. */
 QWidget#toolbar QSplitter::handle {
-    background-color: @border;
+    background-color: @surface;
+    border-bottom: 1px solid @border;
 }
 
 QWidget#toolbar QSplitter::handle:hover {
-    background-color: @accent;
+    background-color: @accent_soft;
+    border-bottom: 1px solid @accent;
 }
 
 QPushButton[role="statusRow"] {
@@ -815,6 +818,11 @@ QLabel#statusValue[state="optional"] {
 
 QLabel#statusValue[state="blocked"] {
     color: @text_tertiary;
+}
+
+QLabel#peakScope[state="selected"] {
+    color: @accent;
+    font-weight: 500;
 }
 
 /* ---------- Start panel ---------- */
@@ -897,9 +905,4 @@ QDialog#settingsWindow QScrollArea > QWidget,
 QDialog#settingsWindow QStackedWidget,
 QDialog#settingsWindow QStackedWidget > QWidget {
     background-color: transparent;
-}
-
-QLabel#peakScope[state="selected"] {
-    color: @accent;
-    font-weight: 500;
 }

@@ -30,7 +30,7 @@ def test_view_menu_mirrors_display_checkboxes(qapp, monkeypatch):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
         actions = {a.text(): a for a in window.view_menu.actions()}
-        shared = actions["Shared y-scale"]
+        shared = actions["Shared Y-Scale"]
         checkbox = window.toolbar.shared_yscale_checkbox
 
         shared.trigger()
@@ -40,9 +40,9 @@ def test_view_menu_mirrors_display_checkboxes(qapp, monkeypatch):
 
         peak_box = window.toolbar.selected_peak_yscale_checkbox
         peak_box.setEnabled(False)
-        actions["Scale to selected peak"].trigger()
+        actions["Scale to Selected Peak"].trigger()
         assert not peak_box.isChecked()
-        assert not actions["Scale to selected peak"].isChecked()
+        assert not actions["Scale to Selected Peak"].isChecked()
     finally:
         window.close()
 

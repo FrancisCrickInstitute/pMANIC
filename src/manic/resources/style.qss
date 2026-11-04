@@ -837,34 +837,50 @@ QLabel#peakScope[state="selected"] {
 
 /* ---------- Start panel ---------- */
 
-QWidget#startCard {
-    background-color: @surface;
-    border: 1px solid @border;
-    border-radius: 8px;
-}
-
-QLabel[role="stepNumber"] {
-    background-color: @surface_alt;
-    color: @text_secondary;
+/* The empty canvas is the drop target; it lights only for a drop the window takes. */
+QFrame#dropZone {
+    background-color: transparent;
+    border: 2px dashed @border;
     border-radius: 12px;
+}
+
+QFrame#dropZone[dragOver="true"] {
+    background-color: @accent_soft;
+    border: 2px dashed @accent;
+}
+
+QLabel#dropPrompt {
+    color: @text_secondary;
+    font-size: 15px;
+}
+
+/* Quiet links: plain text until hovered or focused. */
+QPushButton#startFooterLink,
+QPushButton#recentName {
+    background-color: transparent;
+    color: @text_secondary;
+    border: none;
+    padding: 0px 2px;
+    min-height: 20px;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 400;
 }
 
-QLabel[role="stepNumber"][state="next"] {
-    background-color: @accent_fill;
-    color: @on_accent;
+QPushButton#recentName {
+    color: @text;
+    font-size: 13px;
 }
 
-QLabel[role="stepNumber"][state="done"] {
-    background-color: @success_soft;
-    color: @success;
+QPushButton#startFooterLink:hover,
+QPushButton#startFooterLink:focus,
+QPushButton#recentName:hover,
+QPushButton#recentName:focus {
+    color: @accent;
+    text-decoration: underline;
 }
 
-QLabel[role="stepDone"] {
-    color: @success;
-    font-size: 12px;
-    font-weight: 500;
+QPushButton#recentName:disabled {
+    color: @text_tertiary;
 }
 
 /* ---------- Window chrome kept from the original sheet ---------- */

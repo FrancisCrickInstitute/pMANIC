@@ -95,3 +95,22 @@ owner only).
   lightened for contrast but keep their hue and meaning.
 - The tour takes `--scheme light|dark`. CI runs it on `windows-latest` and
   `macos-15` in both schemes and uploads the screenshots.
+
+## Taste, not AI slop (added after round 3; binding, scored as F9)
+
+The user wants the app to show real taste and not look AI-generated. Before
+you add anything, ask whether a careful human designer working only on MANIC
+would put it there.
+
+- One place for each piece of state. If the sidebar shows what is loaded, the
+  canvas and status bar do not repeat it.
+- Copy is short and specific to GC-MS work. Cut sentences that explain what
+  the UI already shows. No "You can also", "Simply", "Let's", or marketing tone.
+  Instructions longer than a line belong in the quick start guide.
+- No template layouts: no hero-plus-stepper-plus-links empty states, no
+  numbered badges for a two-step flow, no card grids of icon, title and blurb.
+- No decoration without meaning: no gradients, glows, emoji, ornamental icons
+  or badges that carry no information. Accent colour marks the primary action,
+  selection and focus, nothing else.
+- Prefer restraint and the user's real data (recent files, sample names,
+  compound names) over generic explanation.

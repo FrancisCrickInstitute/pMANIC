@@ -272,6 +272,10 @@ class Toolbar(QWidget):
             checkbox.toggled.connect(self._refresh_display_summary)
         self._refresh_display_summary()
         inspector_layout.addWidget(self.display_section)
+        # An open section's own controls show its state, so the heading summary is for closed ones.
+        for section in (self.peak_section, self.display_section):
+            section.toggled.connect(section.summary.setHidden)
+            section.summary.setHidden(section.is_expanded())
         inspector_layout.addWidget(self._inspector_dividers[1])
 
         summary = QWidget()

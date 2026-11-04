@@ -1,29 +1,30 @@
 import logging
 import math
-import sys
 import warnings
 from collections.abc import Iterable
 from typing import Dict, List, Optional, Sequence, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QEvent, QMargins, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QActionGroup, QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtCore import QEvent, QMargins, QRect, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
-    QGraphicsTextItem,
+    QButtonGroup,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QMenu,
     QMessageBox,
     QRubberBand,
+    QScrollArea,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from manic.constants import create_font
 from manic.io.compound_reader import read_compound_with_session
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.processors.eic_processing import get_eics_for_compound
@@ -43,51 +44,38 @@ from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentitySampleAssessment,
-    IdentityStatus,
 )
 
 from .channel_chips import ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
+from .chart_style import set_nice_ticks, style_axis, style_chart, text_style
 from .icon_button import icon_button
 from .colors import (
+    QUALIFIER_GREEN,
+    QUALIFIER_GREY,
+    QUALIFIER_RED,
     ChannelTraceStyle,
     channel_trace_styles,
     dark_red_colour,
     label_colors,
     legend_trace_styles,
-    peak_verdict_qcolor,
-    selection_color,
     steel_blue_colour,
 )
+from .plot_tile import DENSITY_MIN_TILE, TILE_GAP, PlotTile, grid_columns, tile_badges
+from .theme import COLORS, color
 
 logger = logging.getLogger(__name__)
 
 PLOT_Y_AXIS_HEADROOM = 1.05
+
+_GUIDE_RT = color("text_secondary")
+_GUIDE_WINDOW = steel_blue_colour
 
 
 def tile_caption(sample_name: str, fit_type: str | None) -> str:
     if not fit_type:
         return sample_name
     return f"{sample_name}  ·  {FIT_TYPE_LABELS.get(fit_type, fit_type)}"
-
-
-class ElidingLabel(QLabel):
-    def __init__(self, text: str = "", parent: Optional[QWidget] = None):
-        super().__init__(text, parent)
-        self._full_text = text
-
-    def setText(self, text: str) -> None:
-        self._full_text = text
-        super().setText(text)
-
-    def fullText(self) -> str:
-        return self._full_text
-
-    def resizeEvent(self, event):
-        fm = QFontMetrics(self.font())
-        elided = fm.elidedText(self._full_text, Qt.ElideRight, self.width())
-        super().setText(elided)
-        super().resizeEvent(event)
 
 
 class ClickableChartView(QChartView):
@@ -97,15 +85,29 @@ class ClickableChartView(QChartView):
     right_clicked = Signal(
         object, object
     )  # Signal to emit when right-clicked (view, position)
+    double_clicked = Signal(object)
 
     def __init__(self, chart, sample_name, compound_name="", parent=None):
         super().__init__(chart, parent)
         self.sample_name = sample_name
         self.compound_name = compound_name
         self.is_selected = False
+        self._swallow_release = False
         self.setRenderHint(QPainter.Antialiasing)
         self.setContentsMargins(0, 0, 0, 0)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setStyleSheet("background: transparent;")
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # The release that ends a double-click must not toggle selection again.
+            self._swallow_release = True
+            self.double_clicked.emit(self)
+            return
+        super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event):
         """Handle mouse clicks"""
@@ -117,7 +119,9 @@ class ClickableChartView(QChartView):
 
     def mouseReleaseEvent(self, event):
         """Handle mouse release to distinguish click from drag"""
-        if event.button() == Qt.LeftButton and hasattr(self, "m_pressPos"):
+        if event.button() == Qt.LeftButton and self._swallow_release:
+            self._swallow_release = False
+        elif event.button() == Qt.LeftButton and hasattr(self, "m_pressPos"):
             # Calculate distance moved
             dist = (event.pos() - self.m_pressPos).manhattanLength()
             if dist < QApplication.startDragDistance():
@@ -131,20 +135,19 @@ class ClickableChartView(QChartView):
         self.update_appearance()
 
     def update_appearance(self):
-        """Update the visual appearance based on selection state"""
-        if self.is_selected:
-            # Set light green background
-            self.chart().setPlotAreaBackgroundBrush(selection_color)
-        else:
-            # Set normal white background
-            self.chart().setPlotAreaBackgroundBrush(QColor(255, 255, 255))
+        tile = self.parentWidget()
+        if isinstance(tile, PlotTile):
+            tile.refresh_selection()
 
 
-_SUPERSCRIPT_MAP = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+def _show_shortcut(action, sequence) -> None:
+    """Label a context-menu action with the grid key that does the same thing.
 
-
-def _superscript(n: int) -> str:
-    return str(n).translate(_SUPERSCRIPT_MAP)
+    The grid handles the key itself, so the menu shortcut is display-only.
+    """
+    action.setShortcut(QKeySequence(sequence))
+    action.setShortcutContext(Qt.WidgetShortcut)
+    action.setShortcutVisibleInContextMenu(True)
 
 
 class GraphView(QWidget):
@@ -168,27 +171,72 @@ class GraphView(QWidget):
         outer_layout = QVBoxLayout(self)
         outer_layout.setSpacing(0)
         outer_layout.setContentsMargins(0, 0, 0, 0)
+        self.setFocusPolicy(Qt.StrongFocus)
 
         header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 6, 0)
-        header.setSpacing(2)
+        header.setContentsMargins(8, 6, 6, 2)
+        header.setSpacing(8)
         self.channel_legend = ChannelChipRow()
-        header.addWidget(self.channel_legend, stretch=1)
+        header.addWidget(self.channel_legend)
+        self.qc_key = QLabel()
+        self.qc_key.setTextFormat(Qt.RichText)
+        self.qc_key.setStyleSheet(text_style("text_secondary", 11))
+        self.qc_key.setToolTip(
+            "Qualifier ion traces are coloured by each sample's qualifier QC result."
+        )
+        self.qc_key.setText(
+            "Qualifier colour = QC&nbsp;&nbsp;"
+            + "&nbsp;&nbsp;".join(
+                f'<span style="color:{qcolor.name()};">●</span>&nbsp;{name}'
+                for qcolor, name in (
+                    (QUALIFIER_GREEN, "Validated"),
+                    (QUALIFIER_RED, "Failed"),
+                    (QUALIFIER_GREY, "No verdict"),
+                )
+            )
+        )
+        self.qc_key.hide()
+        header.addWidget(self.qc_key)
         header.addStretch()
+        self.selection_summary = QLabel()
+        self.selection_summary.setStyleSheet(text_style("text_secondary", 11))
+        self.selection_summary.setToolTip(
+            "Click a plot to select it. ⌘/Ctrl+A selects all, Esc clears, "
+            "arrow keys move, Space toggles, Enter opens the detailed view."
+        )
+        header.addWidget(self.selection_summary)
+        header.addWidget(self._build_density_toggle())
         self.docs_button = icon_button("docsButton", "docs_book.svg", "Documentation")
         self.docs_button.clicked.connect(self.documentation_requested.emit)
-        header.addWidget(self.docs_button)
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
         self.settings_button.clicked.connect(self.settings_requested.emit)
-        header.addWidget(self.settings_button)
+        for button in (self.docs_button, self.settings_button):
+            button.setProperty("variant", "ghost")
+            button.setIconSize(button.iconSize() * 0.9)
+            button.setFixedSize(28, 28)
+            button.setFocusPolicy(Qt.NoFocus)
+            header.addWidget(button)
         outer_layout.addLayout(header)
 
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setFocusPolicy(Qt.NoFocus)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet("QScrollArea { background: transparent; }")
+        self._scroll.viewport().setAutoFillBackground(False)
+        self._scroll.viewport().installEventFilter(self)
         grid_host = QWidget()
-        outer_layout.addWidget(grid_host, stretch=1)
+        grid_host.setAutoFillBackground(False)
+        grid_host.setStyleSheet("background: transparent;")
+        self._scroll.setWidget(grid_host)
+        outer_layout.addWidget(self._scroll, stretch=1)
 
         self._layout = QGridLayout(grid_host)
-        self._layout.setSpacing(0)
-        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(TILE_GAP)
+        self._layout.setContentsMargins(TILE_GAP, 4, TILE_GAP, TILE_GAP)
+        self._grid_shape: tuple[int, int] = (1, 0)
+        self._focus_index: int | None = None
 
         # Track selected plots
         self._selected_plots: Set[ClickableChartView] = set()
@@ -233,11 +281,88 @@ class GraphView(QWidget):
 
         # Install event filter on self to handle background drags
         self.installEventFilter(self)
+        self.selection_changed.connect(self._update_selection_summary)
+
+    def _build_density_toggle(self) -> QWidget:
+        box = QWidget()
+        box.setObjectName("densityToggle")
+        layout = QHBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self._density_buttons = QButtonGroup(box)
+        self._density = str(QSettings().value("graph/density", "comfortable"))
+        if self._density not in DENSITY_MIN_TILE:
+            self._density = "comfortable"
+        for key, text, tip in (
+            ("compact", "Compact", "Smaller plots, more per screen"),
+            ("comfortable", "Comfortable", "Larger plots; scrolls when they don't fit"),
+        ):
+            button = QToolButton()
+            button.setText(text)
+            button.setToolTip(tip)
+            button.setCheckable(True)
+            button.setChecked(key == self._density)
+            button.setFocusPolicy(Qt.NoFocus)
+            button.setProperty("density", key)
+            button.setObjectName(f"density_{key}")
+            self._density_buttons.addButton(button)
+            layout.addWidget(button)
+        self._density_buttons.buttonClicked.connect(
+            lambda button: self.set_density(button.property("density"))
+        )
+        c = COLORS
+        box.setStyleSheet(
+            f"""
+            QToolButton {{
+                font-size: 11px; color: {c['text_secondary']};
+                background: {c['surface']}; border: 1px solid {c['border_strong']};
+                padding: 2px 9px; min-height: 18px;
+            }}
+            QToolButton:hover {{ background: {c['surface_hover']}; }}
+            QToolButton:checked {{
+                color: {c['text']}; background: {c['surface_alt']}; font-weight: 600;
+            }}
+            QToolButton#density_compact {{
+                border-top-left-radius: 6px; border-bottom-left-radius: 6px;
+                border-right: none;
+            }}
+            QToolButton#density_comfortable {{
+                border-top-right-radius: 6px; border-bottom-right-radius: 6px;
+            }}
+            """
+        )
+        return box
+
+    def set_density(self, density: str) -> None:
+        if density not in DENSITY_MIN_TILE or density == self._density:
+            return
+        self._density = density
+        QSettings().setValue("graph/density", density)
+        for button in self._density_buttons.buttons():
+            button.setChecked(button.property("density") == density)
+        self._place_tiles(force=True)
+
+    def density(self) -> str:
+        return self._density
+
+    def _update_selection_summary(self, *_args) -> None:
+        total = len(self._current_plots)
+        if not total:
+            self.selection_summary.clear()
+            return
+        selected = len(self._selected_plots)
+        noun = "sample" if total == 1 else "samples"
+        self.selection_summary.setText(
+            f"{selected} of {total} selected" if selected else f"{total} {noun}"
+        )
 
     def eventFilter(self, obj, event):
         """
         Event filter to handle rubberband selection across child widgets.
         """
+        if event.type() == QEvent.Resize and obj is self._scroll.viewport():
+            self._resize_timer.start(60)
+            return False
         # Handle Drag Press
         if event.type() == QEvent.MouseButtonPress:
             me = event
@@ -371,7 +496,7 @@ class GraphView(QWidget):
         # Begin compound plotting - logging removed to reduce noise
         self._clear_layout()
         if not samples:
-            self.channel_legend.hide()
+            self._hide_legend()
             return
 
         # Store current compound and samples for integration window updates
@@ -386,7 +511,7 @@ class GraphView(QWidget):
 
         num = len(eics)
         if num == 0:
-            self.channel_legend.hide()
+            self._hide_legend()
             return
 
         self._last_validation_data = validation_data
@@ -417,31 +542,6 @@ class GraphView(QWidget):
 
         self._update_channel_legend(compound_name, eics)
 
-        cols = math.ceil(math.sqrt(num))
-        rows = math.ceil(num / cols)
-
-        self._max_rows_seen = max(self._max_rows_seen, rows)
-        self._max_cols_seen = max(self._max_cols_seen, cols)
-
-        # Clear ALL stretch factors/min sizes for any historical rows/cols,
-        # then set stretch=1 only for active rows/cols.
-        # This is critical when reducing sample count.
-        max_rows_to_reset = max(self._max_rows_seen, self._layout.rowCount())
-        max_cols_to_reset = max(self._max_cols_seen, self._layout.columnCount())
-
-        for i in range(max_rows_to_reset):
-            self._layout.setRowStretch(i, 0)
-            self._layout.setRowMinimumHeight(i, 0)
-        for i in range(max_cols_to_reset):
-            self._layout.setColumnStretch(i, 0)
-            self._layout.setColumnMinimumWidth(i, 0)
-
-        # Set stretch factors for active rows/cols
-        for col in range(cols):
-            self._layout.setColumnStretch(col, 1)
-        for row in range(rows):
-            self._layout.setRowStretch(row, 1)
-
         # time plot building for debugging
         with measure_time("build_plots_and_add_to_layout"):
             # Build all plots with captions using chart pooling for performance
@@ -462,23 +562,58 @@ class GraphView(QWidget):
                 container.chart_view for container in plot_containers
             ]
 
-            # Add to layout efficiently with atomic visibility handling
             # Hide all containers first, add to layout, then show all at once
-            # This prevents visual flashing and is more efficient than processEvents()
-            for i, container in enumerate(plot_containers):
-                row = i // cols
-                col = i % cols
-                container.hide()  # Ensure hidden before adding to layout
-                self._layout.addWidget(container, row, col)
-
-            # Show all containers at once for smooth appearance
+            # to prevent visual flashing.
+            for container in plot_containers:
+                container.hide()
+            self._place_tiles(force=True)
             for container in plot_containers:
                 container.show()
 
-        # ensure the added widgets are correctly sized with stretch factors
-        self._update_graph_sizes()
+        if self._focus_index is not None and self._focus_index >= num:
+            self._focus_index = None
+        self._paint_focus()
+        self._update_selection_summary()
+        self._layout.activate()
 
         self._prepared_displays.clear()
+
+    def _grid_viewport(self) -> tuple[int, int]:
+        margins = self._layout.contentsMargins()
+        viewport = self._scroll.viewport()
+        return (
+            viewport.width() - margins.left() - margins.right(),
+            viewport.height() - margins.top() - margins.bottom(),
+        )
+
+    def _place_tiles(self, force: bool = False) -> None:
+        """Lay the current tiles out in as many readable columns as fit."""
+        tiles = [plot.parent() for plot in self._current_plots]
+        width, height = self._grid_viewport()
+        min_w, min_h = DENSITY_MIN_TILE[self._density]
+        shape = grid_columns(len(tiles), width, height, min_width=min_w, min_height=min_h)
+        if not force and shape == self._grid_shape:
+            return
+        self._grid_shape = shape
+        cols, row_height = shape
+        rows = math.ceil(len(tiles) / cols) if tiles else 0
+        self._max_rows_seen = max(self._max_rows_seen, rows)
+        self._max_cols_seen = max(self._max_cols_seen, cols)
+        for tile in tiles:
+            self._layout.removeWidget(tile)
+        for i in range(max(self._max_rows_seen, self._layout.rowCount())):
+            self._layout.setRowStretch(i, 0)
+            self._layout.setRowMinimumHeight(i, 0)
+        for i in range(max(self._max_cols_seen, self._layout.columnCount())):
+            self._layout.setColumnStretch(i, 0)
+            self._layout.setColumnMinimumWidth(i, 0)
+        for i, tile in enumerate(tiles):
+            self._layout.addWidget(tile, i // cols, i % cols)
+        for col in range(cols):
+            self._layout.setColumnStretch(col, 1)
+        for row in range(rows):
+            self._layout.setRowStretch(row, 1)
+            self._layout.setRowMinimumHeight(row, row_height)
 
     def select_sample(self, sample_name: str) -> bool:
         """Select the plot for ``sample_name``; return False if not shown."""
@@ -504,10 +639,14 @@ class GraphView(QWidget):
                 identity=self._identity,
             )
 
+    def _hide_legend(self) -> None:
+        self.channel_legend.hide()
+        self.qc_key.hide()
+
     def _update_channel_legend(self, compound_name: str, eics) -> None:
         """One chip per plotted channel above the grid, in both analysis modes."""
         if not eics:
-            self.channel_legend.hide()
+            self._hide_legend()
             return
         try:
             compound = read_compound_with_session(compound_name, None)
@@ -516,24 +655,27 @@ class GraphView(QWidget):
             n_traces = intensity.shape[0] if multi_trace else 1
             channels = compound.analysis_channels[: n_traces]
             if not channels:
-                self.channel_legend.hide()
+                self._hide_legend()
                 return
+            unlabelled = getattr(compound, "is_unlabelled_target", False)
             self.channel_legend.set_channels(
                 [channel_legend_label(compound, i) for i in range(len(channels))],
                 legend_trace_styles(
-                    channels,
-                    unlabelled=getattr(compound, "is_unlabelled_target", False),
-                    multi_trace=multi_trace,
+                    channels, unlabelled=unlabelled, multi_trace=multi_trace
                 ),
             )
+            self.qc_key.setVisible(unlabelled and multi_trace and len(channels) > 1)
         except LookupError:
-            self.channel_legend.hide()
+            self._hide_legend()
         except Exception:
             logger.exception("Failed to update channel colour key")
-            self.channel_legend.hide()
+            self._hide_legend()
 
     def _on_plot_clicked(self, clicked_plot: ClickableChartView):
         """Handle plot click - toggle selection"""
+        if clicked_plot in self._current_plots:
+            self._focus_index = self._current_plots.index(clicked_plot)
+            self._paint_focus()
         if clicked_plot.is_selected:
             # Deselect if already selected
             self._selected_plots.discard(clicked_plot)
@@ -546,6 +688,64 @@ class GraphView(QWidget):
         # Emit signal with currently selected sample names
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
+
+    def _on_plot_double_clicked(self, plot: ClickableChartView) -> None:
+        self._show_detailed_view(plot.compound_name, plot.sample_name)
+
+    def _focused_plot(self) -> ClickableChartView | None:
+        if self._focus_index is None or self._focus_index >= len(self._current_plots):
+            return None
+        return self._current_plots[self._focus_index]
+
+    def _paint_focus(self) -> None:
+        show = self.hasFocus()
+        for index, plot in enumerate(self._current_plots):
+            tile = plot.parent()
+            if isinstance(tile, PlotTile):
+                tile.set_focused(show and index == self._focus_index)
+
+    def _move_focus(self, delta: int) -> None:
+        count = len(self._current_plots)
+        if self._focus_index is None:
+            self._focus_index = 0
+        else:
+            target = self._focus_index + delta
+            if 0 <= target < count:
+                self._focus_index = target
+        self._paint_focus()
+        tile = self._current_plots[self._focus_index].parent()
+        if isinstance(tile, QWidget):
+            self._scroll.ensureWidgetVisible(tile, 0, TILE_GAP)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self._paint_focus()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self._paint_focus()
+
+    def keyPressEvent(self, event):
+        if not self._current_plots:
+            super().keyPressEvent(event)
+            return
+        key = event.key()
+        cols = self._grid_shape[0]
+        moves = {Qt.Key_Left: -1, Qt.Key_Right: 1, Qt.Key_Up: -cols, Qt.Key_Down: cols}
+        if event.matches(QKeySequence.SelectAll):
+            self.select_all_plots()
+        elif key == Qt.Key_Escape:
+            self.clear_selection()
+        elif key in moves and not event.modifiers() & ~Qt.KeypadModifier:
+            self._move_focus(moves[key])
+        elif key == Qt.Key_Space and self._focused_plot() is not None:
+            self._on_plot_clicked(self._focused_plot())
+        elif key in (Qt.Key_Return, Qt.Key_Enter) and self._focused_plot() is not None:
+            self._on_plot_double_clicked(self._focused_plot())
+        else:
+            super().keyPressEvent(event)
+            return
+        event.accept()
 
     def _on_plot_right_clicked(self, clicked_plot: ClickableChartView, global_pos):
         """Handle right-click on plot - show consolidated context menu"""
@@ -567,27 +767,6 @@ class GraphView(QWidget):
         context_menu = QMenu(self)
         self._active_context_menu = context_menu  # Store reference for cleanup
 
-        # Set menu style to ensure black text on white background
-        context_menu.setStyleSheet("""
-            QMenu {
-                background-color: white;
-                color: black;
-                border: 1px solid #d0d0d0;
-            }
-            QMenu::item {
-                background-color: white;
-                color: black;
-                padding: 5px 20px;
-            }
-            QMenu::item:selected {
-                background-color: #e0e0e0;
-                color: black;
-            }
-            QMenu::item:disabled {
-                color: #a0a0a0;
-            }
-        """)
-
         # Ensure menu disappears when clicking outside or after actions
         context_menu.setAttribute(Qt.WA_DeleteOnClose)
         context_menu.aboutToHide.connect(self._on_context_menu_closed)
@@ -595,9 +774,11 @@ class GraphView(QWidget):
         # Selection actions
         select_all_action = context_menu.addAction("Select All")
         select_all_action.triggered.connect(self.select_all_plots)
+        _show_shortcut(select_all_action, QKeySequence.SelectAll)
 
         deselect_all_action = context_menu.addAction("Deselect All")
         deselect_all_action.triggered.connect(self.clear_selection)
+        _show_shortcut(deselect_all_action, QKeySequence(Qt.Key_Escape))
 
         select_only_action = context_menu.addAction("Select Only This Sample")
         if clicked_plot is not None:
@@ -629,6 +810,7 @@ class GraphView(QWidget):
 
         # Add detailed view action
         detailed_action = context_menu.addAction("View Detailed...")
+        _show_shortcut(detailed_action, QKeySequence(Qt.Key_Return))
 
         if clicked_plot is not None:
             # Case: Right-clicked a specific plot.
@@ -842,7 +1024,7 @@ class GraphView(QWidget):
         self._current_compound = ""
         self._current_samples = []
         self._identity = None
-        self.channel_legend.hide()
+        self._hide_legend()
         # Note: _current_plots will be cleared in _clear_layout
         self._clear_layout(force_destroy=force_destroy)
 
@@ -1023,34 +1205,15 @@ class GraphView(QWidget):
         # Create the plot
         chart_view = self._build_plot(eic, axis_scale=axis_scale)
 
-        # Create caption label with fixed height + elided text
-        caption_text = self._tile_caption_for(eic)
-        caption = ElidingLabel(caption_text)
-        caption.setAlignment(Qt.AlignCenter)
-        caption.setFont(create_font(8, QFont.Weight.Bold))  # Cross-platform font
-        caption.setStyleSheet("color: black; padding: 1px;")
-        # Fixed height prevents QGridLayout rows from becoming uneven due to
-        # per-row max sizeHint() differences when some captions wrap.
-        caption.setWordWrap(False)
-        caption.setFixedHeight(18)
-        caption.setToolTip(caption_text)
-        caption.setText(caption_text)
-
-        # Create container widget
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(chart_view)
-        layout.addWidget(caption)
-
-        # Store references for easy access
-        container.chart_view = chart_view
-        container.caption = caption
+        container = PlotTile(chart_view)
+        caption = container.caption
+        container.set_caption(self._tile_caption_for(eic))
+        container.set_scale(axis_scale.scale_exp)
 
         # Connect click signals for new container
         chart_view.clicked.connect(self._on_plot_clicked)
         chart_view.right_clicked.connect(self._on_plot_right_clicked)
+        chart_view.double_clicked.connect(self._on_plot_double_clicked)
 
         # Apply validation styling
         self._apply_validation_styling(container, verdict)
@@ -1093,7 +1256,7 @@ class GraphView(QWidget):
         # Immediately clear any stale content to prevent flashing
         chart_view = container.chart_view
         chart_view.chart().removeAllSeries()  # Clear chart data
-        container.caption.setText("")  # Clear caption text
+        container.set_caption("")
 
         try:
             # Ensure the chart view is properly reset and not selected
@@ -1114,6 +1277,7 @@ class GraphView(QWidget):
                 try:
                     chart_view.clicked.disconnect(self._on_plot_clicked)
                     chart_view.right_clicked.disconnect(self._on_plot_right_clicked)
+                    chart_view.double_clicked.disconnect(self._on_plot_double_clicked)
                 except Exception:
                     pass  # Signals weren't connected
 
@@ -1123,10 +1287,8 @@ class GraphView(QWidget):
             # Update the chart with new data (chart will handle its own visibility)
             self._update_chart_data(chart_view, eic, axis_scale=axis_scale)
 
-            # Update the caption
-            caption_text = self._tile_caption_for(eic)
-            container.caption.setToolTip(caption_text)
-            container.caption.setText(caption_text)
+            container.set_caption(self._tile_caption_for(eic))
+            container.set_scale(axis_scale.scale_exp)
 
             # Apply validation styling
             self._apply_validation_styling(container, verdict)
@@ -1134,6 +1296,7 @@ class GraphView(QWidget):
             # Reconnect signals for this specific usage
             chart_view.clicked.connect(self._on_plot_clicked)
             chart_view.right_clicked.connect(self._on_plot_right_clicked)
+            chart_view.double_clicked.connect(self._on_plot_double_clicked)
 
             # Ensure event filter is installed on all parts (idempotent)
             # Must include viewport for charts!
@@ -1183,18 +1346,12 @@ class GraphView(QWidget):
             # Clear existing series but preserve chart structure
             chart.removeAllSeries()
 
-            # Clear any existing text items (scale factors) from previous data
-            for item in chart.scene().items():
-                if isinstance(item, QGraphicsTextItem):
-                    chart.scene().removeItem(item)
-
             # Use session data if available, otherwise use default compound data
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
             prepared = self._plot_display_for(eic, compound)
 
             eic_intensity = eic.intensity
             scale_factor = axis_scale.scale_factor
-            scale_exp = axis_scale.scale_exp
             scaled_y_max = axis_scale.scaled_max
 
             # Reuse existing axes
@@ -1218,40 +1375,8 @@ class GraphView(QWidget):
 
             # Update axis ranges
             if x_axis and y_axis:
-                rt = compound.retention_time
-                x_min = float(np.min(eic.time))
-                x_max = float(np.max(eic.time))
-                x_axis.setRange(x_min, x_max)
-                y_axis.setRange(0, scaled_y_max * PLOT_Y_AXIS_HEADROOM)
-
-                # Re-add guide lines
-                self._add_guide_line(
-                    chart, x_axis, y_axis, rt, 0, scaled_y_max, QColor(0, 0, 0)
-                )
-
-                left_line_pos = rt - compound.loffset
-                right_line_pos = rt + compound.roffset
-
-                self._add_guide_line(
-                    chart,
-                    x_axis,
-                    y_axis,
-                    left_line_pos,
-                    0,
-                    scaled_y_max,
-                    steel_blue_colour,
-                    dashed=True,
-                )
-                self._add_guide_line(
-                    chart,
-                    x_axis,
-                    y_axis,
-                    right_line_pos,
-                    0,
-                    scaled_y_max,
-                    steel_blue_colour,
-                    dashed=True,
-                )
+                self._set_tile_ranges(x_axis, y_axis, eic.time, scaled_y_max)
+                self._add_tile_guides(chart, x_axis, y_axis, compound, scaled_y_max)
 
                 # Add baseline lines if baseline correction is enabled
                 self._add_baseline_lines(
@@ -1265,18 +1390,6 @@ class GraphView(QWidget):
                     prepared=prepared,
                     channel_styles=self._channel_styles_for(compound, eic.sample_name),
                 )
-
-            # Add scale factor text if needed
-            if scale_exp != 0:
-                html_text = (
-                    f'×10<span style="font-size: 14pt;">{_superscript(scale_exp)}</span>'
-                )
-                scale_text = QGraphicsTextItem()
-                scale_text.setHtml(html_text)
-                scale_text.setFont(create_font(10))  # Cross-platform font
-                scale_text.setDefaultTextColor(QColor(80, 80, 80))
-                scale_text.setPos(10, 10)
-                chart.scene().addItem(scale_text)
 
         except Exception as e:
             # Log any chart update errors but don't let them break the container update
@@ -1318,6 +1431,7 @@ class GraphView(QWidget):
                     try:
                         plot.clicked.disconnect(self._on_plot_clicked)
                         plot.right_clicked.disconnect(self._on_plot_right_clicked)
+                        plot.double_clicked.disconnect(self._on_plot_double_clicked)
                         plot._signal_connected = False  # Mark as disconnected
                     except (TypeError, RuntimeError):
                         pass  # Signals weren't connected to these specific slots
@@ -1348,23 +1462,16 @@ class GraphView(QWidget):
         compound = read_compound_with_session(eic.compound_name, eic.sample_name)
         prepared = self._plot_display_for(eic, compound)
 
-        # Create chart
         chart = QChart()
-        chart.setBackgroundVisible(False)
-        chart.setPlotAreaBackgroundVisible(True)
-        chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
-        chart.legend().hide()
+        style_chart(chart, QMargins(2, 2, 4, 0))
 
-        eic_intensity = eic.intensity
         scale_factor = axis_scale.scale_factor
-        scale_exp = axis_scale.scale_exp
         scaled_y_max = axis_scale.scaled_max
 
-        font = create_font(8)
-
-        # Create axes
         x_axis = QValueAxis()
         y_axis = QValueAxis()
+        style_axis(x_axis)
+        style_axis(y_axis, grid=True)
         chart.addAxis(x_axis, Qt.AlignBottom)
         chart.addAxis(y_axis, Qt.AlignLeft)
 
@@ -1374,103 +1481,50 @@ class GraphView(QWidget):
             x_axis,
             y_axis,
             eic.time,
-            eic_intensity,
+            eic.intensity,
             compound,
             scale_factor,
             prepared=prepared,
             channel_styles=channel_styles,
         )
 
-        # Set up axes
-        x_axis.setGridLineVisible(False)
-        y_axis.setGridLineVisible(False)
-        x_axis.setLabelsFont(font)
-        y_axis.setLabelsFont(font)
-
-        # Set ranges
-        # Use the actual EIC time range (this will reflect the tR window used during extraction)
-        rt = compound.retention_time  # Still needed for guide lines
-        x_min = float(np.min(eic.time))
-        x_max = float(np.max(eic.time))
-        x_axis.setRange(x_min, x_max)
-
-        y_axis.setRange(0, scaled_y_max * PLOT_Y_AXIS_HEADROOM)
-        y_axis.setLabelFormat("%.2g")
-
-        # Set tick count (number of major ticks/labels)
-        x_axis.setTickCount(5)
-        y_axis.setTickCount(5)
-
-        # Add guide lines
-        self._add_guide_line(
-            chart, x_axis, y_axis, rt, 0, scaled_y_max, QColor(0, 0, 0)
-        )  # RT line
-
-        left_line_pos = rt - compound.loffset
-        right_line_pos = rt + compound.roffset
-
-        self._add_guide_line(
-            chart,
-            x_axis,
-            y_axis,
-            left_line_pos,
-            0,
-            scaled_y_max,
-            steel_blue_colour,
-            dashed=True,
-        )  # Left offset
-        self._add_guide_line(
-            chart,
-            x_axis,
-            y_axis,
-            right_line_pos,
-            0,
-            scaled_y_max,
-            steel_blue_colour,
-            dashed=True,
-        )  # Right offset
-
-        # Add baseline lines if baseline correction is enabled
+        # The x range is the actual EIC extract, so it reflects the tR window.
+        self._set_tile_ranges(x_axis, y_axis, eic.time, scaled_y_max)
+        self._add_tile_guides(chart, x_axis, y_axis, compound, scaled_y_max)
         self._add_baseline_lines(
             chart,
             x_axis,
             y_axis,
             eic.time,
-            eic_intensity,
+            eic.intensity,
             compound,
             scale_factor,
             prepared=prepared,
             channel_styles=channel_styles,
         )
+        return ClickableChartView(chart, eic.sample_name, eic.compound_name)
 
-        # Create chart view first to get access to scene
-        chart_view = ClickableChartView(chart, eic.sample_name, eic.compound_name)
+    def _set_tile_ranges(self, x_axis, y_axis, eic_time, scaled_y_max) -> None:
+        x_min = float(np.min(eic_time))
+        x_max = float(np.max(eic_time))
+        x_axis.setRange(x_min, x_max)
+        set_nice_ticks(x_axis, x_min, x_max, max_ticks=2.5, decimals=2)
+        y_max = scaled_y_max * PLOT_Y_AXIS_HEADROOM
+        y_axis.setRange(0, y_max)
+        set_nice_ticks(y_axis, 0, y_max, max_ticks=2)
 
-        # Add only scale factor in top-left corner if needed
-        if scale_exp != 0:
-            # Use HTML to make only the superscript larger
-            html_text = (
-                f'×10<span style="font-size: 14pt;">{_superscript(scale_exp)}</span>'
+    def _add_tile_guides(self, chart, x_axis, y_axis, compound, scaled_y_max) -> None:
+        """Solid line at the expected tR, dashed lines at the integration window."""
+        rt = compound.retention_time
+        self._add_guide_line(
+            chart, x_axis, y_axis, rt, 0, scaled_y_max,
+            _GUIDE_RT, role="rt", width=1.0,
+        )
+        for edge in (rt - compound.loffset, rt + compound.roffset):
+            self._add_guide_line(
+                chart, x_axis, y_axis, edge, 0, scaled_y_max,
+                _GUIDE_WINDOW, dashed=True, role="window", width=1.0,
             )
-            scale_text = QGraphicsTextItem()
-            scale_text.setHtml(html_text)
-            scale_text.setFont(create_font(10))  # Cross-platform base font for ×10
-            scale_text.setDefaultTextColor(QColor(80, 80, 80))
-            scale_text.setPos(10, 10)  # Top-left corner
-            chart.scene().addItem(scale_text)
-
-        # Remove chart title to maximize space
-        chart.setTitle("")
-
-        # Platform-specific margins to prevent text cutoff on Windows
-        if sys.platform == "win32":
-            # Windows needs more bottom margin due to font rendering differences
-            chart.setMargins(QMargins(-13, -10, -13, -5))
-        else:
-            # macOS and Linux can use tighter margins
-            chart.setMargins(QMargins(-13, -10, -13, -15))
-
-        return chart_view
 
     def _add_guide_line(
         self,
@@ -1906,7 +1960,12 @@ class GraphView(QWidget):
             series.attachAxis(x_axis)
             series.attachAxis(y_axis)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._resize_timer.start(60)
+
     def _update_graph_sizes(self) -> None:
+        self._place_tiles()
         # Invalidate first, then activate to force recalculation
         self._layout.invalidate()
         self._layout.activate()
@@ -1925,23 +1984,7 @@ class GraphView(QWidget):
     def _restyle_container(self, container: QWidget):
         verdict = getattr(container, "verdict", PeakVerdict.PASS)
         sample_name = getattr(container.chart_view, "sample_name", "")
-        assessment = self._sample_identity(sample_name)
-        qc_status = None if assessment is None or assessment.qc is None else assessment.qc.status
-
-        color = peak_verdict_qcolor(verdict)
-        if verdict not in (PeakVerdict.ACCEPTED, PeakVerdict.REJECTED) and (
-            qc_status is IdentityStatus.NOT_DETECTED
-        ):
-            color = QColor(236, 239, 241)
-        if color is None:
-            container.setStyleSheet("")
-            return
-        red, green, blue, _alpha = color.getRgb()
-        container.setStyleSheet(f"""
-            QWidget {{
-                background-color: rgba({red}, {green}, {blue}, 120);
-            }}
-        """)
+        container.set_badges(tile_badges(verdict, self._sample_identity(sample_name)))
 
     def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:

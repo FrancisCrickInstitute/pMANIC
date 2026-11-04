@@ -355,7 +355,8 @@ QRadioButton:disabled {
     color: @text_tertiary;
 }
 
-QCheckBox::indicator {
+QCheckBox::indicator,
+QListWidget#sampleList::indicator {
     width: 14px;
     height: 14px;
     border: 1px solid @border_strong;
@@ -363,26 +364,31 @@ QCheckBox::indicator {
     background-color: @surface;
 }
 
-QCheckBox::indicator:hover {
+QCheckBox::indicator:hover,
+QListWidget#sampleList::indicator:hover {
     border: 1px solid @accent;
 }
 
-QCheckBox::indicator:checked {
+QCheckBox::indicator:checked,
+QListWidget#sampleList::indicator:checked {
     background-color: @accent;
     border: 1px solid @accent;
     image: url("RESOURCES_DIR/checkmark.svg");
 }
 
-QCheckBox::indicator:checked:hover {
+QCheckBox::indicator:checked:hover,
+QListWidget#sampleList::indicator:checked:hover {
     background-color: @accent_hover;
 }
 
-QCheckBox::indicator:disabled {
+QCheckBox::indicator:disabled,
+QListWidget#sampleList::indicator:disabled {
     background-color: @surface_alt;
     border: 1px solid @border;
 }
 
-QCheckBox::indicator:checked:disabled {
+QCheckBox::indicator:checked:disabled,
+QListWidget#sampleList::indicator:checked:disabled {
     background-color: @border_strong;
     border: 1px solid @border_strong;
 }

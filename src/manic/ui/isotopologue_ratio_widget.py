@@ -13,17 +13,34 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QMouseEvent, QPainter
-from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QCursor, QMouseEvent, QPainter
+from PySide6.QtWidgets import (
+    QFrame,
+    QLabel,
+    QSizePolicy,
+    QToolTip,
+    QVBoxLayout,
+    QWidget,
+)
 
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.eic_reader import EIC
 from manic.processors.display_deconvolution import integrated_display_areas
 
+from . import theme
 from .chart_header import ChartHeader
 from .chart_style import style_axis, style_chart
 from .colors import label_colors
 from .theme import color
+
+
+def isotopologue_key_html(count: int) -> str:
+    """'■ M+0  ■ M+1 ...' in the series colours; wraps between entries only."""
+    return "&nbsp;&nbsp; ".join(
+        f'<span style="color:{label_colors[i % len(label_colors)].name()}">■</span>'
+        f"&nbsp;M+{i}"
+        for i in range(count)
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +68,6 @@ class IsotopologueRatioWidget(QWidget):
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.chart_view.setFrameShape(QFrame.NoFrame)
         self.chart_view.setStyleSheet("background: transparent; border: none;")
-        self.chart_view.setToolTip("Double-click to enlarge with sample names")
 
         # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
@@ -61,10 +77,20 @@ class IsotopologueRatioWidget(QWidget):
         self.header = ChartHeader("Label incorporation")
         self.header.expand_button.clicked.connect(self._show_popup_chart)
 
+        self.key = QLabel()
+        self.key.setObjectName("isotopologueKey")
+        self.key.setWordWrap(True)
+        self.key.setTextFormat(Qt.RichText)
+        self.key.setContentsMargins(8, 2, 8, 0)
+        theme.style(self.key, "color: @text_secondary; font-size: 11px;")
+        self.key.hide()
+        theme.notifier.changed.connect(self._refresh_key)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
         layout.addWidget(self.header)
+        layout.addWidget(self.key)
         layout.addWidget(self.chart_view)
 
         # Responsive height for toolbar integration
@@ -118,7 +144,9 @@ class IsotopologueRatioWidget(QWidget):
         ordered_eics, ordered_ratios = self._order_like_graph_window(eics, ratios)
 
         # Reverse order so top graph corresponds to top bar
-        ordered_eics.reverse()
+        # A reversed copy: the caller still holds this list and the abundances
+        # shared with the abundance chart follow its original order.
+        ordered_eics = ordered_eics[::-1]
         ordered_ratios = np.flipud(ordered_ratios)  # Flip array upside down
 
         # Store current data for popup
@@ -229,6 +257,7 @@ class IsotopologueRatioWidget(QWidget):
             # Add ratio values for this isotopologue across all samples
             for j in range(n_samples):
                 bar_set.append(ratios[j, i])
+            bar_set.hovered.connect(self._on_bar_hovered)
 
             bar_sets.append(bar_set)
             bar_series.append(bar_set)
@@ -242,6 +271,27 @@ class IsotopologueRatioWidget(QWidget):
         # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+        self._refresh_key()
+
+    def _refresh_key(self, *_args) -> None:
+        count = 0 if self._current_ratios is None else self._current_ratios.shape[1]
+        self.key.setText(isotopologue_key_html(count))
+        self.key.setVisible(count > 1)
+
+    def hover_text(self, index: int) -> str:
+        """Sample name and every isotopologue share for one bar."""
+        lines = [self._current_sample_names[index]]
+        lines += [
+            f"M+{i}  {share * 100:.1f}%"
+            for i, share in enumerate(self._current_ratios[index])
+        ]
+        return "\n".join(lines)
+
+    def _on_bar_hovered(self, status: bool, index: int) -> None:
+        if not status or not self._has_data():
+            QToolTip.hideText()
+            return
+        QToolTip.showText(QCursor.pos(), self.hover_text(index), self.chart_view)
 
     def _setup_axes(self, sample_names: List[str]) -> None:
         """Setup chart axes for horizontal layout."""
@@ -275,6 +325,7 @@ class IsotopologueRatioWidget(QWidget):
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
         self.header.set_has_data(False)
+        self.key.hide()
 
         # Reset data
         self._current_eics = None

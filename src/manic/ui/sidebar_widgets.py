@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, Signal
 from PySide6.QtGui import (
     QFont,
     QFontMetrics,
@@ -212,14 +212,44 @@ class FilterField(QLineEdit):
         super().keyPressEvent(event)
 
 
+class NoMatchHint(QWidget):
+    """'No matching compounds' with a button that clears the filter."""
+
+    def __init__(self, text: str, field: FilterField, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        label = QLabel(text)
+        label.setProperty("role", "hint")
+        self.clear_button = QPushButton("Clear filter")
+        self.clear_button.setProperty("variant", "ghost")
+        self.clear_button.clicked.connect(field.clear)
+        layout.addWidget(label)
+        layout.addStretch(1)
+        layout.addWidget(self.clear_button)
+
+
 class CollapsibleSection(QWidget):
-    """A section whose heading row toggles its body; the heading shows a summary."""
+    """A section whose heading row toggles its body; the heading shows a summary.
+
+    With ``settings_key`` the open/closed state a user picks is remembered."""
 
     toggled = Signal(bool)
 
-    def __init__(self, title: str, body: QWidget, expanded: bool = False, parent=None):
+    def __init__(
+        self,
+        title: str,
+        body: QWidget,
+        expanded: bool = False,
+        parent=None,
+        settings_key: str | None = None,
+    ):
         super().__init__(parent)
         self.body = body
+        self._settings_key = settings_key
+        if settings_key:
+            expanded = QSettings().value(settings_key, expanded, type=bool)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -245,12 +275,17 @@ class CollapsibleSection(QWidget):
         row.addWidget(self._title)
         row.addWidget(self.summary, 1)
         self.header.setFixedHeight(24)
-        self.header.clicked.connect(lambda: self.set_expanded(not self.is_expanded()))
+        self.header.clicked.connect(self._on_header_clicked)
 
         layout.addWidget(self.header)
         layout.addWidget(body)
         self._expanded = not expanded
         self.set_expanded(expanded)
+
+    def _on_header_clicked(self) -> None:
+        self.set_expanded(not self.is_expanded())
+        if self._settings_key:
+            QSettings().setValue(self._settings_key, self._expanded)
 
     def is_expanded(self) -> bool:
         return self._expanded

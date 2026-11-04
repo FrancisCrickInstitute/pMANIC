@@ -7,6 +7,7 @@ import numpy as np
 from PySide6.QtCore import QCoreApplication, Qt, QThread, QUrl
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QDesktopServices,  # Add this for opening URLs
     QIcon,
     QKeySequence,
@@ -79,7 +80,7 @@ from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.models.sample_fit_type import set_sample_fit_type
-from manic.validation.peak_verdict import PeakVerdict
+from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
@@ -352,6 +353,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.quit_action)
 
         self._build_view_menu(menu_bar)
+        self._build_review_menu(menu_bar)
 
         # About and Settings carry roles so a native macOS menubar moves them
         # into the application menu (Qt relabels Settings as "Preferences..."
@@ -515,6 +517,137 @@ class MainWindow(QMainWindow):
         self.show_all_samples_action.triggered.connect(self.show_all_samples)
         view_menu.addAction(self.show_all_samples_action)
 
+    def _build_review_menu(self, menu_bar: QMenuBar) -> None:
+        """The plot context menu's review commands, on the menu bar.
+
+        They act on the selected plots (the focused one leads), or on the focused
+        plot when nothing is selected, through the same graph-view methods the
+        context menu calls. Labels carry the target count.
+        """
+        menu = menu_bar.addMenu("Review")
+        self.review_menu = menu
+
+        def grid_key(action: QAction, sequence) -> None:
+            # The grid handles these keys itself; the menu only names them.
+            action.setShortcut(QKeySequence(sequence))
+            action.setShortcutContext(Qt.WidgetShortcut)
+
+        self.inspect_action = QAction("Inspect Sample...", self)
+        grid_key(self.inspect_action, Qt.Key_Return)
+        self.inspect_action.triggered.connect(self._inspect_review_target)
+        menu.addAction(self.inspect_action)
+        menu.addSeparator()
+
+        self.select_all_plots_action = QAction("Select All Plots", self)
+        grid_key(self.select_all_plots_action, QKeySequence.SelectAll)
+        self.select_all_plots_action.triggered.connect(self.graph_view.select_all_plots)
+        menu.addAction(self.select_all_plots_action)
+        self.deselect_plots_action = QAction("Deselect All", self)
+        grid_key(self.deselect_plots_action, Qt.Key_Escape)
+        self.deselect_plots_action.triggered.connect(self.graph_view.clear_selection)
+        menu.addAction(self.deselect_plots_action)
+        self.show_only_selected_action = QAction("Show Only Selected Samples", self)
+        self.show_only_selected_action.triggered.connect(
+            lambda: self.focus_on_samples(self.graph_view.get_selected_samples())
+        )
+        menu.addAction(self.show_only_selected_action)
+        menu.addAction(self.show_all_samples_action)
+        menu.addSeparator()
+
+        self.accept_peak_action = QAction("Accept Peak (Below Threshold)", self)
+        self.accept_peak_action.setCheckable(True)
+        self.accept_peak_action.triggered.connect(
+            lambda: self._review_targets_with(PeakReview.ACCEPTED)
+        )
+        menu.addAction(self.accept_peak_action)
+        self.reject_peak_action = QAction("Mark Peak as Bad", self)
+        self.reject_peak_action.setCheckable(True)
+        self.reject_peak_action.triggered.connect(
+            lambda: self._review_targets_with(PeakReview.REJECTED)
+        )
+        menu.addAction(self.reject_peak_action)
+        self.review_fit_menu = menu.addMenu("Curve Fit")
+
+        menu.aboutToShow.connect(self._sync_review_menu)
+        self.graph_view.selection_changed.connect(self._sync_review_menu)
+        self._sync_review_menu()
+
+    def _review_target(self):
+        """(lead plot, every plot a review command acts on)."""
+        view = self.graph_view
+        selected = [plot for plot in view._current_plots if plot in view._selected_plots]
+        focused = view._focused_plot()
+        if selected:
+            return (focused if focused in selected else selected[0]), selected
+        if focused is not None:
+            return focused, [focused]
+        return None, []
+
+    def _sync_review_menu(self, *_args) -> None:
+        lead, targets = self._review_target()
+        view = self.graph_view
+        count = len(targets)
+        selected = len(view.get_selected_samples())
+
+        self.inspect_action.setEnabled(lead is not None)
+        self.inspect_action.setText(
+            f"Inspect {lead.sample_name}..." if lead is not None else "Inspect Sample..."
+        )
+        has_plots = bool(view._current_plots)
+        self.select_all_plots_action.setEnabled(has_plots)
+        self.deselect_plots_action.setEnabled(selected > 0)
+        self.show_only_selected_action.setEnabled(selected > 0)
+        self.show_only_selected_action.setText(
+            "Show Only Selected Sample"
+            if selected == 1
+            else f"Show Only {selected} Selected Samples"
+            if selected
+            else "Show Only Selected Samples"
+        )
+
+        review = view._review_for_plot(lead) if lead is not None else None
+        acceptable = [
+            plot
+            for plot in targets
+            if view._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
+        ]
+        accept_count = count if review is PeakReview.ACCEPTED else len(acceptable)
+        self.accept_peak_action.setEnabled(
+            lead is not None
+            and view._verdict_for_plot(lead) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
+        )
+        self.accept_peak_action.setChecked(review is PeakReview.ACCEPTED)
+        self.accept_peak_action.setText(
+            f"Accept {accept_count} Peaks (Below Threshold)"
+            if accept_count > 1
+            else "Accept Peak (Below Threshold)"
+        )
+        self.reject_peak_action.setEnabled(lead is not None)
+        self.reject_peak_action.setChecked(review is PeakReview.REJECTED)
+        self.reject_peak_action.setText(
+            f"Mark {count} Peaks as Bad" if count > 1 else "Mark Peak as Bad"
+        )
+
+        fit_menu = self.review_fit_menu
+        for group in fit_menu.findChildren(QActionGroup):
+            group.deleteLater()
+        fit_menu.clear()
+        fit_menu.setTitle(f"Curve Fit ({count} Samples)" if count > 1 else "Curve Fit")
+        fit_menu.setEnabled(lead is not None)
+        if lead is not None:
+            view._populate_curve_fit_menu(fit_menu, lead)
+
+    def _inspect_review_target(self) -> None:
+        lead, _targets = self._review_target()
+        if lead is not None:
+            self.graph_view._show_detailed_view(lead.compound_name, lead.sample_name)
+
+    def _review_targets_with(self, review: PeakReview) -> None:
+        lead, _targets = self._review_target()
+        if lead is not None:
+            self.graph_view._toggle_peak_review(lead, review)
+        self._sync_review_menu()
+
     def _toggle_display(self, action: QAction, checkbox: QCheckBox, checked: bool):
         if checkbox.isEnabled():
             checkbox.setChecked(checked)
@@ -535,9 +668,11 @@ class MainWindow(QMainWindow):
         self.deconvolution_indicator_label.setObjectName("statusDeconvolution")
         self.deconvolution_indicator_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.deconvolution_indicator_label.setToolTip(
-            "Peak deconvolution for this compound. Click to open Settings."
+            "Peak deconvolution for this compound. Click to change it in Settings."
         )
-        self.deconvolution_indicator_label.clicked.connect(self.open_settings_window)
+        self.deconvolution_indicator_label.clicked.connect(
+            lambda: self.open_settings_page("Deconvolution")
+        )
         bar.addPermanentWidget(self.deconvolution_indicator_label)
 
     def _refresh_shell(self) -> None:
@@ -2251,6 +2386,12 @@ class MainWindow(QMainWindow):
         if self.settings_window is None:
             self.settings_window = SettingsWindow(self, host=self)
         self.settings_window.open()
+
+    def open_settings_page(self, title: str) -> None:
+        self.open_settings_window()
+        pages = self.settings_window.page_list
+        for item in pages.findItems(title, Qt.MatchExactly):
+            pages.setCurrentItem(item)
 
     def open_documentation_window(self) -> None:
         if self.documentation_window is None:

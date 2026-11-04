@@ -13,8 +13,8 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QPainter, QMouseEvent
-from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QCursor, QPainter, QMouseEvent
+from PySide6.QtWidgets import QFrame, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
 from manic.io.eic_reader import EIC
 from manic.ui.chart_header import ChartHeader
@@ -56,7 +56,6 @@ class TotalAbundanceWidget(QWidget):
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.chart_view.setFrameShape(QFrame.NoFrame)
         self.chart_view.setStyleSheet("background: transparent; border: none;")
-        self.chart_view.setToolTip("Double-click to enlarge with sample names")
 
         # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
@@ -106,7 +105,7 @@ class TotalAbundanceWidget(QWidget):
         )
 
         # Reverse order so top graph corresponds to top bar
-        ordered_eics.reverse()
+        ordered_eics = ordered_eics[::-1]
         ordered_abundances = np.flip(ordered_abundances)  # Flip array
         
         # Store current data for popup
@@ -169,6 +168,7 @@ class TotalAbundanceWidget(QWidget):
         for abundance in abundances:
             scaled_abundance = abundance / scale_factor
             bar_set.append(scaled_abundance)
+        bar_set.hovered.connect(self._on_bar_hovered)
 
         bar_series.append(bar_set)
 
@@ -181,6 +181,16 @@ class TotalAbundanceWidget(QWidget):
         # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+
+    def hover_text(self, index: int) -> str:
+        value = float(self._current_abundances[index])
+        return f"{self._current_sample_names[index]}\nTotal abundance  {value:.3g}"
+
+    def _on_bar_hovered(self, status: bool, index: int) -> None:
+        if not status or not self._has_data():
+            QToolTip.hideText()
+            return
+        QToolTip.showText(QCursor.pos(), self.hover_text(index), self.chart_view)
 
     def _setup_axes(self, sample_names: List[str], abundances: np.ndarray) -> None:
         """Setup chart axes for horizontal layout."""

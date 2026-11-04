@@ -328,6 +328,11 @@ def main() -> int:
     init_db()
     MainWindow._check_for_updates = lambda self: None
 
+    screen = app.primaryScreen()
+    print(
+        f"screen: {screen.availableGeometry().width()}x{screen.availableGeometry().height()}"
+        f" available, device pixel ratio {screen.devicePixelRatio()}"
+    )
     tour = Tour(app, args.out, (width, height))
     if args.scheme:
         try:

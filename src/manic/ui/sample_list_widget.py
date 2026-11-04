@@ -115,8 +115,7 @@ class SampleListWidget(QListWidget):
 
     def _get_valid_selected_samples(self) -> List[str]:
         """Highlighted sample names in list order, excluding placeholder items"""
-        selected = set(self._valid_selected_items())
-        return [item.text() for item in self._real_items() if item in selected]
+        return [item.text() for item in self._real_items() if item.isSelected()]
 
     def real_count(self) -> int:
         """Get total number of real samples (excluding placeholder)"""

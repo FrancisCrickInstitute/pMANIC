@@ -98,7 +98,10 @@ class ClickableChartView(QChartView):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setFocusPolicy(Qt.NoFocus)
         self.setFrameShape(QFrame.NoFrame)
-        self.setStyleSheet("background: transparent;")
+        # Transparent so the card's QC tint shows; a stylesheet here would
+        # make every tile re-polish on show.
+        self.setBackgroundBrush(Qt.NoBrush)
+        self.viewport().setAutoFillBackground(False)
         self.setCursor(Qt.PointingHandCursor)
 
     def mouseDoubleClickEvent(self, event):
@@ -496,6 +499,7 @@ class GraphView(QWidget):
         # Begin compound plotting - logging removed to reduce noise
         self._clear_layout()
         if not samples:
+            self._hide_unused_tiles()
             self._hide_legend()
             return
 
@@ -511,6 +515,7 @@ class GraphView(QWidget):
 
         num = len(eics)
         if num == 0:
+            self._hide_unused_tiles()
             self._hide_legend()
             return
 
@@ -562,13 +567,14 @@ class GraphView(QWidget):
                 container.chart_view for container in plot_containers
             ]
 
-            # Hide all containers first, add to layout, then show all at once
-            # to prevent visual flashing.
-            for container in plot_containers:
-                container.hide()
+            # Reused tiles stay visible: hiding and re-showing them costs a
+            # synchronous relayout of every card. Nothing paints until the
+            # event loop runs, so there is no flash either way.
             self._place_tiles(force=True)
             for container in plot_containers:
-                container.show()
+                if container.isHidden():
+                    container.show()
+            self._hide_unused_tiles()
 
         if self._focus_index is not None and self._focus_index >= num:
             self._focus_index = None
@@ -577,6 +583,10 @@ class GraphView(QWidget):
         self._layout.activate()
 
         self._prepared_displays.clear()
+
+    def _hide_unused_tiles(self) -> None:
+        for container in self._available_containers:
+            container.hide()
 
     def _grid_viewport(self) -> tuple[int, int]:
         margins = self._layout.contentsMargins()
@@ -1027,6 +1037,7 @@ class GraphView(QWidget):
         self._hide_legend()
         # Note: _current_plots will be cleared in _clear_layout
         self._clear_layout(force_destroy=force_destroy)
+        self._hide_unused_tiles()
 
         # Force immediate update to prevent visual artifacts
         self.update()
@@ -1250,9 +1261,6 @@ class GraphView(QWidget):
             container: Existing container widget to update
             eic: New EIC data to display
         """
-        # Keep container hidden during update to prevent visual flashing
-        container.hide()
-
         # Immediately clear any stale content to prevent flashing
         chart_view = container.chart_view
         chart_view.chart().removeAllSeries()  # Clear chart data
@@ -1436,7 +1444,6 @@ class GraphView(QWidget):
                     except (TypeError, RuntimeError):
                         pass  # Signals weren't connected to these specific slots
 
-                container.hide()  # Hide but don't delete
                 self._available_containers.append(container)
 
         self._current_plots.clear()
@@ -2027,13 +2034,9 @@ class GraphView(QWidget):
                 item = self._layout.takeAt(0)
                 widget = item.widget()
                 if widget is not None:
-                    # Check if widget is a pooled container before deletion
-                    if widget in self._container_pool:
-                        # Ensure pooled containers are parented to the view itself
-                        # so they aren't destroyed when the layout is deleted
-                        widget.setParent(self)
-                    else:
-                        # Safe to delete non-pooled widgets
+                    # Pooled containers stay (hidden) in the grid host: re-parenting
+                    # them would re-polish every card on the next show.
+                    if widget not in self._container_pool:
                         widget.deleteLater()
 
         # purge persistent row/col tracking by resetting stretches

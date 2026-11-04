@@ -162,6 +162,7 @@ class PlotTile(QWidget):
         self._tint: str | None = None
         self._focused = False
         self._badges: list[TileBadge] = []
+        self._caption_selected: bool | None = None
         self.setAttribute(Qt.WA_Hover)
 
         self.caption = ElidingLabel()
@@ -231,6 +232,10 @@ class PlotTile(QWidget):
         self.update()
 
     def _refresh_caption_colour(self) -> None:
+        # Restyling is slow and tiles are reset several times per replot.
+        if self._caption_selected is self.is_selected:
+            return
+        self._caption_selected = self.is_selected
         self.caption.setStyleSheet(
             text_style("accent" if self.is_selected else "text", 12, 600)
         )

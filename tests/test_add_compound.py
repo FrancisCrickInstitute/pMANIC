@@ -269,11 +269,11 @@ def test_invalid_ok_keeps_dialog_open_and_flags_the_field(qapp):
     dialog._on_ok()
     assert dialog.isVisible()
     assert dialog.record is None
-    assert dialog.validation_message == "Enter a compound name."
+    assert dialog.validation_message.splitlines()[0] == "Enter a compound name."
     assert dialog.focusWidget() is dialog.compound_name
     assert dialog.compound_name.property("invalid") is True
     dialog.compound_name.setText("Alanine")
-    assert dialog.validation_message == ""
+    assert "Enter a compound name." not in dialog.validation_message
     assert dialog.compound_name.property("invalid") is False
     dialog.close()
 

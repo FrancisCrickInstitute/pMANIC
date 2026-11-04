@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from pydantic import ValidationError
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QDoubleValidator, QValidator
 from PySide6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -35,6 +38,7 @@ from manic.ui.dialog_kit import (
     form_layout,
     form_row,
     hint_label,
+    resize_to_screen,
     section_label,
     set_invalid,
     style_dialog,
@@ -43,19 +47,27 @@ from manic.ui.dialog_kit import (
 )
 
 
-class _BlankZeroSpinBox(QDoubleSpinBox):
-    """Shows its placeholder instead of 0; the value stays 0.0, which validation rejects."""
+class _BlankZero:
+    """Shows the placeholder instead of 0, and reads a blank field back as 0."""
 
-    def textFromValue(self, value: float) -> str:
+    def textFromValue(self, value):
         return "" if value == 0 else super().textFromValue(value)
 
-    def valueFromText(self, text: str) -> float:
-        return 0.0 if not text.strip() else super().valueFromText(text)
+    def valueFromText(self, text: str):
+        return 0 if not text.strip() else super().valueFromText(text)
 
     def validate(self, text: str, pos: int):
         if not text.strip():
             return (QValidator.Acceptable, text, pos)
         return super().validate(text, pos)
+
+
+class _BlankZeroSpinBox(_BlankZero, QDoubleSpinBox):
+    pass
+
+
+class _BlankZeroIntSpinBox(_BlankZero, QSpinBox):
+    pass
 
 
 class AddCompoundDialog(QDialog):
@@ -70,7 +82,8 @@ class AddCompoundDialog(QDialog):
         self._taken_names = frozenset(taken_names)
         self._record: CompoundRow | UnlabelledCompoundRecord | None = None
         self._errors: dict[QWidget, QLabel] = {}
-        self._invalid: QWidget | None = None
+        # Each problem names the fields it flags; editing any of them clears it.
+        self._problems: list[tuple[tuple[QWidget, ...], str]] = []
         self.validation_message = ""
         unlabelled = self._mode is AnalysisMode.UNLABELLED
         self._make_record = (
@@ -82,10 +95,15 @@ class AddCompoundDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(600)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        outer.setSpacing(8)
+        outer.addWidget(title_label("Add compound"))
+
+        form = QWidget()
+        layout = QVBoxLayout(form)
+        layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(8)
-        layout.addWidget(title_label("Add compound"))
 
         identity = self._section(layout, "Identity")
         self.compound_name = QLineEdit()
@@ -97,7 +115,7 @@ class AddCompoundDialog(QDialog):
             self._row(identity, "Formula", self.formula)
 
         retention = self._section(layout, "Retention")
-        self.retention_time = self._double_spin(required=True)
+        self.retention_time = self._double_spin("Required")
         self._row(retention, "tR (minutes)", self.retention_time)
         self.loffset = self._double_spin()
         self.roffset = self._double_spin()
@@ -135,14 +153,28 @@ class AddCompoundDialog(QDialog):
             "Standard mixture (MM) sample filename patterns, comma-separated.",
         )
 
-        layout.addSpacing(8)
-        self._general_error = error_label()
-        layout.addWidget(self._general_error)
         layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setObjectName("addCompoundScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(form)
+        scroll.viewport().setAutoFillBackground(False)
+        form.setAutoFillBackground(False)
+        outer.addWidget(scroll, stretch=1)
+
+        self._general_error = error_label()
+        outer.addWidget(self._general_error)
         buttons, _add = button_box("Add compound")
         buttons.accepted.connect(self._on_ok)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        outer.addWidget(buttons)
+
+        width = 640
+        chrome = self.sizeHint().height() - scroll.sizeHint().height()
+        resize_to_screen(self, width, chrome + form.heightForWidth(width - 2 * MARGIN))
 
     @property
     def record(self) -> CompoundRow | UnlabelledCompoundRecord | None:
@@ -152,76 +184,102 @@ class AddCompoundDialog(QDialog):
         return self._make_record()
 
     def _on_ok(self) -> None:
-        self._clear_errors()
-        try:
-            record = self.build_record()
-        except (ValueError, ValidationError, TypeError) as exc:
-            self._show_error(*self._locate_error(exc))
-            return
-        if record.retention_time <= 0:
-            self._show_error("tR (minutes) must be greater than 0.", self.retention_time)
-            return
-        if isinstance(record, CompoundRow) and record.mass0 <= 0:
-            self._show_error("Mass0 (m/z) must be greater than 0.", self.mass0)
-            return
-        if record.compound_name in self._taken_names:
-            self._show_error(
-                str(duplicate_name_error(record.compound_name)), self.compound_name
-            )
-            return
-        self._record = record
-        self.accept()
+        problems = self._required_problems()
+        if not problems:
+            try:
+                record = self.build_record()
+            except (ValueError, ValidationError, TypeError) as exc:
+                problems = [self._locate_error(exc)]
+        self._show_problems(problems)
+        if not problems:
+            self._record = record
+            self.accept()
 
-    def _locate_error(self, exc: Exception) -> tuple[str, QWidget | None]:
+    def _required_problems(self) -> list[tuple[tuple[QWidget, ...], str]]:
+        """Every missing or taken required value at once, in form order."""
+        problems = []
+        name = self.compound_name.text().strip()
+        if not name:
+            problems.append(((self.compound_name,), "Enter a compound name."))
+        elif name in self._taken_names:
+            problems.append(((self.compound_name,), str(duplicate_name_error(name))))
+        required = [(self.retention_time, "tR (minutes)")]
+        if self._mode is AnalysisMode.UNLABELLED:
+            required += [
+                (self.quantifier_mz, "Quantifier ion m/z"),
+                (self.qualifier1_mz, "Qualifier ion 1 m/z"),
+            ]
+        else:
+            required.append((self.mass0, "Mass0 (m/z)"))
+        problems += [
+            ((field,), f"{text} must be greater than 0.")
+            for field, text in required
+            if field.value() <= 0
+        ]
+        return problems
+
+    def _locate_error(self, exc: Exception) -> tuple[tuple[QWidget, ...], str]:
         message, field = str(exc), None
         if isinstance(exc, ValidationError) and exc.errors():
             first = exc.errors()[0]
             loc = first.get("loc") or ()
             message = first.get("msg", message).removeprefix("Value error, ")
             field = getattr(self, str(loc[0]), None) if loc else None
-        if message == "compound_name is blank":
-            return "Enter a compound name.", self.compound_name
-        if field is None and self._mode is AnalysisMode.UNLABELLED:
-            field = self._ion_field_for(message)
-        return message, field if isinstance(field, QWidget) else None
+        if isinstance(field, QWidget):
+            return (field,), message
+        if self._mode is AnalysisMode.UNLABELLED:
+            return self._ion_fields_for(message), message
+        return (), message
 
-    def _ion_field_for(self, message: str) -> QWidget | None:
+    def _ion_fields_for(self, message: str) -> tuple[QWidget, ...]:
+        # The quantifier and qualifier 1 m/z are already known to be positive here.
         if "positive" in message:
-            for field in (self.quantifier_mz, self.qualifier1_mz):
-                if field.value() <= 0:
-                    return field
-            return self.qualifier2_mz
+            return (self.qualifier2_mz,)
         if "distinct" in message:
-            return self.qualifier1_mz
+            return (self.quantifier_mz, self.qualifier1_mz, self.qualifier2_mz)
         if "tolerance" in message:
-            for field in (self.qualifier1_tolerance, self.qualifier2_tolerance):
-                if field.text().strip().startswith("-"):
-                    return field
-        return None
+            return tuple(
+                field
+                for field in (self.qualifier1_tolerance, self.qualifier2_tolerance)
+                if field.text().strip().startswith("-")
+            )
+        return ()
 
-    def _show_error(self, message: str, field: QWidget | None = None) -> None:
-        self.validation_message = message
-        label = self._errors.get(field, self._general_error)
-        label.setText(message)
-        label.show()
-        if field is None:
+    def _show_problems(self, problems: list[tuple[tuple[QWidget, ...], str]]) -> None:
+        self._problems = problems
+        self._render_problems()
+        first = next((fields[0] for fields, _ in problems if fields), None)
+        if first is None:
             return
-        set_invalid(field, True)
-        self._invalid = field
-        field.setFocus()
-        select_all = getattr(field, "selectAll", None)
+        first.setFocus()
+        select_all = getattr(first, "selectAll", None)
         if select_all is not None:
             select_all()
 
-    def _clear_errors(self, *_args) -> None:
-        if not self.validation_message:
-            return
-        self.validation_message = ""
-        for label in {*self._errors.values(), self._general_error}:
-            label.hide()
-        if self._invalid is not None:
-            set_invalid(self._invalid, False)
-            self._invalid = None
+    def _render_problems(self) -> None:
+        lines: dict[QLabel, list[str]] = {
+            label: [] for label in (*self._errors.values(), self._general_error)
+        }
+        for fields, message in self._problems:
+            label = self._errors[fields[0]] if fields else self._general_error
+            lines[label].append(message)
+        for label, messages in lines.items():
+            label.setText("\n".join(messages))
+            label.setVisible(bool(messages))
+        flagged = {field for fields, _ in self._problems for field in fields}
+        for field in self._errors:
+            set_invalid(field, field in flagged)
+        self.validation_message = "\n".join(message for _, message in self._problems)
+
+    def _field_edited(self, field: QWidget) -> None:
+        kept = [
+            (fields, message)
+            for fields, message in self._problems
+            if fields and field not in fields
+        ]
+        if len(kept) != len(self._problems):
+            self._problems = kept
+            self._render_problems()
 
     def _section(self, layout: QVBoxLayout, title: str) -> QFormLayout:
         layout.addSpacing(SECTION_SPACING - 8)
@@ -243,17 +301,17 @@ class AddCompoundDialog(QDialog):
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(4)
         column.addWidget(field)
-        if hint:
-            column.addWidget(hint_label(hint))
         error = error_label()
         column.addWidget(error)
+        if hint:
+            column.addWidget(hint_label(hint))
         for target in error_for or (field,):
             self._errors[target] = error
             self._watch(target)
         form_row(form, text, container)
 
     def _watch(self, field: QLineEdit | QDoubleSpinBox | QSpinBox) -> None:
-        field.textChanged.connect(self._clear_errors)
+        field.textChanged.connect(lambda *_args: self._field_edited(field))
 
     @staticmethod
     def _inline(*pairs: tuple[str, QWidget]) -> QWidget:
@@ -272,7 +330,7 @@ class AddCompoundDialog(QDialog):
 
     def _add_labelled_fields(self, layout: QVBoxLayout) -> None:
         mass = self._section(layout, "Mass and labelling")
-        self.mass0 = self._double_spin(required=True)
+        self.mass0 = self._double_spin("Required")
         self._row(mass, "Mass0 (m/z)", self.mass0, "m/z of the unlabelled (M+0) ion.")
 
         self.label_type = QLineEdit()
@@ -302,8 +360,8 @@ class AddCompoundDialog(QDialog):
         layout.addSpacing(SECTION_SPACING - 8)
         layout.addWidget(section_label("Ions"))
 
-        self.quantifier_mz = self._double_spin(required=True)
-        self.qualifier1_mz = self._double_spin(required=True)
+        self.quantifier_mz = self._double_spin("Required")
+        self.qualifier1_mz = self._double_spin("Required")
         self.qualifier1_ratio = self._optional_float_edit()
         self.qualifier1_tolerance = self._optional_float_edit()
         self.qualifier2_mz = self._optional_float_edit()
@@ -343,9 +401,10 @@ class AddCompoundDialog(QDialog):
         notes.addWidget(error)
         notes.addWidget(
             hint_label(
-                "Provide two qualifier ions, each with an expected ratio and a "
-                "tolerance (a fraction of the ratio, 0.25 = ±25%). Blank fields are "
-                "accepted but leave identity QC unassessed."
+                "The quantifier and qualifier 1 m/z are required. Qualifier 2, "
+                "expected ratios and tolerances are optional; a qualifier without a "
+                "ratio and tolerance is left unassessed in identity QC. Tolerance is "
+                "a fraction of the ratio (0.25 = ±25%)."
             )
         )
         layout.addLayout(notes)
@@ -410,23 +469,25 @@ class AddCompoundDialog(QDialog):
             channels=validated,
         )
 
+    # Blank reads back as 0 in every spin box. Required fields reject 0; for the
+    # offsets and counts, CompoundRow defaults to 0, so blank and 0 mean the same.
     @staticmethod
-    def _double_spin(required: bool = False) -> QDoubleSpinBox:
-        box = _BlankZeroSpinBox() if required else QDoubleSpinBox()
+    def _double_spin(placeholder: str = "0") -> QDoubleSpinBox:
+        box = _BlankZeroSpinBox()
         box.setDecimals(4)
         box.setRange(0.0, 1_000_000.0)
         box.setValue(0.0)
         box.setButtonSymbols(QDoubleSpinBox.NoButtons)
-        if required:
-            box.lineEdit().setPlaceholderText("Required")
+        box.lineEdit().setPlaceholderText(placeholder)
         return box
 
     @staticmethod
     def _int_spin() -> QSpinBox:
-        box = QSpinBox()
+        box = _BlankZeroIntSpinBox()
         box.setRange(0, 100)
         box.setValue(0)
         box.setButtonSymbols(QSpinBox.NoButtons)
+        box.lineEdit().setPlaceholderText("0")
         return box
 
     @staticmethod

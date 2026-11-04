@@ -45,6 +45,38 @@ def section_heading(text: str) -> QLabel:
     return label
 
 
+# A bar row needs this many pixels before the sample axis can name it without
+# QtCharts dropping labels that would touch.
+NAME_ROW_PX = 16
+SUMMARY_CHART_HEIGHT = (200, 330)
+
+
+def summary_chart_height(count: int, chrome: int) -> int:
+    """Minimum chart height: tall enough to name every bar, if the maximum allows it."""
+    low, high = SUMMARY_CHART_HEIGHT
+    named = chrome + count * NAME_ROW_PX
+    return max(low, named) if named <= high else low
+
+
+def names_hint() -> QLabel:
+    """Shown under a summary chart too short to name every bar."""
+    hint = QLabel("Hover or enlarge for sample names")
+    hint.setProperty("role", "hint")
+    hint.setWordWrap(True)
+    hint.setContentsMargins(8, 2, 8, 0)
+    hint.hide()
+    return hint
+
+
+def fit_sample_names(chart, count: int, hint: QLabel) -> None:
+    """Name every bar on the sample axis when each row has room; otherwise show the hint."""
+    axes = chart.axes(Qt.Orientation.Vertical)
+    fits = chart.plotArea().height() >= count * NAME_ROW_PX
+    for axis in axes:
+        axis.setLabelsVisible(fits)
+    hint.setVisible(bool(axes) and count > 0 and not fits)
+
+
 def divider() -> QFrame:
     line = QFrame()
     line.setProperty("role", "divider")

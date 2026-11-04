@@ -1,14 +1,16 @@
 import logging
 from collections.abc import Iterable
-from typing import List
+from typing import List, NamedTuple
 
 from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMenu,
     QScrollArea,
     QSplitter,
@@ -42,10 +44,24 @@ from .total_abundance_widget import TotalAbundanceWidget
 
 logger = logging.getLogger(__name__)
 
-# Browsing keeps at least this many compound rows and this share of the sidebar.
-BROWSE_MIN_ROWS = 10
+# Before the inspector takes the rest, the lists keep this many rows each (compounds,
+# samples) and together this share of the sidebar. The Peak window always stays whole.
+BROWSE_MIN_ROWS = (6, 4)
 BROWSE_MIN_SHARE = 0.45
+# Room past each list's floor goes compounds:samples in this ratio, up to each one's rows.
+BROWSE_WEIGHTS = (3, 2)
+LIST_MIN_HEIGHT = 72
+# Summary opens by itself only when its first chart gets at least this much height.
+SUMMARY_MIN_CHART = 100
 SPLIT_SETTING = "sidebar/browse_share"
+SUMMARY_SETTING = "sidebar/summary_expanded"
+
+
+class _BrowseList(NamedTuple):
+    widget: QListWidget
+    floor: int  # height of the rows it keeps
+    full: int  # height of every row the filter leaves
+    weight: int
 
 
 def _deconvolution_on(compound_name: str) -> bool:
@@ -143,7 +159,7 @@ class Toolbar(QWidget):
             f"Type to filter, ↑↓ to move, Enter to pick ({shortcut_text('Ctrl+F')})"
         )
         browse_layout.addWidget(self.compound_filter)
-        browse_layout.addWidget(self.compound_list, 3)
+        browse_layout.addWidget(self.compound_list, 1)
         self.compound_no_match = NoMatchHint(
             "No matching compounds", self.compound_filter
         )
@@ -177,11 +193,9 @@ class Toolbar(QWidget):
         self.samples_section = CollapsibleSection(
             "Samples", samples_body, settings_key="sidebar/samples_expanded"
         )
-        self.samples_section.toggled.connect(self._on_samples_section_toggled)
         browse_layout.addWidget(self.samples_section)
-        # Holds the empty space while there is no compound list to fill it.
-        self._compound_stretch = QWidget()
-        browse_layout.addWidget(self._compound_stretch, 3)
+        # Takes what is left once each list is as tall as its rows.
+        browse_layout.addStretch(0)
 
         # Inspector: peak window, display options and summaries scroll together.
         inspector_content = QWidget()
@@ -276,9 +290,10 @@ class Toolbar(QWidget):
         for chart in (self.isotopologue_ratios, self.targeted_qc, self.total_abundance):
             summary_layout.addWidget(chart, 1)
         self.summary_section = CollapsibleSection(
-            "Summary", summary, expanded=True, settings_key="sidebar/summary_expanded"
+            "Summary", summary, expanded=True, settings_key=SUMMARY_SETTING
         )
-        inspector_layout.addWidget(self.summary_section, 1)
+        inspector_layout.addWidget(self.summary_section)
+        inspector_layout.addStretch(0)
 
         if self.analysis_mode is AnalysisMode.UNLABELLED:
             self.isotopologue_ratios.hide()
@@ -303,10 +318,18 @@ class Toolbar(QWidget):
         saved = QSettings().value(SPLIT_SETTING)
         self._browse_share = float(saved) if saved is not None else None
         self.splitter.splitterMoved.connect(self._on_splitter_moved)
+        self._summary_started = False
         self._fit_timer = QTimer(self)
         self._fit_timer.setSingleShot(True)
         self._fit_timer.timeout.connect(self.fit_inspector)
         inspector_content.installEventFilter(self)
+        for section in (
+            self.samples_section,
+            self.peak_section,
+            self.display_section,
+            self.summary_section,
+        ):
+            section.toggled.connect(self._fit_timer.start)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -320,8 +343,8 @@ class Toolbar(QWidget):
         self._refresh_data_state()
 
     def display_checkboxes(self) -> list[QCheckBox]:
-        """Every view toggle the View menu mirrors, baseline correction included."""
-        boxes = [self.baseline_checkbox, self.shared_yscale_checkbox]
+        """The Display section's toggles, which the View menu mirrors."""
+        boxes = [self.shared_yscale_checkbox]
         if self.selected_peak_yscale_checkbox is not None:
             boxes.append(self.selected_peak_yscale_checkbox)
         return boxes
@@ -351,11 +374,6 @@ class Toolbar(QWidget):
         finally:
             self._syncing_checkboxes = False
 
-    def _on_samples_section_toggled(self, expanded: bool) -> None:
-        # The sample list takes a share of the browse pane only while open.
-        layout = self.samples_section.parentWidget().layout()
-        layout.setStretchFactor(self.samples_section, 2 if expanded else 0)
-
     def _refresh_data_state(self) -> None:
         """Header rows, counts and empty hints from what is loaded right now."""
         compounds = self.compound_list.real_count()
@@ -371,7 +389,6 @@ class Toolbar(QWidget):
         self.compound_filter.setVisible(has_compounds)
         self.compound_no_match.setVisible(no_match)
         self.compound_empty.setVisible(not has_compounds)
-        self._compound_stretch.setVisible(not has_compounds or no_match)
         self.compound_count_label.setText(
             ""
             if not has_compounds
@@ -406,6 +423,7 @@ class Toolbar(QWidget):
         if total > 0:
             self._browse_share = self.splitter.sizes()[0] / total
             QSettings().setValue(SPLIT_SETTING, self._browse_share)
+        self._fit_timer.start()
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.LayoutRequest:
@@ -416,31 +434,95 @@ class Toolbar(QWidget):
         super().resizeEvent(event)
         self._fit_timer.start()
 
-    def browse_floor(self, total: int) -> int:
-        """Height browsing never drops below: ten compound rows or 45%, whichever is more."""
-        browse = self.splitter.widget(0)
-        row = max(self.compound_list.sizeHintForRow(0), 1)
-        rows = BROWSE_MIN_ROWS * row + 2 * self.compound_list.frameWidth()
-        if self.samples_section.is_expanded():
-            # The sample list shares the pane 2:3 with the compound list.
-            rows = rows * 5 // 3
-        chrome = browse.minimumSizeHint().height() - self.compound_list.minimumHeight()
-        if self.samples_section.is_expanded():
-            chrome -= self.sample_list.minimumHeight()
-        return max(chrome + rows, int(total * BROWSE_MIN_SHARE))
+    @staticmethod
+    def _rows_height(lst: QListWidget, rows: int | None = None) -> int:
+        """Height of ``rows`` rows, or of every row the filter leaves."""
+        shown = sum(1 for row in range(lst.count()) if not lst.isRowHidden(row))
+        rows = shown if rows is None else min(rows, shown)
+        return rows * max(lst.sizeHintForRow(0), 1) + 2 * lst.frameWidth()
+
+    def _browse_lists(self) -> list[_BrowseList]:
+        lists = (self.compound_list, self.sample_list)
+        return [
+            _BrowseList(lst, self._rows_height(lst, keep), self._rows_height(lst), weight)
+            for lst, keep, weight in zip(lists, BROWSE_MIN_ROWS, BROWSE_WEIGHTS)
+            if lst.isVisibleTo(self)
+        ]
+
+    @staticmethod
+    def _share_lists(space: int, lists: list[_BrowseList]) -> list[int]:
+        """Each list its floor first (scaled down if short), then by weight up to its rows."""
+        floors = [item.floor for item in lists]
+        if space <= sum(floors):
+            return [space * floor // max(sum(floors), 1) for floor in floors]
+        heights = list(floors)
+        rest = space - sum(floors)
+        for _ in lists:
+            growing = [i for i, item in enumerate(lists) if heights[i] < item.full]
+            if rest <= 0 or not growing:
+                break
+            weight = sum(lists[i].weight for i in growing)
+            pool = rest
+            for i in growing:
+                add = min(pool * lists[i].weight // weight, lists[i].full - heights[i])
+                heights[i] += add
+                rest -= add
+        return heights
+
+    def _set_list_heights(self, browse: int, chrome: int, lists: list[_BrowseList]) -> None:
+        # A closed section must not grow; an open one grows up to its content.
+        self.splitter.widget(0).layout().setStretchFactor(
+            self.samples_section, int(self.samples_section.is_expanded())
+        )
+        self.inspector.widget().layout().setStretchFactor(
+            self.summary_section, int(self.summary_section.is_expanded())
+        )
+        for item, height in zip(lists, self._share_lists(browse - chrome, lists)):
+            item.widget.setMinimumHeight(min(LIST_MIN_HEIGHT, height))
+            item.widget.setMaximumHeight(height)
+
+    def _peak_height(self) -> int:
+        """Inspector height that shows the whole Peak window without scrolling."""
+        content = self.inspector.widget()
+        margins = content.layout().contentsMargins()
+        width = self.inspector.viewport().width() - margins.left() - margins.right()
+        height = self.peak_section.heightForWidth(width)
+        if height < 0:
+            height = self.peak_section.sizeHint().height()
+        return margins.top() + height + margins.bottom()
+
+    def _start_summary(self, inspector: int) -> None:
+        """Summary starts open only if its first chart fits, unless the user already chose."""
+        self._summary_started = True
+        if QSettings().contains(SUMMARY_SETTING):
+            return
+        header = self.summary_section.header
+        chart_top = self.summary_section.y() + header.height() + 8
+        self.summary_section.set_expanded(inspector >= chart_top + SUMMARY_MIN_CHART)
 
     def fit_inspector(self) -> None:
-        """Browse keeps its floor; the inspector takes the rest and scrolls."""
+        """The Peak window stays whole, the lists keep their floor, the inspector takes the rest."""
         total = sum(self.splitter.sizes())
         if self.inspector.isHidden() or total <= 0:
             return
+        lists = self._browse_lists()
+        chrome = self.splitter.widget(0).minimumSizeHint().height() - sum(
+            item.widget.minimumHeight() for item in lists
+        )
+        full = chrome + sum(item.full for item in lists)
+        floor = chrome + sum(item.floor for item in lists)
+        # The lists never take more than their rows, nor room the Peak window needs.
+        cap = min(full, total - self._peak_height())
         if self._browse_share is not None:
-            browse = int(total * self._browse_share)
+            browse = min(int(total * self._browse_share), cap)
         else:
+            browse = min(max(floor, int(total * BROWSE_MIN_SHARE)), cap)
+        if not self._summary_started:
+            self._start_summary(total - browse)
+        if self._browse_share is None:
             wanted = self.inspector.widget().minimumSizeHint().height()
-            browse = max(total - wanted, self.browse_floor(total))
-        # The inspector keeps room for at least its first section heading.
-        browse = min(browse, total - 96)
+            browse = min(max(browse, total - wanted), cap)
+        self._set_list_heights(browse, chrome, lists)
         if self.splitter.sizes()[0] != browse:
             self.splitter.setSizes([browse, total - browse])
 
@@ -503,20 +585,25 @@ class Toolbar(QWidget):
 
     def _show_internal_standard_menu(self) -> None:
         menu = QMenu(self.standard)
+        # One exclusive group, so the current choice (or none) carries the check.
+        choices = QActionGroup(menu)
+        current = self.standard.internal_standard
         names = self.compound_list.real_names()
         if not names:
             menu.addAction("Load a Compound List First").setEnabled(False)
         for name in names:
-            action = menu.addAction(name)
+            action = choices.addAction(menu.addAction(name))
             action.setCheckable(True)
-            action.setChecked(name == self.standard.internal_standard)
+            action.setChecked(name == current)
             action.triggered.connect(
                 lambda _checked=False, n=name: self.on_internal_standard_selected(n)
             )
         menu.addSeparator()
-        clear = menu.addAction("No Internal Standard")
-        clear.setEnabled(self.standard.internal_standard is not None)
-        clear.triggered.connect(self.on_internal_standard_cleared)
+        clear = choices.addAction(menu.addAction("No Internal Standard"))
+        clear.setCheckable(True)
+        clear.setChecked(current is None)
+        if current is not None:
+            clear.triggered.connect(self.on_internal_standard_cleared)
         menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         menu.popup(self.standard.mapToGlobal(self.standard.rect().bottomLeft()))
 
@@ -542,6 +629,7 @@ class Toolbar(QWidget):
             # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
             self.sync_selected_peak_checkbox(selected_text)
+            self.inspector.verticalScrollBar().setValue(0)
         else:
             self.compound_selected.emit("")
 

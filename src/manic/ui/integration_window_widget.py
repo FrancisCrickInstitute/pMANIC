@@ -590,16 +590,17 @@ class IntegrationWindow(QWidget):
 
     def _update_apply_button_state(self):
         """Say who an edit applies to, on the scope line and the Apply button."""
-        # Both buttons are always enabled, styling handled by QSS
-        self.apply_button.setEnabled(True)
-        self.restore_button.setEnabled(True)
-
         selected = self._selected_samples
         targets = selected or self._all_samples
+        for button in (self.apply_button, self.restore_button, self.regenerate_button):
+            button.setEnabled(bool(targets))
         count = len(targets)
         noun = "sample" if count == 1 else "samples"
-        if not self._current_compound or not targets:
+        if not self._current_compound:
             scope = "Select a compound to edit its peak window."
+            apply_text = "Apply"
+        elif not targets:
+            scope = "No samples shown. Nothing to apply to."
             apply_text = "Apply"
         elif selected:
             scope = (

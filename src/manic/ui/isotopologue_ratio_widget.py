@@ -12,10 +12,11 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QCursor, QMouseEvent, QPainter
+from PySide6.QtCore import QMargins, QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
+    QGraphicsRectItem,
     QLabel,
     QSizePolicy,
     QToolTip,
@@ -31,6 +32,12 @@ from . import theme
 from .chart_header import ChartHeader
 from .chart_style import style_axis, style_chart
 from .colors import label_colors
+from .sidebar_widgets import (
+    SUMMARY_CHART_HEIGHT,
+    fit_sample_names,
+    names_hint,
+    summary_chart_height,
+)
 from .theme import color
 
 
@@ -72,7 +79,7 @@ class IsotopologueRatioWidget(QWidget):
         # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
-        style_chart(self.chart, QMargins(4, 0, 8, 0))
+        style_chart(self.chart, QMargins(8, 0, 8, 0))
 
         self.header = ChartHeader("Label incorporation")
         self.header.expand_button.clicked.connect(self._show_popup_chart)
@@ -92,10 +99,18 @@ class IsotopologueRatioWidget(QWidget):
         layout.addWidget(self.header)
         layout.addWidget(self.key)
         layout.addWidget(self.chart_view)
+        self.names_hint = names_hint()
+        layout.addWidget(self.names_hint)
+
+        # The grid's selected samples, marked beside their bars.
+        self._highlighted: set[str] = set()
+        self._marks: list[QGraphicsRectItem] = []
+        self.chart.plotAreaChanged.connect(self._on_plot_area_changed)
+        theme.notifier.changed.connect(self._paint_highlight)
 
         # Responsive height for toolbar integration
-        self.setMinimumHeight(200)
-        self.setMaximumHeight(330)
+        self.setMinimumHeight(SUMMARY_CHART_HEIGHT[0])
+        self.setMaximumHeight(SUMMARY_CHART_HEIGHT[1])
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         # Data storage
@@ -264,6 +279,8 @@ class IsotopologueRatioWidget(QWidget):
 
         # Add series to chart
         self.chart.addSeries(bar_series)
+        # The header, key and axis take about 80 px around the bars.
+        self.setMinimumHeight(summary_chart_height(len(sample_names), 80))
 
         # Setup axes
         self._setup_axes(sample_names)
@@ -272,6 +289,50 @@ class IsotopologueRatioWidget(QWidget):
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._refresh_key()
+        self._on_plot_area_changed()
+
+    def set_highlighted(self, sample_names) -> None:
+        """Mark the bars of the samples selected in the grid."""
+        self._highlighted = set(sample_names)
+        self._paint_highlight()
+
+    def highlighted_bars(self) -> list[str]:
+        return [mark.data(0) for mark in self._marks if mark.data(0)]
+
+    def _on_plot_area_changed(self, *_args) -> None:
+        count = len(self._current_sample_names) if self._has_data() else 0
+        fit_sample_names(self.chart, count, self.names_hint)
+        self._paint_highlight()
+
+    def _paint_highlight(self, *_args) -> None:
+        # An accent outline would vanish against the blue M+0 segment, so the other
+        # rows fade and an accent tick sits beside each selected bar.
+        for mark in self._marks:
+            self.chart.scene().removeItem(mark)
+        self._marks = []
+        if not self._has_data() or not self.chart.series():
+            return
+        names = self._current_sample_names
+        if not self._highlighted.intersection(names):
+            return
+        series = self.chart.series()[0]
+        plot = self.chart.plotArea()
+        fade = QColor(color("surface"))
+        fade.setAlphaF(0.7)
+        half = series.barWidth() / 2
+        for i, name in enumerate(names):
+            top = self.chart.mapToPosition(QPointF(0, i + half), series).y()
+            bottom = self.chart.mapToPosition(QPointF(0, i - half), series).y()
+            if name in self._highlighted:
+                rect, fill = QRectF(plot.left() - 6, top, 4, bottom - top), color("accent")
+            else:
+                rect, fill = QRectF(plot.left(), top, plot.width(), bottom - top), fade
+            mark = QGraphicsRectItem(rect.normalized(), self.chart)
+            mark.setPen(QPen(Qt.NoPen))
+            mark.setBrush(fill)
+            mark.setZValue(10)
+            mark.setData(0, name if name in self._highlighted else None)
+            self._marks.append(mark)
 
     def _refresh_key(self, *_args) -> None:
         count = 0 if self._current_ratios is None else self._current_ratios.shape[1]
@@ -308,7 +369,7 @@ class IsotopologueRatioWidget(QWidget):
         x_axis.setTickCount(3)  # 0, 0.5, 1.0
         self.header.set_has_data(True)
 
-        # Sample names are hidden here; the enlarged view shows them.
+        # Sample names show only when every bar has room for one.
         y_axis = QBarCategoryAxis()
         y_axis.append(sample_names)
         style_axis(y_axis)
@@ -326,6 +387,7 @@ class IsotopologueRatioWidget(QWidget):
             self.chart.removeAxis(axis)
         self.header.set_has_data(False)
         self.key.hide()
+        self.names_hint.hide()
 
         # Reset data
         self._current_eics = None
@@ -334,6 +396,7 @@ class IsotopologueRatioWidget(QWidget):
         self._last_eics = None
         self._current_ratios = None
         self._current_sample_names = None
+        self._paint_highlight()
 
     def get_last_total_abundances(
         self,

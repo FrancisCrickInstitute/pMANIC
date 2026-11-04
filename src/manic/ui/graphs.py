@@ -803,6 +803,11 @@ class GraphView(QWidget):
             self._focus_on(self._focus_index)
 
     def _focus_on(self, index: int) -> None:
+        # A pending re-flow after a resize would move the tile after we scroll to it.
+        if self._resize_timer.isActive():
+            self._resize_timer.stop()
+            self._update_graph_sizes()
+            QApplication.sendPostedEvents(None, QEvent.LayoutRequest)
         self._focus_index = index
         self._paint_focus()
         tile = self._current_plots[index].parent()

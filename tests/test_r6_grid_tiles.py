@@ -138,3 +138,18 @@ def test_not_detected_badge_is_a_readable_pill_on_its_card(scheme):
     tint = QColor(scheme[tile_tint([TileBadge("Not detected", "neutral", "")])])
     assert theme.contrast(fg, bg) >= 4.5
     assert bg != tint and QColor(scheme["surface"]) != tint
+
+
+def test_scrolling_to_a_sample_survives_a_pending_resize(grid, qapp):
+    grid.plot_compound("Valine", [f"S{i:02d}" for i in range(24)])
+    grid.resize(600, 300)
+    grid.show()
+    qapp.processEvents()
+    assert grid.select_sample("S23")
+    # The resize timer firing now must not move the tile out of view.
+    grid._update_graph_sizes()
+    qapp.processEvents()
+    tile = grid._current_plots[-1].parent()
+    viewport = grid._scroll.viewport()
+    top = tile.mapTo(viewport, tile.rect().topLeft()).y()
+    assert 0 <= top and top + tile.height() <= viewport.height()

@@ -105,7 +105,7 @@ The selected compound must meet specific criteria in your compound definition fi
 **Procedure**   
 1.  Click the **Internal standard** row at the top of the sidebar.
 2.  Choose your internal standard compound from the menu.
-3.  To remove a selection, open the same menu and choose **No internal standard**.
+3.  To remove a selection, open the same menu and choose **No Internal Standard**.
 
 You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**.
 
@@ -123,13 +123,13 @@ The compound you are reviewing is highlighted in the **Compounds** list and name
 Visually verify that the integration window captures the correct peak for every sample and adjust parameters where necessary. This ensures quantitative accuracy by excluding noise and adjacent peaks while capturing the full metabolite signal.
 
 **The Main Graph View**   
-Upon selecting a compound, MANIC displays a grid of mini-plots, one for each active sample.
+Upon selecting a compound, MANIC displays a grid of mini-plots, one for each sample ticked in the **Samples** section. The heading above the grid names the compound, its tR, and how many samples are shown or selected.
 * **Grey solid line:** The expected retention time (`tR`).
 * **Blue dashed lines:** The integration boundaries (`tR - loffset` and `tR + roffset`).
 * **Badges:**
     * **No badge:** Good peak (area is above threshold).
     * **Below threshold** (amber badge and amber tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Settings → Peak Validation**.
-    * **Accepted** (green badge) or **Marked bad** (red badge): You reviewed a weak peak from the plot right-click menu.
+    * **Accepted** (green badge) or **Marked bad** (red badge): You reviewed a weak peak from the **Review** menu or the plot right-click menu.
 * **Blue outline:** The plot is selected for editing.
 
 Tick **Shared y-scale** in the **Display** section of the sidebar, or choose **View → Shared Y-Scale**, to use one common intensity scale for all sample tiles. Untick it to let each tile autoscale to its own tallest peak.
@@ -140,12 +140,12 @@ Tick **Shared y-scale** in the **Display** section of the sidebar, or choose **V
 Scan the grid of plots. Look for:
 * **Peak Centering:** Is the peak centered on the black line? If retention times have shifted, you may need to adjust the `tR`.
 * **Peak Coverage:** Do the blue dashed lines fully bracket the peak without cutting off "tails" or including neighboring noise?
-* **Validation:** Pay attention to plots with a **Below threshold** badge. These indicate potential issues (low signal or missed peaks) that require manual review. Right-click the plot and choose **Accept peak (below threshold)** or **Mark peak as bad** to record your decision.
+* **Validation:** Pay attention to plots with a **Below threshold** badge. These indicate potential issues (low signal or missed peaks) that require manual review. Right-click the plot, or open the **Review** menu, and choose **Accept Peak (Below Threshold)** or **Mark Peak as Bad** to record your decision. With several plots selected, both commands act on the whole selection and name the count, for example **Mark 3 Peaks as Bad**. Choose the same command again to clear the decision.
 
 #### 2. Detailed Inspection (Optional)
 For ambiguous peaks, inspecting the raw data more closely might be helpful:
 1.  **Right-click** on any specific plot in the grid.
-2.  Select **View Detailed...**.
+2.  Select **Inspect *sample*...**. Double-clicking a plot, or pressing Return on the focused plot, does the same.
 3.  A window will open showing three synchronized views:
     * **Extracted Ion Chromatogram (EIC):** Zoomable view of the peak.
     * **Total Ion Chromatogram (TIC):** To see global elution context.
@@ -158,6 +158,15 @@ You can adjust integration parameters for all samples at once or for specific ou
 * **Edit Specific Samples:** Click on individual plots to select them (they get a blue outline). You can also drag a box to select multiple. The **Peak window** section will show "Applies to N selected samples". Changes apply *only* to the selection.
 * **Show Only Selected Samples:** Right-click a selected plot and choose this command to hide every other sample. The remaining tiles stay selected. If you right-click a plot that is not selected, the command uses that plot alone.
 * **Show All Samples:** Right-click and choose this command to show every sample again with no plots selected, the same as when you first load a compound.
+* **Samples list:** Untick a sample in the **Samples** section of the sidebar to hide its plot, and tick it to show it again. Type in **Filter samples** to narrow the list. While a filter is set, the section heading reads **k shown · n match**.
+
+**Review menu.** The **Review** menu in the menu bar holds the plot right-click menu's selection and review commands, so you can review from the keyboard. Its commands act on the selected plots, led by the focused plot, or on the focused plot when nothing is selected. Labels name the count, for example **Curve Fit for 3 Samples**.
+
+* **Inspect *sample*...** (Return)
+* **Select All Plots**, **Deselect All**, **Show Only Selected Samples**, **Show All Samples**
+* **Accept Peak (Below Threshold)**, **Mark Peak as Bad**, and the **Curve Fit** submenu
+
+Move the focus between plots with the arrow keys and press Space to select or deselect the focused plot.
 
 #### 4. Adjusting Boundaries (Peak window)
 Locate the **Peak window** section of the sidebar, below the compound list.
@@ -179,9 +188,9 @@ Sometimes a peak may shift so far that part of it is completely missing from the
 To fix this, you must widen the underlying data extraction window:
 1.  Locate the **tR window** field in the **Peak window** section.
 2.  Increase the value (e.g., from `0.2` to `0.4` or `0.5`).
-3.  Click **Update tR Window**.
+3.  Click **Apply window**.
 
-The extract must cover the current left and right offsets plus the RT window buffer (0.1 min by default). If the typed tR Window sits inside those offsets, MANIC raises it to that minimum, updates the field, and continues.
+The extract must cover the current left and right offsets plus the RT window buffer (0.1 min by default). If the typed tR window sits inside those offsets, MANIC raises it to that minimum, updates the field, and continues.
 
 A progress bar will appear as MANIC re-scans the raw CDF files to extract a wider slice of time around the target peak.
 
@@ -311,29 +320,29 @@ MANIC can save the state of your analysis, including compound definitions, integ
 ## 7. Advanced Visualization
 
 ### Plot right-click menu
-Right-click a plot for these commands. The strings match the menu.
+Right-click a plot for these commands. The **Review** menu in the menu bar offers the same review commands with the same labels and counts.
 
 * **Select All**
 * **Deselect All**
 * **Select Only This Sample**
 * **Show Only Selected Samples**
 * **Show All Samples**
-* **View Detailed...**
-* **Accept peak (below threshold)**
-* **Mark peak as bad**
-* **Curve fit** (submenu)
+* **Inspect *sample*...**
+* **Accept Peak (Below Threshold)**
+* **Mark Peak as Bad**
+* **Curve Fit** (submenu)
 
-**Select Only This Sample**, **View Detailed...**, **Accept peak (below threshold)**, **Mark peak as bad**, and **Curve fit** need a plot under the pointer. **Show Only Selected Samples** needs at least one selected plot.
+**Select Only This Sample**, **Inspect *sample*...**, **Accept Peak (Below Threshold)**, **Mark Peak as Bad**, and **Curve Fit** need a plot under the pointer. When that plot is selected, the review commands act on every selected plot and name the count, for example **Mark 3 Peaks as Bad** or **Curve Fit for 3 Samples**. **Show Only Selected Samples** needs at least one selected plot. On a plot outside the selection it reads **Show Only This Sample** and shows that plot alone.
 
 ### Detailed Sample View
-Right-click any plot in the main grid and select **View Detailed...** to open the inspection window. This view is essential for verifying peak purity and identity.
+Right-click any plot in the main grid and select **Inspect *sample*...**, or double-click the plot, to open the inspection window. This view is essential for verifying peak purity and identity.
 
 * **Extracted Ion Chromatogram (EIC):** The specific trace for the target compound, showing the integration window boundaries.
 * **Total Ion Chromatogram (TIC):** The global chromatogram for the sample, useful for checking if a peak shifted relative to major markers.
 * **Mass Spectrum:** The actual mass spectrum at the peak's retention time. Use this to confirm the spectral fingerprint matches your metabolite.
 
 ### Expanded Summary Plots
-The sidebar contains two summary charts: **Label Incorporation** and **Total Abundance**.
+The **Summary** section of the sidebar contains two charts: **Label incorporation** and **Total abundance**. In unlabelled mode, **Identity** replaces Label incorporation.
 * **Action:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
 * **Feature:** The expanded view reveals the specific sample names on the axes, which are hidden in the compact sidebar view to save space.
 
@@ -370,14 +379,14 @@ These settings control the global behavior of the application.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
 
 ### Baseline Correction
-The **Baseline correction** checkbox is in the **Display** section of the sidebar, under the Peak window. **View → Baseline Correction** toggles it too.
+The **Baseline correction** checkbox is in the **Peak window** section of the sidebar, under the **tR window** field. **View → Baseline Correction** toggles it too.
 * **On (Default):** Subtracts a linear baseline from each peak area. A dashed line will appear on plots showing the fitted baseline.
 * **Off:** Uses the raw integrated area without baseline subtraction.
 * **Scope:** This is a per-compound setting. Toggling it affects all samples for the selected compound.
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Y-axis scale
-Two ticks sit under **Baseline correction**.
+Two ticks sit in the **Display** section of the sidebar, under the Peak window.
 * **Shared y-scale:** one intensity scale for every sample tile.
 * **Scale to selected peak:** each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. This tick is labelled-only.
 * The ticks cannot both be on. Both off is the default. Each tile then autoscales to the tallest intensity in its extract.

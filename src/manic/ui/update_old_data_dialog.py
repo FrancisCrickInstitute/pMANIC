@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -23,12 +25,28 @@ from manic.ui.dialog_kit import (
 )
 
 
+class _PathEdit(QLineEdit):
+    """Read-only path field; hovering shows the full path only when it does not fit."""
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.ToolTip:
+            hidden = self.fontMetrics().horizontalAdvance(self.text()) > (
+                self.contentsRect().width() - 8
+            )
+            if hidden:
+                QToolTip.showText(event.globalPos(), self.text(), self)
+            else:
+                QToolTip.hideText()
+            return True
+        return super().event(event)
+
+
 def _file_picker(on_browse) -> tuple[QWidget, QLineEdit]:
     row = QWidget()
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
-    edit = QLineEdit()
+    edit = _PathEdit()
     edit.setReadOnly(True)
     edit.setPlaceholderText("No file selected")
     layout.addWidget(edit, stretch=1)
@@ -73,11 +91,7 @@ class UpdateOldDataDialog(QDialog):
         self.is_combo.addItem("No internal standard", None)
         self.is_combo.currentIndexChanged.connect(self._on_is_changed)
         form_row(form, "Internal standard", self.is_combo)
-        form_row(
-            form,
-            "",
-            hint_label("Optional. The list fills in once a compound list is chosen."),
-        )
+        form_row(form, "", hint_label("Lists the compounds once you choose a compounds file."))
         layout.addLayout(form)
 
         layout.addSpacing(16)
@@ -100,7 +114,6 @@ class UpdateOldDataDialog(QDialog):
         if path:
             self.compounds_path = path
             self.c_edit.setText(path)
-            self.c_edit.setToolTip(path)
             # Populate internal standard dropdown from compounds file
             try:
                 from manic.io.legacy_rebuild import _read_compounds_as_dicts
@@ -124,7 +137,6 @@ class UpdateOldDataDialog(QDialog):
         if path:
             self.raw_values_path = path
             self.r_edit.setText(path)
-            self.r_edit.setToolTip(path)
             self._update_ok()
 
     def _update_ok(self):

@@ -150,4 +150,6 @@ class TargetedQcWidget(QWidget):
     def _show_popup_chart(self) -> None:
         if self._identity is None:
             return
-        ChartPopupDialog.for_identity(self._identity, parent=self).exec()
+        dialog = ChartPopupDialog.for_identity(self._identity, parent=self)
+        dialog.sample_activated.connect(self.sample_activated)
+        dialog.exec()

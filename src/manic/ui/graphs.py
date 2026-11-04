@@ -658,10 +658,11 @@ class GraphView(QWidget):
             self._layout.setRowMinimumHeight(row, row_height)
 
     def select_sample(self, sample_name: str) -> bool:
-        """Select the plot for ``sample_name``; return False if not shown."""
-        for plot in self._current_plots:
+        """Select, focus and scroll to the plot for ``sample_name``; False if not shown."""
+        for index, plot in enumerate(self._current_plots):
             if plot.sample_name == sample_name:
                 self.select_only_plot(plot)
+                self._focus_on(index)
                 return True
         return False
 
@@ -751,13 +752,16 @@ class GraphView(QWidget):
     def _move_focus(self, delta: int) -> None:
         count = len(self._current_plots)
         if self._focus_index is None:
-            self._focus_index = 0
+            self._focus_on(0)
+        elif 0 <= self._focus_index + delta < count:
+            self._focus_on(self._focus_index + delta)
         else:
-            target = self._focus_index + delta
-            if 0 <= target < count:
-                self._focus_index = target
+            self._focus_on(self._focus_index)
+
+    def _focus_on(self, index: int) -> None:
+        self._focus_index = index
         self._paint_focus()
-        tile = self._current_plots[self._focus_index].parent()
+        tile = self._current_plots[index].parent()
         if isinstance(tile, QWidget):
             self._scroll.ensureWidgetVisible(tile, 0, TILE_GAP)
 

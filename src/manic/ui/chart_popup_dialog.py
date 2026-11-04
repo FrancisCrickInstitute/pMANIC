@@ -11,12 +11,13 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QMargins, QPointF, Qt
-from PySide6.QtGui import QCursor, QPainter
+from PySide6.QtCore import QEvent, QMargins, QMetaMethod, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QCursor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
+    QGraphicsRectItem,
     QGraphicsSimpleTextItem,
     QHBoxLayout,
     QLabel,
@@ -120,8 +121,24 @@ def bar_value_text(value: float) -> str:
     return f"{value:.2f}"
 
 
+class _BackedText(QGraphicsSimpleTextItem):
+    """Text on a panel-coloured patch, so a gridline never strikes through it."""
+
+    def paint(self, painter, option, widget=None):
+        painter.fillRect(self.boundingRect(), color("surface"))
+        super().paint(painter, option, widget)
+
+
 class ChartPopupDialog(QDialog):
-    """Modal dialog showing an enlarged version of toolbar charts with sample names visible."""
+    """Modal dialog showing an enlarged version of toolbar charts with sample names visible.
+
+    ``data`` and ``sample_names`` run bottom to top, as the sidebar charts
+    draw them, so every popup reads top-down in grid order. Clicking a sample
+    row, or Enter on the row picked with the arrow keys, emits
+    ``sample_activated`` and closes the popup, once something listens.
+    """
+
+    sample_activated = Signal(str)
 
     def __init__(
         self,
@@ -148,6 +165,7 @@ class ChartPopupDialog(QDialog):
         self._total_abundance_scale_factor: float = 1.0
         self._total_abundance_scale_exp: int = 0
         self._value_labels: list[tuple[QGraphicsSimpleTextItem, float, int]] = []
+        self._current_row: int | None = None
 
         self.setWindowTitle(f"{title} — MANIC")
         self.setModal(True)
@@ -158,6 +176,13 @@ class ChartPopupDialog(QDialog):
         self._setup_ui(title, compound_name or (identity.compound_name if identity else ""))
         self._populate_chart()
         self._fit_to_rows()
+        self._row_marker = QGraphicsRectItem(self.chart)
+        self._row_marker.setBrush(Qt.NoBrush)
+        self._row_marker.setZValue(100)
+        self._row_marker.hide()
+        self.chart.plotAreaChanged.connect(self._place_row_marker)
+        self.chart_view.viewport().setMouseTracking(True)
+        self.chart_view.viewport().installEventFilter(self)
 
     @classmethod
     def for_identity(
@@ -236,13 +261,14 @@ class ChartPopupDialog(QDialog):
         footer = QHBoxLayout()
         footer.addWidget(self.status_legend)
         footer.addStretch()
-        if self.chart_type != "total_abundance":
-            hint = QLabel(
-                "Hover a cell for details" if self.chart_type == "identity"
-                else "Hover a bar for its value"
-            )
-            theme.style(hint, text_style("text_tertiary", 11))
-            footer.addWidget(hint)
+        hover = {
+            "identity": "Hover a cell for details",
+            "isotopologue_ratios": "Hover a bar for its value",
+        }.get(self.chart_type, "")
+        self._hint = QLabel(hover)
+        self._hover_hint = hover
+        theme.style(self._hint, text_style("text_tertiary", 11))
+        footer.addWidget(self._hint)
         close_button = QPushButton("Close")
         close_button.setAutoDefault(False)
         close_button.clicked.connect(self.accept)
@@ -285,9 +311,7 @@ class ChartPopupDialog(QDialog):
         self._total_abundance_scale_factor = float(scale_factor)
         self._total_abundance_scale_exp = scale_exp
 
-        # Bar i sits on category i, and the axis lists samples bottom to top,
-        # so the values go in reversed too.
-        scaled = [float(abundance) / scale_factor for abundance in reversed(self.data)]
+        scaled = [float(abundance) / scale_factor for abundance in self.data]
         for value in scaled:
             bar_set.append(value)
 
@@ -311,8 +335,10 @@ class ChartPopupDialog(QDialog):
     def _add_value_labels(self, series: QHorizontalBarSeries, values: list[float]) -> None:
         """Value text past each bar end. QtCharts' own labels can only print raw numbers."""
         for index, value in enumerate(values):
-            item = QGraphicsSimpleTextItem(bar_value_text(value), self.chart)
+            item = _BackedText(bar_value_text(value), self.chart)
             item.setFont(ui_font(10))
+            # Above QtCharts' gridlines, which sit over plain chart children.
+            item.setZValue(50)
             self._value_labels.append((item, value if np.isfinite(value) else 0.0, index))
         self._value_series = series
         self._recolour_value_labels()
@@ -323,6 +349,7 @@ class ChartPopupDialog(QDialog):
     def _recolour_value_labels(self, *_args) -> None:
         for item, _value, _index in self._value_labels:
             item.setBrush(color("text_secondary"))
+            item.update()
 
     def _place_value_labels(self, *_args) -> None:
         for item, value, index in self._value_labels:
@@ -502,15 +529,13 @@ class ChartPopupDialog(QDialog):
             f"Total abundance  {scale_text(scale_exp)}" if scale_exp else "Total abundance"
         )
 
-        # Sample names bottom to top, matching QtCharts' category order.
-        reversed_names = list(reversed(self.sample_names))
-        y_axis = self._sample_axis(reversed_names)
+        y_axis = self._sample_axis(list(self.sample_names))
 
         # Value axis on top so it stays in view while a long list scrolls.
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
 
-        self._hover_categories = list(reversed_names)
+        self._hover_categories = list(self.sample_names)
 
     def _setup_isotopologue_axes(self):
         """Setup axes for isotopologue chart."""
@@ -530,3 +555,92 @@ class ChartPopupDialog(QDialog):
         # Value axis on top so it stays in view while a long list scrolls.
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
+
+    def row_names(self) -> list[str]:
+        """Sample names top to bottom, as the rows read."""
+        axis = next(
+            (a for a in self.chart.axes(Qt.Vertical) if isinstance(a, QBarCategoryAxis)), None
+        )
+        return list(reversed(axis.categories())) if axis is not None else []
+
+    def _rows_active(self) -> bool:
+        return bool(self.row_names()) and self.isSignalConnected(
+            QMetaMethod.fromSignal(self.sample_activated)
+        )
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._rows_active():
+            self._hint.setText(
+                " · ".join(p for p in (self._hover_hint, "Click a sample to show its plot") if p)
+            )
+            self.chart_view.viewport().setCursor(Qt.PointingHandCursor)
+
+    def _row_at(self, viewport_pos) -> int | None:
+        series = self.chart.series()
+        if not series:
+            return None
+        point = self.chart.mapFromScene(self.chart_view.mapToScene(viewport_pos))
+        area = self.chart.plotArea()
+        if not (area.top() <= point.y() <= area.bottom()) or point.x() > area.right():
+            return None
+        category = round(self.chart.mapToValue(point, series[0]).y())
+        rows = len(self.row_names())
+        return rows - 1 - category if 0 <= category < rows else None
+
+    def set_current_row(self, row: int | None) -> None:
+        self._current_row = row
+        self._place_row_marker()
+
+    def _place_row_marker(self, *_args) -> None:
+        series = self.chart.series()
+        if self._current_row is None or not series:
+            self._row_marker.hide()
+            return
+        category = len(self.row_names()) - 1 - self._current_row
+        top = self.chart.mapToPosition(QPointF(0, category + 0.5), series[0]).y()
+        bottom = self.chart.mapToPosition(QPointF(0, category - 0.5), series[0]).y()
+        area = self.chart.plotArea()
+        self._row_marker.setRect(QRectF(2, top, area.right() - 2, bottom - top))
+        self._row_marker.setPen(QPen(color("accent"), 1.5))
+        self._row_marker.show()
+        centre = self.chart_view.mapFromScene(self._row_marker.sceneBoundingRect().center())
+        self._scroll.ensureVisible(centre.x(), centre.y(), 0, int(bottom - top))
+
+    def activate_row(self, row: int) -> None:
+        names = self.row_names()
+        if not self._rows_active() or not 0 <= row < len(names):
+            return
+        self.sample_activated.emit(names[row])
+        self.accept()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.chart_view.viewport() and self._rows_active():
+            if event.type() == QEvent.MouseMove:
+                row = self._row_at(event.position().toPoint())
+                if row is not None and row != self._current_row:
+                    self.set_current_row(row)
+            elif (
+                event.type() == QEvent.MouseButtonRelease
+                and event.button() == Qt.LeftButton
+            ):
+                row = self._row_at(event.position().toPoint())
+                if row is not None:
+                    self.activate_row(row)
+                    return True
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event) -> None:
+        rows = len(self.row_names())
+        if self._rows_active() and rows:
+            key = event.key()
+            if key in (Qt.Key_Down, Qt.Key_Up):
+                step = 1 if key == Qt.Key_Down else -1
+                start = -1 if step == 1 else rows
+                current = start if self._current_row is None else self._current_row
+                self.set_current_row(min(max(current + step, 0), rows - 1))
+                return
+            if key in (Qt.Key_Return, Qt.Key_Enter) and self._current_row is not None:
+                self.activate_row(self._current_row)
+                return
+        super().keyPressEvent(event)

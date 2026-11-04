@@ -40,7 +40,9 @@ def test_abundance_popup_puts_each_value_beside_its_own_sample(qapp):
         assert by_name["A"] == 0.91
         assert by_name["D"] == 1.13
         assert by_name["C"] == 0.0
-        assert dialog.value_label_texts() == ["0.91", "<0.01", "—", "1.13"]
+        # Names arrive bottom to top, as the sidebar chart draws them.
+        assert dialog.row_names() == ["D", "C", "B", "A"]
+        assert dialog.value_label_texts() == ["1.13", "—", "<0.01", "0.91"]
     finally:
         dialog.deleteLater()
 

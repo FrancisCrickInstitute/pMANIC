@@ -23,6 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import shiboken6  # noqa: E402
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSettings, Qt  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QAbstractButton,
@@ -345,6 +346,29 @@ def checklist(tour: Tour) -> None:
     dialog.close()
 
 
+def grab_popup(tour: Tour, show) -> None:
+    # macOS closes a popup at once when another app has focus, as with parallel tours.
+    tour.window.raise_()
+    tour.window.activateWindow()
+    tour.pump(0.2)
+    opened: list[QMenu] = []
+    original_popup = QMenu.popup
+    QMenu.popup = lambda menu, *a, **k: (opened.append(menu), original_popup(menu, *a, **k))[1]
+    try:
+        show()
+    finally:
+        QMenu.popup = original_popup
+    # popup() is asynchronous; grab it now in case it closes before the step ends.
+    tour.pump(0.3)
+    popup = QApplication.activePopupWidget() or (opened[-1] if opened else None)
+    if popup is None:
+        raise RuntimeError("menu did not open")
+    if not shiboken6.isValid(popup):
+        raise RuntimeError("menu closed before capture: the window lost focus")
+    tour.save(popup, "__menu")
+    popup.close()
+
+
 def tour_steps(tour: Tour) -> None:
     from manic.models.analysis import AnalysisMode
     from manic.ui.analysis_mode_dialog import AnalysisModeDialog
@@ -402,14 +426,8 @@ def tour_steps(tour: Tour) -> None:
     def grab_three_selected_popup(show) -> None:
         if len(tour.window.graph_view.get_selected_samples()) != 3:
             raise RuntimeError("expected three selected plots")
-        show()
-        # popup() is asynchronous; grab it now in case it closes before the step ends.
-        tour.pump(0.3)
-        popup = QApplication.activePopupWidget()
-        if popup is None:
-            raise RuntimeError("menu did not open")
-        tour.save(popup, "__menu")
-        popup.close()
+        grab_popup(tour, show)
+
 
     def context_menu():
         view = charts(tour.window)[0]
@@ -508,7 +526,7 @@ def tour_steps(tour: Tour) -> None:
     tour.run("sidebar_filter_and_samples", filter_and_samples)
     tour.run(
         "internal_standard_menu",
-        tour.window.toolbar._show_internal_standard_menu,
+        lambda: grab_popup(tour, tour.window.toolbar._show_internal_standard_menu),
         grab_main=False,
     )
     tour.run(

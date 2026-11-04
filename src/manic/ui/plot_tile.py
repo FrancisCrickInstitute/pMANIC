@@ -28,10 +28,11 @@ DENSITY_MIN_TILE = {"comfortable": (230, 165), "compact": (130, 95)}
 # (axis and scale text px, caption px) per grid density.
 DENSITY_TEXT = {"comfortable": (11, 13), "compact": (AXIS_LABEL_PX, 12)}
 
-# (text colour, fill) per badge tone.
+# (text colour, fill) per badge tone. A tinted card's badge is a surface pill,
+# since a fill matching the tint would leave bare text.
 _TONES = {
-    "danger": ("danger", "danger_soft"),
-    "warning": ("warning", "warning_soft"),
+    "danger": ("danger", "surface"),
+    "warning": ("warning", "surface"),
     "success": ("success", "success_soft"),
     # A grey pill on the grey card tint, so the badge reads as one.
     "neutral": ("text", "border_strong"),

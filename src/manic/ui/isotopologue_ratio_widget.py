@@ -37,6 +37,7 @@ from .colors import label_colors
 from .sidebar_widgets import (
     SUMMARY_CHART_HEIGHT,
     SummaryChartArea,
+    fit_category_names,
 )
 from .theme import color
 
@@ -106,6 +107,7 @@ class IsotopologueRatioWidget(QWidget):
         layout.addWidget(self.value_axis)
         self.chart_area = SummaryChartArea(self.chart_view, 4)
         layout.addWidget(self.chart_area)
+        self.chart.plotAreaChanged.connect(self._fit_names)
 
         # The grid's selected samples, marked beside their bars.
         self._highlighted: set[str] = set()
@@ -351,6 +353,11 @@ class IsotopologueRatioWidget(QWidget):
                 )
         return super().eventFilter(obj, event)
 
+    def _fit_names(self, *_args) -> None:
+        axes = self.chart.axes(Qt.Vertical)
+        if self._current_sample_names and axes:
+            fit_category_names(axes[0], self._current_sample_names, self.chart_view.width())
+
     def set_highlighted(self, sample_names) -> None:
         """Mark the bars of the samples selected in the grid and scroll to them."""
         self._highlighted = set(sample_names)
@@ -437,8 +444,6 @@ class IsotopologueRatioWidget(QWidget):
         y_axis.append(sample_names)
         style_axis(y_axis)
         y_axis.setLineVisible(False)
-        # A long name is shortened, not run off the sidebar's edge; hover gives it whole.
-        y_axis.setTruncateLabels(True)
 
         # Add axes to chart
         self.chart.addAxis(x_axis, Qt.AlignTop)

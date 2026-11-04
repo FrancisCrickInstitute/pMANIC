@@ -51,7 +51,21 @@ def section_heading(text: str) -> QLabel:
 NAME_ROW_PX = 16
 SUMMARY_CHART_HEIGHT = (200, 330)
 # Rows a summary keeps when the sidebar is short; the rest scroll under the pinned axis.
-SUMMARY_SHORT_ROWS = 3
+SUMMARY_SHORT_ROWS = 2
+
+
+def fit_category_names(axis, names: list[str], view_width: int) -> None:
+    """Shorten names in the middle to fit a sidebar chart's name column.
+
+    QtCharts gives the name axis at most 40% of the chart and lets a longer name
+    run off its edge (or, truncating, leaves only "…"). Hover gives the full name.
+    """
+    metrics = QFontMetrics(axis.labelsFont())
+    width = int(view_width * 0.4) - 8
+    fitted = [metrics.elidedText(name, Qt.TextElideMode.ElideMiddle, width) for name in names]
+    # A category axis needs unique names.
+    if len(set(fitted)) == len(fitted) and fitted != axis.categories():
+        axis.setCategories(fitted)
 
 
 class SummaryChartArea(QScrollArea):

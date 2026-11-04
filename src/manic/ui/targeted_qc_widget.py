@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCharts import QBarSet, QChart, QChartView
 from PySide6.QtCore import QMargins, QSize, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QMouseEvent, QPainter, QPen
+from PySide6.QtGui import QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsRectItem,
@@ -33,6 +33,7 @@ from manic.ui.identity_chart import (
     show_identity_tooltip,
 )
 from manic.ui import theme
+from manic.ui.sidebar_widgets import fit_category_names
 from manic.ui.theme import color
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
@@ -41,7 +42,7 @@ SIDEBAR_ROW = 18
 # Rows in view before the grid scrolls inside the sidebar.
 SIDEBAR_VISIBLE_ROWS = 8
 # Rows kept when the sidebar is short, so the summary fits without a second scroll.
-SIDEBAR_SHORT_ROWS = 3
+SIDEBAR_SHORT_ROWS = 2
 
 
 class _RowsScroll(QScrollArea):
@@ -179,19 +180,12 @@ class TargetedQcWidget(QWidget):
 
     def _fit_names(self, *_args) -> None:
         axes = self.chart.axes(Qt.Vertical)
-        if self._identity is None or not axes:
-            return
-        # QtCharts gives the name axis at most 40% of the chart and lets a
-        # longer name run off its edge, so names are shortened in the middle.
-        width = int(self.chart_view.width() * 0.4) - 8
-        metrics = QFontMetrics(axes[0].labelsFont())
-        names = [
-            metrics.elidedText(sample.sample_name, Qt.ElideMiddle, width)
-            for sample in reversed(self._identity.samples)
-        ]
-        # A category axis needs unique names; hover still gives the full one.
-        if len(set(names)) == len(names) and names != axes[0].categories():
-            axes[0].setCategories(names)
+        if self._identity is not None and axes:
+            fit_category_names(
+                axes[0],
+                [sample.sample_name for sample in reversed(self._identity.samples)],
+                self.chart_view.width(),
+            )
 
     def set_highlighted(self, sample_names) -> None:
         """Outline the rows of the samples selected in the grid and scroll to the first; every row stays."""

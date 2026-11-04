@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QSignalBlocker, Signal
+from PySide6.QtCore import QItemSelectionModel, Qt, QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from manic.io.compound_reader import read_compound
 from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.ui.combo_box import ComboBox
@@ -34,6 +36,7 @@ from manic.ui.dialog_kit import (
     description_label,
     form_layout,
     form_row,
+    help_button,
     hint_label,
     resize_to_screen,
     section_label,
@@ -41,8 +44,8 @@ from manic.ui.dialog_kit import (
     sidebar_item_size,
     sidebar_list,
     style_dialog,
-    title_label,
     window_title,
+    with_help,
 )
 from manic.ui.window_placement import show_over_parent
 
@@ -51,8 +54,14 @@ _ALL_MODES = frozenset(AnalysisMode)
 _NUMBER_FIELD_WIDTH = 120
 
 
-def _count_samples(names: list[str]) -> str:
-    return "1 sample" if len(names) == 1 else f"{len(names)} samples"
+def _target_moved_hint(loaded: str | None, selected: str | None) -> str:
+    """Warn only when the compound selection moved away from the page's edit target."""
+    if selected == loaded:
+        return ""
+    return (
+        f"The selected compound is now {selected or 'none'}; "
+        f"Save still writes to {loaded}."
+    )
 
 
 _DECONVOLUTION_LEVEL_OPTIONS = [
@@ -280,14 +289,7 @@ class QualifierRatioPage(SettingsPage):
         return True, ""
 
     def unsaved_hint(self) -> str:
-        selected = self.host.selected_compound_name()
-        if selected == self._compound_name:
-            return f"Unsaved changes for {self._compound_name}"
-        return (
-            f"Unsaved changes for {self._compound_name}. "
-            f"The selected compound is now {selected or 'none'}; "
-            f"Save still writes to {self._compound_name}."
-        )
+        return _target_moved_hint(self._compound_name, self.host.selected_compound_name())
 
     def load(self) -> None:
         self._compound_name = self.host.selected_compound_name()
@@ -353,13 +355,7 @@ class IntegrationPage(SettingsPage):
 
         layout.addWidget(self.time_radio)
         layout.addWidget(self.legacy_radio)
-        layout.addWidget(
-            hint_label(
-                "The change will only apply to graphs in the GUI. Integration method "
-                "for export is chosen at the time of export. See documentation for "
-                "detailed information about integration methods."
-            )
-        )
+        layout.addWidget(hint_label("Applies to plots. Export asks again."))
         layout.addStretch()
 
     def _on_radio_toggled(self, checked: bool) -> None:
@@ -417,80 +413,108 @@ class InternalStandardPage(SettingsPage):
 
         layout.addWidget(
             description_label(
-                "Choose which isotopologue peak (M+N) of the internal standard is the "
-                "reference peak. It is used for peak validation, abundance "
-                "normalization, and MRRF calculations. Changing the internal standard "
-                "compound resets this to M+0."
+                "The reference peak is the internal standard's isotopologue used for "
+                "peak validation, abundance normalization and MRRF calculations."
             )
         )
 
-        self.standard_label = QLabel("Internal standard: none")
-        layout.addWidget(self.standard_label)
-
         form = form_layout()
+        self.standard_combo = ComboBox()
+        self.standard_combo.setObjectName("internalStandardChoiceCombo")
+        self.standard_combo.currentIndexChanged.connect(self._on_standard_changed)
+        self._inputs.append(self.standard_combo)
+        form_row(form, "Internal standard", self.standard_combo)
+
         self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
         self.combo.setMaximumWidth(_NUMBER_FIELD_WIDTH)
         self.combo.currentIndexChanged.connect(self._mark_dirty)
         self._inputs.append(self.combo)
         form_row(form, "Reference peak", self.combo)
+        self.reference_hint = hint_label("")
+        form_row(form, "", self.reference_hint)
         layout.addLayout(form)
         layout.addStretch()
 
+    def _compound_names(self) -> list[str]:
+        return self.host.toolbar.compound_list.real_names()
+
     def editable(self) -> tuple[bool, str]:
-        name = self.host.internal_standard_name()
-        if not name:
-            return (
-                False,
-                "Choose an internal standard from the Internal standard row at the "
-                "top of the sidebar to change this.",
-            )
-        if self.host.internal_standard_label_atoms() == 0:
-            return (
-                False,
-                f"'{name}' has no label atoms, so only M+0 can be the reference peak.",
-            )
+        if not self._compound_names():
+            return False, "Load a compound list to choose an internal standard."
         return True, ""
+
+    def set_inputs_enabled(self, enabled: bool) -> None:
+        super().set_inputs_enabled(enabled)
+        self.combo.setEnabled(enabled and self.combo.count() > 1)
+
+    def _label_atoms(self, name: str | None) -> int:
+        if not name:
+            return 0
+        if name == self.host.internal_standard_name():
+            return self.host.internal_standard_label_atoms()
+        try:
+            return max(int(read_compound(name).label_atoms or 0), 0)
+        except LookupError:
+            return 0
+
+    def _fill_reference(self, name: str | None, current: int) -> None:
+        label_atoms = self._label_atoms(name)
+        with QSignalBlocker(self.combo):
+            self.combo.clear()
+            for idx in range(label_atoms + 1):
+                self.combo.addItem(f"M+{idx}", idx)
+            self.combo.setCurrentIndex(current if 0 <= current <= label_atoms else 0)
+        no_labels = bool(name) and label_atoms == 0
+        self.reference_hint.setText(
+            f"{name} has no label atoms, so only M+0 can be the reference peak."
+            if no_labels
+            else ""
+        )
+        self.reference_hint.setVisible(no_labels)
+        self.combo.setEnabled(self.standard_combo.isEnabled() and label_atoms > 0)
+
+    def _on_standard_changed(self, _index: int) -> None:
+        # A different standard starts at M+0, as it does when chosen in the sidebar.
+        self._fill_reference(self.standard_combo.currentData(), 0)
+        self._mark_dirty()
 
     def load(self) -> None:
         name = self.host.internal_standard_name()
-        self.standard_label.setText(f"Internal standard: {name or 'none'}")
-        with QSignalBlocker(self.combo):
-            self.combo.clear()
-            if name:
-                label_atoms = self.host.internal_standard_label_atoms()
-                for idx in range(label_atoms + 1):
-                    self.combo.addItem(f"M+{idx}", idx)
-                current = self.host.internal_standard_reference_isotope
-                self.combo.setCurrentIndex(current if 0 <= current <= label_atoms else 0)
-            else:
-                self.combo.addItem("M+0", 0)
+        with QSignalBlocker(self.standard_combo):
+            self.standard_combo.clear()
+            self.standard_combo.addItem("No internal standard", None)
+            for compound in self._compound_names():
+                self.standard_combo.addItem(compound, compound)
+            index = self.standard_combo.findData(name) if name else 0
+            self.standard_combo.setCurrentIndex(max(index, 0))
+        self._fill_reference(name, self.host.internal_standard_reference_isotope)
         self._clear_dirty()
 
     def save(self) -> None:
-        self.host.apply_internal_standard_reference_isotope(self.combo.currentData())
+        chosen = self.standard_combo.currentData()
+        if chosen != self.host.internal_standard_name():
+            if chosen is None:
+                self.host.toolbar.on_internal_standard_cleared()
+            else:
+                self.host.toolbar.on_internal_standard_selected(chosen)
+        self.host.apply_internal_standard_reference_isotope(self.combo.currentData() or 0)
 
 
 class DeconvolutionPage(SettingsPage):
     title = "Deconvolution"
-    _MIXED = "_mixed"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
         self._compound_name: str | None = None
-        self._sample_names: list[str] = []
         self._loaded_overrides: dict[str, str] = {}
-        self._sample_section_touched = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
         layout.addWidget(
             description_label(
-                "Choose how MANIC fits and separates overlapping chromatographic peaks "
-                "before integration. Resolution, fit type, and noise gate are saved per "
-                "compound. A sample can override the curve fit from the plot context "
-                "menu or the Per-sample curve fit section below."
+                "Fits and separates overlapping chromatographic peaks before integration."
             )
         )
 
@@ -503,30 +527,43 @@ class DeconvolutionPage(SettingsPage):
         self.level_combo = ComboBox()
         self.level_combo.setObjectName("deconvolutionLevelCombo")
         self.level_combo.currentIndexChanged.connect(self._on_level_changed)
-        form_row(form, "Resolution", self.level_combo)
+        form_row(
+            form,
+            "Resolution",
+            with_help(
+                self.level_combo,
+                "Higher levels split closer overlaps and weaker shoulders, but run "
+                "slower and are more likely to split noise.",
+            ),
+        )
 
         self.fit_combo = ComboBox()
         self.fit_combo.setObjectName("deconvolutionFitCombo")
         self.fit_combo.currentIndexChanged.connect(self._mark_dirty)
-        form_row(form, "Fit type", self.fit_combo)
+        form_row(
+            form,
+            "Fit type",
+            with_help(
+                self.fit_combo,
+                "Auto tries each peak shape and keeps the best. A single fit type is "
+                "faster because fewer shapes are tried.",
+            ),
+        )
 
         self.gate_combo = ComboBox()
         self.gate_combo.setObjectName("deconvolutionGateCombo")
         self.gate_combo.currentIndexChanged.connect(self._mark_dirty)
-        form_row(form, "Noise gate", self.gate_combo)
-
-        self._inputs.extend([self.level_combo, self.fit_combo, self.gate_combo])
-
         form_row(
             form,
-            "",
-            hint_label(
-                "Lower levels are faster and less likely to split noise. Forcing a single "
-                "fit type (instead of Auto) is faster because fewer peak shapes are tried. "
-                "The noise gate skips fitting on messy/noise-only peaks (shown as the raw "
-                "trace); a stricter gate is faster but may skip weak real peaks."
+            "Noise gate",
+            with_help(
+                self.gate_combo,
+                "Skips fitting on noise-only peaks, which then show the raw trace. "
+                "A stricter gate is faster but may skip weak real peaks.",
             ),
         )
+
+        self._inputs.extend([self.level_combo, self.fit_combo, self.gate_combo])
 
         self.apply_all = QCheckBox("Apply to all compounds")
         self.apply_all.setObjectName("deconvolutionApplyAllCheck")
@@ -541,66 +578,69 @@ class DeconvolutionPage(SettingsPage):
         layout.addLayout(form)
 
         layout.addSpacing(12)
-        layout.addWidget(section_label("Per-sample curve fit"))
-        layout.addWidget(
-            hint_label(
-                "Overrides replace the compound fit type for individual samples. "
-                "Choose Use compound setting to remove one."
+        heading = QHBoxLayout()
+        heading.setSpacing(8)
+        heading.addWidget(section_label("Per-sample curve fit"))
+        heading.addWidget(
+            help_button(
+                "An override replaces the compound fit type for one sample. Choose "
+                "Use compound setting to remove it. Samples selected in the plot "
+                "area are listed and selected here."
             )
         )
+        heading.addStretch()
+        layout.addLayout(heading)
 
-        sample_form = form_layout()
-        self.sample_fit_combo = ComboBox()
-        self.sample_fit_combo.setObjectName("sampleFitCombo")
-        self.sample_fit_combo.currentIndexChanged.connect(
-            self._mark_sample_section_dirty
-        )
-        sample_field = QWidget()
-        sample_field_layout = QVBoxLayout(sample_field)
-        sample_field_layout.setContentsMargins(0, 0, 0, 0)
-        sample_field_layout.setSpacing(4)
-        sample_field_layout.addWidget(self.sample_fit_combo)
-        self.sample_scope_label = QLabel(
-            "Select tiles in the plot area to set their fit here"
-        )
-        self.sample_scope_label.setWordWrap(True)
-        self.sample_scope_label.setProperty("role", "hint")
-        sample_field_layout.addWidget(self.sample_scope_label)
-        form_row(sample_form, "Selected samples", sample_field)
-        layout.addLayout(sample_form)
-
+        # The only per-sample editor: one row per overridden or plot-selected sample.
         self.sample_fit_table = QTableWidget(0, 2)
         self.sample_fit_table.setObjectName("sampleFitTable")
         self.sample_fit_table.setHorizontalHeaderLabels(["Sample", "Fit type"])
         self.sample_fit_table.verticalHeader().setVisible(False)
         self.sample_fit_table.horizontalHeader().setStretchLastSection(True)
         self.sample_fit_table.horizontalHeader().setHighlightSections(False)
+        self.sample_fit_table.horizontalHeader().setDefaultAlignment(
+            Qt.AlignLeft | Qt.AlignVCenter
+        )
         self.sample_fit_table.setShowGrid(False)
-        self.sample_fit_table.setSelectionMode(QAbstractItemView.NoSelection)
-        self.sample_fit_table.setFocusPolicy(Qt.NoFocus)
+        self.sample_fit_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.sample_fit_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.sample_fit_table.setAlternatingRowColors(False)
         self.sample_fit_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.sample_fit_table.verticalHeader().setDefaultSectionSize(36)
         self.sample_fit_table.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Fixed
         )
+        self.sample_fit_table.itemSelectionChanged.connect(self._sync_bulk_button)
         layout.addWidget(self.sample_fit_table)
 
         self.empty_overrides_label = hint_label(
-            "No per-sample overrides for this compound."
+            "No per-sample overrides. Select plots to set their fit here."
         )
         layout.addWidget(self.empty_overrides_label)
 
-        remove_row = QHBoxLayout()
-        remove_row.addStretch()
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        self.bulk_fit_button = QPushButton("Set fit for selected")
+        self.bulk_fit_button.setObjectName("bulkFitButton")
+        self.bulk_fit_button.setAutoDefault(False)
+        bulk_menu = QMenu(self.bulk_fit_button)
+        for label, value in (("Use compound setting", None), *(
+            (label, value) for value, label in FIT_TYPE_LABELS.items()
+        )):
+            bulk_menu.addAction(label).triggered.connect(
+                lambda _checked=False, v=value: self.set_fit_for_selected_rows(v)
+            )
+        self.bulk_fit_button.setMenu(bulk_menu)
+        actions.addWidget(self.bulk_fit_button)
+        actions.addStretch()
         self.remove_all_button = QPushButton("Remove all overrides")
         self.remove_all_button.setObjectName("removeAllOverridesButton")
         self.remove_all_button.setAutoDefault(False)
         self.remove_all_button.setDefault(False)
         set_variant(self.remove_all_button, "danger")
         self.remove_all_button.clicked.connect(self._stage_remove_all_overrides)
-        remove_row.addWidget(self.remove_all_button)
-        layout.addLayout(remove_row)
+        actions.addWidget(self.remove_all_button)
+        layout.addLayout(actions)
         layout.addStretch()
 
     def editable(self) -> tuple[bool, str]:
@@ -615,26 +655,12 @@ class DeconvolutionPage(SettingsPage):
         super().set_inputs_enabled(enabled)
         if enabled:
             self._sync_fit_enabled()
-        self._sync_sample_section(enabled)
+        self.sample_fit_table.setEnabled(enabled)
+        self._sync_bulk_button()
+        self._sync_remove_all()
 
     def unsaved_hint(self) -> str:
-        selected = self.host.selected_compound_name()
-        if selected == self._compound_name:
-            hint = f"Unsaved changes for {self._compound_name}"
-        else:
-            hint = (
-                f"Unsaved changes for {self._compound_name}. "
-                f"The selected compound is now {selected or 'none'}; "
-                f"Save still writes to {self._compound_name}."
-            )
-        current_samples = list(self.host.selected_sample_names())
-        if current_samples != self._sample_names:
-            hint += (
-                f" The plot area now selects {_count_samples(current_samples)}; "
-                f"Save still writes to the {_count_samples(self._sample_names)} "
-                "selected when this page loaded."
-            )
-        return hint
+        return _target_moved_hint(self._compound_name, self.host.selected_compound_name())
 
     def _on_level_changed(self, _index: int) -> None:
         self._sync_fit_enabled()
@@ -645,16 +671,37 @@ class DeconvolutionPage(SettingsPage):
         self.fit_combo.setEnabled(on and self.level_combo.isEnabled())
         self.gate_combo.setEnabled(on and self.level_combo.isEnabled())
 
-    def _mark_sample_section_dirty(self, *_args) -> None:
-        self._sample_section_touched = True
+    def _row_combos(self) -> list[QComboBox]:
+        table = self.sample_fit_table
+        return [table.cellWidget(row, 1) for row in range(table.rowCount())]
+
+    def _selected_rows(self) -> list[int]:
+        return sorted({index.row() for index in self.sample_fit_table.selectedIndexes()})
+
+    def _sync_bulk_button(self) -> None:
+        count = len(self._selected_rows())
+        self.bulk_fit_button.setVisible(self.sample_fit_table.rowCount() > 0)
+        self.bulk_fit_button.setEnabled(self.sample_fit_table.isEnabled() and count > 0)
+        self.bulk_fit_button.setText(
+            f"Set fit for {count} selected ▾" if count else "Set fit for selected ▾"
+        )
+
+    def _sync_remove_all(self) -> None:
+        # One override is removed from its own row; the bulk button is for several.
+        overridden = sum(combo.currentData() is not None for combo in self._row_combos())
+        self.remove_all_button.setVisible(overridden > 1)
+        self.remove_all_button.setEnabled(self.sample_fit_table.isEnabled())
+
+    def _on_row_fit_changed(self, *_args) -> None:
+        self._sync_remove_all()
         self._mark_dirty()
 
-    def _sync_sample_section(self, page_enabled: bool) -> None:
-        self.sample_fit_combo.setEnabled(page_enabled and bool(self._sample_names))
-        has_rows = self.sample_fit_table.rowCount() > 0
-        self.remove_all_button.setEnabled(page_enabled and has_rows)
-        for row in range(self.sample_fit_table.rowCount()):
-            self.sample_fit_table.cellWidget(row, 1).setEnabled(page_enabled)
+    def set_fit_for_selected_rows(self, fit_type: str | None) -> None:
+        for row in self._selected_rows():
+            combo = self.sample_fit_table.cellWidget(row, 1)
+            with QSignalBlocker(combo):
+                combo.setCurrentIndex(combo.findData(fit_type))
+        self._on_row_fit_changed()
 
     def _fill_fit_options(self, combo: QComboBox, current: str | None) -> None:
         combo.clear()
@@ -664,16 +711,6 @@ class DeconvolutionPage(SettingsPage):
         index = combo.findData(current)
         combo.setCurrentIndex(index if index >= 0 else 0)
 
-    def _fill_sample_fit_combo(self, values: set) -> None:
-        combo = self.sample_fit_combo
-        if not self._sample_names or len(values) <= 1:
-            common = next(iter(values), None) if self._sample_names else None
-            self._fill_fit_options(combo, common)
-            return
-        self._fill_fit_options(combo, None)
-        combo.addItem("(mixed)", self._MIXED)
-        combo.setCurrentIndex(combo.findData(self._MIXED))
-
     def _fit_override_table_height(self) -> None:
         header = max(self.sample_fit_table.horizontalHeader().sizeHint().height(), 24)
         row_h = self.sample_fit_table.verticalHeader().defaultSectionSize()
@@ -681,87 +718,73 @@ class DeconvolutionPage(SettingsPage):
         visible_rows = min(max(self.sample_fit_table.rowCount(), 1), 6)
         self.sample_fit_table.setFixedHeight(header + visible_rows * row_h + frame)
 
-    def _rebuild_override_table(self, overrides: dict[tuple[str, str], str]) -> None:
+    def _rebuild_override_table(
+        self, overrides: dict[tuple[str, str], str], selected: list[str]
+    ) -> None:
         self._loaded_overrides = {
             sample: fit_type for (_, sample), fit_type in overrides.items()
         }
-        rows = sorted(self._loaded_overrides.items())
+        samples = sorted(set(self._loaded_overrides) | set(selected))
         table = self.sample_fit_table
-        table.setRowCount(len(rows))
-        for row, (sample, fit_type) in enumerate(rows):
-            item = QTableWidgetItem(sample)
-            item.setFlags(Qt.ItemIsEnabled)
-            table.setItem(row, 0, item)
-            combo = ComboBox()
-            self._fill_fit_options(combo, fit_type)
-            combo.currentIndexChanged.connect(self._mark_dirty)
-            table.setCellWidget(row, 1, combo)
+        with QSignalBlocker(table):
+            table.clearSelection()
+            table.setRowCount(len(samples))
+            for row, sample in enumerate(samples):
+                item = QTableWidgetItem(sample)
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                table.setItem(row, 0, item)
+                combo = ComboBox()
+                self._fill_fit_options(combo, self._loaded_overrides.get(sample))
+                combo.currentIndexChanged.connect(self._on_row_fit_changed)
+                table.setCellWidget(row, 1, combo)
+                if sample in selected:
+                    table.selectionModel().select(
+                        table.model().index(row, 0),
+                        QItemSelectionModel.Select | QItemSelectionModel.Rows,
+                    )
         table.resizeColumnToContents(0)
-        empty = not rows
+        empty = not samples
         table.setVisible(not empty)
         self.empty_overrides_label.setVisible(empty)
         self._fit_override_table_height()
 
     def _stage_remove_all_overrides(self) -> None:
-        for row in range(self.sample_fit_table.rowCount()):
-            combo = self.sample_fit_table.cellWidget(row, 1)
+        for combo in self._row_combos():
             with QSignalBlocker(combo):
                 combo.setCurrentIndex(combo.findData(None))
-        self._mark_dirty()
+        self._on_row_fit_changed()
 
     def _staged_sample_changes(self) -> dict[str, str | None]:
-        staged: dict[str, str | None] = {}
-        for row in range(self.sample_fit_table.rowCount()):
-            sample = self.sample_fit_table.item(row, 0).text()
-            staged[sample] = self.sample_fit_table.cellWidget(row, 1).currentData()
-        if self._sample_section_touched:
-            fit_type = self.sample_fit_combo.currentData()
-            if fit_type != self._MIXED:
-                staged.update((sample, fit_type) for sample in self._sample_names)
+        table = self.sample_fit_table
         return {
-            sample: value
-            for sample, value in staged.items()
-            if value != self._loaded_overrides.get(sample)
+            table.item(row, 0).text(): combo.currentData()
+            for row, combo in enumerate(self._row_combos())
+            if combo.currentData() != self._loaded_overrides.get(table.item(row, 0).text())
         }
 
     def load(self) -> None:
         self._compound_name = self.host.selected_compound_name()
-        self._sample_names = list(self.host.selected_sample_names())
-        self._sample_section_touched = False
         self.compound_label.setText(
             f"Compound: {self._compound_name or 'none selected'}"
         )
-        if self._sample_names:
-            self.sample_scope_label.setText(
-                f"Sets the fit for the {_count_samples(self._sample_names)} "
-                "selected in the plot area"
-            )
-        else:
-            self.sample_scope_label.setText(
-                "Select tiles in the plot area to set their fit here"
-            )
         overrides = (
             get_sample_fit_types(self._compound_name) if self._compound_name else {}
         )
+        selected = list(self.host.selected_sample_names()) if self._compound_name else []
         level, fit, gate = self.host.deconvolution_settings(self._compound_name)
-        values = {
-            overrides.get((self._compound_name, sample)) for sample in self._sample_names
-        }
         with (
             QSignalBlocker(self.level_combo),
             QSignalBlocker(self.fit_combo),
             QSignalBlocker(self.gate_combo),
             QSignalBlocker(self.apply_all),
-            QSignalBlocker(self.sample_fit_combo),
         ):
             _fill_combo(self.level_combo, _DECONVOLUTION_LEVEL_OPTIONS, level)
             _fill_combo(self.fit_combo, _DECONVOLUTION_FIT_OPTIONS, fit)
             _fill_combo(self.gate_combo, _DECONVOLUTION_GATE_OPTIONS, gate)
             self.apply_all.setChecked(False)
-            self._fill_sample_fit_combo(values)
-        self._rebuild_override_table(overrides)
+        self._rebuild_override_table(overrides, selected)
         self._sync_fit_enabled()
-        self._sync_sample_section(self.editable()[0])
+        self.set_inputs_enabled(self.editable()[0])
         self._clear_dirty()
 
     def save(self) -> None:
@@ -826,9 +849,6 @@ class SettingsWindow(QDialog):
         right = QVBoxLayout()
         right.setContentsMargins(24, 20, 24, 16)
         right.setSpacing(16)
-
-        self.heading = title_label(self._pages[0].title if self._pages else "")
-        right.addWidget(self.heading)
 
         self.stack = QStackedWidget()
         for page in self._pages:
@@ -899,7 +919,6 @@ class SettingsWindow(QDialog):
         if index < 0 or index >= len(self._pages):
             return
         self.stack.setCurrentIndex(index)
-        self.heading.setText(self._pages[index].title)
         self._update_footer()
 
     def _on_page_dirty_changed(self, _dirty: bool) -> None:
@@ -926,18 +945,18 @@ class SettingsWindow(QDialog):
         for row, page in enumerate(self._pages):
             self.page_list.item(row).setData(MARKED_ROLE, page.is_dirty())
         self.setWindowModified(bool(dirty_rows))
-        if not dirty_rows:
+        # The current page shows its own state through Save; list only the others.
+        other_rows = [row for row in dirty_rows if row != self.stack.currentIndex()]
+        if not other_rows:
             self.pending_label.clear()
             self.pending_label.hide()
             return
         # Link colour comes from the palette, so it follows scheme switches.
         links = ", ".join(
             f'<a href="{row}" style="text-decoration: none;">{self._pages[row].title}</a>'
-            for row in dirty_rows
+            for row in other_rows
         )
-        self.pending_label.setText(
-            f"● Unsaved changes: {links}. Each page is saved separately."
-        )
+        self.pending_label.setText(f"Also unsaved: {links}")
         self.pending_label.show()
 
     def _save_current(self) -> None:

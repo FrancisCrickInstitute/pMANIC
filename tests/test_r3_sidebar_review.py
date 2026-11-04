@@ -79,7 +79,7 @@ def test_deconvolution_status_opens_its_settings_page(qapp, monkeypatch):
     try:
         window.deconvolution_indicator_label.click()
         assert window.settings_window.isVisible()
-        assert window.settings_window.heading.text() == "Deconvolution"
+        assert window.settings_window.page_list.currentItem().text() == "Deconvolution"
     finally:
         if window.settings_window is not None:
             window.settings_window.close()

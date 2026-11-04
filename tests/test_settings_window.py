@@ -79,10 +79,10 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     internal = settings.page_named("Internal Standard")
     assert isinstance(internal, InternalStandardPage)
     assert not internal.combo.isEnabled()
+    assert not internal.standard_combo.isEnabled()
     assert (
         settings.hint_label.text()
-        == "Choose an internal standard from the Internal standard row at the "
-        "top of the sidebar to change this."
+        == "Load a compound list to choose an internal standard."
     )
 
     _select_page(settings, "Deconvolution")
@@ -243,7 +243,9 @@ def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
     assert not settings.save_button.isEnabled()
 
     settings.pending_label.linkActivated.emit("0")
-    assert settings.heading.text() == "Mass Tolerance"
+    assert settings.page_list.currentItem().text() == "Mass Tolerance"
+    assert settings.pending_label.text().count("<a ") == 1
+    assert "Peak Validation" in settings.pending_label.text()
     settings.save_button.click()
     assert labelled_window.mass_tolerance == 0.35
     assert labelled_window.min_peak_height_ratio == DEFAULT_MIN_PEAK_HEIGHT_RATIO
@@ -340,9 +342,9 @@ def test_internal_standard_without_label_atoms_disables_combo(labelled_window):
     _select_page(settings, "Internal Standard")
     page = settings.page_named("Internal Standard")
     assert not page.combo.isEnabled()
-    assert (
-        settings.hint_label.text()
-        == "'Norvaline' has no label atoms, so only M+0 can be the reference peak."
+    assert page.standard_combo.isEnabled()
+    assert page.reference_hint.text() == (
+        "Norvaline has no label atoms, so only M+0 can be the reference peak."
     )
 
 
@@ -392,46 +394,61 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     settings = labelled_window.settings_window
     _select_page(settings, "Deconvolution")
     page = settings.page_named("Deconvolution")
-    assert page.sample_scope_label.text() == (
-        "Sets the fit for the 2 samples selected in the plot area"
-    )
-    assert page.sample_fit_combo.isEnabled()
-    assert not page.sample_fit_table.isVisible()
-    assert page.empty_overrides_label.isVisible()
-    assert page.empty_overrides_label.text() == (
-        "No per-sample overrides for this compound."
-    )
-    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData("gaussian"))
+    assert [page.sample_fit_table.item(r, 0).text() for r in range(2)] == ["S1", "S2"]
+    assert page._selected_rows() == [0, 1]
+    assert page.bulk_fit_button.text() == "Set fit for 2 selected ▾"
+    assert not page.empty_overrides_label.isVisible()
+    page.set_fit_for_selected_rows("gaussian")
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {
         ("Alanine", "S1"): "gaussian",
         ("Alanine", "S2"): "gaussian",
     }
     assert replots == [1]
-    assert page.sample_fit_table.isVisible()
-    assert not page.empty_overrides_label.isVisible()
+    assert page.remove_all_button.isVisible()
 
     s1_combo = _override_row_combo(page, "S1")
     s1_combo.setCurrentIndex(s1_combo.findData("emg"))
     s2_combo = _override_row_combo(page, "S2")
     s2_combo.setCurrentIndex(s2_combo.findData(None))
+    assert not page.remove_all_button.isVisible()
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {("Alanine", "S1"): "emg"}
     assert replots == [1, 1]
 
+    _override_row_combo(page, "S2").setCurrentIndex(
+        _override_row_combo(page, "S2").findData("bi_gaussian")
+    )
     page.remove_all_button.click()
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {}
     assert replots == [1, 1, 1]
-    assert not page.sample_fit_table.isVisible()
-    assert page.empty_overrides_label.isVisible()
 
-    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData("emg"))
-    page.sample_fit_combo.setCurrentIndex(page.sample_fit_combo.findData(None))
+    page.set_fit_for_selected_rows("emg")
+    page.set_fit_for_selected_rows(None)
     assert page.is_dirty()
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {}
     assert replots == [1, 1, 1]
+
+
+def test_deconvolution_without_overrides_or_selection_shows_empty_state(labelled_window):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
+            "VALUES ('Alanine', 5.0, 0.6, 0.6, 100.0, 3, 10.0, 1.0, 'S1')"
+        )
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    _select_page(settings, "Deconvolution")
+    page = settings.page_named("Deconvolution")
+    assert not page.sample_fit_table.isVisible()
+    assert not page.bulk_fit_button.isVisible()
+    assert not page.remove_all_button.isVisible()
+    assert page.empty_overrides_label.isVisible()
 
 
 def test_settings_window_opens_centred_on_a_visible_main_window(labelled_window):

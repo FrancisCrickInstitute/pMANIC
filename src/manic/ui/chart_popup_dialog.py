@@ -11,12 +11,13 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QMargins, Qt
+from PySide6.QtCore import QMargins, QPointF, Qt
 from PySide6.QtGui import QCursor, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
+    QGraphicsSimpleTextItem,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -110,6 +111,14 @@ def identity_key_tooltip(identity: IdentityAssessmentSet) -> str:
     )
 
 
+def bar_value_text(value: float) -> str:
+    """A bar's value in the axis unit at fixed precision: '0.91', '<0.01', or '—' for none."""
+    if not np.isfinite(value) or value == 0:
+        return "—"
+    if abs(value) < 0.005:
+        return "<0.01"
+    return f"{value:.2f}"
+
 
 class ChartPopupDialog(QDialog):
     """Modal dialog showing an enlarged version of toolbar charts with sample names visible."""
@@ -137,6 +146,8 @@ class ChartPopupDialog(QDialog):
         self._hover_notes: list[str] | None = None
         self._identity_binding: IdentityGridBinding | None = None
         self._total_abundance_scale_factor: float = 1.0
+        self._total_abundance_scale_exp: int = 0
+        self._value_labels: list[tuple[QGraphicsSimpleTextItem, float, int]] = []
 
         self.setWindowTitle(f"{title} — MANIC")
         self.setModal(True)
@@ -225,12 +236,13 @@ class ChartPopupDialog(QDialog):
         footer = QHBoxLayout()
         footer.addWidget(self.status_legend)
         footer.addStretch()
-        hint = QLabel(
-            "Hover a cell for details" if self.chart_type == "identity"
-            else "Hover a bar for its value"
-        )
-        theme.style(hint, text_style("text_tertiary", 11))
-        footer.addWidget(hint)
+        if self.chart_type != "total_abundance":
+            hint = QLabel(
+                "Hover a cell for details" if self.chart_type == "identity"
+                else "Hover a bar for its value"
+            )
+            theme.style(hint, text_style("text_tertiary", 11))
+            footer.addWidget(hint)
         close_button = QPushButton("Close")
         close_button.setAutoDefault(False)
         close_button.clicked.connect(self.accept)
@@ -265,19 +277,19 @@ class ChartPopupDialog(QDialog):
         bar_set = QBarSet("Total Abundance")
         bar_set.setColor(abundance_colour)
         bar_set.setBorderColor(abundance_colour)
-        bar_set.setLabelColor(color("text_secondary"))
-        bar_set.setLabelFont(ui_font(10))
 
         # Calculate scaling for display
         max_abundance = float(np.max(self.data)) if len(self.data) > 0 else 1.0
         scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
         scale_factor = 10**scale_exp if scale_exp != 0 else 1
         self._total_abundance_scale_factor = float(scale_factor)
+        self._total_abundance_scale_exp = scale_exp
 
-        # Add scaled abundance values
-        for abundance in self.data:
-            scaled_abundance = abundance / scale_factor
-            bar_set.append(scaled_abundance)
+        # Bar i sits on category i, and the axis lists samples bottom to top,
+        # so the values go in reversed too.
+        scaled = [float(abundance) / scale_factor for abundance in reversed(self.data)]
+        for value in scaled:
+            bar_set.append(value)
 
         bar_set.hovered.connect(
             lambda status, index, bs=bar_set: self._on_total_abundance_bar_hover(
@@ -286,10 +298,6 @@ class ChartPopupDialog(QDialog):
         )
 
         bar_series.append(bar_set)
-        bar_series.setLabelsVisible(True)
-        bar_series.setLabelsPosition(QAbstractBarSeries.LabelsOutsideEnd)
-        bar_series.setLabelsFormat("@value")
-        bar_series.setLabelsPrecision(3)
         self.chart.addSeries(bar_series)
 
         # Setup axes with sample names visible
@@ -298,6 +306,33 @@ class ChartPopupDialog(QDialog):
         # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+        self._add_value_labels(bar_series, scaled)
+
+    def _add_value_labels(self, series: QHorizontalBarSeries, values: list[float]) -> None:
+        """Value text past each bar end. QtCharts' own labels can only print raw numbers."""
+        for index, value in enumerate(values):
+            item = QGraphicsSimpleTextItem(bar_value_text(value), self.chart)
+            item.setFont(ui_font(10))
+            self._value_labels.append((item, value if np.isfinite(value) else 0.0, index))
+        self._value_series = series
+        self._recolour_value_labels()
+        self.chart.plotAreaChanged.connect(self._place_value_labels)
+        theme.notifier.changed.connect(self._recolour_value_labels)
+        self._place_value_labels()
+
+    def _recolour_value_labels(self, *_args) -> None:
+        for item, _value, _index in self._value_labels:
+            item.setBrush(color("text_secondary"))
+
+    def _place_value_labels(self, *_args) -> None:
+        for item, value, index in self._value_labels:
+            end = self.chart.mapToPosition(QPointF(max(value, 0.0), index), self._value_series)
+            height = item.boundingRect().height()
+            item.setPos(end.x() + 4, end.y() - height / 2)
+
+    def value_label_texts(self) -> list[str]:
+        """Value labels top to bottom, as the rows read."""
+        return [item.text() for item, _value, _index in reversed(self._value_labels)]
 
     def _create_isotopologue_chart(self):
         """Create enlarged isotopologue chart with sample names on Y-axis."""
@@ -433,10 +468,11 @@ class ChartPopupDialog(QDialog):
             return
 
         scaled_value = float(bar_set.at(index))
+        unit = scale_text(self._total_abundance_scale_exp)
 
         QToolTip.showText(
             QCursor.pos(),
-            f"{sample_name}\nTotal: {scaled_value:.3g}",
+            f"{sample_name}\nTotal abundance: {bar_value_text(scaled_value)} {unit}".rstrip(),
             self.chart_view,
         )
 

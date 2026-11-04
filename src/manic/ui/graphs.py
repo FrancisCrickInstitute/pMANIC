@@ -50,7 +50,7 @@ from manic.validation.unlabelled_identity import (
 
 from .channel_chips import CHIP_HEIGHT, ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
-from .chart_style import set_nice_ticks, style_axis, style_chart, text_style
+from .chart_style import set_nice_ticks, style_axis, style_chart, text_style, ui_font
 from .icon_button import icon_button
 from .colors import (
     QUALIFIER_GREEN,
@@ -64,7 +64,14 @@ from .colors import (
     steel_blue_colour,
 )
 from .sidebar_widgets import shortcut_text
-from .plot_tile import DENSITY_MIN_TILE, TILE_GAP, PlotTile, grid_columns, tile_badges
+from .plot_tile import (
+    DENSITY_MIN_TILE,
+    DENSITY_TEXT,
+    TILE_GAP,
+    PlotTile,
+    grid_columns,
+    tile_badges,
+)
 from .theme import FONT_SIZE_TITLE, color
 from manic.ui import theme
 
@@ -158,6 +165,17 @@ class ClickableChartView(QChartView):
         tile = self.parentWidget()
         if isinstance(tile, PlotTile):
             tile.refresh_selection()
+
+
+def _review_command_text(
+    review: PeakReview | None, count: int, set_text: str, clear_text: str
+) -> str:
+    """"Accept 2 Peaks (Below Threshold)" while it sets the review,
+    "Clear Acceptance (2 Peaks)" once every target already has it."""
+    peaks = "Peak" if count <= 1 else f"{count} Peaks"
+    if review is None and count:
+        return clear_text if count == 1 else f"{clear_text} ({peaks})"
+    return set_text.format(peaks)
 
 
 def _show_shortcut(action, sequence) -> None:
@@ -372,7 +390,17 @@ class GraphView(QWidget):
         QSettings().setValue("graph/density", density)
         for button in self._density_buttons.buttons():
             button.setChecked(button.property("density") == density)
+        for tile in self._container_pool:
+            self._apply_density_text(tile)
         self._place_tiles(force=True)
+
+    def _apply_density_text(self, tile: PlotTile) -> None:
+        tick_px, caption_px = DENSITY_TEXT[self._density]
+        if tile.text_size() == (tick_px, caption_px):
+            return
+        tile.set_text_size(tick_px, caption_px)
+        for axis in tile.chart_view.chart().axes():
+            axis.setLabelsFont(ui_font(tick_px))
 
     def density(self) -> str:
         return self._density
@@ -525,7 +553,12 @@ class GraphView(QWidget):
             identity = None
         self._identity = identity
 
-        # Begin compound plotting - logging removed to reduce noise
+        # Re-plotting the same compound (a fit or scale change) keeps selection and focus.
+        same_compound = compound_name == self._current_compound
+        kept_selection = self.get_selected_samples() if same_compound else []
+        focused = self._focused_plot() if same_compound else None
+        kept_focus = focused.sample_name if focused is not None else None
+
         self._clear_layout()
         self._set_title(compound_name)
         if not samples:
@@ -610,11 +643,20 @@ class GraphView(QWidget):
                     container.show()
             self._hide_unused_tiles()
 
-        if self._focus_index is not None and self._focus_index >= num:
+        if same_compound:
+            names = [plot.sample_name for plot in self._current_plots]
+            self._focus_index = names.index(kept_focus) if kept_focus in names else None
+            for plot in self._current_plots:
+                if plot.sample_name in kept_selection:
+                    plot.set_selected(True)
+                    self._selected_plots.add(plot)
+        elif self._focus_index is not None and self._focus_index >= num:
             self._focus_index = None
         self._paint_focus()
         self._update_selection_summary()
         self._layout.activate()
+        if same_compound and self.get_selected_samples() != kept_selection:
+            self.selection_changed.emit(self.get_selected_samples())
 
         self._prepared_displays.clear()
 
@@ -761,6 +803,11 @@ class GraphView(QWidget):
             self._focus_on(self._focus_index)
 
     def _focus_on(self, index: int) -> None:
+        # A pending re-flow after a resize would move the tile after we scroll to it.
+        if self._resize_timer.isActive():
+            self._resize_timer.stop()
+            self._update_graph_sizes()
+            QApplication.sendPostedEvents(None, QEvent.LayoutRequest)
         self._focus_index = index
         self._paint_focus()
         tile = self._current_plots[index].parent()
@@ -805,10 +852,7 @@ class GraphView(QWidget):
             logger.error(f"Failed to show context menu: {e}")
 
     def _show_context_menu(self, global_pos, clicked_plot=None):
-        """
-        Show context menu.
-        Simplified: 'View Detailed' only works if you right-click a specific plot.
-        """
+        """Plot context menu; Inspect and Select Only need a right-clicked plot."""
 
         # Close any existing context menu first
         if hasattr(self, "_active_context_menu") and self._active_context_menu:
@@ -821,8 +865,12 @@ class GraphView(QWidget):
         context_menu.setAttribute(Qt.WA_DeleteOnClose)
         context_menu.aboutToHide.connect(self._on_context_menu_closed)
 
-        # Selection actions
-        select_all_action = context_menu.addAction("Select All")
+        # Same groups and order as the Review menu, which main_window builds.
+        inspect_action = context_menu.addAction("Inspect Sample...")
+        _show_shortcut(inspect_action, QKeySequence(Qt.Key_Return))
+        context_menu.addSeparator()
+
+        select_all_action = context_menu.addAction("Select All Plots")
         select_all_action.triggered.connect(self.select_all_plots)
         _show_shortcut(select_all_action, QKeySequence.SelectAll)
 
@@ -847,9 +895,6 @@ class GraphView(QWidget):
             lambda: self.show_all_samples_requested.emit()
         )
 
-        context_menu.addSeparator()
-        inspect_action = context_menu.addAction("Inspect Sample...")
-        _show_shortcut(inspect_action, QKeySequence(Qt.Key_Return))
         context_menu.addSeparator()
         accept_action = context_menu.addAction("Accept Peak (Below Threshold)")
         reject_action = context_menu.addAction("Mark Peak as Bad")
@@ -920,29 +965,27 @@ class GraphView(QWidget):
         else:
             show_only.setText(f"Show Only {shown} Selected Samples")
 
-        accept_count = reject_count = fit_count = 1
-        accepted = rejected = False
+        fit_count = 1
+        accept_review: PeakReview | None = PeakReview.ACCEPTED
+        reject_review: PeakReview | None = PeakReview.REJECTED
+        accept_count = reject_count = 1
         if lead is not None:
             accept_review, accept_plots = self._peak_review_targets(lead, PeakReview.ACCEPTED)
             reject_review, reject_plots = self._peak_review_targets(lead, PeakReview.REJECTED)
             accept_count, reject_count = len(accept_plots), len(reject_plots)
-            # A toggle that would clear the review means the review is already set.
-            accepted = bool(accept_plots) and accept_review is None
-            rejected = reject_review is None
             fit_count = len(self._curve_fit_targets(lead))
-        accept.setCheckable(True)
-        accept.setChecked(accepted)
+        # The label names what the command does; a checkmark could not show a mixed group.
+        accept.setCheckable(False)
         accept.setEnabled(lead is not None and accept_count > 0)
         accept.setText(
-            f"Accept {accept_count} Peaks (Below Threshold)"
-            if accept_count > 1
-            else "Accept Peak (Below Threshold)"
+            _review_command_text(
+                accept_review, accept_count, "Accept {} (Below Threshold)", "Clear Acceptance"
+            )
         )
-        reject.setCheckable(True)
-        reject.setChecked(rejected)
+        reject.setCheckable(False)
         reject.setEnabled(lead is not None)
         reject.setText(
-            f"Mark {reject_count} Peaks as Bad" if reject_count > 1 else "Mark Peak as Bad"
+            _review_command_text(reject_review, reject_count, "Mark {} as Bad", "Clear Bad Mark")
         )
 
         for group in fit_menu.findChildren(QActionGroup):
@@ -977,27 +1020,25 @@ class GraphView(QWidget):
     def _peak_review_targets(
         self, clicked_plot: ClickableChartView, review: PeakReview
     ) -> tuple[PeakReview | None, set[ClickableChartView]]:
-        """The review a menu toggle sets, and the plots it sets it on.
+        """The review a menu command sets, and the plots it sets it on.
 
-        Accept only reaches below-threshold peaks; when the clicked plot is
-        not one, the first eligible plot in grid order decides the toggle.
+        Accept only reaches below-threshold peaks. While any eligible peak
+        lacks `review` the command sets it on those; once all have it, the
+        command clears it from all of them.
         """
         plots = (
             self._selected_plots
             if clicked_plot in self._selected_plots
             else {clicked_plot}
         )
-        basis = clicked_plot
         if review is PeakReview.ACCEPTED:
             plots = {
                 plot
                 for plot in plots
                 if self._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
             }
-            if plots and clicked_plot not in plots:
-                basis = next(plot for plot in self._current_plots if plot in plots)
-        new_review = None if self._review_for_plot(basis) is review else review
-        return new_review, plots
+        missing = {plot for plot in plots if self._review_for_plot(plot) is not review}
+        return (review, missing) if missing else (None, plots)
 
     def toggle_peak_review(
         self, clicked_plot: ClickableChartView, review: PeakReview
@@ -1327,6 +1368,7 @@ class GraphView(QWidget):
         chart_view = self._build_plot(eic, axis_scale=axis_scale)
 
         container = PlotTile(chart_view)
+        self._apply_density_text(container)
         caption = container.caption
         container.set_caption(self._tile_caption_for(eic))
         container.set_scale(axis_scale.scale_exp)

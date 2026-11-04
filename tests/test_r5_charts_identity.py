@@ -142,7 +142,7 @@ def test_not_detected_tile_is_tinted_throughout_and_its_traces_faded(grid):
     grid.plot_compound("Pyruvate", ["Found", "Missing"], identity=identity)
     tiles = {plot.sample_name: plot.parent() for plot in grid._current_plots}
     assert [badge.text for badge in tiles["Missing"].badges()] == ["Not detected"]
-    assert tiles["Missing"].tint() == "surface_alt"
+    assert tiles["Missing"].tint() == "surface_hover"
     for name, opacity in (("Found", 1.0), ("Missing", 0.4)):
         chart = tiles[name].chart_view.chart()
         assert not chart.isPlotAreaBackgroundVisible()

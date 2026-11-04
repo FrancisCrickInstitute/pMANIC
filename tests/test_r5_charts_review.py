@@ -50,7 +50,6 @@ def test_accept_reaches_eligible_peaks_when_the_lead_passes(mixed_grid):
     view._selected_plots = set(charts.values())
     accept, _reject = _review_actions(view, charts["Pass"])
     assert accept.isEnabled()
-    assert not accept.isChecked()
     assert accept.text() == "Accept 2 Peaks (Below Threshold)"
 
     emitted = []
@@ -61,14 +60,14 @@ def test_accept_reaches_eligible_peaks_when_the_lead_passes(mixed_grid):
     assert (compound, sorted(samples), review) == ("Cmp", ["Low1", "Low2"], PeakReview.ACCEPTED)
 
 
-def test_accept_shows_checked_and_clears_when_the_eligible_peaks_are_accepted(mixed_grid):
+def test_accept_turns_into_clear_when_the_eligible_peaks_are_accepted(mixed_grid):
     view, charts = mixed_grid
     view.apply_peak_verdicts(
         {"Pass": PeakVerdict.PASS, "Low1": PeakVerdict.ACCEPTED, "Low2": PeakVerdict.ACCEPTED}
     )
     view._selected_plots = set(charts.values())
     accept, _reject = _review_actions(view, charts["Pass"])
-    assert accept.isEnabled() and accept.isChecked()
+    assert accept.isEnabled() and accept.text() == "Clear Acceptance (2 Peaks)"
 
     emitted = []
     view.peak_review_changed.connect(lambda *args: emitted.append(args))

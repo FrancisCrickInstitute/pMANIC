@@ -10,7 +10,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-from manic.ui.chart_style import scale_text, text_style
+from manic.ui.chart_style import AXIS_LABEL_PX, scale_text, text_style
 from manic.ui.theme import RADIUS, color
 from manic.ui import theme
 from manic.validation.peak_verdict import PeakVerdict
@@ -25,15 +25,19 @@ TILE_ASPECT = 1.45
 
 # Minimum readable tile (width, height) per grid density.
 DENSITY_MIN_TILE = {"comfortable": (190, 135), "compact": (150, 105)}
+# (axis and scale text px, caption px) per grid density.
+DENSITY_TEXT = {"comfortable": (11, 13), "compact": (AXIS_LABEL_PX, 12)}
 
 # (text colour, fill) per badge tone.
 _TONES = {
     "danger": ("danger", "danger_soft"),
     "warning": ("warning", "warning_soft"),
     "success": ("success", "success_soft"),
-    "neutral": ("text_secondary", "surface_alt"),
+    # A grey pill on the grey card tint, so the badge reads as one.
+    "neutral": ("text", "border_strong"),
 }
-_TINT_ORDER = ("danger", "warning", "neutral")
+# Card fill per tone, most serious first.
+_TINTS = {"danger": "danger_soft", "warning": "warning_soft", "neutral": "surface_hover"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,10 +91,7 @@ def tile_badges(
 def tile_tint(badges: list[TileBadge]) -> str | None:
     """Soft card fill token for the most serious badge, so problems stand out."""
     tones = {badge.tone for badge in badges}
-    for tone in _TINT_ORDER:
-        if tone in tones:
-            return _TONES[tone][1]
-    return None
+    return next((tint for tone, tint in _TINTS.items() if tone in tones), None)
 
 
 def grid_columns(
@@ -165,6 +166,7 @@ class PlotTile(QWidget):
         self._focused = False
         self._badges: list[TileBadge] = []
         self._caption_selected: bool | None = None
+        self._text_size = DENSITY_TEXT["compact"]
         self.setAttribute(Qt.WA_Hover)
 
         self.caption = ElidingLabel()
@@ -172,7 +174,7 @@ class PlotTile(QWidget):
         self.caption.setMinimumWidth(24)
 
         self.scale_label = QLabel()
-        theme.style(self.scale_label, text_style("text_tertiary", 10))
+        theme.style(self.scale_label, text_style("text_tertiary", self._text_size[0]))
         self.scale_label.setToolTip("Intensity axis multiplier")
 
         self._badge_box = QWidget()
@@ -213,6 +215,16 @@ class PlotTile(QWidget):
     def set_scale(self, exponent: int) -> None:
         self.scale_label.setText(scale_text(exponent))
         self.scale_label.setVisible(bool(exponent))
+        self._place_badges()
+
+    def text_size(self) -> tuple[int, int]:
+        return self._text_size
+
+    def set_text_size(self, scale_px: int, caption_px: int) -> None:
+        self._text_size = (scale_px, caption_px)
+        theme.style(self.scale_label, text_style("text_tertiary", scale_px))
+        self._caption_selected = None
+        self._refresh_caption_colour()
         self._place_badges()
 
     def badges_inline(self) -> bool:
@@ -284,7 +296,10 @@ class PlotTile(QWidget):
         if self._caption_selected is self.is_selected:
             return
         self._caption_selected = self.is_selected
-        theme.style(self.caption, text_style("accent" if self.is_selected else "text", 12, 600))
+        theme.style(
+            self.caption,
+            text_style("accent" if self.is_selected else "text", self._text_size[1], 600),
+        )
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)

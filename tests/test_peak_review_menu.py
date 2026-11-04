@@ -68,10 +68,14 @@ def test_apply_peak_verdicts_styles_tiles(grid):
 
 def test_accept_enabled_only_on_failed_or_accepted_tiles(grid):
     view, tiles, _emitted = grid
-    for sample, enabled in (("A", True), ("B", False), ("C", False)):
+    for sample, enabled, reject in (
+        ("A", True, "Mark Peak as Bad"),
+        ("B", False, "Clear Bad Mark"),
+        ("C", False, "Mark Peak as Bad"),
+    ):
         menu, actions = _actions(view, tiles[sample][1])
         assert actions["Accept Peak (Below Threshold)"].isEnabled() is enabled
-        assert actions["Mark Peak as Bad"].isEnabled()
+        assert actions[reject].isEnabled()
         menu.close()
 
 
@@ -83,11 +87,10 @@ def test_accept_emits_review_for_clicked_tile(grid):
     assert emitted == [("Cmp", ["A"], PeakReview.ACCEPTED)]
 
 
-def test_toggling_checked_bad_clears_the_review(grid):
+def test_clear_bad_mark_clears_the_review(grid):
     view, tiles, emitted = grid
     menu, actions = _actions(view, tiles["B"][1])
-    assert actions["Mark Peak as Bad"].isChecked()
-    actions["Mark Peak as Bad"].trigger()
+    actions["Clear Bad Mark"].trigger()
     menu.close()
     assert emitted == [("Cmp", ["B"], None)]
 
@@ -115,7 +118,7 @@ def test_not_detected_tile_is_flat_grey_until_reviewed(grid, monkeypatch):
     )
     view.apply_peak_verdicts({"C": PeakVerdict.PASS})
     assert _badge_texts(tiles["C"][0]) == ["Not detected"]
-    assert tiles["C"][0].tint() == "surface_alt"
+    assert tiles["C"][0].tint() == "surface_hover"
 
     view.apply_peak_verdicts({"C": PeakVerdict.REJECTED})
     assert _badge_texts(tiles["C"][0]) == ["Marked bad", "Not detected"]

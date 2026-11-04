@@ -2753,10 +2753,6 @@ class MainWindow(QMainWindow):
                 "Choose integration method for this export (can also be changed in Settings → Integration):"
             )
             vbox.addWidget(info_label)
-            # Force black text for label, radio buttons, and checkboxes regardless of theme
-            options_dialog.setStyleSheet(
-                "QLabel, QRadioButton, QCheckBox { color: black; }"
-            )
 
             radio_time = QRadioButton("Time-based (recommended)")
             radio_legacy = QRadioButton("Legacy (MATLAB-compatible unit spacing)")

@@ -14,6 +14,7 @@ from manic.ui.identity_chart import (
     identity_cell_tooltip,
     show_identity_tooltip,
 )
+from manic.ui import theme
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
 
@@ -43,7 +44,7 @@ class TargetedQcWidget(QWidget):
 
         self.key = QLabel()
         self.key.setTextFormat(Qt.RichText)
-        self.key.setStyleSheet(text_style("text_secondary", 11))
+        theme.style(self.key, text_style("text_secondary", 11))
         self.key.setToolTip("Qualifier ion cells by QC result, across all samples")
         self.key.hide()
 

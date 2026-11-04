@@ -13,7 +13,7 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QCursor
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QToolTip, QWidget
 
 from manic.ui.chart_style import style_axis, ui_font
@@ -26,8 +26,6 @@ from manic.validation.unlabelled_identity import (
 )
 
 _TOOLTIP_HOLD_MS = 86_400_000
-
-_CELL_SEPARATOR_COLOR = QColor("white")
 
 _STATUS_LABELS = {
     QualifierStatus.VALIDATED: "Validated",
@@ -100,7 +98,7 @@ def add_identity_grid(
         for qualifier in sample.qualifiers:
             bar_set = QBarSet("")
             bar_set.setColor(QUALIFIER_STATUS_COLORS[qualifier.status])
-            bar_set.setBorderColor(_CELL_SEPARATOR_COLOR)
+            bar_set.setBorderColor(color("surface"))
             for other_row in range(count):
                 bar_set.append(1.0 if other_row == row else 0.0)
             series.append(bar_set)

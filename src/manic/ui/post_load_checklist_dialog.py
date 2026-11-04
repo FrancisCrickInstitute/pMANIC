@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -61,6 +61,15 @@ def _summary_text(report: list[MmFileStatus]) -> str:
     if unmatched:
         return f"{summary} {unmatched} patterns match no sample files."
     return summary
+
+
+class _MmFileTable(QTableWidget):
+    """Opens showing up to eight rows; shrinks to three when the screen is short."""
+
+    preferred_height = 0
+
+    def sizeHint(self) -> QSize:
+        return QSize(super().sizeHint().width(), self.preferred_height)
 
 
 class PostLoadChecklistDialog(QDialog):
@@ -132,7 +141,7 @@ class PostLoadChecklistDialog(QDialog):
         self._mm_summary = description_label(_summary_text(mm_report))
         layout.addWidget(self._mm_summary)
 
-        self.mm_file_table = QTableWidget(0, 3)
+        self.mm_file_table = _MmFileTable(0, 3)
         self.mm_file_table.setObjectName("mmFileTable")
         self.mm_file_table.setHorizontalHeaderLabels(
             ["Compound", "MM pattern", "Matched files"]
@@ -233,5 +242,6 @@ class PostLoadChecklistDialog(QDialog):
         header = max(table.horizontalHeader().sizeHint().height(), 24)
         row_h = table.verticalHeader().defaultSectionSize()
         frame = 2 * table.frameWidth()
-        visible_rows = min(max(table.rowCount(), 1), 8)
-        table.setMinimumHeight(header + visible_rows * row_h + frame)
+        rows = max(table.rowCount(), 1)
+        table.setMinimumHeight(header + min(rows, 3) * row_h + frame)
+        table.preferred_height = header + min(rows, 8) * row_h + frame

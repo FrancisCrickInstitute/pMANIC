@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
 
 from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
-from manic.ui import theme
 from manic.ui.combo_box import ComboBox
 from manic.ui.dialog_kit import (
     MARKED_ROLE,
@@ -34,6 +33,7 @@ from manic.ui.dialog_kit import (
     form_layout,
     form_row,
     hint_label,
+    resize_to_screen,
     section_label,
     set_variant,
     sidebar_item_size,
@@ -789,8 +789,8 @@ class SettingsWindow(QDialog):
         # [*] lets setWindowModified() mark unsaved pages in the title bar.
         self.setWindowTitle(window_title("Settings[*]"))
         style_dialog(self)
-        self.resize(880, 720)
-        self.setMinimumSize(720, 480)
+        resize_to_screen(self, 880, 720)
+        self.setMinimumSize(640, 400)
 
         self._pages: list[SettingsPage] = [
             page_cls(host)
@@ -910,9 +910,9 @@ class SettingsWindow(QDialog):
             self.pending_label.clear()
             self.pending_label.hide()
             return
-        link_style = f"color: {theme.COLORS['accent']}; text-decoration: none;"
+        # Link colour comes from the palette, so it follows scheme switches.
         links = ", ".join(
-            f'<a href="{row}" style="{link_style}">{self._pages[row].title}</a>'
+            f'<a href="{row}" style="text-decoration: none;">{self._pages[row].title}</a>'
             for row in dirty_rows
         )
         self.pending_label.setText(

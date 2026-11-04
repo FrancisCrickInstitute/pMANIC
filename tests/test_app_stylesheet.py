@@ -29,3 +29,25 @@ def test_parentless_dialog_is_styled_once_stylesheet_is_app_wide(qapp):
         assert _default_button_fill(styled) == STYLED_DEFAULT_BUTTON
     finally:
         qapp.setStyleSheet("")
+
+
+def test_logo_drops_its_white_background_and_inks_in_the_active_text_colour(qapp):
+    from manic.ui.logo import LogoLabel
+    from manic.utils.utils import apply_color_scheme
+
+    def pixel(label: LogoLabel, x: int, y: int) -> QColor:
+        return label.pixmap().toImage().pixelColor(x, y)
+
+    try:
+        apply_color_scheme(qapp, False)
+        logo = LogoLabel(446)  # the artwork's own height, so pixels map 1:1
+        assert pixel(logo, 0, 0).alpha() == 0
+        assert pixel(logo, 548, 64).name() == "#1b1f24"
+        assert pixel(logo, 83, 167).name() == "#22b573"
+
+        apply_color_scheme(qapp, True)
+        assert pixel(logo, 548, 64).name() == "#e6e8eb"
+        assert pixel(logo, 83, 167).name() == "#22b573"
+    finally:
+        apply_color_scheme(qapp, False)
+        qapp.setStyleSheet("")

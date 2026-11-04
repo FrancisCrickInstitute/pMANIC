@@ -25,7 +25,7 @@ def _toolbar(monkeypatch) -> Toolbar:
 def test_internal_standard_row_is_optional_until_chosen(qapp):
     row = StandardIndicator()
     assert row.internal_standard is None
-    assert row.value_text() == "None (optional)"
+    assert row.value_text() == "None"
     assert row._value.property("state") == "optional"
 
     row.set_internal_standard("Norvaline")
@@ -35,21 +35,23 @@ def test_internal_standard_row_is_optional_until_chosen(qapp):
 
     row.clear_internal_standard()
     assert row.internal_standard is None
-    assert row.value_text() == "None (optional)"
+    assert row.value_text() == "None"
 
 
-def test_data_rows_say_what_is_loaded_in_words(qapp):
+def test_data_rows_report_load_state_without_counts_or_links(qapp):
     rows = LoadedDataWidget()
-    assert rows.compounds_row.value_text() == "Load…"
-    assert rows.raw_data_row.value_text() == "After compounds"
+    assert rows.compounds_row.value_text() == "Not loaded"
+    assert rows.raw_data_row.value_text() == "Not loaded"
 
-    rows.update_status(False, True, compound_count=95)
-    assert rows.compounds_row.value_text() == "95 compounds"
-    assert rows.raw_data_row.value_text() == "Load…"
+    rows.update_status(False, True)
+    assert rows.compounds_row.value_text() == ""
+    assert rows.compounds_row._state == "done"
+    assert rows.raw_data_row.value_text() == "Not loaded"
 
-    rows.update_status(True, True, compound_count=1, sample_count=30)
-    assert rows.compounds_row.value_text() == "1 compound"
-    assert rows.raw_data_row.value_text() == "30 samples"
+    # The counts live with Compounds and Samples; loading lives on the canvas and in File.
+    rows.update_status(True, True)
+    assert rows.raw_data_row._state == "done"
+    assert rows.raw_data_row.value_text() == ""
 
 
 def test_compound_filter_narrows_list_and_enter_picks_first_match(qapp, monkeypatch):
@@ -60,7 +62,6 @@ def test_compound_filter_narrows_list_and_enter_picks_first_match(qapp, monkeypa
         toolbar.update_label_colours(False, True)
         toolbar.update_compound_list(["Alanine", "Glutamate", "Glycine"])
         assert toolbar.compound_count_label.text() == "3"
-        assert toolbar.loaded_data.compounds_row.value_text() == "3 compounds"
 
         toolbar.compound_filter.setText("gl")
         assert [
@@ -92,7 +93,6 @@ def test_sample_header_counts_shown_samples(qapp, monkeypatch):
         assert toolbar.samples_section.summary.full_text() == "3 · all shown"
         toolbar.set_selected_samples(["S2"])
         assert toolbar.samples_section.summary.full_text() == "1 of 3 shown"
-        assert toolbar.loaded_data.raw_data_row.value_text() == "3 samples"
     finally:
         toolbar.deleteLater()
 

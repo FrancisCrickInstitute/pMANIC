@@ -109,9 +109,6 @@ class Toolbar(QWidget):
 
     y_scale_policy_changed = Signal(object)
 
-    load_compounds_requested = Signal()
-    load_raw_data_requested = Signal()
-
     def __init__(
         self,
         analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
@@ -170,12 +167,6 @@ class Toolbar(QWidget):
             "No matching compounds", self.compound_filter
         )
         browse_layout.addWidget(self.compound_no_match)
-        self.compound_empty = QLabel(
-            "Compounds appear here once you load a compound list."
-        )
-        self.compound_empty.setProperty("role", "hint")
-        self.compound_empty.setWordWrap(True)
-        browse_layout.addWidget(self.compound_empty)
 
         browse_layout.addWidget(divider())
 
@@ -192,10 +183,6 @@ class Toolbar(QWidget):
         samples_body_layout.addWidget(self.sample_list, 1)
         self.sample_no_match = NoMatchHint("No matching samples", self.sample_filter)
         samples_body_layout.addWidget(self.sample_no_match)
-        self.sample_empty = QLabel("Samples appear here once you load raw data.")
-        self.sample_empty.setProperty("role", "hint")
-        self.sample_empty.setWordWrap(True)
-        samples_body_layout.addWidget(self.sample_empty)
         self.samples_section = CollapsibleSection(
             "Samples", samples_body, settings_key="sidebar/samples_expanded"
         )
@@ -414,12 +401,10 @@ class Toolbar(QWidget):
             self._syncing_checkboxes = False
 
     def _refresh_data_state(self) -> None:
-        """Header rows, counts and empty hints from what is loaded right now."""
+        """Header rows, counts and filter hints from what is loaded right now."""
         compounds = self.compound_list.real_count()
         samples = self.sample_list.real_count()
-        self.loaded_data.update_status(
-            self._raw_loaded, self._compounds_loaded, compounds, samples
-        )
+        self.loaded_data.update_status(self._raw_loaded, self._compounds_loaded)
 
         has_compounds = compounds > 0
         visible = self.compound_filter.visible_count()
@@ -427,7 +412,6 @@ class Toolbar(QWidget):
         self.compound_list.setVisible(has_compounds and not no_match)
         self.compound_filter.setVisible(has_compounds)
         self.compound_no_match.setVisible(no_match)
-        self.compound_empty.setVisible(not has_compounds)
         self.compound_count_label.setText(
             ""
             if not has_compounds
@@ -442,7 +426,6 @@ class Toolbar(QWidget):
         self.sample_list.setVisible(has_samples and matching > 0)
         self.sample_filter.setVisible(has_samples)
         self.sample_no_match.setVisible(has_samples and matching == 0)
-        self.sample_empty.setVisible(not has_samples)
         shown = len(self.get_selected_samples())
         if not has_samples:
             summary = ""
@@ -669,22 +652,7 @@ class Toolbar(QWidget):
         self.sample_list.shown_changed.connect(self._refresh_data_state)
         self.compound_filter.filtered.connect(self._refresh_data_state)
         self.sample_filter.filtered.connect(self._refresh_data_state)
-        self.loaded_data.compounds_row.clicked.connect(self._on_compounds_row_clicked)
-        self.loaded_data.raw_data_row.clicked.connect(self._on_raw_data_row_clicked)
         self.standard.clicked.connect(self._show_internal_standard_menu)
-
-    def _on_compounds_row_clicked(self) -> None:
-        if self._compounds_loaded:
-            self.focus_compound_filter()
-        else:
-            self.load_compounds_requested.emit()
-
-    def _on_raw_data_row_clicked(self) -> None:
-        if self._raw_loaded:
-            self.samples_section.set_expanded(True)
-            self.sample_filter.setFocus()
-        else:
-            self.load_raw_data_requested.emit()
 
     def focus_compound_filter(self) -> None:
         self.compound_filter.setFocus()

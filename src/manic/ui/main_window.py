@@ -440,8 +440,6 @@ class MainWindow(QMainWindow):
         ):
             chart.sample_activated.connect(self._on_qc_sample_activated)
 
-        self.toolbar.load_compounds_requested.connect(self.load_compound_action.trigger)
-        self.toolbar.load_raw_data_requested.connect(self.load_cdf_action.trigger)
         self.start_panel.load_compounds_requested.connect(
             self.load_compound_action.trigger
         )

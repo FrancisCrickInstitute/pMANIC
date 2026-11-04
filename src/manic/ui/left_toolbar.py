@@ -2,7 +2,7 @@ import logging
 from collections.abc import Iterable
 from typing import List
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -271,6 +271,13 @@ class Toolbar(QWidget):
         self.splitter.addWidget(self.inspector)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 1)
+        # Keep the inspector fitted to its content until the user drags the split.
+        self._user_sized = False
+        self.splitter.splitterMoved.connect(self._on_splitter_moved)
+        self._fit_timer = QTimer(self)
+        self._fit_timer.setSingleShot(True)
+        self._fit_timer.timeout.connect(self.fit_inspector)
+        inspector_content.installEventFilter(self)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -342,19 +349,30 @@ class Toolbar(QWidget):
             summary = f"{shown} of {samples} shown"
         self.samples_section.summary.setText(summary)
 
-        if self._raw_loaded and self.inspector.isHidden():
-            self.inspector.show()
-            QTimer.singleShot(0, self.fit_inspector)
         self.inspector.setVisible(self._raw_loaded)
+        self._fit_timer.start()
+
+    def _on_splitter_moved(self, *_args) -> None:
+        self._user_sized = True
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.LayoutRequest:
+            self._fit_timer.start()
+        return super().eventFilter(watched, event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_timer.start()
 
     def fit_inspector(self) -> None:
         """Give the inspector the height it needs to show everything; browse gets the rest."""
         total = sum(self.splitter.sizes())
-        if total <= 0:
+        if self._user_sized or self.inspector.isHidden() or total <= 0:
             return
         wanted = self.inspector.widget().minimumSizeHint().height()
         browse = max(total - wanted, min(BROWSE_MIN_HEIGHT, total // 2))
-        self.splitter.setSizes([browse, total - browse])
+        if self.splitter.sizes()[0] != browse:
+            self.splitter.setSizes([browse, total - browse])
 
     def _connect_signals(self):
         """Connect child widget signals to toolbar signal handlers"""

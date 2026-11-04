@@ -61,7 +61,8 @@ def test_change_pattern_steps_open_inline_under_the_compound_list(qapp, tmp_path
         _settle()
         assert dialog.change_pattern_toggle.text() == "▾ How do I change a pattern?"
         assert dialog.change_pattern_steps.isVisible()
-        assert dialog.change_pattern_steps.text().startswith("For a compound already in the list:")
+        assert dialog.change_pattern_text.text().startswith("1. Edit the mmfiles cell")
+        assert dialog.user_guide_link.isVisible()
         assert source.isVisible()
     finally:
         dialog.close()

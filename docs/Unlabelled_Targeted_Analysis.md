@@ -182,7 +182,7 @@ MANIC still imports a list that omits ratios, tolerances or the second qualifier
 | `Int Std amount` | | Amount of internal standard added to samples. Right-click the compound and choose **Select as Internal Standard**. |
 | `MM Files` | | Pattern that matches MM files (standard mixture). Wildcards allowed, e.g. `*_MM_*`. |
 
-After you load CDF files, the **Check your data setup** dialog lists each compound's `MM Files` pattern and how many sample files it matched. A pattern that matches no files will produce empty calibration data at export. Run the same check later from **Help → Check Data Setup...**. To change the pattern of a compound already in the list, edit the `MM Files` cell in the compound list file, choose **File → Clear Session**, then load the list and the raw data again; the dialog lists what Clear Session removes.
+After you load CDF files, the **Check your data setup** dialog lists each compound's `MM Files` pattern and how many sample files it matched. A pattern that matches no files will produce empty calibration data at export. Run the same check later from **Help → Check Data Setup...**. To change the pattern of a compound already in the list, edit the `MM Files` cell in the compound list file, choose **File → Clear Session**, then load the list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**.
 
 ### Minimal example
 

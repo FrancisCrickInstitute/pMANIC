@@ -41,9 +41,9 @@ def test_checklist_teaches_the_reload_path_for_existing_compounds(qapp):
     text = _texts(dialog)
     assert "Compound list: the file you loaded" in text
     assert dialog.findChild(QPushButton, "openCompoundListButton") is None
+    edit = text.index("Edit the mmfiles cell")
     clear = text.index("File → Clear Session")
-    reload = text.index("File → Load Compounds/Parameter List")
-    add = text.index("File → Add Compound...")
-    assert clear < reload < add
-    assert "importing a session exported earlier brings its old patterns back" in text
+    reload = text.index("Load the compound list and the raw data again")
+    assert edit < clear < reload
+    assert "Details in the user guide" in text
     dialog.close()

@@ -86,11 +86,13 @@ Upon completion, verify the data loaded correctly:
 * Expand **Samples** in the sidebar to see the filenames of your imported samples.
 * Selecting a compound shows one plot per sample in the main view.
 
-After the import finishes, MANIC opens a **Check your data setup** dialog. The dialog shows whether an internal standard is set. Weak peaks are flagged only when one is. It also shows whether each compound's `mmfiles` pattern matches any loaded sample. Click **Apply** to keep the internal standard chosen in the dialog. Click **Continue without changes** to leave the current selection unchanged. You can run the same check later from **Help → Check Data Setup...**. Click **How do I change a pattern?** under the table to show these steps in the dialog. To change the pattern of a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. The dialog shows the loaded file with **Open File** and **Show in Folder**. For a compound not in the list, use **File → Add Compound...**.
-
 ---
 
 ## Step 3: Configure Internal Standard
+
+After the import finishes, MANIC opens a **Check your data setup** dialog. It shows the internal standard and whether each compound's `mmfiles` pattern matches any loaded sample. Weak peaks are flagged only when an internal standard is set. Click **Continue** to keep the setup as it is. If you choose a different internal standard in the dialog, click **Apply** to use it, or **Continue without changes** to keep the current one. Run the same check later from **Help → Check Data Setup...**. The dialog names the loaded compound list with **Open File** and **Show in Folder**.
+
+**Changing an MM pattern.** Click **How do I change a pattern?** under the table for the short version. For a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. For a compound not in the list, use **File → Add Compound...**, which sets its pattern without reloading.
 
 **Objective**   
 Designate the reference compound used for normalization and quantification (MRRF calculation).
@@ -107,11 +109,11 @@ The selected compound must meet specific criteria in your compound definition fi
 2.  Choose your internal standard compound from the menu.
 3.  To remove a selection, open the same menu and choose **No Internal Standard**.
 
-You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**.
+You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. **Settings → Internal Standard** has the same choice next to the reference peak; click **Save this page** to apply it.
 
 **Verification**
 * **Standard selected:** The **Internal standard** row shows the compound name.
-* **No standard:** The row shows **None (optional)**. An internal standard is optional.
+* **No standard:** The row shows **None**. An internal standard is optional.
 
 The compound you are reviewing is highlighted in the **Compounds** list and named at the left of the status bar.
 
@@ -237,7 +239,7 @@ Deleted items are not permanently removed. They are "soft deleted" and can be re
 2.  Select **"Recover Deleted Samples..."** or **"Recover Deleted Compounds..."**.
     *   *This option is grayed out if no items have been deleted.*
 3.  In the recovery dialog, select the items you wish to restore (multi-select is supported).
-4.  Click **Restore selected**.
+4.  Click **Restore selected**. With nothing deleted, the dialog says **No deleted samples** or **No deleted compounds**; click **Close**.
 
 Restored items will immediately reappear in their respective lists and be included in subsequent analyses and exports.
 
@@ -259,11 +261,11 @@ Generate the final analytical report. This process calculates all results, appli
 **Procedure**   
 
 1.  Navigate to **File → Export Data...**.
-2.  In the file dialog, choose a name and location for your output file (e.g., `experiment_results.xlsx`) and click **Save**.
-3.  In **Export Options**, choose the integration method for this workbook:
+2.  In **Export Data**, choose the integration method for this workbook:
     * **Time-based (recommended):** Peak areas use actual time units (intensity × minutes). This is the default.
     * **Legacy (MATLAB-compatible unit spacing):** Unit-spacing integration (sum of intensities). Use this only if you need to match numerical values from the legacy MATLAB tool (values will be about 100× larger).
-    In labelled mode the same dialog has **Include % Carbons Labelled sheet**, off by default. Click **OK** to begin processing.
+    In labelled mode the same dialog has **Include % Carbons Labelled sheet**, off by default. Click **Choose Location…**.
+3.  In the file dialog, choose a name and location for your output file (e.g., `experiment_results.xlsx`) and click **Save** to begin processing.
 4. If no internal standard is selected, a **warning dialog** will appear explaining that results will be exported as unnormalized "Peak Area". Click **Yes** to proceed. 
 
 > **Note on Processing:** MANIC will perform a final check to ensure natural isotope corrections have been applied. If not, a progress bar will appear as it calculates these corrections for all labeled compounds to ensure data integrity.
@@ -283,7 +285,7 @@ The Excel file contains five worksheets by default. A sixth sheet is optional.
 | **3. Isotope Ratio** | Normalized distributions where all isotopologues for a compound sum to 1.0. Used for comparing labeling patterns independent of concentration. |
 | **4. % Label Incorporation** | The percentage of the metabolite pool that has incorporated the experimental label. Includes background correction derived from MM files (standard mixture). |
 | **5. Abundances** | Absolute amounts (nmol), Relative ratios, or raw Peak Areas depending on standard selection. |
-| **% Carbons Labelled** (optional) | Off by default. Tick **Include % Carbons Labelled sheet** in **Export Options** to add the weighted average enrichment of the total carbon pool. |
+| **% Carbons Labelled** (optional) | Off by default. Tick **Include % Carbons Labelled sheet** in **Export Data** to add the weighted average enrichment of the total carbon pool. |
 
 **Validation & Errors**   
 * **Invalid Peaks:** Cells corresponding to peaks that failed the minimum area validation (plots with a **Below threshold** badge) will be highlighted with a **light red background** in the Excel file.
@@ -371,7 +373,7 @@ These settings control the global behavior of the application.
 **Settings → Integration**
 * Two radios: **Time-based (recommended)** (default) and **Legacy**.
 * The choice changes on-screen peak areas only.
-* Export asks again in **Export Options**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
+* Export asks again in **Export Data**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
 * **Deep Dive:** 📖 [Compare Integration Methods](Reference_Integration_Methods.md)
 
 ### Minimum Peak Area
@@ -397,7 +399,7 @@ Two ticks sit in the **Display** section of the sidebar, under the Peak window. 
 **Settings → Deconvolution**
 * **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes around the expected retention time and selects the component nearest that time whose centre sits inside the dashed loffset/roffset window. This can separate overlapping peaks before area calculation.
-* **Scope:** This is a **per-compound** setting. Open **Settings → Deconvolution** with a compound selected; the chosen resolution level and fit type are saved for that compound and used by every sample that does not have its own override. A sample can override the curve fit from the plot right-click menu or from the Per-sample curve fit section on the same settings page. An override is shown on that tile's caption. See [Per-sample curve fit](Reference_Chromatographic_Peak_Deconvolution.md#per-sample-curve-fit).
+* **Scope:** This is a **per-compound** setting. Open **Settings → Deconvolution** with a compound selected; the chosen resolution level and fit type are saved for that compound and used by every sample that does not have its own override. A sample can override the curve fit from the plot right-click menu or from the **Per-sample curve fit** table on the same settings page. An override is shown on that tile's caption. See [Per-sample curve fit](Reference_Chromatographic_Peak_Deconvolution.md#per-sample-curve-fit).
 * **Tiles in view do not limit Save:** The compound setting still applies to every sample of that compound, including samples you are not plotting. A per-sample curve-fit override is the exception.
 * **Resolution levels:** `Off` disables the feature. Levels `1` through `7` increase chromatographic resolution; higher levels allow narrower and weaker overlapping components to be considered (and cost more time). The default `Level 4` is tuned for aggressive splitting of resolved overlaps while staying fast; levels `5`-`7` additionally enable shoulder detection (separating components that ride on a flank without their own peak) for the hardest coelutions.
 * **Fit type:** Choose how the elution shape is modelled:
@@ -479,7 +481,7 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 
 ## Glossary
 
-**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None (optional)**.
+**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. **Settings → Internal Standard** offers the same choice.
 
 **MM files (standard mixture).** Sample files that match the compound-list `mmfiles` pattern. MANIC uses them for MRRF and background correction.
 

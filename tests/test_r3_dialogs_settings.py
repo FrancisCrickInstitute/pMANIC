@@ -26,6 +26,7 @@ def _host(mode: AnalysisMode) -> SimpleNamespace:
         selected_sample_names=lambda: [],
         qualifier_channels=lambda _name: [],
         deconvolution_settings=lambda _name: ("4", "auto", "balanced"),
+        toolbar=SimpleNamespace(compound_list=SimpleNamespace(real_names=lambda: [])),
     )
 
 
@@ -84,7 +85,8 @@ def test_no_settings_copy_points_at_the_removed_toolbar(qapp, mode):
     window.close()
 
 
-def test_internal_standard_hint_names_the_sidebar_row(settings):
+def test_internal_standard_page_offers_the_standard_itself(settings):
     page = settings.page_named("Internal Standard")
     settings.page_list.setCurrentRow(settings._pages.index(page))
-    assert "Internal standard row" in settings.hint_label.text()
+    assert page.standard_combo.itemText(0) == "No internal standard"
+    assert settings.hint_label.text() == "Load a compound list to choose an internal standard."

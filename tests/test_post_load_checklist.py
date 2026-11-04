@@ -49,16 +49,20 @@ def test_dialog_preselects_current_internal_standard(qapp):
     dialog.close()
 
 
-def test_dialog_status_label_updates_when_combo_changes(qapp):
+def test_unchanged_checklist_offers_one_continue(qapp):
     dialog = PostLoadChecklistDialog(["Alanine"], None, [], None)
-    status = dialog.findChild(QLabel, "internalStandardStatus")
     combo = dialog.findChild(QComboBox, "internalStandardCombo")
     assert combo.currentText() == "No internal standard"
-    assert dialog.selected_internal_standard() is None
-    assert status.text() == "Optional"
+    assert dialog.findChild(QLabel, "internalStandardStatus") is None
+    visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
+    assert visible == ["Continue"]
     combo.setCurrentText("Alanine")
     assert dialog.selected_internal_standard() == "Alanine"
-    assert status.text() == "Set"
+    visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
+    assert sorted(visible) == ["Apply", "Continue without changes"]
+    combo.setCurrentIndex(0)
+    visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
+    assert visible == ["Continue"]
     dialog.close()
 
 

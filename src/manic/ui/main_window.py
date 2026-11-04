@@ -84,6 +84,7 @@ from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
+from manic.ui.export_options_dialog import ExportOptionsDialog
 from manic.ui.settings_window import SettingsWindow
 from manic.ui.start_panel import StartPanel
 from manic.ui.theme import set_style_property
@@ -2882,7 +2883,14 @@ class MainWindow(QMainWindow):
         export to ensure data integrity.
         """
         try:
-            # Get export file path
+            options = ExportOptionsDialog(
+                self.use_legacy_integration,
+                self.analysis_mode is AnalysisMode.LABELLED,
+                self,
+            )
+            if options.exec() != QDialog.Accepted:
+                return  # user cancelled
+
             file_path, _ = QFileDialog.getSaveFileName(
                 self,
                 "Export Data to Excel",
@@ -2897,49 +2905,9 @@ class MainWindow(QMainWindow):
             if not file_path.lower().endswith(".xlsx"):
                 file_path += ".xlsx"
 
-            # Export options popup: choose integration mode
-            options_dialog = QDialog(self)
-            options_dialog.setWindowTitle("Export Options")
-            vbox = QVBoxLayout(options_dialog)
-            info_label = QLabel(
-                "Choose integration method for this export (can also be changed in Settings → Integration):"
-            )
-            vbox.addWidget(info_label)
-
-            radio_time = QRadioButton("Time-based (recommended)")
-            radio_legacy = QRadioButton("Legacy (MATLAB-compatible unit spacing)")
-            vbox.addWidget(radio_time)
-            vbox.addWidget(radio_legacy)
-
-            # Default selection depends on current settings toggle
-            if self.use_legacy_integration:
-                radio_legacy.setChecked(True)
-            else:
-                radio_time.setChecked(True)
-
-            include_carbon_enrichment = False
-            if self.analysis_mode is AnalysisMode.LABELLED:
-                vbox.addSpacing(10)
-                vbox.addWidget(QLabel("Optional sheets:"))
-                checkbox_carbon_enrichment = QCheckBox(
-                    "Include % Carbons Labelled sheet"
-                )
-                checkbox_carbon_enrichment.setChecked(False)
-                vbox.addWidget(checkbox_carbon_enrichment)
-
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            vbox.addWidget(buttons)
-            buttons.accepted.connect(options_dialog.accept)
-            buttons.rejected.connect(options_dialog.reject)
-
-            if options_dialog.exec() != QDialog.Accepted:
-                return  # user cancelled
-
             # Read selection and persist to window state
-            chosen_use_legacy = radio_legacy.isChecked()
-            self.use_legacy_integration = chosen_use_legacy
-            if self.analysis_mode is AnalysisMode.LABELLED:
-                include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
+            self.use_legacy_integration = options.use_legacy_integration()
+            include_carbon_enrichment = options.include_carbon_enrichment()
 
             # Get current internal standard selection from toolbar
             internal_standard = self.toolbar.get_internal_standard()

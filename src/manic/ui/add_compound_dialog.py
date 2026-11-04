@@ -84,6 +84,7 @@ class AddCompoundDialog(QDialog):
         self._taken_names = frozenset(taken_names)
         self._record: CompoundRow | UnlabelledCompoundRecord | None = None
         self._errors: dict[QWidget, QLabel] = {}
+        self._placeholders: dict[QLineEdit, str] = {}
         # Each problem names the fields it flags; editing any of them clears it.
         self._problems: list[tuple[tuple[QWidget, ...], str]] = []
         self.validation_message = ""
@@ -123,14 +124,13 @@ class AddCompoundDialog(QDialog):
         self.roffset = self._double_spin()
         self._row(
             retention,
-            "Integration offsets",
+            "Integration offsets (min)",
             self._inline(("Left", self.loffset), ("Right", self.roffset)),
-            "Minutes before (left) and after (right) tR that bound the peak.",
             error_for=(self.loffset, self.roffset),
         )
 
         if unlabelled:
-            self.rt_window = self._optional_float_edit("Optional, defaults to the larger offset")
+            self.rt_window = self._optional_float_edit()
             self._row(
                 retention,
                 "tR window",
@@ -271,7 +271,16 @@ class AddCompoundDialog(QDialog):
         flagged = {field for fields, _ in self._problems for field in fields}
         for field in self._errors:
             set_invalid(field, field in flagged)
+            self._show_placeholder(field, field not in flagged)
         self.validation_message = "\n".join(message for _, message in self._problems)
+
+    def _show_placeholder(self, field: QWidget, shown: bool) -> None:
+        """Hide a field's placeholder while its inline error says what to enter."""
+        edit = field.lineEdit() if hasattr(field, "lineEdit") else field
+        if not isinstance(edit, QLineEdit):
+            return
+        original = self._placeholders.setdefault(edit, edit.placeholderText())
+        edit.setPlaceholderText(original if shown else "")
 
     def _field_edited(self, field: QWidget) -> None:
         kept = [
@@ -342,7 +351,6 @@ class AddCompoundDialog(QDialog):
             mass,
             "Label",
             self._inline(("Element", self.label_type), ("Atoms", self.label_atoms)),
-            "The labelled element and how many of its atoms can carry it.",
             error_for=(self.label_type, self.label_atoms),
         )
 
@@ -403,10 +411,8 @@ class AddCompoundDialog(QDialog):
         notes.addWidget(error)
         notes.addWidget(
             hint_label(
-                "The quantifier and qualifier 1 m/z are required. Qualifier 2, "
-                "expected ratios and tolerances are optional; a qualifier without a "
-                "ratio and tolerance is left unassessed in identity QC. Tolerance is "
-                "a fraction of the ratio (0.25 = ±25%)."
+                "A qualifier without a ratio and tolerance is left unassessed in "
+                "identity QC. Tolerance is a fraction of the ratio (0.25 = ±25%)."
             )
         )
         layout.addLayout(notes)

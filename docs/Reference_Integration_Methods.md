@@ -59,7 +59,7 @@ $$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times 1$$
 * **Time-based (recommended)** (default): uses time-based integration on screen.
 * **Legacy**: uses unit-spacing integration on screen.
 
-Export asks again in **Export Options**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
+Export asks again in **Export Data**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
 
 ### Boundary Handling (Technical Note)
 Both methods utilize the same "Strict Boundary" logic to determine which points are included in the sum:

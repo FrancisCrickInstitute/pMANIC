@@ -7,8 +7,8 @@ list that no app-wide rule covers, built from ``theme`` tokens.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, QPointF, QRect, QSize, Qt
-from PySide6.QtGui import QFont, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import QModelIndex, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QDialogButtonBox,
@@ -16,8 +16,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QPushButton,
+    QHBoxLayout,
     QStyledItemDelegate,
     QStyleOptionViewItem,
+    QToolButton,
+    QToolTip,
     QWidget,
 )
 
@@ -32,12 +35,20 @@ MARKED_ROLE = Qt.UserRole + 1
 _DIALOG_STYLE = """
 QLabel { padding: 0px; background: transparent; }
 QLabel[role="title"] { font-size: 16px; font-weight: 600; color: @text; }
-QLabel[role="section"] { font-size: 11px; font-weight: 600; color: @text_tertiary; }
+QLabel[role="section"] { font-size: 13px; font-weight: 600; color: @text; }
 QLabel[role="description"] { font-size: 13px; color: @text_secondary; }
 QLabel[role="hint"] { font-size: 12px; color: @text_secondary; }
 QLabel[role="error"] { font-size: 12px; color: @danger; }
 QLabel[role="pending"] { font-size: 12px; color: @warning; }
 *[invalid="true"] { border: 1px solid @danger; border-radius: 6px; }
+QToolButton[role="help"] {
+    min-width: 18px; max-width: 18px; min-height: 18px; max-height: 18px;
+    padding: 0px; border: 1px solid @border_strong; border-radius: 9px;
+    background: transparent; color: @text_secondary; font-size: 11px; font-weight: 600;
+}
+QToolButton[role="help"]:hover { background: @surface_hover; color: @text; }
+QToolButton[role="help"]:focus { border-color: @accent; }
+QPushButton::menu-indicator { image: none; width: 0px; }
 """
 
 _SIDEBAR_STYLE = """
@@ -90,11 +101,8 @@ def title_label(text: str) -> QLabel:
 
 
 def section_label(text: str) -> QLabel:
-    label = _role_label(text.upper(), "section", wrap=False)
-    font = label.font()
-    font.setLetterSpacing(QFont.AbsoluteSpacing, 0.5)
-    label.setFont(font)
-    return label
+    """Sentence-case group title; uppercase headings belong to the main sidebar only."""
+    return _role_label(text, "section", wrap=False)
 
 
 def description_label(text: str) -> QLabel:
@@ -103,6 +111,34 @@ def description_label(text: str) -> QLabel:
 
 def hint_label(text: str) -> QLabel:
     return _role_label(text, "hint")
+
+
+def help_button(text: str) -> QToolButton:
+    """A small "?" beside a control: hover or click shows the longer explanation."""
+    button = QToolButton()
+    button.setText("?")
+    button.setProperty("role", "help")
+    button.setToolTip(text)
+    button.setAccessibleName("Help")
+    button.setAccessibleDescription(text)
+    button.setCursor(Qt.PointingHandCursor)
+    button.clicked.connect(
+        lambda: QToolTip.showText(
+            button.mapToGlobal(QPoint(0, button.height())), text, button
+        )
+    )
+    return button
+
+
+def with_help(field: QWidget, text: str) -> QWidget:
+    """``field`` with a help button at its right."""
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    layout.addWidget(field, stretch=1)
+    layout.addWidget(help_button(text))
+    return row
 
 
 def error_label() -> QLabel:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QSignalBlocker, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QDesktopServices,  # Add this for opening URLs
@@ -2516,8 +2516,16 @@ class MainWindow(QMainWindow):
                 progress.setLabelText("Clearing visual elements...")
                 QCoreApplication.processEvents()
 
-                # Clear visual elements immediately
-                self.graph_view.clear_all_plots()
+                # Clear visual elements immediately. The deselection signal is
+                # blocked because its chart refresh is wasted on charts cleared
+                # below; the integration panel still resets as it did.
+                compound = self.graph_view.get_current_compound()
+                if compound:
+                    self.toolbar.integration.populate_fields_from_plots(
+                        compound, [], self.graph_view.get_current_samples()
+                    )
+                with QSignalBlocker(self.graph_view):
+                    self.graph_view.clear_all_plots()
                 self.toolbar.isotopologue_ratios._clear_chart()
                 self.toolbar.total_abundance._clear_chart()
                 self.toolbar.targeted_qc.clear()

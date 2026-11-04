@@ -788,7 +788,13 @@ class DetailedPlotDialog(QDialog):
                 width=PLOT_STEM_WIDTH,
             )
 
-            self.ms_plot.label_peaks(self.ms_data.mz, self.ms_data.intensity)
+            self.ms_plot.label_peaks(
+                self.ms_data.mz,
+                self.ms_data.intensity,
+                own_mz=[
+                    channel.mz for channel in self.compound_info.analysis_channels
+                ] if self.compound_info else (),
+            )
 
             # Mark target m/z position with transparent indicator
             if self.compound_info:

@@ -44,6 +44,8 @@ from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentitySampleAssessment,
+    QualifierOutcome,
+    qualifier_outcome,
 )
 
 from .channel_chips import CHIP_HEIGHT, ChannelChipRow
@@ -658,10 +660,11 @@ class GraphView(QWidget):
             self._layout.setRowMinimumHeight(row, row_height)
 
     def select_sample(self, sample_name: str) -> bool:
-        """Select the plot for ``sample_name``; return False if not shown."""
-        for plot in self._current_plots:
+        """Select, focus and scroll to the plot for ``sample_name``; False if not shown."""
+        for index, plot in enumerate(self._current_plots):
             if plot.sample_name == sample_name:
                 self.select_only_plot(plot)
+                self._focus_on(index)
                 return True
         return False
 
@@ -751,13 +754,16 @@ class GraphView(QWidget):
     def _move_focus(self, delta: int) -> None:
         count = len(self._current_plots)
         if self._focus_index is None:
-            self._focus_index = 0
+            self._focus_on(0)
+        elif 0 <= self._focus_index + delta < count:
+            self._focus_on(self._focus_index + delta)
         else:
-            target = self._focus_index + delta
-            if 0 <= target < count:
-                self._focus_index = target
+            self._focus_on(self._focus_index)
+
+    def _focus_on(self, index: int) -> None:
+        self._focus_index = index
         self._paint_focus()
-        tile = self._current_plots[self._focus_index].parent()
+        tile = self._current_plots[index].parent()
         if isinstance(tile, QWidget):
             self._scroll.ensureWidgetVisible(tile, 0, TILE_GAP)
 
@@ -915,25 +921,25 @@ class GraphView(QWidget):
             show_only.setText(f"Show Only {shown} Selected Samples")
 
         accept_count = reject_count = fit_count = 1
-        review = None
+        accepted = rejected = False
         if lead is not None:
-            accept_count = len(self._peak_review_targets(lead, PeakReview.ACCEPTED)[1])
-            reject_count = len(self._peak_review_targets(lead, PeakReview.REJECTED)[1])
+            accept_review, accept_plots = self._peak_review_targets(lead, PeakReview.ACCEPTED)
+            reject_review, reject_plots = self._peak_review_targets(lead, PeakReview.REJECTED)
+            accept_count, reject_count = len(accept_plots), len(reject_plots)
+            # A toggle that would clear the review means the review is already set.
+            accepted = bool(accept_plots) and accept_review is None
+            rejected = reject_review is None
             fit_count = len(self._curve_fit_targets(lead))
-            review = self._review_for_plot(lead)
         accept.setCheckable(True)
-        accept.setChecked(review is PeakReview.ACCEPTED)
-        accept.setEnabled(
-            lead is not None
-            and self._verdict_for_plot(lead) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
-        )
+        accept.setChecked(accepted)
+        accept.setEnabled(lead is not None and accept_count > 0)
         accept.setText(
             f"Accept {accept_count} Peaks (Below Threshold)"
             if accept_count > 1
             else "Accept Peak (Below Threshold)"
         )
         reject.setCheckable(True)
-        reject.setChecked(review is PeakReview.REJECTED)
+        reject.setChecked(rejected)
         reject.setEnabled(lead is not None)
         reject.setText(
             f"Mark {reject_count} Peaks as Bad" if reject_count > 1 else "Mark Peak as Bad"
@@ -971,19 +977,26 @@ class GraphView(QWidget):
     def _peak_review_targets(
         self, clicked_plot: ClickableChartView, review: PeakReview
     ) -> tuple[PeakReview | None, set[ClickableChartView]]:
-        """The review a menu toggle sets, and the plots it sets it on."""
-        new_review = None if self._review_for_plot(clicked_plot) is review else review
+        """The review a menu toggle sets, and the plots it sets it on.
+
+        Accept only reaches below-threshold peaks; when the clicked plot is
+        not one, the first eligible plot in grid order decides the toggle.
+        """
         plots = (
             self._selected_plots
             if clicked_plot in self._selected_plots
             else {clicked_plot}
         )
-        if new_review is PeakReview.ACCEPTED:
+        basis = clicked_plot
+        if review is PeakReview.ACCEPTED:
             plots = {
                 plot
                 for plot in plots
                 if self._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
             }
+            if plots and clicked_plot not in plots:
+                basis = next(plot for plot in self._current_plots if plot in plots)
+        new_review = None if self._review_for_plot(basis) is review else review
         return new_review, plots
 
     def toggle_peak_review(
@@ -1568,6 +1581,8 @@ class GraphView(QWidget):
 
         chart = QChart()
         style_chart(chart, QMargins(2, 2, 4, 0))
+        # The card's fill, tinted for a QC problem, runs under the traces too.
+        chart.setPlotAreaBackgroundVisible(False)
 
         scale_factor = axis_scale.scale_factor
         scaled_y_max = axis_scale.scaled_max
@@ -2088,7 +2103,17 @@ class GraphView(QWidget):
     def _restyle_container(self, container: QWidget):
         verdict = getattr(container, "verdict", PeakVerdict.PASS)
         sample_name = getattr(container.chart_view, "sample_name", "")
-        container.set_badges(tile_badges(verdict, self._sample_identity(sample_name)))
+        identity = self._sample_identity(sample_name)
+        container.set_badges(tile_badges(verdict, identity))
+        # Nothing was detected, so the traces are noise: fade them under the badge.
+        faded = (
+            identity is not None
+            and identity.qc is not None
+            and qualifier_outcome(identity.qc) is QualifierOutcome.NOT_DETECTED
+        )
+        if isinstance(container.chart_view, ClickableChartView):
+            for series in container.chart_view.chart().series():
+                series.setOpacity(0.4 if faded else 1.0)
 
     def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:

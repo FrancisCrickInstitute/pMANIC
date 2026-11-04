@@ -11,12 +11,13 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QMargins, QPointF, Qt
-from PySide6.QtGui import QCursor, QPainter
+from PySide6.QtCore import QEvent, QMargins, QMetaMethod, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QCursor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
+    QGraphicsRectItem,
     QGraphicsSimpleTextItem,
     QHBoxLayout,
     QLabel,
@@ -44,9 +45,11 @@ from manic.ui.colors import (
     label_colors,
 )
 from manic.ui.identity_chart import (
+    STATUS_MARKS,
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
+    identity_chart_height,
     show_identity_tooltip,
 )
 from manic.ui.theme import FONT_SIZE_TITLE, color
@@ -73,21 +76,6 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
     return counts
 
 
-def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
-    counts = identity_status_counts(identity) if identity is not None else None
-    parts = []
-    for qcolor, name in (
-        (QUALIFIER_GREEN, "Validated"),
-        (QUALIFIER_RED, "Failed"),
-        (QUALIFIER_GREY, "No verdict"),
-    ):
-        count = "" if counts is None else f"&nbsp;<b>{counts[name]}</b>"
-        parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{name}{count}')
-    # Counts are cells, not samples; the unit leads so it is read first.
-    unit = "" if counts is None else "Qualifier cells&nbsp;&nbsp;"
-    return unit + "&nbsp;&nbsp;&nbsp;".join(parts)
-
-
 _NO_VERDICT_STATES = {
     QualifierStatus.ABSENT: "absent",
     QualifierStatus.NOT_ASSESSED: "not assessed",
@@ -95,13 +83,46 @@ _NO_VERDICT_STATES = {
 }
 
 
-def identity_key_tooltip(identity: IdentityAssessmentSet) -> str:
-    """What the key counts, and which states the grey cells hold."""
+def _grey_counts(identity: IdentityAssessmentSet) -> dict[QualifierStatus, int]:
     grey = {status: 0 for status in _NO_VERDICT_STATES}
     for sample in identity.samples:
         for qualifier in sample.qualifiers:
             if qualifier.status in grey:
                 grey[qualifier.status] += 1
+    return grey
+
+
+def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
+    counts = identity_status_counts(identity) if identity is not None else None
+    parts = []
+    for qcolor, name, mark in (
+        (QUALIFIER_GREEN, "Validated", STATUS_MARKS[QualifierStatus.VALIDATED]),
+        (QUALIFIER_RED, "Failed", STATUS_MARKS[QualifierStatus.FAILED]),
+        (QUALIFIER_GREY, "No verdict", ""),
+    ):
+        count = "" if counts is None else f"&nbsp;<b>{counts[name]}</b>"
+        mark = f"{mark}&nbsp;" if mark else ""
+        parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{mark}{name}{count}')
+    if counts is not None and counts["No verdict"]:
+        # Each grey state by its cell mark, so the key reads without hovering.
+        grey_counts = _grey_counts(identity)
+        grey = ", ".join(
+            f"{STATUS_MARKS[status]}&nbsp;{grey_counts[status]}&nbsp;{label}"
+            for status, label in _NO_VERDICT_STATES.items()
+            if grey_counts[status]
+        )
+        parts[-1] += f" ({grey})"
+    # Counts are cells, not samples; the unit leads so it is read first.
+    unit = "" if counts is None else "Qualifier cells&nbsp;"
+    # Each entry stays whole, so a narrow key wraps between entries.
+    return " ".join(
+        f'<span style="white-space:nowrap">{part}</span>' for part in (unit, *parts) if part
+    )
+
+
+def identity_key_tooltip(identity: IdentityAssessmentSet) -> str:
+    """What the key counts, and which states the grey cells hold."""
+    grey = _grey_counts(identity)
     breakdown = ", ".join(
         f"{grey[status]} {label}" for status, label in _NO_VERDICT_STATES.items()
     )
@@ -120,8 +141,24 @@ def bar_value_text(value: float) -> str:
     return f"{value:.2f}"
 
 
+class _BackedText(QGraphicsSimpleTextItem):
+    """Text on a panel-coloured patch, so a gridline never strikes through it."""
+
+    def paint(self, painter, option, widget=None):
+        painter.fillRect(self.boundingRect(), color("surface"))
+        super().paint(painter, option, widget)
+
+
 class ChartPopupDialog(QDialog):
-    """Modal dialog showing an enlarged version of toolbar charts with sample names visible."""
+    """Modal dialog showing an enlarged version of toolbar charts with sample names visible.
+
+    ``data`` and ``sample_names`` run bottom to top, as the sidebar charts
+    draw them, so every popup reads top-down in grid order. Clicking a sample
+    row, or Enter on the row picked with the arrow keys, emits
+    ``sample_activated`` and closes the popup, once something listens.
+    """
+
+    sample_activated = Signal(str)
 
     def __init__(
         self,
@@ -148,6 +185,7 @@ class ChartPopupDialog(QDialog):
         self._total_abundance_scale_factor: float = 1.0
         self._total_abundance_scale_exp: int = 0
         self._value_labels: list[tuple[QGraphicsSimpleTextItem, float, int]] = []
+        self._current_row: int | None = None
 
         self.setWindowTitle(f"{title} — MANIC")
         self.setModal(True)
@@ -158,6 +196,13 @@ class ChartPopupDialog(QDialog):
         self._setup_ui(title, compound_name or (identity.compound_name if identity else ""))
         self._populate_chart()
         self._fit_to_rows()
+        self._row_marker = QGraphicsRectItem(self.chart)
+        self._row_marker.setBrush(Qt.NoBrush)
+        self._row_marker.setZValue(100)
+        self._row_marker.hide()
+        self.chart.plotAreaChanged.connect(self._place_row_marker)
+        self.chart_view.viewport().setMouseTracking(True)
+        self.chart_view.viewport().installEventFilter(self)
 
     @classmethod
     def for_identity(
@@ -236,13 +281,14 @@ class ChartPopupDialog(QDialog):
         footer = QHBoxLayout()
         footer.addWidget(self.status_legend)
         footer.addStretch()
-        if self.chart_type != "total_abundance":
-            hint = QLabel(
-                "Hover a cell for details" if self.chart_type == "identity"
-                else "Hover a bar for its value"
-            )
-            theme.style(hint, text_style("text_tertiary", 11))
-            footer.addWidget(hint)
+        hover = {
+            "identity": "Hover a cell for details",
+            "isotopologue_ratios": "Hover a bar for its value",
+        }.get(self.chart_type, "")
+        self._hint = QLabel(hover)
+        self._hover_hint = hover
+        theme.style(self._hint, text_style("text_tertiary", 11))
+        footer.addWidget(self._hint)
         close_button = QPushButton("Close")
         close_button.setAutoDefault(False)
         close_button.clicked.connect(self.accept)
@@ -251,11 +297,16 @@ class ChartPopupDialog(QDialog):
 
     def _fit_to_rows(self) -> None:
         rows = max(len(self.sample_names), 1)
-        self.chart_view.setMinimumHeight(rows * ROW_HEIGHT + _AXIS_SPACE)
+        # Fixed, top-aligned: a short list keeps slim rows instead of slabs.
+        self.chart_view.setFixedHeight(
+            identity_chart_height(rows) if self.chart_type == "identity"
+            else rows * ROW_HEIGHT + _AXIS_SPACE
+        )
+        self._scroll.setAlignment(Qt.AlignTop)
         screen = self.screen() or QApplication.primaryScreen()
         max_height = int(screen.availableGeometry().height() * 0.85) if screen else 900
         chrome = 150 + (30 if self.ion_legend.isVisibleTo(self) else 0)
-        self.resize(820, min(max_height, rows * ROW_HEIGHT + _AXIS_SPACE + chrome))
+        self.resize(820, min(max_height, self.chart_view.height() + chrome))
 
     def _populate_chart(self):
         """Populate chart based on type and data."""
@@ -285,9 +336,7 @@ class ChartPopupDialog(QDialog):
         self._total_abundance_scale_factor = float(scale_factor)
         self._total_abundance_scale_exp = scale_exp
 
-        # Bar i sits on category i, and the axis lists samples bottom to top,
-        # so the values go in reversed too.
-        scaled = [float(abundance) / scale_factor for abundance in reversed(self.data)]
+        scaled = [float(abundance) / scale_factor for abundance in self.data]
         for value in scaled:
             bar_set.append(value)
 
@@ -311,8 +360,10 @@ class ChartPopupDialog(QDialog):
     def _add_value_labels(self, series: QHorizontalBarSeries, values: list[float]) -> None:
         """Value text past each bar end. QtCharts' own labels can only print raw numbers."""
         for index, value in enumerate(values):
-            item = QGraphicsSimpleTextItem(bar_value_text(value), self.chart)
+            item = _BackedText(bar_value_text(value), self.chart)
             item.setFont(ui_font(10))
+            # Above QtCharts' gridlines, which sit over plain chart children.
+            item.setZValue(50)
             self._value_labels.append((item, value if np.isfinite(value) else 0.0, index))
         self._value_series = series
         self._recolour_value_labels()
@@ -323,6 +374,7 @@ class ChartPopupDialog(QDialog):
     def _recolour_value_labels(self, *_args) -> None:
         for item, _value, _index in self._value_labels:
             item.setBrush(color("text_secondary"))
+            item.update()
 
     def _place_value_labels(self, *_args) -> None:
         for item, value, index in self._value_labels:
@@ -502,15 +554,13 @@ class ChartPopupDialog(QDialog):
             f"Total abundance  {scale_text(scale_exp)}" if scale_exp else "Total abundance"
         )
 
-        # Sample names bottom to top, matching QtCharts' category order.
-        reversed_names = list(reversed(self.sample_names))
-        y_axis = self._sample_axis(reversed_names)
+        y_axis = self._sample_axis(list(self.sample_names))
 
         # Value axis on top so it stays in view while a long list scrolls.
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
 
-        self._hover_categories = list(reversed_names)
+        self._hover_categories = list(self.sample_names)
 
     def _setup_isotopologue_axes(self):
         """Setup axes for isotopologue chart."""
@@ -530,3 +580,92 @@ class ChartPopupDialog(QDialog):
         # Value axis on top so it stays in view while a long list scrolls.
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
+
+    def row_names(self) -> list[str]:
+        """Sample names top to bottom, as the rows read."""
+        axis = next(
+            (a for a in self.chart.axes(Qt.Vertical) if isinstance(a, QBarCategoryAxis)), None
+        )
+        return list(reversed(axis.categories())) if axis is not None else []
+
+    def _rows_active(self) -> bool:
+        return bool(self.row_names()) and self.isSignalConnected(
+            QMetaMethod.fromSignal(self.sample_activated)
+        )
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._rows_active():
+            self._hint.setText(
+                " · ".join(p for p in (self._hover_hint, "Click a sample to show its plot") if p)
+            )
+            self.chart_view.viewport().setCursor(Qt.PointingHandCursor)
+
+    def _row_at(self, viewport_pos) -> int | None:
+        series = self.chart.series()
+        if not series:
+            return None
+        point = self.chart.mapFromScene(self.chart_view.mapToScene(viewport_pos))
+        area = self.chart.plotArea()
+        if not (area.top() <= point.y() <= area.bottom()) or point.x() > area.right():
+            return None
+        category = round(self.chart.mapToValue(point, series[0]).y())
+        rows = len(self.row_names())
+        return rows - 1 - category if 0 <= category < rows else None
+
+    def set_current_row(self, row: int | None) -> None:
+        self._current_row = row
+        self._place_row_marker()
+
+    def _place_row_marker(self, *_args) -> None:
+        series = self.chart.series()
+        if self._current_row is None or not series:
+            self._row_marker.hide()
+            return
+        category = len(self.row_names()) - 1 - self._current_row
+        top = self.chart.mapToPosition(QPointF(0, category + 0.5), series[0]).y()
+        bottom = self.chart.mapToPosition(QPointF(0, category - 0.5), series[0]).y()
+        area = self.chart.plotArea()
+        self._row_marker.setRect(QRectF(2, top, area.right() - 2, bottom - top))
+        self._row_marker.setPen(QPen(color("accent"), 1.5))
+        self._row_marker.show()
+        centre = self.chart_view.mapFromScene(self._row_marker.sceneBoundingRect().center())
+        self._scroll.ensureVisible(centre.x(), centre.y(), 0, int(bottom - top))
+
+    def activate_row(self, row: int) -> None:
+        names = self.row_names()
+        if not self._rows_active() or not 0 <= row < len(names):
+            return
+        self.sample_activated.emit(names[row])
+        self.accept()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.chart_view.viewport() and self._rows_active():
+            if event.type() == QEvent.MouseMove:
+                row = self._row_at(event.position().toPoint())
+                if row is not None and row != self._current_row:
+                    self.set_current_row(row)
+            elif (
+                event.type() == QEvent.MouseButtonRelease
+                and event.button() == Qt.LeftButton
+            ):
+                row = self._row_at(event.position().toPoint())
+                if row is not None:
+                    self.activate_row(row)
+                    return True
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event) -> None:
+        rows = len(self.row_names())
+        if self._rows_active() and rows:
+            key = event.key()
+            if key in (Qt.Key_Down, Qt.Key_Up):
+                step = 1 if key == Qt.Key_Down else -1
+                start = -1 if step == 1 else rows
+                current = start if self._current_row is None else self._current_row
+                self.set_current_row(min(max(current + step, 0), rows - 1))
+                return
+            if key in (Qt.Key_Return, Qt.Key_Enter) and self._current_row is not None:
+                self.activate_row(self._current_row)
+                return
+        super().keyPressEvent(event)

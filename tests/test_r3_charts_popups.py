@@ -1,5 +1,6 @@
 import numpy as np
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextDocumentFragment
 from PySide6.QtWidgets import QLabel
 
 from manic.models.analysis import IonChannel, IonRole
@@ -40,7 +41,9 @@ def test_abundance_popup_puts_each_value_beside_its_own_sample(qapp):
         assert by_name["A"] == 0.91
         assert by_name["D"] == 1.13
         assert by_name["C"] == 0.0
-        assert dialog.value_label_texts() == ["0.91", "<0.01", "—", "1.13"]
+        # Names arrive bottom to top, as the sidebar chart draws them.
+        assert dialog.row_names() == ["D", "C", "B", "A"]
+        assert dialog.value_label_texts() == ["1.13", "—", "<0.01", "0.91"]
     finally:
         dialog.deleteLater()
 
@@ -91,7 +94,7 @@ def test_identity_counts_name_their_units_and_grey_states(qapp):
         widget.update_results(_identity())
         assert widget.header.detail.text() == "3 samples · 2 samples failed"
         key = widget.key.text()
-        assert key.startswith("Qualifier cells")
+        assert QTextDocumentFragment.fromHtml(key).toPlainText().startswith("Qualifier cells")
         assert "Validated&nbsp;<b>1</b>" in key
         assert "Failed&nbsp;<b>2</b>" in key
         assert "No verdict&nbsp;<b>3</b>" in key

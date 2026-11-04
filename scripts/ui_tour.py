@@ -259,6 +259,11 @@ def tour_steps(tour: Tour) -> None:
         tour.pump(0.5)
 
     tour.run("sidebar_filter_and_samples", filter_and_samples)
+    tour.run(
+        "internal_standard_menu",
+        tour.window.toolbar._show_internal_standard_menu,
+        grab_main=False,
+    )
 
 
 def main() -> int:

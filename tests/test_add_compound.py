@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-from PySide6.QtWidgets import QWidget
 
 from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import (
@@ -264,29 +263,30 @@ def test_blank_optional_numeric_maps_to_none(qapp):
     assert record.int_std_amount is None
 
 
-def test_invalid_ok_keeps_dialog_open_and_warns(qapp):
-    shown = []
-
-    class Parent(QWidget):
-        def _create_message_box(self, *args, **kwargs):
-            shown.append(args)
-            return SimpleNamespace(exec=lambda: None)
-
-    parent = Parent()
-    dialog = AddCompoundDialog(parent, AnalysisMode.LABELLED)
+def test_invalid_ok_keeps_dialog_open_and_flags_the_field(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
     dialog.show()
     dialog._on_ok()
     assert dialog.isVisible()
-    assert shown
-    assert shown[0][0] == "warning"
+    assert dialog.record is None
+    assert dialog.validation_message == "Enter a compound name."
+    assert dialog.focusWidget() is dialog.compound_name
+    assert dialog.compound_name.property("invalid") is True
+    dialog.compound_name.setText("Alanine")
+    assert dialog.validation_message == ""
+    assert dialog.compound_name.property("invalid") is False
     dialog.close()
-    parent.close()
 
 
-def _warning_capture(dialog: AddCompoundDialog) -> list:
-    shown = []
-    dialog._show_warning = shown.append
-    return shown
+def test_required_spin_boxes_start_blank_and_still_reject_zero(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
+    _fill_labelled(dialog)
+    dialog.retention_time.lineEdit().setText("")
+    dialog.retention_time.interpretText()
+    assert dialog.retention_time.value() == 0.0
+    dialog._on_ok()
+    assert dialog.record is None
+    assert dialog.validation_message == "tR (minutes) must be greater than 0."
 
 
 def test_duplicate_name_keeps_dialog_open(qapp):
@@ -294,10 +294,9 @@ def test_duplicate_name_keeps_dialog_open(qapp):
         analysis_mode=AnalysisMode.LABELLED, taken_names={"Alanine"}
     )
     _fill_labelled(dialog)
-    shown = _warning_capture(dialog)
     dialog._on_ok()
     assert dialog.record is None
-    assert shown and "already exists" in shown[0]
+    assert "already exists" in dialog.validation_message
     assert dialog.compound_name.text() == "Alanine"
 
 
@@ -305,20 +304,18 @@ def test_zero_retention_time_rejected(qapp):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
     _fill_labelled(dialog)
     dialog.retention_time.setValue(0.0)
-    shown = _warning_capture(dialog)
     dialog._on_ok()
     assert dialog.record is None
-    assert shown and "tR" in shown[0]
+    assert "tR" in dialog.validation_message
 
 
 def test_zero_mass0_rejected(qapp):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
     _fill_labelled(dialog)
     dialog.mass0.setValue(0.0)
-    shown = _warning_capture(dialog)
     dialog._on_ok()
     assert dialog.record is None
-    assert shown and "Mass0" in shown[0]
+    assert "Mass0" in dialog.validation_message
 
 
 def test_taken_compound_names_includes_soft_deleted(empty_db):

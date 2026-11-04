@@ -50,7 +50,13 @@ from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
 from manic.models.analysis import IonRole
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
-from manic.ui.colors import channel_trace_styles, label_colors, steel_blue_colour
+from manic.ui.colors import (
+    abundance_colour,
+    channel_trace_styles,
+    dark_red_colour,
+    label_colors,
+    steel_blue_colour,
+)
 from manic.validation.unlabelled_identity import IdentitySampleAssessment
 from manic.ui.chart_style import text_style
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
@@ -556,7 +562,7 @@ class DetailedPlotDialog(QDialog):
                 self.eic_plot.plot_line(
                     baseline_x,
                     baseline_y_vals,
-                    color="darkred",
+                    color=dark_red_colour.name(),
                     width=1.2,
                     name="",
                     style="dashed",
@@ -729,7 +735,7 @@ class DetailedPlotDialog(QDialog):
             self.tic_plot.plot_line(
                 self.tic_data.time,
                 self.tic_data.intensity,
-                color="darkgreen",
+                color=abundance_colour.name(),
                 width=PLOT_LINE_WIDTH,
                 name="Total Ion Chromatogram",
             )
@@ -763,7 +769,7 @@ class DetailedPlotDialog(QDialog):
             self.ms_plot.plot_stems(
                 self.ms_data.mz,
                 self.ms_data.intensity,
-                color="darkblue",
+                color=COLORS["text"],
                 width=PLOT_STEM_WIDTH,
             )
 

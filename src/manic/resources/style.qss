@@ -933,6 +933,11 @@ QDialog#settingsWindow QStackedWidget > QWidget {
     background-color: transparent;
 }
 
+/* Reset and Apply pinned across the bottom of a short inspector, over the fields that scroll. */
+QWidget#peakActions[pinned="true"] {
+    border-top: 1px solid @border;
+}
+
 /* The inspector's section switcher on a short sidebar: same shape as the grid's density switch. */
 QWidget#inspectorSwitcher QToolButton {
     font-size: 11px;

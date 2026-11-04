@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import List, NamedTuple
 
-from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -30,6 +30,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.processors.tile_y_scale import YScalePolicy, available_y_scale_policies
 from manic.ui import theme
+from manic.ui.theme import set_style_property
 from manic.utils.paths import resource_path
 
 from .compound_list_widget import CompoundListWidget
@@ -71,6 +72,54 @@ class _BrowseList(NamedTuple):
     floor: int  # height of the rows it keeps while the Peak window fits
     full: int  # height of every row the filter leaves
     weight: int
+
+
+class _PinnedRow(QObject):
+    """Keeps a row of a scroll area's content whole: in its place while that is in view,
+    else pinned across the bottom of the viewport, never half shown."""
+
+    PAD = 8
+
+    def __init__(self, row: QWidget, area: QScrollArea):
+        super().__init__(row)
+        self._row = row
+        self._area = area
+        self._slot = QWidget()
+        self._slot.setFixedHeight(row.sizeHint().height())
+        row.parentWidget().layout().replaceWidget(row, self._slot)
+        row.setParent(area.viewport())
+        row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._slot.installEventFilter(self)
+        area.viewport().installEventFilter(self)
+        area.verticalScrollBar().valueChanged.connect(self.place)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (
+            QEvent.Type.Move,
+            QEvent.Type.Resize,
+            QEvent.Type.Show,
+            QEvent.Type.Hide,
+        ):
+            self.place()
+        return False
+
+    def place(self, *_args) -> None:
+        viewport, row, slot = self._area.viewport(), self._row, self._slot
+        row.setVisible(slot.isVisibleTo(viewport))
+        if row.isHidden():
+            return
+        at = slot.mapTo(viewport, QPoint(0, 0))
+        pinned = at.y() + slot.height() > viewport.height()
+        if pinned:
+            right = viewport.width() - at.x() - slot.width()
+            row.layout().setContentsMargins(at.x(), self.PAD, right, self.PAD)
+            height = slot.height() + 2 * self.PAD
+            row.setGeometry(0, viewport.height() - height, viewport.width(), height)
+        else:
+            row.layout().setContentsMargins(0, 0, 0, 0)
+            row.setGeometry(QRect(at, slot.size()))
+        set_style_property(row, "pinned", "true" if pinned else None)
+        row.raise_()
 
 
 def _menu_check_image() -> str:
@@ -308,6 +357,13 @@ class Toolbar(QWidget):
         self.inspector.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.inspector.setFrameShape(QFrame.NoFrame)
         self.inspector.setWidget(inspector_content)
+        # On a short sidebar Reset and Apply stay under the scrolling fields, never cut through.
+        self._pinned_actions = _PinnedRow(self.integration.action_row, self.inspector)
+        QWidget.setTabOrder(
+            self.integration.findChild(QLineEdit, "ro_input"), self.integration.restore_button
+        )
+        QWidget.setTabOrder(self.integration.restore_button, self.integration.apply_button)
+        QWidget.setTabOrder(self.integration.apply_button, self.integration.tr_window_edit)
 
         # On a short sidebar this stands in for the section headings: one section at a time.
         self._compact = False

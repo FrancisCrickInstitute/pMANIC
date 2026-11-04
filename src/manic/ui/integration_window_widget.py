@@ -279,8 +279,11 @@ class IntegrationWindow(QWidget):
             fields.addWidget(edt, row, 1)
         layout.addLayout(fields)
 
-        # Action buttons
-        button_row = QHBoxLayout()
+        # Reset and Apply; the sidebar pins this row when the fields scroll.
+        self.action_row = QWidget()
+        self.action_row.setObjectName("peakActions")
+        button_row = QHBoxLayout(self.action_row)
+        button_row.setContentsMargins(0, 0, 0, 0)
         button_row.setSpacing(8)
         self.restore_button = QPushButton("Reset")
         self.restore_button.setObjectName("RestoreButton")
@@ -293,7 +296,7 @@ class IntegrationWindow(QWidget):
         self.apply_button.setProperty("variant", "primary")
         self.apply_button.clicked.connect(self._on_apply_clicked)
         button_row.addWidget(self.apply_button, 2)
-        layout.addLayout(button_row)
+        layout.addWidget(self.action_row)
 
         # tR Window field for data regeneration
         tr_window_row = QHBoxLayout()

@@ -34,8 +34,7 @@ from .chart_style import style_axis, style_chart
 from .colors import label_colors
 from .sidebar_widgets import (
     SUMMARY_CHART_HEIGHT,
-    fit_sample_names,
-    names_hint,
+    SummaryChartArea,
     summary_chart_height,
 )
 from .theme import color
@@ -100,14 +99,14 @@ class IsotopologueRatioWidget(QWidget):
         layout.setSpacing(0)
         layout.addWidget(self.header)
         layout.addWidget(self.key)
-        layout.addWidget(self.chart_view)
-        self.names_hint = names_hint()
-        layout.addWidget(self.names_hint)
+        # The value axis takes about 30 px below the bars.
+        self.chart_area = SummaryChartArea(self.chart_view, 30)
+        layout.addWidget(self.chart_area)
 
         # The grid's selected samples, marked beside their bars.
         self._highlighted: set[str] = set()
         self._marks: list[QGraphicsRectItem] = []
-        self.chart.plotAreaChanged.connect(self._on_plot_area_changed)
+        self.chart.plotAreaChanged.connect(self._paint_highlight)
         theme.notifier.changed.connect(self._paint_highlight)
 
         # Responsive height for toolbar integration
@@ -283,6 +282,7 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.addSeries(bar_series)
         # The header, key and axis take about 80 px around the bars.
         self.setMinimumHeight(summary_chart_height(len(sample_names), 80))
+        self.chart_area.set_rows(len(sample_names))
 
         # Setup axes
         self._setup_axes(sample_names)
@@ -291,20 +291,19 @@ class IsotopologueRatioWidget(QWidget):
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._refresh_key()
-        self._on_plot_area_changed()
+        self._paint_highlight()
 
     def set_highlighted(self, sample_names) -> None:
-        """Mark the bars of the samples selected in the grid."""
+        """Mark the bars of the samples selected in the grid and scroll to them."""
         self._highlighted = set(sample_names)
         self._paint_highlight()
+        names = self._current_sample_names or []
+        self.chart_area.show_rows(
+            self.chart, [i for i, name in enumerate(names) if name in self._highlighted]
+        )
 
     def highlighted_bars(self) -> list[str]:
         return [mark.data(0) for mark in self._marks if mark.data(0)]
-
-    def _on_plot_area_changed(self, *_args) -> None:
-        count = len(self._current_sample_names) if self._has_data() else 0
-        fit_sample_names(self.chart, count, self.names_hint)
-        self._paint_highlight()
 
     def _paint_highlight(self, *_args) -> None:
         # An accent outline would vanish against the blue M+0 segment, so the other
@@ -371,12 +370,10 @@ class IsotopologueRatioWidget(QWidget):
         x_axis.setTickCount(3)  # 0, 0.5, 1.0
         self.header.set_has_data(True)
 
-        # Sample names show only when every bar has room for one.
         y_axis = QBarCategoryAxis()
         y_axis.append(sample_names)
         style_axis(y_axis)
         y_axis.setLineVisible(False)
-        y_axis.setLabelsVisible(False)
 
         # Add axes to chart
         self.chart.addAxis(x_axis, Qt.AlignBottom)
@@ -389,7 +386,7 @@ class IsotopologueRatioWidget(QWidget):
             self.chart.removeAxis(axis)
         self.header.set_has_data(False)
         self.key.hide()
-        self.names_hint.hide()
+        self.chart_area.set_rows(0)
 
         # Reset data
         self._current_eics = None

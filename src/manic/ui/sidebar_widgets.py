@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -52,29 +53,32 @@ SUMMARY_CHART_HEIGHT = (200, 330)
 
 
 def summary_chart_height(count: int, chrome: int) -> int:
-    """Minimum chart height: tall enough to name every bar, if the maximum allows it."""
+    """Widget height: every row named, between the summary charts' minimum and maximum."""
     low, high = SUMMARY_CHART_HEIGHT
-    named = chrome + count * NAME_ROW_PX
-    return max(low, named) if named <= high else low
+    return min(max(low, chrome + count * NAME_ROW_PX), high)
 
 
-def names_hint() -> QLabel:
-    """Shown under a summary chart too short to name every bar."""
-    hint = QLabel("Hover or enlarge for sample names")
-    hint.setProperty("role", "hint")
-    hint.setWordWrap(True)
-    hint.setContentsMargins(8, 2, 8, 0)
-    hint.hide()
-    return hint
+class SummaryChartArea(QScrollArea):
+    """A summary chart tall enough to name every bar; rows past the widget's height scroll."""
 
+    def __init__(self, chart_view: QWidget, axis_px: int, parent=None):
+        super().__init__(parent)
+        self._view = chart_view
+        self._axis_px = axis_px
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setWidget(chart_view)
+        self.viewport().setAutoFillBackground(False)
 
-def fit_sample_names(chart, count: int, hint: QLabel) -> None:
-    """Name every bar on the sample axis when each row has room; otherwise show the hint."""
-    axes = chart.axes(Qt.Orientation.Vertical)
-    fits = chart.plotArea().height() >= count * NAME_ROW_PX
-    for axis in axes:
-        axis.setLabelsVisible(fits)
-    hint.setVisible(bool(axes) and count > 0 and not fits)
+    def set_rows(self, count: int) -> None:
+        self._view.setMinimumHeight(self._axis_px + count * NAME_ROW_PX)
+
+    def show_rows(self, chart, rows: list[int]) -> None:
+        """Scroll the topmost of these bar rows into view; row 0 is the bottom bar."""
+        if rows and chart.series():
+            y = chart.mapToPosition(QPointF(0, max(rows)), chart.series()[0]).y()
+            self.ensureVisible(0, int(y), 0, NAME_ROW_PX)
 
 
 def divider() -> QFrame:
@@ -311,6 +315,7 @@ class CollapsibleSection(QWidget):
 
         layout.addWidget(self.header)
         layout.addWidget(body)
+        self._headless = False
         self._expanded = not expanded
         self.set_expanded(expanded)
 
@@ -327,6 +332,12 @@ class CollapsibleSection(QWidget):
             return
         self._expanded = expanded
         self._chevron.setText("▾" if expanded else "▸")
-        self.body.setVisible(expanded)
+        self.body.setVisible(expanded or self._headless)
         self.header.setToolTip("Collapse" if expanded else "Expand")
         self.toggled.emit(expanded)
+
+    def set_headless(self, headless: bool) -> None:
+        """Hide the heading and always show the body, while a switcher stands in for it."""
+        self._headless = headless
+        self.header.setVisible(not headless)
+        self.body.setVisible(headless or self._expanded)

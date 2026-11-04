@@ -21,13 +21,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QSettings, Qt  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSettings, Qt  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
+    QAbstractButton,
+    QAbstractItemView,
     QApplication,
+    QComboBox,
     QDialog,
+    QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QListWidget,
     QWidget,
@@ -36,6 +42,61 @@ from PySide6.QtWidgets import (  # noqa: E402
 SCHEMES = {"light": Qt.ColorScheme.Light, "dark": Qt.ColorScheme.Dark}
 LABELLED = ROOT / "testdata" / "bench" / "labelled"
 UNLABELLED = ROOT / "testdata" / "unlabelled_synthetic"
+
+
+LEAF_KINDS = (QLabel, QAbstractButton, QComboBox, QLineEdit, QAbstractItemView, QScrollArea)
+
+
+def layout_problems(window: QWidget) -> list[str]:
+    """Controls that overlap, text cut off, or a window larger than its screen."""
+    problems = []
+    screen = window.screen().availableGeometry()
+    if window.width() > screen.width() or window.height() > screen.height():
+        problems.append(f"{window.size().toTuple()} does not fit the screen {screen.size().toTuple()}")
+
+    def is_container(widget) -> bool:
+        return isinstance(widget, QScrollArea) and widget.widget() is not None
+
+    def context(widget) -> QWidget:
+        """The scrolled body a widget lives in, or the window."""
+        parent = widget.parentWidget()
+        while parent is not None and parent is not window:
+            if is_container(parent) and parent.widget().isAncestorOf(widget):
+                return parent.widget()
+            parent = parent.parentWidget()
+        return window
+
+    def inside_leaf(widget) -> bool:
+        parent = widget.parentWidget()
+        while parent is not None and parent is not window:
+            if isinstance(parent, LEAF_KINDS) and not is_container(parent):
+                return True
+            parent = parent.parentWidget()
+        return False
+
+    leaves = [
+        w
+        for w in window.findChildren(QWidget)
+        if isinstance(w, LEAF_KINDS) and w.isVisibleTo(window) and not inside_leaf(w)
+    ]
+    boxes = [(w, context(w)) for w in leaves]
+    rects = [QRect(w.mapTo(ctx, QPoint(0, 0)), w.size()) for w, ctx in boxes]
+
+    def name(widget) -> str:
+        text = widget.text()[:40] if hasattr(widget, "text") else ""
+        return f"{type(widget).__name__}({widget.objectName() or text!r})"
+
+    for i, (a, ctx_a) in enumerate(boxes):
+        if isinstance(a, QLabel) and a.text():
+            if a.wordWrap() and a.heightForWidth(a.width()) > a.height() + 1:
+                problems.append(f"{name(a)} is cut off at the bottom")
+            if not a.wordWrap() and a.sizeHint().width() > a.width() + 1:
+                problems.append(f"{name(a)} is cut off at the side")
+        for j in range(i + 1, len(boxes)):
+            b, ctx_b = boxes[j]
+            if ctx_a is ctx_b and rects[i].intersects(rects[j]):
+                problems.append(f"{name(a)} overlaps {name(b)}")
+    return problems
 
 
 class Skip(Exception):
@@ -262,6 +323,26 @@ def settings_page(tour: Tour, title: str) -> None:
     settings.close()
 
 
+def checklist(tour: Tour) -> None:
+    """The checklist as it opens, then with its steps shown; text must never collide."""
+    dialog = tour.window._post_load_checklist
+    if dialog is None or not dialog.isVisible():
+        tour.window.show_post_load_checklist()
+        dialog = tour.window._post_load_checklist
+    tour.pump(0.5)
+    toggle = getattr(dialog, "change_pattern_toggle", None)
+    states = [("", None)] if toggle is None else [("", False), ("_steps", True)]
+    for suffix, shown in states:
+        if shown is not None:
+            toggle.setChecked(shown)
+            tour.pump(0.5)
+        problems = layout_problems(dialog)
+        tour.save(dialog, f"__{type(dialog).__name__}{suffix}")
+        if problems:
+            raise RuntimeError("checklist layout: " + "; ".join(problems))
+    dialog.close()
+
+
 def tour_steps(tour: Tour) -> None:
     from manic.models.analysis import AnalysisMode
     from manic.ui.analysis_mode_dialog import AnalysisModeDialog
@@ -283,6 +364,7 @@ def tour_steps(tour: Tour) -> None:
         tour.window._load_cdf_folder(str(LABELLED))
         tour.wait_for(lambda: tour.window.cdf_data_loaded)
         tour.pump(1.5)
+        checklist(tour)
 
     tour.run("labelled_loaded_checklist", load_cdf)
     tour.run("labelled_grid", lambda: None)
@@ -368,7 +450,7 @@ def tour_steps(tour: Tour) -> None:
         lambda: tour.window.toolbar.isotopologue_ratios._show_popup_chart(),
         grab_main=False,
     )
-    tour.run("checklist", tour.window.show_post_load_checklist, grab_main=False)
+    tour.run("checklist", lambda: checklist(tour), grab_main=False)
     tour.run("settings", tour.window.open_settings_window, grab_main=False)
     tour.run(
         "documentation", tour.window.open_documentation_window, grab_main=False
@@ -391,6 +473,7 @@ def tour_steps(tour: Tour) -> None:
     def unlabelled():
         make_window(tour, AnalysisMode.UNLABELLED)
         load(tour, UNLABELLED)
+        checklist(tour)
 
     tour.run("unlabelled_loaded_checklist", unlabelled)
     tour.run("unlabelled_grid", lambda: None)

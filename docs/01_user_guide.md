@@ -86,7 +86,7 @@ Upon completion, verify the data loaded correctly:
 * Expand **Samples** in the sidebar to see the filenames of your imported samples.
 * Selecting a compound shows one plot per sample in the main view.
 
-After the import finishes, MANIC opens a **Check your data setup** dialog. The dialog shows whether an internal standard is set. Weak peaks are flagged only when one is. It also shows whether each compound's `mmfiles` pattern matches any loaded sample. Click **Apply** to keep the internal standard chosen in the dialog. Click **Continue without changes** to leave the current selection unchanged. You can run the same check later from **Help → Check Data Setup...**. To change the pattern of a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. The dialog shows the loaded file with **Open File** and **Show in Folder**. For a compound not in the list, use **File → Add Compound...**.
+After the import finishes, MANIC opens a **Check your data setup** dialog. The dialog shows whether an internal standard is set. Weak peaks are flagged only when one is. It also shows whether each compound's `mmfiles` pattern matches any loaded sample. Click **Apply** to keep the internal standard chosen in the dialog. Click **Continue without changes** to leave the current selection unchanged. You can run the same check later from **Help → Check Data Setup...**. Click **How do I change a pattern?** under the table to show these steps in the dialog. To change the pattern of a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. The dialog shows the loaded file with **Open File** and **Show in Folder**. For a compound not in the list, use **File → Add Compound...**.
 
 ---
 
@@ -170,6 +170,8 @@ Click a plot so the grid has keyboard focus. Move the focus between plots with t
 
 #### 4. Adjusting Boundaries (Peak window)
 Locate the **Peak window** section of the sidebar, below the compound list.
+
+On a short window, such as a laptop screen, the sidebar cannot show the Peak window, **Display** and **Summary** together. It then shows three buttons, **Peak window**, **Display** and **Summary**, in place of the section headings. Click one to show that section. The buttons go away when the window is tall enough for all three sections.
 * **Left offset / Right offset:** Controls the width of the window. Increase these to capture wider peaks; decrease to exclude adjacent peaks.
 * **tR:** Shifts the center of the window. Use this to align the window with shifted peaks.
 
@@ -188,13 +190,13 @@ Sometimes a peak may shift so far that part of it is completely missing from the
 To fix this, you must widen the underlying data extraction window:
 1.  Locate the **tR window** field in the **Peak window** section.
 2.  Increase the value (e.g., from `0.2` to `0.4` or `0.5`).
-3.  Click **Apply window**.
+3.  Click **Apply window**. The line under the field names how many samples it re-extracts, for example **Re-extracts all 30 shown samples**.
 
 The extract must cover the current left and right offsets plus the RT window buffer (0.1 min by default). If the typed tR window sits inside those offsets, MANIC raises it to that minimum, updates the field, and continues.
 
 A progress bar will appear as MANIC re-scans the raw CDF files to extract a wider slice of time around the target peak.
 
-> **Important Note:** This update applies to **all samples** for the currently selected compound to ensure consistent data extraction. It does *not* affect other compounds in your library.
+> **Important Note:** This update applies to **every sample shown in the grid** for the currently selected compound, whichever plots are selected, to ensure consistent data extraction. It does *not* affect other compounds in your library.
 
 #### 7. Resetting Overrides
 If you make a mistake or want to revert to the original library definitions:
@@ -344,7 +346,7 @@ Right-click any plot in the main grid and select **Inspect *sample*...**, or dou
 ### Expanded Summary Plots
 The **Summary** section of the sidebar contains two charts: **Label incorporation** and **Total abundance**. In unlabelled mode, **Identity** replaces Label incorporation.
 * **Action:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
-* **Feature:** The expanded view names every sample on its axis. The sidebar chart names its samples only when they fit; otherwise hover a bar or open the expanded view.
+* **Feature:** Both views name every sample on its axis. When a run has more samples than the sidebar chart has room for, the chart scrolls; selecting plots in the grid scrolls it to their bars.
 
 ---
 
@@ -386,7 +388,7 @@ The **Baseline correction** checkbox is in the **Peak window** section of the si
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Y-axis scale
-Two ticks sit in the **Display** section of the sidebar, under the Peak window.
+Two ticks sit in the **Display** section of the sidebar, under the Peak window. On a short window, click the **Display** button in the sidebar to show them.
 * **Shared y-scale:** one intensity scale for every sample tile.
 * **Scale to selected peak:** each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. This tick is labelled-only.
 * The ticks cannot both be on. Both off is the default. Each tile then autoscales to the tallest intensity in its extract.

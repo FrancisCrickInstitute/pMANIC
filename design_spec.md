@@ -40,8 +40,10 @@ when a token fits; add a token to `theme.py` only if nothing fits (shell
 owner only).
 
 - **Typography:** system UI font everywhere (no hard-coded Arial). Base 13px.
-  Secondary/meta text 11-12px in `@text_secondary`. Section headings 11px
-  semibold, uppercase, letter-spacing 0.5px, `@text_tertiary`. Dialog/page
+  Secondary/meta text 11-12px in `@text_secondary`. Section headings in the
+  sidebar only: 11px semibold, uppercase, letter-spacing 0.5px, `@text_tertiary`.
+  Dialogs and Settings use sentence-case 13px semibold group titles in `@text`
+  (amended after round 4: uppercase on every surface read as generic). Dialog/page
   titles 16px semibold. No all-bold blocks.
 - **Spacing:** 4/8/12/16/24 grid. Panels 16px padding, 12px between groups.
 - **Surfaces:** window `@bg`; panels and cards `@surface` with one 1px

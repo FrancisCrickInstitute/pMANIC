@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from PySide6.QtCore import QPoint
 
 from manic.io.compound_reader import Compound
 from manic.processors.tile_y_scale import YScalePolicy
@@ -85,3 +86,25 @@ def test_switching_compound_starts_with_no_selection(grid):
     grid.plot_compound("Leucine", ["S1", "S2", "S3"])
     assert grid.get_selected_samples() == []
     assert not any(p.is_selected for p in grid._current_plots)
+
+
+def test_context_menu_matches_the_review_menu_order(grid):
+    grid.plot_compound("Valine", ["S1", "S2"])
+    plot = grid._current_plots[0]
+    grid._show_context_menu(QPoint(0, 0), plot)
+    menu = grid._active_context_menu
+    texts = [a.text() or "|" for a in menu.actions()]
+    menu.close()
+    assert texts == [
+        "Inspect S1...",
+        "|",
+        "Select All Plots",
+        "Deselect All",
+        "Select Only This Sample",
+        "Show Only Selected Samples",
+        "Show All Samples",
+        "|",
+        "Accept Peak (Below Threshold)",
+        "Mark Peak as Bad",
+        "Curve Fit",
+    ]

@@ -830,10 +830,7 @@ class GraphView(QWidget):
             logger.error(f"Failed to show context menu: {e}")
 
     def _show_context_menu(self, global_pos, clicked_plot=None):
-        """
-        Show context menu.
-        Simplified: 'View Detailed' only works if you right-click a specific plot.
-        """
+        """Plot context menu; Inspect and Select Only need a right-clicked plot."""
 
         # Close any existing context menu first
         if hasattr(self, "_active_context_menu") and self._active_context_menu:
@@ -846,8 +843,12 @@ class GraphView(QWidget):
         context_menu.setAttribute(Qt.WA_DeleteOnClose)
         context_menu.aboutToHide.connect(self._on_context_menu_closed)
 
-        # Selection actions
-        select_all_action = context_menu.addAction("Select All")
+        # Same groups and order as the Review menu, which main_window builds.
+        inspect_action = context_menu.addAction("Inspect Sample...")
+        _show_shortcut(inspect_action, QKeySequence(Qt.Key_Return))
+        context_menu.addSeparator()
+
+        select_all_action = context_menu.addAction("Select All Plots")
         select_all_action.triggered.connect(self.select_all_plots)
         _show_shortcut(select_all_action, QKeySequence.SelectAll)
 
@@ -872,9 +873,6 @@ class GraphView(QWidget):
             lambda: self.show_all_samples_requested.emit()
         )
 
-        context_menu.addSeparator()
-        inspect_action = context_menu.addAction("Inspect Sample...")
-        _show_shortcut(inspect_action, QKeySequence(Qt.Key_Return))
         context_menu.addSeparator()
         accept_action = context_menu.addAction("Accept Peak (Below Threshold)")
         reject_action = context_menu.addAction("Mark Peak as Bad")

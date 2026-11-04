@@ -56,7 +56,7 @@ class TargetedQcWidget(QWidget):
         self.chart_view.setFrameShape(QFrame.NoFrame)
         self.chart_view.setStyleSheet("background: transparent; border: none;")
         self.chart_view.setToolTip(
-            "One row per sample. Click a row to select its plot; double-click to enlarge."
+            "Click a row to select its plot; double-click to enlarge."
         )
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 

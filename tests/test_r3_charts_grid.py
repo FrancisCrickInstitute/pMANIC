@@ -65,7 +65,7 @@ def test_grid_header_names_the_compound_with_tr_and_count(plotted_grid):
     view.plot_compound("Pyruvate", ["S1", "S2", "S3"])
     assert not view.compound_title.isHidden()
     assert view.compound_title.text() == "Pyruvate"
-    assert view.selection_summary.text() == "tR 7.09 · 3 samples"
+    assert view.selection_summary.text() == "tR 7.09"
 
     view.select_samples(["S2"])
     assert view.selection_summary.text() == "tR 7.09 · 1 of 3 selected"

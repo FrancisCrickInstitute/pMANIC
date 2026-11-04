@@ -59,7 +59,7 @@ from manic.ui.colors import (
 )
 from manic.validation.unlabelled_identity import IdentitySampleAssessment
 from manic.ui.chart_style import text_style
-from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
+from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
 from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
 
@@ -276,6 +276,12 @@ class DetailedPlotDialog(QDialog):
         self.ms_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.ms_plot)
 
+        # One toolbar for all three charts, in the title row.
+        self.nav_toolbar = CompactNavigationToolbar(
+            (self.eic_plot, self.tic_plot, self.ms_plot)
+        )
+        header_layout.addWidget(self.nav_toolbar)
+
         # Configure initial plot height proportions
         splitter.setSizes(
             [DETAILED_EIC_HEIGHT, DETAILED_TIC_HEIGHT, DETAILED_MS_HEIGHT]
@@ -478,7 +484,16 @@ class DetailedPlotDialog(QDialog):
             except Exception as baseline_error:
                 logger.error(f"Failed to draw baseline lines: {baseline_error}")
 
-            self.eic_plot.show_legend(loc="upper right")
+            # Above the plot, beside its title, so it never covers a trace.
+            self.eic_plot.show_legend(
+                loc="lower right",
+                bbox_to_anchor=(1.0, 1.0),
+                ncol=max(1, len(self.eic_plot.ax.get_legend_handles_labels()[1])),
+                frameon=False,
+                borderaxespad=0.2,
+                handlelength=1.6,
+                columnspacing=1.2,
+            )
 
             # Execute batch rendering for performance
             self.eic_plot.finalize_plot()
@@ -736,7 +751,7 @@ class DetailedPlotDialog(QDialog):
                 self.tic_data.time,
                 self.tic_data.intensity,
                 color=abundance_colour.name(),
-                width=PLOT_LINE_WIDTH,
+                width=1.4,
                 name="Total Ion Chromatogram",
             )
 
@@ -773,47 +788,7 @@ class DetailedPlotDialog(QDialog):
                 width=PLOT_STEM_WIDTH,
             )
 
-            # Annotate the 8 most abundant peaks with their m/z values
-            try:
-                mz = np.asarray(self.ms_data.mz, dtype=np.float64)
-                intensity = np.asarray(self.ms_data.intensity, dtype=np.float64)
-
-                # Use the same basic filtering as plot_stems: positive and finite
-                mask = (intensity > 0) & np.isfinite(mz) & np.isfinite(intensity)
-                mz = mz[mask]
-                intensity = intensity[mask]
-
-                if mz.size > 0:
-                    # Indices of the top N peaks by intensity
-                    N = 8
-                    if intensity.size > N:
-                        top_idx = np.argsort(intensity)[-N:]
-                    else:
-                        top_idx = np.argsort(intensity)
-
-                    # Sort selected peaks by m/z for a more orderly appearance (optional but nice)
-                    top_idx = top_idx[np.argsort(mz[top_idx])]
-
-                    for idx in top_idx:
-                        x_val = float(mz[idx])
-                        y_val = float(intensity[idx])
-                        if y_val <= 0:
-                            continue
-
-                        # Position label slightly above the peak
-                        y_label = y_val * 1.02
-                        label = f"{x_val:.2f}"  # m/z with 2 decimal places
-
-                        self.ms_plot.add_text(
-                            x_val,
-                            y_label,
-                            label,
-                            color=COLORS["text_secondary"],
-                            ha="center",
-                            va="bottom",
-                        )
-            except Exception as e:
-                logger.error(f"Failed to annotate MS peaks: {e}")
+            self.ms_plot.label_peaks(self.ms_data.mz, self.ms_data.intensity)
 
             # Mark target m/z position with transparent indicator
             if self.compound_info:
@@ -837,34 +812,30 @@ class DetailedPlotDialog(QDialog):
 
         if self.compound_info:
             rt = self.compound_info.retention_time
+            info_parts.append(f"tR {rt:.3f} min")
             if self.compound_info.is_unlabelled_target:
-                info_parts.append(f"Retention Time: {rt:.3f} min")
                 if self.observed_rt is not None:
-                    info_parts.append(f"Observed Q apex: {self.observed_rt:.3f} min")
-                ions = ", ".join(
+                    info_parts.append(f"Q apex observed {self.observed_rt:.3f} min")
+                info_parts.extend(
                     channel.label for channel in self.compound_info.analysis_channels
                 )
-                info_parts.append(ions)
             else:
-                info_parts.append(f"Retention Time: {rt:.3f} min")
-                info_parts.append(f"m/z: {self.compound_info.mass0:.4f}")
+                info_parts.append(f"m/z {self.compound_info.mass0:.4f}")
                 if self.compound_info.label_atoms:
-                    info_parts.append(
-                        f"Isotopologues: M+0…M+{self.compound_info.label_atoms}"
-                    )
+                    info_parts.append(f"M+0…M+{self.compound_info.label_atoms}")
 
         if self.eic_data:
-            info_parts.append(f"EIC Points: {len(self.eic_data.time)}")
+            info_parts.append(f"{len(self.eic_data.time)} EIC points")
 
         if self.tic_data:
-            info_parts.append(f"TIC Points: {len(self.tic_data.time)}")
+            info_parts.append(f"{len(self.tic_data.time)} TIC points")
 
         if self.ms_data:
-            info_parts.append(f"MS Peaks: {len(self.ms_data.mz)}")
+            info_parts.append(f"{len(self.ms_data.mz)} MS peaks")
 
         if self._eic_plot_error:
             info_parts.insert(0, f"EIC plot failed: {self._eic_plot_error}")
-        info_text = " | ".join(info_parts) if info_parts else "No data available"
+        info_text = "  ·  ".join(info_parts) if info_parts else "No data available"
         self.info_label.setText(info_text)
 
     def _show_error(self, message: str):
@@ -896,6 +867,9 @@ class DetailedPlotDialog(QDialog):
 
             if hasattr(self, "ms_plot") and self.ms_plot:
                 self.ms_plot.cleanup()
+
+            if getattr(self, "nav_toolbar", None) is not None:
+                self.nav_toolbar.cleanup()
 
             # Clear data references
             self.eic_data = None

@@ -1200,7 +1200,7 @@ def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(qapp, mon
         dialog._plot_eic()
         dialog._update_info_label()
         assert dialog.info_label.text().startswith("EIC plot failed: finalize failed")
-        assert "plot failed" in dialog.eic_plot.ax.get_title()
+        assert "plot failed" in dialog.eic_plot.ax.get_title(loc="left")
     finally:
         dialog.deleteLater()
 

@@ -43,7 +43,6 @@ def test_unchecking_every_sample_empties_the_workspace(qapp, empty_db, monkeypat
         assert integration.apply_button.text() == "Apply"
         assert not integration.apply_button.isEnabled()
         assert not integration.regenerate_button.isEnabled()
-        assert window.selection_status_label.text() == "No samples shown"
 
         window.show_all_samples_button.click()
         assert window.workspace.currentWidget() is window.graph_view

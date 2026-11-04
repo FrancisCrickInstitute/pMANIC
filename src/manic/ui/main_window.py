@@ -620,9 +620,6 @@ class MainWindow(QMainWindow):
     def _setup_status_bar(self) -> None:
         bar = self.statusBar()
         bar.setSizeGripEnabled(False)
-        self.selection_status_label = QLabel()
-        self.selection_status_label.setObjectName("selectionStatus")
-        bar.addWidget(self.selection_status_label, 1)
         self.deconvolution_indicator_label = QPushButton()
         self.deconvolution_indicator_label.setObjectName("statusDeconvolution")
         self.deconvolution_indicator_label.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -669,7 +666,7 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_shell(self) -> None:
-        """Workspace page, start steps and status text from the loaded-data state."""
+        """Workspace page and start panel from the loaded-data state."""
         if not hasattr(self, "start_panel"):
             return
         self.start_panel.refresh(
@@ -689,27 +686,6 @@ class MainWindow(QMainWindow):
         self.workspace.setCurrentWidget(page)
         if not self.compound_data_loaded:
             self.update_deconvolution_indicator(None)
-        self._update_selection_status()
-
-    def _update_selection_status(self) -> None:
-        if not hasattr(self, "selection_status_label"):
-            return
-        compound = self.graph_view.get_current_compound()
-        samples = self.graph_view.get_current_samples()
-        selected = self.graph_view.get_selected_samples()
-        if self.cdf_data_loaded and compound and samples:
-            noun = "sample" if len(samples) == 1 else "samples"
-            parts = [compound, f"{len(samples)} {noun}"]
-            if selected:
-                parts.append(f"{len(selected)} selected")
-            text = " · ".join(parts)
-        elif self._no_samples_shown():
-            text = "No samples shown"
-        elif self.compound_data_loaded:
-            text = "Compound list loaded. Load a raw data folder next."
-        else:
-            text = "No data loaded. Start by loading a compound list."
-        self.selection_status_label.setText(text)
 
     def dragEnterEvent(self, event):
         if self._dropped_path(event) is not None:
@@ -1651,7 +1627,6 @@ class MainWindow(QMainWindow):
         current_compound = self.graph_view.get_current_compound()
         all_samples = self.graph_view.get_current_samples()
 
-        self._update_selection_status()
         if current_compound:
             self.toolbar.integration.populate_fields_from_plots(
                 current_compound, selected_samples, all_samples

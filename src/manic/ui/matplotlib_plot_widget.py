@@ -19,10 +19,12 @@ from matplotlib.backend_bases import _Mode
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.colors import to_hex, to_rgba, to_rgba_array
 from matplotlib.figure import Figure
+from matplotlib.transforms import offset_copy
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QVBoxLayout, QWidget
 
 from manic.ui import theme
+from manic.ui.chart_style import text_style
 from manic.ui.theme import COLORS
 
 from manic.constants import (
@@ -171,6 +173,11 @@ class CompactNavigationToolbar(QWidget):
             """,
         )
 
+        # Per-chart reset has no button, so it is said where Reset all sits.
+        self.reset_hint = QLabel("Double-click a chart to reset it")
+        theme.style(self.reset_hint, text_style("text_tertiary", 11))
+        layout.addWidget(self.reset_hint)
+
         self.home_btn = QToolButton()
         self.home_btn.setText("↻ Reset all")
         self.home_btn.setToolTip(
@@ -299,7 +306,7 @@ class MatplotlibPlotWidget(QWidget):
         # CompactNavigationToolbar presses its buttons.
         self.nav = NavigationToolbar(self.canvas, self)
         self.nav.setVisible(False)
-        self._peak_labels = []
+        self._reset_peak_labels()
         self.canvas.mpl_connect("resize_event", self._fit_margins)
         self.canvas.mpl_connect("draw_event", self._declutter_peak_labels)
         self.canvas.mpl_connect("button_press_event", self._reset_on_double_click)
@@ -316,7 +323,7 @@ class MatplotlibPlotWidget(QWidget):
         self.ax.clear()
         self.data_lines = []
         self.ax.set_facecolor(COLORS["surface"])
-        self._peak_labels = []
+        self._reset_peak_labels()
         self._set_axes_title(self.title)
         self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
@@ -588,7 +595,7 @@ class MatplotlibPlotWidget(QWidget):
         _apply_theme_rc()
         remap_figure_colors(self.figure, remap)
         # A text's background box is not one of the figure's children.
-        for label in self._peak_labels:
+        for label in self._all_peak_labels():
             label.get_bbox_patch().set_facecolor(COLORS["surface"])
         self.ax.tick_params(colors=COLORS["border_strong"], labelcolor=COLORS["text_secondary"])
         self.ax.grid(True, color=COLORS["grid_line"])
@@ -680,12 +687,42 @@ class MatplotlibPlotWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to reset view: {e}")
 
+    def _reset_peak_labels(self) -> None:
+        # Own ions first, tallest first, then the other peaks.
+        self._peak_labels = []
+        self._own_count = 0
+        # One label and bracket over a run of isotopologues too close to name apart.
+        self._cluster = None
+
+    def _all_peak_labels(self) -> list:
+        own, others = self._peak_labels[: self._own_count], self._peak_labels[self._own_count :]
+        return own + ([self._cluster[0]] if self._cluster else []) + others
+
+    def _peak_label(
+        self, text: str, x: float, y: float, *, own: bool, rise: float, side: float = 0
+    ):
+        return self.ax.annotate(
+            text,
+            (x, y),
+            xytext=(side, rise),
+            textcoords="offset points",
+            ha="left" if side else "center",
+            va="center" if side else "bottom",
+            fontsize=PLOT_TICK_FONTSIZE,
+            color=COLORS["text"] if own else COLORS["text_secondary"],
+            fontweight="semibold" if own else "normal",
+            annotation_clip=True,
+            # Opaque so a guide line through the label never cuts it.
+            bbox={"boxstyle": "square,pad=0.15", "fc": COLORS["surface"], "ec": "none"},
+        )
+
     def label_peaks(
         self,
         x_data,
         y_data,
         *,
         own_mz=(),
+        own_names=None,
         limit: int = 5,
         min_fraction: float = 0.05,
         decimals: int = 2,
@@ -693,8 +730,11 @@ class MatplotlibPlotWidget(QWidget):
         """Label the compound's own ions (``own_mz``), then up to ``limit`` of
         the tallest other peaks. Peaks below ``min_fraction`` of the tallest
         are baseline and stay unlabelled. Where labels would share a column,
-        own ions win over others, and the tallest own ion over the rest, so a
-        crowded isotopologue cluster is named at its top stem."""
+        own ions win over others, and the tallest own ion over the rest.
+
+        With ``own_names`` (one per ``own_mz``, such as "M+1"), each own label
+        leads with its name, and own ions too close to label one by one are
+        named together by a bracket above them, such as "M+0…M+3"."""
         x_data = np.asarray(x_data, dtype=np.float64)
         y_data = np.asarray(y_data, dtype=np.float64)
         keep = (y_data > 0) & np.isfinite(x_data) & np.isfinite(y_data)
@@ -702,38 +742,49 @@ class MatplotlibPlotWidget(QWidget):
         if not len(y_data):
             return
         floor = min_fraction * float(np.max(y_data))
-        own = []
-        for mz in own_mz:
+        names = list(own_names) if own_names is not None else [None] * len(own_mz)
+        own: dict[int, str | None] = {}
+        for mz, name in zip(own_mz, names):
             nearest = int(np.argmin(np.abs(x_data - mz)))
             # Channels sit 1 Da apart: half that finds a channel's peak
             # without taking its neighbour's.
             if abs(x_data[nearest] - mz) <= 0.5 and y_data[nearest] >= floor and nearest not in own:
-                own.append(nearest)
+                own[nearest] = name
         others = [
             int(index) for index in np.argsort(y_data)[::-1]
             if y_data[index] >= floor and index not in own
         ][:limit]
-        own.sort(key=lambda index: -y_data[index])
-        for index in own + others:
+        for index in sorted(own, key=lambda index: -y_data[index]):
+            value = f"{x_data[index]:.{decimals}f}"
+            text = f"{own[index]}  {value}" if own[index] else value
+            # Clear of the stem top, so the label never sits on its bar.
             self._peak_labels.append(
-                self.ax.annotate(
-                    f"{x_data[index]:.{decimals}f}",
-                    (x_data[index], y_data[index]),
-                    xytext=(0, 2),
-                    textcoords="offset points",
-                    ha="center",
-                    va="bottom",
-                    fontsize=PLOT_TICK_FONTSIZE,
-                    color=COLORS["text"] if index in own else COLORS["text_secondary"],
-                    fontweight="semibold" if index in own else "normal",
-                    annotation_clip=True,
-                    # Opaque so a guide line through the label never cuts it.
-                    bbox={"boxstyle": "square,pad=0.15", "fc": COLORS["surface"], "ec": "none"},
+                self._peak_label(text, x_data[index], y_data[index], own=True, rise=4)
+            )
+        self._own_count = len(self._peak_labels)
+        for index in others:
+            self._peak_labels.append(
+                self._peak_label(
+                    f"{x_data[index]:.{decimals}f}", x_data[index], y_data[index], own=False, rise=2
                 )
             )
+        named = sorted(index for index in own if own[index])
+        if len(named) > 1:
+            left, right = x_data[named[0]], x_data[named[-1]]
+            top = max(y_data[index] for index in named)
+            bracket = self.ax.plot(
+                [left, right], [top, top],
+                color=COLORS["text_secondary"], linewidth=PLOT_GUIDELINE_WIDTH,
+                transform=offset_copy(self.ax.transData, fig=self.figure, y=3, units="points"),
+            )[0]
+            # Beside the bracket's end, so it sits on no stem and no guide line.
+            label = self._peak_label(
+                f"{own[named[0]]}…{own[named[-1]]}", right, top, own=True, rise=3, side=4
+            )
+            self._cluster = (label, bracket)
 
     def visible_peak_labels(self) -> list[str]:
-        return [label.get_text() for label in self._peak_labels if label.get_visible()]
+        return [label.get_text() for label in self._all_peak_labels() if label.get_visible()]
 
     def _declutter_peak_labels(self, _event=None) -> None:
         if not self._peak_labels:
@@ -741,25 +792,49 @@ class MatplotlibPlotWidget(QWidget):
         renderer = self.canvas.get_renderer()
         area = self.ax.get_window_extent(renderer)
         placed = []
-        changed = False
-        for label in self._peak_labels:  # tallest first, so they win
-            was_visible = label.get_visible()
+
+        def span(label):
+            """The label's column if it fits the plot and no placed label's column, else None."""
             label.set_visible(True)  # hidden text measures as an empty box
             box = label.get_window_extent(renderer)
             # One label per column: a label stacked above a neighbour's is
             # ambiguous about which stem it names.
-            span = (box.x0 - 4, box.x1 + 4)
-            show = (
+            column = (box.x0 - 4, box.x1 + 4)
+            fits = (
                 box.y1 <= area.y1 + 1
                 and box.x0 >= area.x0 - 1
                 and box.x1 <= area.x1 + 1
-                and not any(span[0] < right and left < span[1] for left, right in placed)
+                and not any(column[0] < right and left < column[1] for left, right in placed)
             )
-            if show:
-                placed.append(span)
-            label.set_visible(show)
-            changed |= was_visible != show
-        if changed:
+            return column if fits else None
+
+        before = [label.get_visible() for label in self._all_peak_labels()]
+        own = self._peak_labels[: self._own_count]
+        if self._cluster is not None:
+            label, bracket = self._cluster
+            columns = [span(item) for item in own]
+            apart = all(columns) and not any(
+                a[0] < b[1] and b[0] < a[1]
+                for i, a in enumerate(columns) for b in columns[i + 1 :]
+            )
+            column = None if apart else span(label)
+            for item, item_column in zip(own, columns):
+                item.set_visible(apart)
+                if apart:
+                    placed.append(item_column)
+            label.set_visible(column is not None)
+            bracket.set_visible(column is not None)
+            if column is not None:
+                placed.append(column)
+            rest = self._peak_labels[self._own_count :]
+        else:
+            rest = self._peak_labels  # tallest own first, so they win
+        for label in rest:
+            column = span(label)
+            if column is not None:
+                placed.append(column)
+            label.set_visible(column is not None)
+        if before != [label.get_visible() for label in self._all_peak_labels()]:
             # Settles in one more draw: the same layout gives the same answer.
             self.canvas.draw_idle()
 
@@ -798,7 +873,7 @@ class MatplotlibPlotWidget(QWidget):
 
             if getattr(self, "nav", None) is not None:
                 self.nav = None
-            self._peak_labels = []
+            self._reset_peak_labels()
 
             # Clear data storage
             if hasattr(self, "data_lines"):

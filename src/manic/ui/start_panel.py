@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -18,7 +17,7 @@ from PySide6.QtWidgets import (
 from manic.models.analysis import AnalysisMode
 from manic.ui.sidebar_widgets import ElidedLabel, divider, section_heading, shortcut_text
 from manic.ui.theme import set_style_property
-from manic.utils.paths import resource_path
+from manic.ui.logo import LogoLabel
 
 RECENT_LIMIT = 3
 
@@ -89,14 +88,7 @@ class StartPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        logo = QLabel()
-        pixmap = QPixmap(resource_path("resources", "manic_logo.png"))
-        if not pixmap.isNull():
-            # The logo ships on white; drop the white so it sits on the window colour.
-            pixmap.setMask(pixmap.createMaskFromColor(QColor("white")))
-            logo.setPixmap(
-                pixmap.scaledToHeight(44, Qt.TransformationMode.SmoothTransformation)
-            )
+        logo = LogoLabel(44)
         logo.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(logo)
         layout.addSpacing(12)

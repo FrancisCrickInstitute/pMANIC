@@ -1,9 +1,8 @@
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout
 
 from manic.__version__ import APP_NAME, __version__
-from manic.utils.paths import resource_path
+from manic.ui.logo import LogoLabel
 
 
 class AboutDialog(QDialog):
@@ -15,12 +14,7 @@ class AboutDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 16)
         layout.setSpacing(8)
 
-        logo = QLabel()
-        pixmap = QPixmap(resource_path("resources", "manic_logo.png"))
-        if not pixmap.isNull():
-            logo.setPixmap(
-                pixmap.scaledToHeight(56, Qt.TransformationMode.SmoothTransformation)
-            )
+        logo = LogoLabel(56)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(logo)
 

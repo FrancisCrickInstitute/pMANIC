@@ -10,18 +10,18 @@ This implementation uses QWebEngineView for:
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, QUrl
+from PySide6.QtCore import QSignalBlocker, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
-    QListWidget,
     QListWidgetItem,
 )
 
 from manic.utils.paths import docs_path
+from manic.ui.dialog_kit import sidebar_item_size, sidebar_list, window_title
 from manic.ui.window_placement import show_over_parent
 
 try:
@@ -134,7 +134,7 @@ class DocumentationViewer(QDialog):
         """
         super().__init__(parent)
         self.setObjectName("documentationWindow")
-        self.setWindowTitle("MANIC Documentation")
+        self.setWindowTitle(window_title("Documentation"))
         self.setModal(False)
         self.resize(1200, 780)
         self.setMinimumSize(800, 520)
@@ -151,13 +151,11 @@ class DocumentationViewer(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.page_list = QListWidget()
-        self.page_list.setObjectName("documentationPageList")
-        self.page_list.setFixedWidth(300)
-        self.page_list.setUniformItemSizes(True)
+        self.page_list = sidebar_list("documentationPageList", 300)
         for title, path in documentation_index(self.docs_dir):
             item = QListWidgetItem(title)
-            item.setSizeHint(QSize(0, 36))
+            item.setToolTip(title)
+            item.setSizeHint(sidebar_item_size())
             item.setData(Qt.UserRole, path)
             self.page_list.addItem(item)
         self.page_list.currentRowChanged.connect(self._on_page_selected)

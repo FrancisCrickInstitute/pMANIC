@@ -2,68 +2,91 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from manic.ui.combo_box import ComboBox
+from manic.ui.dialog_kit import (
+    MARGIN,
+    button_box,
+    description_label,
+    form_layout,
+    form_row,
+    hint_label,
+    style_dialog,
+    title_label,
+    window_title,
+)
+
+
+def _file_picker(on_browse) -> tuple[QWidget, QLineEdit]:
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    edit = QLineEdit()
+    edit.setReadOnly(True)
+    edit.setPlaceholderText("No file selected")
+    layout.addWidget(edit, stretch=1)
+    button = QPushButton("Browse…")
+    button.setAutoDefault(False)
+    button.clicked.connect(on_browse)
+    layout.addWidget(button)
+    return row, edit
 
 
 class UpdateOldDataDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Process External Data")
+        self.setWindowTitle(window_title("Process External Data"))
+        style_dialog(self)
         self.setModal(True)
+        self.setMinimumWidth(560)
 
         self.compounds_path = None
         self.raw_values_path = None
         self.internal_standard: str | None = None
 
-        layout = QVBoxLayout()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        layout.setSpacing(8)
+        layout.addWidget(title_label("Process external data"))
+        layout.addWidget(
+            description_label(
+                "Rebuild a MANIC export from a Raw Values workbook and its compound "
+                "list when the original CDF files are not available."
+            )
+        )
+        layout.addSpacing(12)
 
-        # Compounds picker
-        c_row = QHBoxLayout()
-        c_row.addWidget(QLabel("Compounds File:"))
-        self.c_edit = QLineEdit()
-        self.c_edit.setReadOnly(True)
-        c_row.addWidget(self.c_edit)
-        c_btn = QPushButton("Browse…")
-        c_btn.clicked.connect(self._browse_compounds)
-        c_row.addWidget(c_btn)
-        layout.addLayout(c_row)
+        form = form_layout(150)
+        c_row, self.c_edit = _file_picker(self._browse_compounds)
+        form_row(form, "Compounds file", c_row)
+        r_row, self.r_edit = _file_picker(self._browse_raw)
+        form_row(form, "Raw Values workbook", r_row)
 
-        # Raw values picker
-        r_row = QHBoxLayout()
-        r_row.addWidget(QLabel("Raw Values Workbook:"))
-        self.r_edit = QLineEdit()
-        self.r_edit.setReadOnly(True)
-        r_row.addWidget(self.r_edit)
-        r_btn = QPushButton("Browse…")
-        r_btn.clicked.connect(self._browse_raw)
-        r_row.addWidget(r_btn)
-        layout.addLayout(r_row)
-
-        # Internal standard dropdown (optional)
-        is_row = QHBoxLayout()
-        is_row.addWidget(QLabel("Internal Standard (optional):"))
         self.is_combo = ComboBox()
-        self.is_combo.addItem("(None)")
+        self.is_combo.addItem("No internal standard", None)
         self.is_combo.currentIndexChanged.connect(self._on_is_changed)
-        is_row.addWidget(self.is_combo)
-        layout.addLayout(is_row)
+        form_row(form, "Internal standard", self.is_combo)
+        form_row(
+            form,
+            "",
+            hint_label("Optional. The list fills in once a compound list is chosen."),
+        )
+        layout.addLayout(form)
 
-        # Buttons
-        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+        layout.addSpacing(16)
+        layout.addStretch()
+        self.buttons, self._ok_button = button_box("Rebuild export…")
+        self._ok_button.setEnabled(False)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
-
-        self.setLayout(layout)
 
     def _browse_compounds(self):
         from PySide6.QtWidgets import QFileDialog
@@ -77,20 +100,19 @@ class UpdateOldDataDialog(QDialog):
         if path:
             self.compounds_path = path
             self.c_edit.setText(path)
+            self.c_edit.setToolTip(path)
             # Populate internal standard dropdown from compounds file
             try:
                 from manic.io.legacy_rebuild import _read_compounds_as_dicts
 
-                compounds = _read_compounds_as_dicts(path)
-                names = [c["compound_name"] for c in compounds]
-                self.is_combo.clear()
-                self.is_combo.addItem("(None)")
-                for n in names:
-                    self.is_combo.addItem(n)
+                names = [c["compound_name"] for c in _read_compounds_as_dicts(path)]
             except Exception:
                 # Keep dropdown minimal if parsing fails
-                self.is_combo.clear()
-                self.is_combo.addItem("(None)")
+                names = []
+            self.is_combo.clear()
+            self.is_combo.addItem("No internal standard", None)
+            for name in names:
+                self.is_combo.addItem(name, name)
             self._update_ok()
 
     def _browse_raw(self):
@@ -102,18 +124,18 @@ class UpdateOldDataDialog(QDialog):
         if path:
             self.raw_values_path = path
             self.r_edit.setText(path)
+            self.r_edit.setToolTip(path)
             self._update_ok()
 
     def _update_ok(self):
         ok = bool(self.compounds_path) and bool(self.raw_values_path)
-        self.buttons.button(QDialogButtonBox.Ok).setEnabled(ok)
+        self._ok_button.setEnabled(ok)
 
     def get_paths(self):
         return self.compounds_path, self.raw_values_path
 
     def _on_is_changed(self, idx: int):
-        text = self.is_combo.currentText()
-        self.internal_standard = None if text == "(None)" else text
+        self.internal_standard = self.is_combo.currentData()
 
     def get_internal_standard(self) -> str | None:
         return self.internal_standard

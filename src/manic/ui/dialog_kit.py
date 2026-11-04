@@ -171,7 +171,7 @@ def status_icon(passed: bool, size: int = 14) -> QIcon:
     painter.setPen(Qt.NoPen)
     painter.setBrush(theme.color("success" if passed else "warning"))
     painter.drawEllipse(0, 0, size, size)
-    pen = QPen(theme.color("on_accent"), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    pen = QPen(theme.color("surface"), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
     painter.setPen(pen)
     s = size / 14
     if passed:

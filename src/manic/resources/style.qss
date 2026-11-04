@@ -96,26 +96,26 @@ QPushButton:disabled {
 
 QPushButton:default,
 QPushButton[variant="primary"] {
-    background-color: @accent;
+    background-color: @accent_fill;
     color: @on_accent;
-    border: 1px solid @accent;
+    border: 1px solid @accent_fill;
 }
 
 QPushButton:default:hover,
 QPushButton[variant="primary"]:hover {
-    background-color: @accent_hover;
-    border: 1px solid @accent_hover;
+    background-color: @accent_fill_hover;
+    border: 1px solid @accent_fill_hover;
 }
 
 QPushButton:default:pressed,
 QPushButton[variant="primary"]:pressed {
-    background-color: @accent_pressed;
-    border: 1px solid @accent_pressed;
+    background-color: @accent_fill_pressed;
+    border: 1px solid @accent_fill_pressed;
 }
 
 QPushButton:default:focus,
 QPushButton[variant="primary"]:focus {
-    border: 1px solid @accent_pressed;
+    border: 1px solid @accent_fill_pressed;
 }
 
 QPushButton:default:disabled,
@@ -128,17 +128,17 @@ QPushButton[variant="primary"]:disabled {
 /* Named with :default too, so a destructive default button stays red. */
 QPushButton[variant="danger"],
 QPushButton[variant="danger"]:default {
-    background-color: @danger;
+    background-color: @danger_fill;
     color: @on_accent;
-    border: 1px solid @danger;
+    border: 1px solid @danger_fill;
 }
 
 QPushButton[variant="danger"]:hover,
 QPushButton[variant="danger"]:focus,
 QPushButton[variant="danger"]:default:hover,
 QPushButton[variant="danger"]:default:focus {
-    background-color: @danger_hover;
-    border: 1px solid @danger_hover;
+    background-color: @danger_fill_hover;
+    border: 1px solid @danger_fill_hover;
 }
 
 QPushButton[variant="danger"]:disabled {
@@ -183,7 +183,6 @@ QPushButton[variant="link"] {
 }
 
 QPushButton[variant="link"]:hover {
-    color: @accent_pressed;
     text-decoration: underline;
 }
 
@@ -371,14 +370,14 @@ QListWidget#sampleList::indicator:hover {
 
 QCheckBox::indicator:checked,
 QListWidget#sampleList::indicator:checked {
-    background-color: @accent;
-    border: 1px solid @accent;
+    background-color: @accent_fill;
+    border: 1px solid @accent_fill;
     image: url("RESOURCES_DIR/checkmark.svg");
 }
 
 QCheckBox::indicator:checked:hover,
 QListWidget#sampleList::indicator:checked:hover {
-    background-color: @accent_hover;
+    background-color: @accent_fill_hover;
 }
 
 QCheckBox::indicator:disabled,
@@ -848,13 +847,13 @@ QLabel[role="stepNumber"] {
 }
 
 QLabel[role="stepNumber"][state="next"] {
-    background-color: @accent;
+    background-color: @accent_fill;
     color: @on_accent;
 }
 
 QLabel[role="stepNumber"][state="done"] {
-    background-color: @success;
-    color: @on_accent;
+    background-color: @success_soft;
+    color: @success;
 }
 
 QLabel[role="stepDone"] {

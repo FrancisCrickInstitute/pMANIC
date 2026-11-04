@@ -14,10 +14,10 @@ import sys
 
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -36,7 +36,6 @@ from manic.constants import (
     DETAILED_EIC_HEIGHT,
     DETAILED_MS_HEIGHT,
     DETAILED_TIC_HEIGHT,
-    GUIDELINE_ALPHA,
     MS_TIME_TOLERANCE,
     PLOT_GUIDELINE_WIDTH,
     PLOT_LINE_WIDTH,
@@ -53,7 +52,14 @@ from manic.models.analysis import IonRole
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
 from manic.ui.colors import channel_trace_styles, label_colors
 from manic.validation.unlabelled_identity import IdentitySampleAssessment
+from manic.ui.chart_style import text_style
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
+from manic.ui.theme import COLORS, FONT_SIZE_TITLE
+
+# Same meaning as on the grid tiles: dashed steel blue bounds the
+# integration window, solid grey marks the target tR or m/z.
+_WINDOW_LINE = "rgba(70,130,180,0.85)"
+_TARGET_LINE = COLORS["text_secondary"]
 logger = logging.getLogger(__name__)
 
 
@@ -98,9 +104,7 @@ class DetailedPlotDialog(QDialog):
 
     def _setup_ui(self):
         """Setup the dialog UI."""
-        self.setWindowTitle(
-            f"Detailed View - {self.compound_name} ({self.sample_name})"
-        )
+        self.setWindowTitle(f"{self.compound_name} in {self.sample_name} — MANIC")
         self.setModal(True)
 
         # Ensure the dialog is resizable on all platforms
@@ -189,19 +193,18 @@ class DetailedPlotDialog(QDialog):
 
         # Configure primary layout structure
         layout = QVBoxLayout(self)
-        layout.setSpacing(2)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
 
-        # Create header section with compound identification
         header_layout = QHBoxLayout()
-
-        title_label = QLabel(
-            f"<b>{self.compound_name}</b> in <i>{self.sample_name}</i>"
-        )
-        title_label.setFont(QFont("Arial", 14, QFont.Bold))
-        title_label.setAlignment(Qt.AlignCenter)
+        header_layout.setSpacing(8)
+        title_label = QLabel(self.compound_name)
+        title_label.setStyleSheet(text_style("text", FONT_SIZE_TITLE, 600))
+        sample_label = QLabel(f"in {self.sample_name}")
+        sample_label.setStyleSheet(text_style("text_secondary", FONT_SIZE_TITLE))
         header_layout.addWidget(title_label)
-
+        header_layout.addWidget(sample_label)
+        header_layout.addStretch()
         layout.addLayout(header_layout)
 
         # Initialize scrollable container for plot widgets
@@ -211,6 +214,11 @@ class DetailedPlotDialog(QDialog):
             Qt.ScrollBarAsNeeded
         )  # Allow horizontal scroll if needed
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setStyleSheet(
+            f"QScrollArea {{ background: {COLORS['surface']};"
+            f" border: 1px solid {COLORS['border']}; border-radius: 8px; }}"
+        )
 
         # Ensure scroll area can shrink to fit in small windows
         scroll_area.setMinimumSize(400, 300)  # Reasonable minimum for plot visibility
@@ -218,9 +226,9 @@ class DetailedPlotDialog(QDialog):
 
         # Configure scroll area content widget
         scroll_widget = QWidget()
-        scroll_widget.setStyleSheet("background-color: white;")
+        scroll_widget.setStyleSheet(f"background-color: {COLORS['surface']};")
         scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(5, 5, 5, 5)
+        scroll_layout.setContentsMargins(8, 8, 8, 8)
 
         # Initialize resizable splitter for plot arrangement
         splitter = QSplitter(Qt.Vertical)
@@ -276,30 +284,16 @@ class DetailedPlotDialog(QDialog):
         # Create information display panel
         info_layout = QHBoxLayout()
         self.info_label = QLabel("Loading data...")
-        self.info_label.setFont(QFont("Arial", 9))
-        self.info_label.setStyleSheet("color: gray; padding: 5px;")
-        info_layout.addWidget(self.info_label)
-        info_layout.addStretch()
+        self.info_label.setStyleSheet(text_style("text_secondary", 11))
+        self.info_label.setWordWrap(True)
+        info_layout.addWidget(self.info_label, stretch=1)
 
-        # Display navigation control legend
-        zoom_label = QLabel("<b>↻:</b> Reset | <b>✋:</b> Drag | <b>🔍:</b> Zoom")
-        zoom_label.setFont(QFont("Arial", 9))
-        zoom_label.setStyleSheet("color: gray; padding: 5px;")
-        info_layout.addWidget(zoom_label)
-
-        layout.addLayout(info_layout)
-
-        # Configure dialog control buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        # Close button
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.close)
-        close_btn.setDefault(True)
-        button_layout.addWidget(close_btn)
+        close_btn.setAutoDefault(False)
+        info_layout.addWidget(close_btn)
 
-        layout.addLayout(button_layout)
+        layout.addLayout(info_layout)
 
         # Enable window maximization capability
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
@@ -462,23 +456,12 @@ class DetailedPlotDialog(QDialog):
             right_bound = rt + self.compound_info.roffset
 
             # Render integration boundary markers with transparency
+            for edge in (left_bound, right_bound):
+                self.eic_plot.add_vertical_line(
+                    edge, color=_WINDOW_LINE, width=PLOT_GUIDELINE_WIDTH, style="dashed"
+                )
             self.eic_plot.add_vertical_line(
-                left_bound,
-                color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
-                width=PLOT_GUIDELINE_WIDTH,
-                style="dashed",
-            )
-            self.eic_plot.add_vertical_line(
-                right_bound,
-                color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
-                width=PLOT_GUIDELINE_WIDTH,
-                style="dashed",
-            )
-            self.eic_plot.add_vertical_line(
-                rt,
-                color=f"rgba(0,0,0,{GUIDELINE_ALPHA})",
-                width=PLOT_GUIDELINE_WIDTH,
-                style="dotted",
+                rt, color=_TARGET_LINE, width=PLOT_GUIDELINE_WIDTH, style="solid"
             )
 
             try:
@@ -752,10 +735,7 @@ class DetailedPlotDialog(QDialog):
             if self.compound_info:
                 rt = self.compound_info.retention_time
                 self.tic_plot.add_vertical_line(
-                    rt,
-                    color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
-                    width=PLOT_GUIDELINE_WIDTH,
-                    style="solid",
+                    rt, color=_TARGET_LINE, width=PLOT_GUIDELINE_WIDTH, style="solid"
                 )
 
             # Execute batch rendering for performance
@@ -819,7 +799,7 @@ class DetailedPlotDialog(QDialog):
                             x_val,
                             y_label,
                             label,
-                            color="black",
+                            color=COLORS["text_secondary"],
                             ha="center",
                             va="bottom",
                         )
@@ -830,7 +810,7 @@ class DetailedPlotDialog(QDialog):
             if self.compound_info:
                 self.ms_plot.add_vertical_line(
                     self.compound_info.mass0,
-                    color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
+                    color=_TARGET_LINE,
                     width=PLOT_GUIDELINE_WIDTH,
                     style="solid",
                 )

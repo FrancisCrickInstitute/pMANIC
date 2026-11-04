@@ -19,15 +19,13 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import QHBoxLayout, QToolButton, QVBoxLayout, QWidget
 
+from manic.ui.theme import COLORS
+
 from manic.constants import (
-    BUTTON_CHECKED_BORDER_OPACITY,
-    BUTTON_HOVER_OPACITY,
-    BUTTON_PRESSED_OPACITY,
     PLOT_AXIS_SPINE_WIDTH,
     PLOT_DPI,
     PLOT_FIGURE_HEIGHT,
     PLOT_FIGURE_WIDTH,
-    PLOT_GRID_ALPHA,
     PLOT_GRID_LINEWIDTH,
     PLOT_GUIDELINE_WIDTH,
     PLOT_LABEL_FONTSIZE,
@@ -56,6 +54,26 @@ matplotlib.rcParams["figure.autolayout"] = (
     False  # Manual layout control for performance
 )
 matplotlib.rcParams["axes.unicode_minus"] = False  # Simplified minus sign rendering
+# Match the app's system font and theme colours.
+matplotlib.rcParams.update(
+    {
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Helvetica Neue", "Helvetica", "Segoe UI", "DejaVu Sans"],
+        "text.color": COLORS["text"],
+        "axes.edgecolor": COLORS["border_strong"],
+        "axes.labelcolor": COLORS["text_secondary"],
+        "axes.titlecolor": COLORS["text"],
+        "axes.titleweight": "semibold",
+        "xtick.color": COLORS["border_strong"],
+        "ytick.color": COLORS["border_strong"],
+        "xtick.labelcolor": COLORS["text_secondary"],
+        "ytick.labelcolor": COLORS["text_secondary"],
+        "legend.edgecolor": COLORS["border"],
+        "legend.framealpha": 0.92,
+        # Axis multiplier reads "×10⁶", as on the grid tiles, not "1e6".
+        "axes.formatter.use_mathtext": True,
+    }
+)
 
 
 logger = logging.getLogger(__name__)
@@ -98,34 +116,31 @@ class CompactNavigationToolbar(QWidget):
         )
         layout.setSpacing(TOOLBAR_SPACING)
 
-        # Configure toolbar with clean white background
-        self.setStyleSheet("background-color: white;")
+        self.setStyleSheet(f"background-color: {COLORS['surface']};")
 
-        # Define consistent button styling with hover and toggle states
+        c = COLORS
         button_style = f"""
             QToolButton {{
                 border: none;
-                padding: {TOOLBAR_BUTTON_PADDING}px;
+                padding: {TOOLBAR_BUTTON_PADDING}px 8px;
                 margin: {TOOLBAR_BUTTON_MARGIN}px;
                 background-color: transparent;
-                border-radius: 3px;
-                color: black;
+                border-radius: 6px;
+                color: {c['text_secondary']};
+                font-size: 12px;
             }}
             QToolButton:hover {{
-                background-color: rgba(0, 0, 0, {BUTTON_HOVER_OPACITY});
-            }}
-            QToolButton:pressed {{
-                background-color: rgba(0, 0, 0, {BUTTON_PRESSED_OPACITY});
+                background-color: {c['surface_hover']};
             }}
             QToolButton:checked {{
-                background-color: rgba(0, 120, 215, 0.2);
-                border: 1px solid rgba(0, 120, 215, {BUTTON_CHECKED_BORDER_OPACITY});
+                background-color: {c['accent_soft']};
+                color: {c['accent']};
             }}
         """
 
         # Reset button: returns plot to a deterministic data-fitted view state
         self.home_btn = QToolButton()
-        self.home_btn.setText("↻")  # Circular arrow for reset
+        self.home_btn.setText("↻ Reset")
         self.home_btn.setToolTip("Reset view")
         self.home_btn.clicked.connect(self._reset_view)
         self.home_btn.setStyleSheet(button_style)
@@ -133,8 +148,8 @@ class CompactNavigationToolbar(QWidget):
 
         # Drag button: enables plot panning functionality
         self.pan_btn = QToolButton()
-        self.pan_btn.setText("✋")
-        self.pan_btn.setToolTip("Drag")
+        self.pan_btn.setText("Pan")
+        self.pan_btn.setToolTip("Drag the plot to pan")
         self.pan_btn.setCheckable(True)
         self.pan_btn.clicked.connect(self._on_pan)
         self.pan_btn.setStyleSheet(button_style)
@@ -142,8 +157,8 @@ class CompactNavigationToolbar(QWidget):
 
         # Zoom button: activates rectangular zoom selection
         self.zoom_btn = QToolButton()
-        self.zoom_btn.setText("🔍")
-        self.zoom_btn.setToolTip("Zoom to rectangle")
+        self.zoom_btn.setText("Zoom")
+        self.zoom_btn.setToolTip("Drag a rectangle to zoom")
         self.zoom_btn.setCheckable(True)
         self.zoom_btn.clicked.connect(self._on_zoom)
         self.zoom_btn.setStyleSheet(button_style)
@@ -268,7 +283,7 @@ class MatplotlibPlotWidget(QWidget):
     def _setup_ui(self):
         """Setup the UI with matplotlib figure."""
         # Apply consistent white background styling
-        self.setStyleSheet("background-color: white;")
+        self.setStyleSheet(f"background-color: {COLORS['surface']};")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -310,7 +325,7 @@ class MatplotlibPlotWidget(QWidget):
 
         # Apply subtle grid styling for reference
         self.ax.grid(
-            True, alpha=PLOT_GRID_ALPHA, linestyle="-", linewidth=PLOT_GRID_LINEWIDTH
+            True, color=COLORS["grid_line"], linestyle="-", linewidth=PLOT_GRID_LINEWIDTH
         )
         self.ax.tick_params(labelsize=PLOT_TICK_FONTSIZE)
 
@@ -335,7 +350,7 @@ class MatplotlibPlotWidget(QWidget):
         self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.grid(
-            True, alpha=PLOT_GRID_ALPHA, linestyle="-", linewidth=PLOT_GRID_LINEWIDTH
+            True, color=COLORS["grid_line"], linestyle="-", linewidth=PLOT_GRID_LINEWIDTH
         )
         self.ax.tick_params(labelsize=PLOT_TICK_FONTSIZE)
 
@@ -604,7 +619,7 @@ class MatplotlibPlotWidget(QWidget):
     def set_title(self, title: str):
         """Update the plot title."""
         self.title = title
-        self.ax.set_title(title, fontsize=10, pad=5)
+        self.ax.set_title(title, fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING)
         # Don't draw yet
 
     def finalize_plot(self):

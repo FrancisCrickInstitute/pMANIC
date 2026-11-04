@@ -24,7 +24,7 @@ TILE_GAP = 8
 TILE_ASPECT = 1.45
 
 # Minimum readable tile (width, height) per grid density.
-DENSITY_MIN_TILE = {"comfortable": (190, 135), "compact": (150, 105)}
+DENSITY_MIN_TILE = {"comfortable": (230, 165), "compact": (130, 95)}
 # (axis and scale text px, caption px) per grid density.
 DENSITY_TEXT = {"comfortable": (11, 13), "compact": (AXIS_LABEL_PX, 12)}
 

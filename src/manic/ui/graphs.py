@@ -915,25 +915,25 @@ class GraphView(QWidget):
             show_only.setText(f"Show Only {shown} Selected Samples")
 
         accept_count = reject_count = fit_count = 1
-        review = None
+        accepted = rejected = False
         if lead is not None:
-            accept_count = len(self._peak_review_targets(lead, PeakReview.ACCEPTED)[1])
-            reject_count = len(self._peak_review_targets(lead, PeakReview.REJECTED)[1])
+            accept_review, accept_plots = self._peak_review_targets(lead, PeakReview.ACCEPTED)
+            reject_review, reject_plots = self._peak_review_targets(lead, PeakReview.REJECTED)
+            accept_count, reject_count = len(accept_plots), len(reject_plots)
+            # A toggle that would clear the review means the review is already set.
+            accepted = bool(accept_plots) and accept_review is None
+            rejected = reject_review is None
             fit_count = len(self._curve_fit_targets(lead))
-            review = self._review_for_plot(lead)
         accept.setCheckable(True)
-        accept.setChecked(review is PeakReview.ACCEPTED)
-        accept.setEnabled(
-            lead is not None
-            and self._verdict_for_plot(lead) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
-        )
+        accept.setChecked(accepted)
+        accept.setEnabled(lead is not None and accept_count > 0)
         accept.setText(
             f"Accept {accept_count} Peaks (Below Threshold)"
             if accept_count > 1
             else "Accept Peak (Below Threshold)"
         )
         reject.setCheckable(True)
-        reject.setChecked(review is PeakReview.REJECTED)
+        reject.setChecked(rejected)
         reject.setEnabled(lead is not None)
         reject.setText(
             f"Mark {reject_count} Peaks as Bad" if reject_count > 1 else "Mark Peak as Bad"
@@ -971,19 +971,26 @@ class GraphView(QWidget):
     def _peak_review_targets(
         self, clicked_plot: ClickableChartView, review: PeakReview
     ) -> tuple[PeakReview | None, set[ClickableChartView]]:
-        """The review a menu toggle sets, and the plots it sets it on."""
-        new_review = None if self._review_for_plot(clicked_plot) is review else review
+        """The review a menu toggle sets, and the plots it sets it on.
+
+        Accept only reaches below-threshold peaks; when the clicked plot is
+        not one, the first eligible plot in grid order decides the toggle.
+        """
         plots = (
             self._selected_plots
             if clicked_plot in self._selected_plots
             else {clicked_plot}
         )
-        if new_review is PeakReview.ACCEPTED:
+        basis = clicked_plot
+        if review is PeakReview.ACCEPTED:
             plots = {
                 plot
                 for plot in plots
                 if self._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
             }
+            if plots and clicked_plot not in plots:
+                basis = next(plot for plot in self._current_plots if plot in plots)
+        new_review = None if self._review_for_plot(basis) is review else review
         return new_review, plots
 
     def toggle_peak_review(

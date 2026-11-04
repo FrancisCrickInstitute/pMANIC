@@ -331,7 +331,9 @@ def _process_compound_batch_corrections(
 
             # Prepare corrected data for batch insertion
             corrected_flat = corrected_intensity_2d.ravel()
-            time_blob = zlib.compress(time_array.tobytes())
+            # The time axis is unchanged, so store the bytes just read rather
+            # than compressing the same array again.
+            time_blob = eic_row["x_axis"]
             intensity_blob = zlib.compress(corrected_flat.tobytes())
 
             correction_batch.append(

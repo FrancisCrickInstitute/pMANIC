@@ -44,7 +44,6 @@ from manic.io.compounds_import import (
     insert_unlabelled_compound,
     taken_compound_names,
 )
-from manic.io.data_exporter import DataExporter, validate_internal_standard_metadata
 from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
@@ -78,7 +77,6 @@ from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.models.sample_fit_type import set_sample_fit_type
 from manic.validation.peak_verdict import PeakVerdict
-from manic.ui.documentation_viewer import DocumentationViewer
 from manic.processors.fit_prefetch import (
     discard_prefetched,
     prefetch_display_fits,
@@ -2141,6 +2139,9 @@ class MainWindow(QMainWindow):
 
     def open_documentation_window(self) -> None:
         if self.documentation_window is None:
+            # QtWebEngine costs ~40 ms at startup; load it with the first help page.
+            from manic.ui.documentation_viewer import DocumentationViewer
+
             self.documentation_window = DocumentationViewer(self)
         self.documentation_window.open()
 
@@ -2176,6 +2177,9 @@ class MainWindow(QMainWindow):
 
     def _open_checklist_guide(self) -> None:
         if self.documentation_window is None:
+            # QtWebEngine costs ~40 ms at startup; load it with the first help page.
+            from manic.ui.documentation_viewer import DocumentationViewer
+
             self.documentation_window = DocumentationViewer(self)
         if self.analysis_mode is AnalysisMode.LABELLED:
             path = Path(docs_path("01_user_guide.md"))
@@ -2722,6 +2726,8 @@ class MainWindow(QMainWindow):
                 if reply != QMessageBox.Yes:
                     return
             elif self.analysis_mode is AnalysisMode.LABELLED:
+                from manic.io.data_exporter import validate_internal_standard_metadata
+
                 ok, problems = validate_internal_standard_metadata(
                     DataProvider(use_legacy_integration=self.use_legacy_integration),
                     internal_standard,
@@ -2752,6 +2758,8 @@ class MainWindow(QMainWindow):
             progress_dialog.setMinimumDuration(0)
             progress_dialog.setModal(True)
             progress_dialog.setValue(0)
+
+            from manic.io.data_exporter import DataExporter
 
             exporter = DataExporter(self.analysis_mode)
             exporter.set_internal_standard(internal_standard_for_export)

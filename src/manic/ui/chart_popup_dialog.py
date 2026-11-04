@@ -82,7 +82,33 @@ def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
     ):
         count = "" if counts is None else f"&nbsp;<b>{counts[name]}</b>"
         parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{name}{count}')
-    return "&nbsp;&nbsp;&nbsp;".join(parts)
+    # Counts are cells, not samples; the unit leads so it is read first.
+    unit = "" if counts is None else "Qualifier cells&nbsp;&nbsp;"
+    return unit + "&nbsp;&nbsp;&nbsp;".join(parts)
+
+
+_NO_VERDICT_STATES = {
+    QualifierStatus.ABSENT: "absent",
+    QualifierStatus.NOT_ASSESSED: "not assessed",
+    QualifierStatus.UNAVAILABLE: "unavailable",
+}
+
+
+def identity_key_tooltip(identity: IdentityAssessmentSet) -> str:
+    """What the key counts, and which states the grey cells hold."""
+    grey = {status: 0 for status in _NO_VERDICT_STATES}
+    for sample in identity.samples:
+        for qualifier in sample.qualifiers:
+            if qualifier.status in grey:
+                grey[qualifier.status] += 1
+    breakdown = ", ".join(
+        f"{grey[status]} {label}" for status, label in _NO_VERDICT_STATES.items()
+    )
+    return (
+        "Counts are qualifier cells: one per sample for each qualifier ion.\n"
+        f"No verdict (grey): {breakdown}."
+    )
+
 
 
 class ChartPopupDialog(QDialog):
@@ -331,6 +357,7 @@ class ChartPopupDialog(QDialog):
             self.chart, self._identity.samples, label_font_size=11
         )
         self.status_legend.setText(identity_key_html(self._identity))
+        self.status_legend.setToolTip(identity_key_tooltip(self._identity))
         self.status_legend.show()
         for bar_set in self._identity_binding.bar_sets:
             bar_set.hovered.connect(

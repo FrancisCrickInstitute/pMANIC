@@ -50,7 +50,7 @@ from manic.validation.unlabelled_identity import (
 
 from .channel_chips import CHIP_HEIGHT, ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
-from .chart_style import set_nice_ticks, style_axis, style_chart, text_style
+from .chart_style import set_nice_ticks, style_axis, style_chart, text_style, ui_font
 from .icon_button import icon_button
 from .colors import (
     QUALIFIER_GREEN,
@@ -64,7 +64,14 @@ from .colors import (
     steel_blue_colour,
 )
 from .sidebar_widgets import shortcut_text
-from .plot_tile import DENSITY_MIN_TILE, TILE_GAP, PlotTile, grid_columns, tile_badges
+from .plot_tile import (
+    DENSITY_MIN_TILE,
+    DENSITY_TEXT,
+    TILE_GAP,
+    PlotTile,
+    grid_columns,
+    tile_badges,
+)
 from .theme import FONT_SIZE_TITLE, color
 from manic.ui import theme
 
@@ -383,7 +390,17 @@ class GraphView(QWidget):
         QSettings().setValue("graph/density", density)
         for button in self._density_buttons.buttons():
             button.setChecked(button.property("density") == density)
+        for tile in self._container_pool:
+            self._apply_density_text(tile)
         self._place_tiles(force=True)
+
+    def _apply_density_text(self, tile: PlotTile) -> None:
+        tick_px, caption_px = DENSITY_TEXT[self._density]
+        if tile.text_size() == (tick_px, caption_px):
+            return
+        tile.set_text_size(tick_px, caption_px)
+        for axis in tile.chart_view.chart().axes():
+            axis.setLabelsFont(ui_font(tick_px))
 
     def density(self) -> str:
         return self._density
@@ -1346,6 +1363,7 @@ class GraphView(QWidget):
         chart_view = self._build_plot(eic, axis_scale=axis_scale)
 
         container = PlotTile(chart_view)
+        self._apply_density_text(container)
         caption = container.caption
         container.set_caption(self._tile_caption_for(eic))
         container.set_scale(axis_scale.scale_exp)

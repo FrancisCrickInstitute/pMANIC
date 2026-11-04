@@ -108,3 +108,22 @@ def test_context_menu_matches_the_review_menu_order(grid):
         "Mark Peak as Bad",
         "Curve Fit",
     ]
+
+
+def test_density_sets_chart_text_size(grid):
+    grid.set_density("compact")
+    grid.plot_compound("Valine", ["S1", "S2"])
+    tile = grid._current_plots[0].parent()
+
+    def sizes():
+        axes = tile.chart_view.chart().axes()
+        return (
+            {axis.labelsFont().pixelSize() for axis in axes},
+            tile.caption.styleSheet().count("font-size: 12px"),
+        )
+
+    assert sizes() == ({10}, 1)
+    grid.set_density("comfortable")
+    assert {a.labelsFont().pixelSize() for a in tile.chart_view.chart().axes()} == {11}
+    assert "font-size: 13px" in tile.caption.styleSheet()
+    assert "font-size: 11px" in tile.scale_label.styleSheet()

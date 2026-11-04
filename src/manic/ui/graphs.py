@@ -61,6 +61,7 @@ from .colors import (
     legend_trace_styles,
     steel_blue_colour,
 )
+from .sidebar_widgets import shortcut_text
 from .plot_tile import DENSITY_MIN_TILE, TILE_GAP, PlotTile, grid_columns, tile_badges
 from .theme import color
 from manic.ui import theme
@@ -206,7 +207,7 @@ class GraphView(QWidget):
         self.selection_summary = QLabel()
         theme.style(self.selection_summary, text_style("text_secondary", 11))
         self.selection_summary.setToolTip(
-            "Click a plot to select it. ⌘/Ctrl+A selects all, Esc clears, "
+            f"Click a plot to select it. {shortcut_text('Ctrl+A')} selects all, Esc clears, "
             "arrow keys move, Space toggles, Enter opens the detailed view."
         )
         header.addWidget(self.selection_summary)

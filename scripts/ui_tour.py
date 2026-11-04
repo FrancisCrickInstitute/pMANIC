@@ -111,9 +111,15 @@ class Tour:
 def set_scheme(tour: Tour, scheme: Qt.ColorScheme) -> None:
     from manic.ui import theme
 
+    from manic.utils.utils import apply_color_scheme
+
     hints = tour.app.styleHints()
     hints.setColorScheme(scheme)
-    tour.wait_for(lambda: hints.colorScheme() == scheme, timeout=10)
+    try:
+        tour.wait_for(lambda: hints.colorScheme() == scheme, timeout=3)
+    except TimeoutError:
+        # Headless Linux (offscreen) has no platform theme to report a scheme.
+        apply_color_scheme(tour.app, scheme == Qt.ColorScheme.Dark)
     tour.pump(0.3)
     if theme.is_dark() != (scheme == Qt.ColorScheme.Dark):
         raise RuntimeError(f"app did not restyle for {scheme}")
@@ -196,11 +202,10 @@ def tour_steps(tour: Tour) -> None:
     tour.run("three_selected", select_three)
 
     def live_scheme_switch():
-        hints = tour.app.styleHints()
-        start = hints.colorScheme()
-        flipped = (
-            Qt.ColorScheme.Light if start == Qt.ColorScheme.Dark else Qt.ColorScheme.Dark
-        )
+        from manic.ui import theme
+
+        start = Qt.ColorScheme.Dark if theme.is_dark() else Qt.ColorScheme.Light
+        flipped = Qt.ColorScheme.Light if theme.is_dark() else Qt.ColorScheme.Dark
         selected = tour.window.graph_view.get_selected_samples()
         set_scheme(tour, flipped)
         tour.save(tour.window, "__switched")

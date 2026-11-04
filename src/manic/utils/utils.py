@@ -23,14 +23,15 @@ def apply_app_stylesheet(app: QApplication) -> None:
     font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
     font.setPixelSize(FONT_SIZE)
     app.setFont(font)
-    _apply_color_scheme(app)
+    apply_color_scheme(app, app.styleHints().colorScheme() == Qt.ColorScheme.Dark)
     if not app.property("manicFollowsColorScheme"):
         app.setProperty("manicFollowsColorScheme", True)
-        app.styleHints().colorSchemeChanged.connect(lambda _scheme: _apply_color_scheme(app))
+        app.styleHints().colorSchemeChanged.connect(
+            lambda scheme: apply_color_scheme(app, scheme == Qt.ColorScheme.Dark)
+        )
 
 
-def _apply_color_scheme(app: QApplication) -> None:
-    dark = app.styleHints().colorScheme() == Qt.ColorScheme.Dark
+def apply_color_scheme(app: QApplication, dark: bool) -> None:
     remap = theme.set_dark(dark)
     remap |= colors.set_dark(dark, theme.color("surface"))
     app.setPalette(theme.palette())

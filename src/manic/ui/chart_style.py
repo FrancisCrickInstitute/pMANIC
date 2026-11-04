@@ -74,6 +74,9 @@ def style_axis(axis: QAbstractAxis, *, grid: bool = False) -> None:
     axis.setShadesVisible(False)
     axis.setTitleFont(ui_font(11))
     axis.setTitleBrush(color("text_secondary"))
+    # Tick labels are short; QtCharts otherwise shows "…" when a reused chart
+    # changes label width before its layout catches up.
+    axis.setTruncateLabels(False)
 
 
 def style_chart(chart: QChart, margins: QMargins = QMargins(0, 0, 0, 0)) -> None:

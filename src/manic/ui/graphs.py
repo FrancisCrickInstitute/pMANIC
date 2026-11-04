@@ -180,6 +180,9 @@ class GraphView(QWidget):
         header.setContentsMargins(8, 6, 6, 2)
         header.setSpacing(8)
         self.channel_legend = ChannelChipRow()
+        # The legend and key clip on narrow windows instead of setting the
+        # window's minimum width.
+        self.channel_legend.setMinimumWidth(1)
         header.addWidget(self.channel_legend)
         self.qc_key = QLabel()
         self.qc_key.setTextFormat(Qt.RichText)
@@ -199,6 +202,7 @@ class GraphView(QWidget):
             )
         )
         self.qc_key.hide()
+        self.qc_key.setMinimumWidth(1)
         header.addWidget(self.qc_key)
         header.addStretch()
         self.selection_summary = QLabel()

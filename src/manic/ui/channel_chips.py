@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QFontMetrics, QPainter, QPen
-from PySide6.QtWidgets import QHBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from manic.models.analysis import IonChannel, IonRole
 from manic.ui.chart_style import ui_font
@@ -46,9 +46,22 @@ class ChannelChip(QWidget):
         self.label = label
         self.style = style
         self.setFont(ui_font(11))
-        text_width = QFontMetrics(self.font()).horizontalAdvance(label)
-        self.setFixedSize(PAD_X + SWATCH_WIDTH + GAP + text_width + PAD_X, CHIP_HEIGHT)
+        metrics = QFontMetrics(self.font())
+        chrome = PAD_X + SWATCH_WIDTH + GAP + PAD_X
+        # Narrow windows squeeze a chip down to its first word ("M+3").
+        self._full = QSize(chrome + metrics.horizontalAdvance(label), CHIP_HEIGHT)
+        self._short = QSize(
+            chrome + metrics.horizontalAdvance(label.split(" ")[0] + "…"), CHIP_HEIGHT
+        )
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.setFixedHeight(CHIP_HEIGHT)
         self.setToolTip(label)
+
+    def sizeHint(self) -> QSize:
+        return self._full
+
+    def minimumSizeHint(self) -> QSize:
+        return self._short
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
@@ -64,10 +77,12 @@ class ChannelChip(QWidget):
         painter.drawLine(PAD_X, y, PAD_X + SWATCH_WIDTH, y)
 
         painter.setPen(color("text"))
+        text_left = PAD_X + SWATCH_WIDTH + GAP
+        text_width = int(rect.width()) - text_left - PAD_X + 2
         painter.drawText(
-            QRectF(PAD_X + SWATCH_WIDTH + GAP, 0, rect.width(), rect.height()),
+            QRectF(text_left, 0, text_width, rect.height()),
             Qt.AlignVCenter | Qt.AlignLeft,
-            self.label,
+            QFontMetrics(self.font()).elidedText(self.label, Qt.ElideRight, text_width),
         )
 
 

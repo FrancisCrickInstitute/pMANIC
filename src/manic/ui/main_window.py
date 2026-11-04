@@ -254,8 +254,10 @@ class MainWindow(QMainWindow):
         self.start_panel = StartPanel(self.analysis_mode)
         self.workspace = QStackedWidget()
         self.workspace.setObjectName("workspace")
+        self.no_samples_panel = self._build_no_samples_panel()
         self.workspace.addWidget(self.start_panel)
         self.workspace.addWidget(self.graph_view)
+        self.workspace.addWidget(self.no_samples_panel)
         splitter.addWidget(self.workspace)
 
         splitter.setStretchFactor(0, 0)
@@ -620,6 +622,40 @@ class MainWindow(QMainWindow):
         )
         bar.addPermanentWidget(self.deconvolution_indicator_label)
 
+    def _build_no_samples_panel(self) -> QWidget:
+        """The workspace while every sample is unchecked in the sidebar."""
+        panel = QWidget()
+        panel.setObjectName("noSamplesPanel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(0)
+        layout.addStretch(1)
+        title = QLabel("No samples shown")
+        title.setProperty("role", "title")
+        detail = QLabel(
+            "Every sample is unchecked in the Samples list.\n"
+            "Check the ones to plot, or show them all."
+        )
+        detail.setProperty("role", "secondary")
+        detail.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.show_all_samples_button = QPushButton("Show all samples")
+        self.show_all_samples_button.setProperty("variant", "primary")
+        self.show_all_samples_button.clicked.connect(self.show_all_samples)
+        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(8)
+        layout.addWidget(detail, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(16)
+        layout.addWidget(self.show_all_samples_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addStretch(2)
+        return panel
+
+    def _no_samples_shown(self) -> bool:
+        return (
+            self.cdf_data_loaded
+            and self.toolbar.sample_list.real_count() > 0
+            and not self.toolbar.get_selected_samples()
+        )
+
     def _refresh_shell(self) -> None:
         """Workspace page, start steps and status text from the loaded-data state."""
         if not hasattr(self, "start_panel"):
@@ -632,9 +668,13 @@ class MainWindow(QMainWindow):
             self._recent_compounds.paths(),
             self._recent_cdf.paths(),
         )
-        self.workspace.setCurrentWidget(
-            self.graph_view if self.cdf_data_loaded else self.start_panel
-        )
+        if not self.cdf_data_loaded:
+            page = self.start_panel
+        elif self._no_samples_shown():
+            page = self.no_samples_panel
+        else:
+            page = self.graph_view
+        self.workspace.setCurrentWidget(page)
         if not self.compound_data_loaded:
             self.update_deconvolution_indicator(None)
         self._update_selection_status()
@@ -651,6 +691,8 @@ class MainWindow(QMainWindow):
             if selected:
                 parts.append(f"{len(selected)} selected")
             text = " · ".join(parts)
+        elif self._no_samples_shown():
+            text = "No samples shown"
         elif self.compound_data_loaded:
             text = "Compound list loaded. Load a raw data folder next."
         else:
@@ -1231,8 +1273,11 @@ class MainWindow(QMainWindow):
         if not compound_name or compound_name.startswith("- No"):
             return  # Don't plot with placeholder compound
 
-        if not samples or any(sample.startswith("- No") for sample in samples):
+        if any(sample.startswith("- No") for sample in samples):
             return  # Don't plot with placeholder samples
+        if not samples:
+            self._show_no_samples(compound_name)
+            return
 
         try:
             if samples:
@@ -1256,7 +1301,7 @@ class MainWindow(QMainWindow):
                 )
 
                 self.toolbar.integration.populate_tr_window_field(compound_name)
-                self._update_selection_status()
+                self._refresh_shell()
 
                 self._refresh_mode_charts(
                     compound_name,
@@ -1273,6 +1318,16 @@ class MainWindow(QMainWindow):
                 "warning", "Error", f"Error plotting: {str(e)}"
             )
             msg_box.exec()
+
+    def _show_no_samples(self, compound_name: str) -> None:
+        """Nothing checked: no plots, no summaries, and nothing for the inspector to apply to."""
+        self.graph_view.clear_all_plots()
+        self.toolbar.integration.populate_fields_from_plots(compound_name, [], [])
+        self.toolbar.integration.populate_tr_window_field(compound_name)
+        self.toolbar.isotopologue_ratios._clear_chart()
+        self.toolbar.total_abundance._clear_chart()
+        self.toolbar.targeted_qc.clear()
+        self._refresh_shell()
 
     def _get_current_eics(self):
         """Get EICs for the current compound and samples"""

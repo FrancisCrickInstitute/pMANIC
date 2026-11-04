@@ -256,9 +256,9 @@ class IntegrationWindow(QWidget):
         layout.addWidget(self.scope_label)
 
         fields = QGridLayout()
-        fields.setContentsMargins(0, 4, 0, 0)
+        fields.setContentsMargins(0, 0, 0, 0)
         fields.setHorizontalSpacing(12)
-        fields.setVerticalSpacing(6)
+        fields.setVerticalSpacing(4)
         fields.setColumnStretch(1, 1)
         for row, (label_text, obj_name, tip) in enumerate(
             [
@@ -296,7 +296,6 @@ class IntegrationWindow(QWidget):
 
         # tR Window field for data regeneration
         tr_window_row = QHBoxLayout()
-        tr_window_row.setContentsMargins(0, 8, 0, 0)
         tr_window_row.setSpacing(8)
         tr_window_lbl = QLabel("tR window")
         tr_window_lbl.setToolTip(
@@ -314,7 +313,17 @@ class IntegrationWindow(QWidget):
         tr_window_row.addWidget(tr_window_lbl)
         tr_window_row.addWidget(self.tr_window_edit, 1)
         tr_window_row.addWidget(self.regenerate_button)
-        layout.addLayout(tr_window_row)
+        window_group = QVBoxLayout()
+        window_group.setContentsMargins(0, 4, 0, 0)
+        window_group.setSpacing(4)
+        window_group.addLayout(tr_window_row)
+        # Apply window ignores the selection, so it states its own scope.
+        self.window_scope_label = QLabel()
+        self.window_scope_label.setObjectName("windowScope")
+        self.window_scope_label.setProperty("role", "hint")
+        self.window_scope_label.setWordWrap(True)
+        window_group.addWidget(self.window_scope_label)
+        layout.addLayout(window_group)
 
     def _format_number(self, value: float) -> str:
         if value == 0:
@@ -615,6 +624,11 @@ class IntegrationWindow(QWidget):
         self.scope_label.setText(scope)
         set_style_property(self.scope_label, "state", "selected" if selected else "all")
         self.apply_button.setText(apply_text)
+        shown = len(self._all_samples)
+        self.window_scope_label.setText(
+            f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
+        )
+        self.window_scope_label.setVisible(bool(self._current_compound and shown))
 
         if not selected:
             apply_tooltip = "Apply changes to all plots"
@@ -629,7 +643,8 @@ class IntegrationWindow(QWidget):
         self.apply_button.setToolTip(apply_tooltip)
         self.restore_button.setToolTip(restore_tooltip)
         self.regenerate_button.setToolTip(
-            "Re-extract every sample's chromatogram with this tR window width"
+            "Re-extract the chromatogram of every shown sample with this tR window "
+            "width, whichever samples are selected"
         )
 
     def _get_samples_needing_reload(

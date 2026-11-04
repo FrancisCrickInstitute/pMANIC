@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from PySide6.QtCharts import QBarSet, QChart, QChartView
 from PySide6.QtCore import QMargins, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter
-from PySide6.QtWidgets import QSizePolicy, QToolTip, QVBoxLayout, QWidget
+from PySide6.QtGui import QMouseEvent, QPainter
+from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
-from manic.ui.chart_popup_dialog import ChartPopupDialog
+from manic.ui.chart_header import ChartHeader
+from manic.ui.chart_popup_dialog import ChartPopupDialog, identity_key_html
+from manic.ui.chart_style import style_chart, text_style
 from manic.ui.identity_chart import (
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
     show_identity_tooltip,
 )
-from manic.validation.unlabelled_identity import IdentityAssessmentSet
+from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
 
 class TargetedQcWidget(QWidget):
@@ -26,18 +28,31 @@ class TargetedQcWidget(QWidget):
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.chart_view.setFrameShape(QFrame.NoFrame)
+        self.chart_view.setStyleSheet("background: transparent; border: none;")
+        self.chart_view.setToolTip(
+            "One row per sample. Click a row to select that sample; "
+            "double-click to enlarge with sample names."
+        )
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
-        self.chart.setBackgroundVisible(False)
-        self.chart.setPlotAreaBackgroundVisible(True)
-        self.chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
-        self.chart.setTitle("")
-        self.chart.setMargins(QMargins(0, 0, 0, 0))
-        self.chart.legend().setVisible(False)
+        style_chart(self.chart, QMargins(0, 0, 0, 0))
+
+        self.header = ChartHeader("Identity")
+        self.header.expand_button.clicked.connect(self._show_popup_chart)
+
+        self.key = QLabel()
+        self.key.setTextFormat(Qt.RichText)
+        self.key.setStyleSheet(text_style("text_secondary", 11))
+        self.key.setToolTip("Qualifier ion cells by QC result, across all samples")
+        self.key.hide()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(1, 1, 1, 4)
+        layout.setSpacing(2)
+        layout.addWidget(self.header)
         layout.addWidget(self.chart_view)
+        layout.addWidget(self.key, alignment=Qt.AlignHCenter)
         self.setMinimumHeight(200)
         self.setMaximumHeight(330)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -55,10 +70,23 @@ class TargetedQcWidget(QWidget):
             self.chart, identity.samples, show_sample_names=False
         )
         self._connect_cell_signals()
+        failed = sum(
+            any(q.status is QualifierStatus.FAILED for q in sample.qualifiers)
+            for sample in identity.samples
+        )
+        count = len(identity.samples)
+        self.header.set_has_data(
+            True, f"{count} sample{'s' if count != 1 else ''}"
+            + (f" · {failed} failed" if failed else "")
+        )
+        self.key.setText(identity_key_html(identity))
+        self.key.show()
 
     def clear(self) -> None:
         self._identity = None
         self._binding = None
+        self.header.set_has_data(False)
+        self.key.hide()
         self.chart.removeAllSeries()
         for axis in list(self.chart.axes()):
             self.chart.removeAxis(axis)

@@ -5,6 +5,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QWidget
 
 from manic.ui.graphs import GraphView
+from manic.ui.plot_tile import PlotTile
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import IdentityStatus
 
@@ -24,7 +25,7 @@ def grid(qapp):
     view = GraphView()
     tiles = {}
     for sample in ("A", "B", "C"):
-        container = QWidget()
+        container = PlotTile(QWidget())
         chart = FakeChart(sample, container)
         container.chart_view = chart
         tiles[sample] = (container, chart)
@@ -51,11 +52,18 @@ def _actions(view: GraphView, chart: FakeChart):
     return menu, actions
 
 
+def _badge_texts(tile: PlotTile) -> list[str]:
+    return [badge.text for badge in tile.badges()]
+
+
 def test_apply_peak_verdicts_styles_tiles(grid):
     _view, tiles, _emitted = grid
-    assert "rgba(255, 204, 204, 120)" in tiles["A"][0].styleSheet()
-    assert "rgba(224, 201, 166, 120)" in tiles["B"][0].styleSheet()
-    assert tiles["C"][0].styleSheet() == ""
+    assert _badge_texts(tiles["A"][0]) == ["Below threshold"]
+    assert tiles["A"][0].tint() == "warning_soft"
+    assert _badge_texts(tiles["B"][0]) == ["Marked bad"]
+    assert tiles["B"][0].tint() == "danger_soft"
+    assert _badge_texts(tiles["C"][0]) == []
+    assert tiles["C"][0].tint() is None
 
 
 def test_accept_enabled_only_on_failed_or_accepted_tiles(grid):
@@ -102,15 +110,16 @@ def test_not_detected_tile_is_flat_grey_until_reviewed(grid, monkeypatch):
         view,
         "_sample_identity",
         lambda _name: SimpleNamespace(
-            qc=SimpleNamespace(status=IdentityStatus.NOT_DETECTED)
+            qc=SimpleNamespace(status=IdentityStatus.NOT_DETECTED, reasons=())
         ),
     )
     view.apply_peak_verdicts({"C": PeakVerdict.PASS})
-    assert "rgba(236, 239, 241, 120)" in tiles["C"][0].styleSheet()
-    assert "border" not in tiles["C"][0].styleSheet()
+    assert _badge_texts(tiles["C"][0]) == ["Not detected"]
+    assert tiles["C"][0].tint() == "surface_alt"
 
     view.apply_peak_verdicts({"C": PeakVerdict.REJECTED})
-    assert "rgba(224, 201, 166, 120)" in tiles["C"][0].styleSheet()
+    assert _badge_texts(tiles["C"][0]) == ["Marked bad", "Not detected"]
+    assert tiles["C"][0].tint() == "danger_soft"
 
 
 def test_group_accept_skips_passing_tiles(grid):

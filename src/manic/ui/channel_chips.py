@@ -4,18 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
-from PySide6.QtWidgets import QHBoxLayout, QWidget
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
-from manic.constants import create_font
 from manic.models.analysis import IonChannel, IonRole
+from manic.ui.chart_style import ui_font
 from manic.ui.colors import QUALIFIER_GREY, ChannelTraceStyle, legend_trace_styles
+from manic.ui.theme import color
 from manic.validation.unlabelled_identity import qualifier_expectation
 
-SWATCH_WIDTH = 18
-CHIP_HEIGHT = 20
-PAD_X = 8
+SWATCH_WIDTH = 16
+CHIP_HEIGHT = 22
+PAD_X = 9
 GAP = 6
 
 
@@ -44,31 +45,44 @@ class ChannelChip(QWidget):
         super().__init__(parent)
         self.label = label
         self.style = style
-        self.setFont(create_font(9))
-        text_width = QFontMetrics(self.font()).horizontalAdvance(label)
-        self.setFixedSize(PAD_X + SWATCH_WIDTH + GAP + text_width + PAD_X, CHIP_HEIGHT)
+        self.setFont(ui_font(11))
+        metrics = QFontMetrics(self.font())
+        chrome = PAD_X + SWATCH_WIDTH + GAP + PAD_X
+        # Narrow windows squeeze a chip down to its first word ("M+3").
+        self._full = QSize(chrome + metrics.horizontalAdvance(label), CHIP_HEIGHT)
+        self._short = QSize(
+            chrome + metrics.horizontalAdvance(label.split(" ")[0] + "…"), CHIP_HEIGHT
+        )
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.setFixedHeight(CHIP_HEIGHT)
         self.setToolTip(label)
+
+    def sizeHint(self) -> QSize:
+        return self._full
+
+    def minimumSizeHint(self) -> QSize:
+        return self._short
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
 
-        fill = QColor(self.style.color)
-        fill.setAlpha(60)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(fill)
+        painter.setPen(QPen(color("border"), 1))
+        painter.setBrush(color("surface"))
         painter.drawRoundedRect(rect, CHIP_HEIGHT / 2, CHIP_HEIGHT / 2)
 
         y = rect.center().y()
-        painter.setPen(QPen(self.style.color, 2, self.style.line_style, Qt.FlatCap))
+        painter.setPen(QPen(self.style.color, 2.5, self.style.line_style, Qt.RoundCap))
         painter.drawLine(PAD_X, y, PAD_X + SWATCH_WIDTH, y)
 
-        painter.setPen(QColor("#222"))
+        painter.setPen(color("text"))
+        text_left = PAD_X + SWATCH_WIDTH + GAP
+        text_width = int(rect.width()) - text_left - PAD_X + 2
         painter.drawText(
-            QRectF(PAD_X + SWATCH_WIDTH + GAP, 0, rect.width(), rect.height()),
+            QRectF(text_left, 0, text_width, rect.height()),
             Qt.AlignVCenter | Qt.AlignLeft,
-            self.label,
+            QFontMetrics(self.font()).elidedText(self.label, Qt.ElideRight, text_width),
         )
 
 
@@ -76,7 +90,7 @@ class ChannelChipRow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(4, 3, 4, 3)
+        self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(GAP)
         self._layout.addStretch()
         self.hide()
@@ -85,8 +99,10 @@ class ChannelChipRow(QWidget):
         self, labels: Sequence[str], styles: Sequence[ChannelTraceStyle]
     ) -> None:
         while self._layout.count() > 1:
-            item = self._layout.takeAt(0)
-            item.widget().deleteLater()
+            chip = self._layout.takeAt(0).widget()
+            # Hidden at once: deleteLater waits for the event loop.
+            chip.hide()
+            chip.deleteLater()
         for label, style in zip(labels, styles):
             self._layout.insertWidget(self._layout.count() - 1, ChannelChip(label, style))
         self.setVisible(bool(labels))

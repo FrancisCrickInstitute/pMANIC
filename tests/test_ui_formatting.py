@@ -301,6 +301,8 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
         assert not y_axis.labelsVisible()
+        assert widget.header.detail.text() == "2 samples · 1 failed"
+        assert "Failed&nbsp;<b>1</b>" in widget.key.text()
         widget.clear()
         assert widget._identity is None
         assert widget.chart.series() == []
@@ -389,7 +391,7 @@ def test_identity_chart_popup_shows_sample_names(qapp):
     )
     dialog = ChartPopupDialog.for_identity(identity)
     try:
-        assert dialog.windowTitle() == "MANIC - Identity"
+        assert dialog.windowTitle() == "Identity — MANIC"
         assert dialog.chart.title() == ""
         assert not dialog.chart.legend().isVisible()
         assert dialog.compound_title.text() == "Target"
@@ -402,8 +404,7 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
         assert y_axis.labelsVisible()
-        assert y_axis.labelsFont().family() == "Arial"
-        assert y_axis.labelsFont().pointSize() == 12
+        assert y_axis.labelsFont().pixelSize() == 11
         value_axes, category_axes = _horizontal_axes(dialog.chart)
         assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
         assert dialog._identity_binding is not None

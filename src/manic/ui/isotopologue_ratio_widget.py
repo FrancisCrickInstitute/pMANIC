@@ -13,14 +13,17 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter
-from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QMouseEvent, QPainter
+from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
 
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.eic_reader import EIC
 from manic.processors.display_deconvolution import integrated_display_areas
 
+from .chart_header import ChartHeader
+from .chart_style import style_axis, style_chart
 from .colors import label_colors
+from .theme import color
 
 logger = logging.getLogger(__name__)
 
@@ -46,23 +49,22 @@ class IsotopologueRatioWidget(QWidget):
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.chart_view.setFrameShape(QFrame.NoFrame)
+        self.chart_view.setStyleSheet("background: transparent; border: none;")
+        self.chart_view.setToolTip("Double-click to enlarge with sample names")
 
         # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
-        # Setup chart appearance
-        self.chart.setBackgroundVisible(False)
-        self.chart.setPlotAreaBackgroundVisible(True)
-        self.chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
-        self.chart.legend().setVisible(False)
-        self.chart.setTitle("Label Incorporation")
-        self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
-        self.chart.setTitleBrush(QColor("black"))
-        self.chart.setMargins(QMargins(2, 1, 5, 1))
+        style_chart(self.chart, QMargins(4, 0, 8, 0))
 
-        # Layout
+        self.header = ChartHeader("Label incorporation")
+        self.header.expand_button.clicked.connect(self._show_popup_chart)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+        layout.addWidget(self.header)
         layout.addWidget(self.chart_view)
 
         # Responsive height for toolbar integration
@@ -222,6 +224,7 @@ class IsotopologueRatioWidget(QWidget):
         for i in range(n_isotopologues):
             bar_set = QBarSet(f"M+{i}")
             bar_set.setColor(label_colors[i % len(label_colors)])
+            bar_set.setBorderColor(color("surface"))
 
             # Add ratio values for this isotopologue across all samples
             for j in range(n_samples):
@@ -250,19 +253,17 @@ class IsotopologueRatioWidget(QWidget):
         x_axis = QValueAxis()
         x_axis.setRange(0, 1)
         x_axis.setLabelFormat("%.1f")
-        x_axis.setLabelsFont(QFont("Arial", 8))
-        x_axis.setGridLineVisible(False)
+        style_axis(x_axis)
         x_axis.setLineVisible(False)
-        x_axis.setTickCount(6)  # 0, 0.2, 0.4, 0.6, 0.8, 1.0
-        x_axis.setLabelsVisible(True)
+        x_axis.setTickCount(3)  # 0, 0.5, 1.0
+        self.header.set_has_data(True)
 
-        # Y-axis (vertical): Sample names - hidden to save space
+        # Sample names are hidden here; the enlarged view shows them.
         y_axis = QBarCategoryAxis()
         y_axis.append(sample_names)
-        y_axis.setLabelsFont(QFont("Arial", 8))
-        y_axis.setGridLineVisible(False)
+        style_axis(y_axis)
         y_axis.setLineVisible(False)
-        y_axis.setLabelsVisible(False)  # Hide sample names to save space
+        y_axis.setLabelsVisible(False)
 
         # Add axes to chart
         self.chart.addAxis(x_axis, Qt.AlignBottom)
@@ -273,6 +274,7 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.removeAllSeries()
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
+        self.header.set_has_data(False)
 
         # Reset data
         self._current_eics = None
@@ -331,6 +333,7 @@ class IsotopologueRatioWidget(QWidget):
                 data=self._current_ratios,
                 sample_names=self._current_sample_names,
                 parent=self,
+                compound_name=self._current_compound,
             )
             dialog.exec()
 

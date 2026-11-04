@@ -1,7 +1,8 @@
 from typing import List
-import numpy as np
 
+import numpy as np
 from PySide6.QtCharts import (
+    QAbstractBarSeries,
     QBarCategoryAxis,
     QBarSet,
     QChart,
@@ -10,22 +11,35 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QCursor, QFont, QPainter
+from PySide6.QtCore import QMargins, Qt
+from PySide6.QtGui import QCursor, QPainter
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QToolTip,
     QVBoxLayout,
 )
 
 from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
+from manic.ui.chart_style import (
+    scale_text,
+    set_nice_ticks,
+    style_axis,
+    style_chart,
+    text_style,
+    ui_font,
+)
 from manic.ui.colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
     QUALIFIER_RED,
+    ChannelTraceStyle,
+    abundance_colour,
     label_colors,
 )
 from manic.ui.identity_chart import (
@@ -34,7 +48,40 @@ from manic.ui.identity_chart import (
     identity_cell_tooltip,
     show_identity_tooltip,
 )
-from manic.validation.unlabelled_identity import IdentityAssessmentSet
+from manic.ui.theme import COLORS, FONT_SIZE_TITLE, color
+from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
+
+# Every sample gets this much height so its name is never elided.
+ROW_HEIGHT = 22
+# Room for the value axis, its title and the chart margins.
+_AXIS_SPACE = 64
+
+
+def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
+    """Qualifier cells per key entry: Validated, Failed, and everything else."""
+    counts = {"Validated": 0, "Failed": 0, "No verdict": 0}
+    for sample in identity.samples:
+        for qualifier in sample.qualifiers:
+            if qualifier.status is QualifierStatus.VALIDATED:
+                counts["Validated"] += 1
+            elif qualifier.status is QualifierStatus.FAILED:
+                counts["Failed"] += 1
+            else:
+                counts["No verdict"] += 1
+    return counts
+
+
+def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
+    counts = identity_status_counts(identity) if identity is not None else None
+    parts = []
+    for qcolor, name in (
+        (QUALIFIER_GREEN, "Validated"),
+        (QUALIFIER_RED, "Failed"),
+        (QUALIFIER_GREY, "No verdict"),
+    ):
+        count = "" if counts is None else f"&nbsp;<b>{counts[name]}</b>"
+        parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{name}{count}')
+    return "&nbsp;&nbsp;&nbsp;".join(parts)
 
 
 class ChartPopupDialog(QDialog):
@@ -50,6 +97,7 @@ class ChartPopupDialog(QDialog):
         *,
         hover_notes: list[str] | None = None,
         identity: IdentityAssessmentSet | None = None,
+        compound_name: str = "",
     ):
         super().__init__(parent)
         self.chart_type = chart_type
@@ -62,16 +110,16 @@ class ChartPopupDialog(QDialog):
         self._hover_notes: list[str] | None = None
         self._identity_binding: IdentityGridBinding | None = None
         self._total_abundance_scale_factor: float = 1.0
-        
-        self.setWindowTitle(f"MANIC - {title}")
+
+        self.setWindowTitle(f"{title} — MANIC")
         self.setModal(True)
-        self.resize(800, 600)
-        
+
         # Set window icon (same as main window)
         self._set_window_icon(parent)
-        
-        self._setup_ui(title)
+
+        self._setup_ui(title, compound_name or (identity.compound_name if identity else ""))
         self._populate_chart()
+        self._fit_to_rows()
 
     @classmethod
     def for_identity(
@@ -88,7 +136,7 @@ class ChartPopupDialog(QDialog):
             parent=parent,
             identity=identity,
         )
-    
+
     def _set_window_icon(self, parent_widget):
         """Set window icon by finding the main window."""
         # Walk up the parent hierarchy to find the main window
@@ -101,73 +149,75 @@ class ChartPopupDialog(QDialog):
                     from PySide6.QtGui import QIcon
                     self.setWindowIcon(QIcon(logo_path))
                 break
-    
-    def _setup_ui(self, title: str):
-        """Setup the dialog UI with chart and close button."""
+
+    def _setup_ui(self, title: str, compound_name: str):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Create chart
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        self.compound_title = QLabel(compound_name or title)
+        self.compound_title.setStyleSheet(text_style("text", FONT_SIZE_TITLE, 600))
+        count = len(self.sample_names)
+        subtitle = title if compound_name else ""
+        subtitle = " · ".join(
+            part for part in (subtitle, f"{count} sample{'s' if count != 1 else ''}") if part
+        )
+        self.subtitle = QLabel(subtitle)
+        self.subtitle.setStyleSheet(text_style("text_secondary", 12))
+        header = QVBoxLayout()
+        header.setSpacing(2)
+        header.addWidget(self.compound_title)
+        header.addWidget(self.subtitle)
+        layout.addLayout(header)
+
+        self.ion_legend = ChannelChipRow()
+        layout.addWidget(self.ion_legend)
+
         self.chart = QChart()
+        style_chart(self.chart, QMargins(8, 4, 16, 4))
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
-        
-        # Setup chart appearance
-        self.chart.setBackgroundVisible(False)
-        self.chart.setPlotAreaBackgroundVisible(True)
-        self.chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
-        self.chart.legend().setVisible(False)
-        self.chart.setTitle(title)
-        self.chart.setTitleFont(QFont("Arial", 16, QFont.Bold))
-        self.chart.setTitleBrush(QColor("black"))
-        
-        self.compound_title = QLabel("")
-        self.compound_title.setAlignment(Qt.AlignHCenter)
-        self.compound_title.setStyleSheet(
-            "color: #222; font-size: 14px; font-weight: bold; background: transparent;"
+        self.chart_view.setFrameShape(QFrame.NoFrame)
+        self.chart_view.setStyleSheet("background: transparent;")
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setWidget(self.chart_view)
+        self._scroll.setStyleSheet(
+            f"QScrollArea {{ background: {COLORS['surface']};"
+            f" border: 1px solid {COLORS['border']}; border-radius: 8px; }}"
         )
-        self.compound_title.hide()
-        self.ion_legend = ChannelChipRow()
+        layout.addWidget(self._scroll, stretch=1)
+
         self.status_legend = QLabel("")
         self.status_legend.setTextFormat(Qt.RichText)
-        self.status_legend.setAlignment(Qt.AlignHCenter)
-        self.status_legend.setStyleSheet(
-            "color: #333; font-size: 12px; background: transparent;"
-        )
+        self.status_legend.setStyleSheet(text_style("text_secondary", 12))
         self.status_legend.hide()
-        layout.addWidget(self.compound_title)
-        layout.addWidget(self.ion_legend)
-        layout.addWidget(self.chart_view)
-        layout.addWidget(self.status_legend)
-        
-        # Add close button
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        
+
+        footer = QHBoxLayout()
+        footer.addWidget(self.status_legend)
+        footer.addStretch()
+        hint = QLabel(
+            "Hover a cell for details" if self.chart_type == "identity"
+            else "Hover a bar for its value"
+        )
+        hint.setStyleSheet(text_style("text_tertiary", 11))
+        footer.addWidget(hint)
         close_button = QPushButton("Close")
+        close_button.setAutoDefault(False)
         close_button.clicked.connect(self.accept)
-        close_button.setMinimumWidth(100)
-        # Apply red button styling directly
-        close_button.setStyleSheet("""
-            QPushButton {
-                background-color: #dc3545;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #bb2d3b;
-            }
-            QPushButton:pressed {
-                background-color: #b02a37;
-            }
-        """)
-        button_layout.addWidget(close_button)
-        
-        layout.addLayout(button_layout)
-    
+        footer.addWidget(close_button)
+        layout.addLayout(footer)
+
+    def _fit_to_rows(self) -> None:
+        rows = max(len(self.sample_names), 1)
+        self.chart_view.setMinimumHeight(rows * ROW_HEIGHT + _AXIS_SPACE)
+        screen = self.screen() or QApplication.primaryScreen()
+        max_height = int(screen.availableGeometry().height() * 0.85) if screen else 900
+        chrome = 150 + (30 if self.ion_legend.isVisibleTo(self) else 0)
+        self.resize(820, min(max_height, rows * ROW_HEIGHT + _AXIS_SPACE + chrome))
+
     def _populate_chart(self):
         """Populate chart based on type and data."""
         if self.chart_type == "total_abundance":
@@ -176,26 +226,27 @@ class ChartPopupDialog(QDialog):
             self._create_isotopologue_chart()
         elif self.chart_type == "identity":
             self._create_identity_chart()
-    
+
     def _create_total_abundance_chart(self):
         """Create enlarged total abundance chart with sample names on Y-axis."""
         if self.data is None or len(self.data) == 0:
             return
-            
-        # Create horizontal bar series
+
         bar_series = QHorizontalBarSeries()
-        bar_series.setBarWidth(0.8)
-        
-        # Create single bar set
+        bar_series.setBarWidth(0.7)
+
         bar_set = QBarSet("Total Abundance")
-        bar_set.setColor(QColor(0, 128, 128))  # Dark teal
-        
+        bar_set.setColor(abundance_colour)
+        bar_set.setBorderColor(abundance_colour)
+        bar_set.setLabelColor(color("text_secondary"))
+        bar_set.setLabelFont(ui_font(10))
+
         # Calculate scaling for display
         max_abundance = float(np.max(self.data)) if len(self.data) > 0 else 1.0
         scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
         scale_factor = 10**scale_exp if scale_exp != 0 else 1
         self._total_abundance_scale_factor = float(scale_factor)
-        
+
         # Add scaled abundance values
         for abundance in self.data:
             scaled_abundance = abundance / scale_factor
@@ -206,37 +257,42 @@ class ChartPopupDialog(QDialog):
                 bs, status, index
             )
         )
-        
+
         bar_series.append(bar_set)
+        bar_series.setLabelsVisible(True)
+        bar_series.setLabelsPosition(QAbstractBarSeries.LabelsOutsideEnd)
+        bar_series.setLabelsFormat("@value")
+        bar_series.setLabelsPrecision(3)
         self.chart.addSeries(bar_series)
-        
+
         # Setup axes with sample names visible
         self._setup_total_abundance_axes(max_abundance, scale_exp, scale_factor)
-        
+
         # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
-    
+
     def _create_isotopologue_chart(self):
         """Create enlarged isotopologue chart with sample names on Y-axis."""
         if self.data is None or len(self.data) == 0:
             return
-            
-        # Create horizontal stacked bar series
+
         stacked_series = QHorizontalStackedBarSeries()
-        stacked_series.setBarWidth(0.8)
-        
+        stacked_series.setBarWidth(0.7)
+
         # Get number of isotopologues
         num_isotopologues = self.data.shape[1] if len(self.data.shape) > 1 else 1
-        
-        # Create bar sets for each isotopologue
+
+        labels = []
+        styles = []
         for i in range(num_isotopologues):
             bar_set = QBarSet(f"M+{i}")
-            
-            # Set color from palette
-            if i < len(label_colors):
-                bar_set.setColor(QColor(label_colors[i]))
-            
+            bar_colour = label_colors[i % len(label_colors)]
+            bar_set.setColor(bar_colour)
+            bar_set.setBorderColor(color("surface"))
+            labels.append(bar_set.label())
+            styles.append(ChannelTraceStyle(bar_colour, Qt.SolidLine))
+
             # Add ratio values for this isotopologue across all samples
             for sample_idx in range(len(self.sample_names)):
                 if len(self.data.shape) > 1:
@@ -244,24 +300,22 @@ class ChartPopupDialog(QDialog):
                 else:
                     ratio = 1.0 if i == 0 else 0.0  # Single trace case
                 bar_set.append(ratio)
-            
+
             bar_set.hovered.connect(
                 lambda status, index, bs=bar_set: self._on_stacked_bar_segment_hover(
                     bs, status, index
                 )
             )
             stacked_series.append(bar_set)
-        
+
         self.chart.addSeries(stacked_series)
-        
+
         # Setup axes
         self._setup_isotopologue_axes()
-        
-        # Show legend for isotopologues
+
         if num_isotopologues > 1:
-            self.chart.legend().setVisible(True)
-            self.chart.legend().setAlignment(Qt.AlignRight)
-        
+            self.ion_legend.set_channels(labels, styles)
+
         # Attach series to axes
         stacked_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         stacked_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
@@ -270,23 +324,12 @@ class ChartPopupDialog(QDialog):
         if self._identity is None or not self._identity.samples:
             return
 
-        self.compound_title.setText(self._identity.compound_name)
-        self.compound_title.show()
         labels, styles = identity_key_chips(self._identity.channels)
         self.ion_legend.set_channels(labels, styles)
         self._identity_binding = add_identity_grid(
-            self.chart, self._identity.samples, label_font_size=12
+            self.chart, self._identity.samples, label_font_size=11
         )
-        self.status_legend.setText(
-            "&nbsp;&nbsp;".join(
-                f'<span style="color:{color.name()};">&#9632;</span> {name}'
-                for color, name in (
-                    (QUALIFIER_GREEN, "Validated"),
-                    (QUALIFIER_RED, "Failed"),
-                    (QUALIFIER_GREY, "No verdict"),
-                )
-            )
-        )
+        self.status_legend.setText(identity_key_html(self._identity))
         self.status_legend.show()
         for bar_set in self._identity_binding.bar_sets:
             bar_set.hovered.connect(
@@ -312,7 +355,7 @@ class ChartPopupDialog(QDialog):
             QToolTip.hideText()
             return
         show_identity_tooltip(self.chart_view, identity_cell_tooltip(cell))
-    
+
     def closeEvent(self, event) -> None:
         QToolTip.hideText()
         super().closeEvent(event)
@@ -369,68 +412,57 @@ class ChartPopupDialog(QDialog):
             self.chart_view,
         )
 
+    def _sample_axis(self, names: list[str]) -> QBarCategoryAxis:
+        axis = QBarCategoryAxis()
+        axis.append(names)
+        style_axis(axis)
+        axis.setLabelsFont(ui_font(11))
+        axis.setLabelsColor(color("text"))
+        axis.setLineVisible(False)
+        # Every row is tall enough for its name, so never shorten it to "…".
+        axis.setTruncateLabels(False)
+        return axis
+
     def _setup_total_abundance_axes(self, max_abundance: float, scale_exp: int, scale_factor: float):
         """Setup axes for total abundance chart."""
-        # Remove existing axes
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
-        
-        # X-axis (horizontal): Abundance values
+
         x_axis = QValueAxis()
         scaled_max = max_abundance / scale_factor
-        x_axis.setRange(0, scaled_max * 1.05)  # Add 5% padding
-        x_axis.setLabelFormat("%.1f")
-        x_axis.setLabelsFont(QFont("Arial", 10))
-        x_axis.setGridLineVisible(True)
-        x_axis.setTickCount(6)
-        
-        # Set scaling factor as axis title
-        if scale_exp != 0:
-            def superscript(n):
-                sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
-                return str(n).translate(sup_map)
-            x_axis.setTitleText(f"×10{superscript(scale_exp)}")
-            x_axis.setTitleFont(QFont("Arial", 12))
-        
-        # Y-axis (vertical): Sample names - NOW VISIBLE
-        y_axis = QBarCategoryAxis()
-        # Add sample names in reverse order to match QtCharts bottom-to-top display
+        # Extra room past the longest bar for its value label.
+        x_axis.setRange(0, scaled_max * 1.15)
+        style_axis(x_axis, grid=True)
+        set_nice_ticks(x_axis, 0, scaled_max * 1.15, max_ticks=4)
+        x_axis.setTitleText(
+            f"Total abundance  {scale_text(scale_exp)}" if scale_exp else "Total abundance"
+        )
+
+        # Sample names bottom to top, matching QtCharts' category order.
         reversed_names = list(reversed(self.sample_names))
-        y_axis.append(reversed_names)
-        y_axis.setLabelsFont(QFont("Arial", 10))
-        y_axis.setGridLineVisible(False)
-        y_axis.setLabelsVisible(True)  # Show sample names
-        
-        # Add axes to chart
-        self.chart.addAxis(x_axis, Qt.AlignBottom)
+        y_axis = self._sample_axis(reversed_names)
+
+        # Value axis on top so it stays in view while a long list scrolls.
+        self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
 
         self._hover_categories = list(reversed_names)
-    
+
     def _setup_isotopologue_axes(self):
         """Setup axes for isotopologue chart."""
-        # Remove existing axes
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
-        
-        # X-axis (horizontal): Ratio values (0-1)
+
         x_axis = QValueAxis()
         x_axis.setRange(0, 1.0)
         x_axis.setLabelFormat("%.1f")
-        x_axis.setLabelsFont(QFont("Arial", 10))
-        x_axis.setGridLineVisible(True)
+        style_axis(x_axis, grid=True)
         x_axis.setTickCount(6)
-        x_axis.setTitleText("Isotopologue Ratio")
-        x_axis.setTitleFont(QFont("Arial", 12))
-        
-        # Y-axis (vertical): Sample names - NOW VISIBLE
-        y_axis = QBarCategoryAxis()
-        y_axis.append(self.sample_names)
+        x_axis.setTitleText("Isotopologue ratio")
+
+        y_axis = self._sample_axis(list(self.sample_names))
         self._hover_categories = list(self.sample_names)
-        y_axis.setLabelsFont(QFont("Arial", 10))
-        y_axis.setGridLineVisible(False)
-        y_axis.setLabelsVisible(True)  # Show sample names
-        
-        # Add axes to chart
-        self.chart.addAxis(x_axis, Qt.AlignBottom)
+
+        # Value axis on top so it stays in view while a long list scrolls.
+        self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)

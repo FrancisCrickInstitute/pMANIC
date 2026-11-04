@@ -8,7 +8,7 @@ list that no app-wide rule covers, built from ``theme`` tokens.
 from __future__ import annotations
 
 from PySide6.QtCore import QModelIndex, QPointF, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
@@ -28,8 +28,7 @@ FORM_LABEL_WIDTH = 150
 SIDEBAR_ROW_HEIGHT = 32
 MARKED_ROLE = Qt.UserRole + 1
 
-_DIALOG_STYLE = theme.substitute_tokens(
-    """
+_DIALOG_STYLE = """
 QLabel { padding: 0px; background: transparent; }
 QLabel[role="title"] { font-size: 16px; font-weight: 600; color: @text; }
 QLabel[role="section"] { font-size: 11px; font-weight: 600; color: @text_tertiary; }
@@ -39,10 +38,8 @@ QLabel[role="error"] { font-size: 12px; color: @danger; }
 QLabel[role="pending"] { font-size: 12px; color: @warning; }
 *[invalid="true"] { border: 1px solid @danger; border-radius: 6px; }
 """
-)
 
-_SIDEBAR_STYLE = theme.substitute_tokens(
-    """
+_SIDEBAR_STYLE = """
 QListWidget {
     background: @surface_alt;
     border: none;
@@ -60,7 +57,6 @@ QListWidget::item {
 QListWidget::item:hover { background: @surface_hover; }
 QListWidget::item:selected { background: @accent_soft; color: @text; }
 """
-)
 
 
 def window_title(thing: str) -> str:
@@ -68,7 +64,7 @@ def window_title(thing: str) -> str:
 
 
 def style_dialog(dialog: QWidget) -> None:
-    dialog.setStyleSheet(_DIALOG_STYLE)
+    theme.style(dialog, _DIALOG_STYLE)
 
 
 def _role_label(text: str, role: str, *, wrap: bool = True) -> QLabel:
@@ -164,7 +160,7 @@ def status_icon(passed: bool, size: int = 14) -> QIcon:
     painter.setPen(Qt.NoPen)
     painter.setBrush(theme.color("success" if passed else "warning"))
     painter.drawEllipse(0, 0, size, size)
-    pen = QPen(QColor("white"), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    pen = QPen(theme.color("on_accent"), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
     painter.setPen(pen)
     s = size / 14
     if passed:
@@ -207,7 +203,7 @@ def sidebar_list(object_name: str, width: int) -> QListWidget:
     sidebar.setUniformItemSizes(True)
     sidebar.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     sidebar.setTextElideMode(Qt.ElideRight)
-    sidebar.setStyleSheet(_SIDEBAR_STYLE)
+    theme.style(sidebar, _SIDEBAR_STYLE)
     sidebar.setItemDelegate(_MarkedItemDelegate(sidebar))
     return sidebar
 

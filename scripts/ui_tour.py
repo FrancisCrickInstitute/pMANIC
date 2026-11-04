@@ -6,7 +6,7 @@ two revisions compare one to one. Modal dialogs and menus are captured and
 dismissed instead of blocking. The app's own database is never touched.
 
 Run from the repository root:
-  uv run python scripts/ui_tour.py OUT_DIR [--size 1600x1000]
+  uv run python scripts/ui_tour.py OUT_DIR [--size 1600x1000] [--scheme light|dark]
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QSettings  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QSettings, Qt  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QDialog,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QWidget,
 )
 
+SCHEMES = {"light": Qt.ColorScheme.Light, "dark": Qt.ColorScheme.Dark}
 LABELLED = ROOT / "testdata" / "bench" / "labelled"
 UNLABELLED = ROOT / "testdata" / "unlabelled_synthetic"
 
@@ -105,6 +106,17 @@ class Tour:
             if time.time() > end:
                 raise TimeoutError("timed out waiting for the app")
             self.pump(0.2)
+
+
+def set_scheme(tour: Tour, scheme: Qt.ColorScheme) -> None:
+    from manic.ui import theme
+
+    hints = tour.app.styleHints()
+    hints.setColorScheme(scheme)
+    tour.wait_for(lambda: hints.colorScheme() == scheme, timeout=10)
+    tour.pump(0.3)
+    if theme.is_dark() != (scheme == Qt.ColorScheme.Dark):
+        raise RuntimeError(f"app did not restyle for {scheme}")
 
 
 def make_window(tour: Tour, mode):
@@ -182,6 +194,22 @@ def tour_steps(tour: Tour) -> None:
             tour.window.graph_view._on_plot_clicked(view)
 
     tour.run("three_selected", select_three)
+
+    def live_scheme_switch():
+        hints = tour.app.styleHints()
+        start = hints.colorScheme()
+        flipped = (
+            Qt.ColorScheme.Light if start == Qt.ColorScheme.Dark else Qt.ColorScheme.Dark
+        )
+        selected = tour.window.graph_view.get_selected_samples()
+        set_scheme(tour, flipped)
+        tour.save(tour.window, "__switched")
+        set_scheme(tour, start)
+        tour.save(tour.window, "__switched_back")
+        if tour.window.graph_view.get_selected_samples() != selected:
+            raise RuntimeError("selection lost across a live scheme switch")
+
+    tour.run("live_scheme_switch", live_scheme_switch, grab_main=False)
 
     def context_menu():
         views = charts(tour.window)
@@ -270,6 +298,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("out", type=Path)
     parser.add_argument("--size", default="1600x1000")
+    parser.add_argument(
+        "--scheme", choices=sorted(SCHEMES), help="force light or dark (default: follow the OS)"
+    )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     width, height = (int(v) for v in args.size.split("x"))
@@ -293,6 +324,11 @@ def main() -> int:
     MainWindow._check_for_updates = lambda self: None
 
     tour = Tour(app, args.out, (width, height))
+    if args.scheme:
+        try:
+            set_scheme(tour, SCHEMES[args.scheme])
+        except Exception:
+            tour.errors.append(f"scheme: {traceback.format_exc(limit=3)}")
     QDialog.exec = lambda self: tour.capture_modal(self)
     QMessageBox.exec = lambda self: tour.capture_modal(self)
     QMenu.exec = lambda self, *a, **k: tour.capture_modal(self)

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from manic.ui import theme
 from manic.ui.theme import FONT_SIZE_SMALL, color, set_style_property
 
 
@@ -136,6 +137,10 @@ class StatusRow(QPushButton):
         layout.addWidget(self._value, 1)
         self.setFixedHeight(26)
         self.set_state("blocked", "")
+        theme.notifier.changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, _remap: dict) -> None:
+        self._icon.setPixmap(status_pixmap(self._state))
 
     def set_compact(self, compact: bool) -> None:
         """Compact rows drop the title and show only the icon and value."""
@@ -146,6 +151,7 @@ class StatusRow(QPushButton):
         )
 
     def set_state(self, state: str, value: str) -> None:
+        self._state = state
         self._icon.setPixmap(status_pixmap(state))
         self._value.setText(value)
         set_style_property(self._value, "state", state)

@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from manic.ui.chart_style import scale_text, text_style
-from manic.ui.theme import COLORS, RADIUS, color
+from manic.ui.theme import RADIUS, color
+from manic.ui import theme
 from manic.validation.peak_verdict import PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentitySampleAssessment,
@@ -145,8 +146,9 @@ def _badge_label(badge: TileBadge) -> QLabel:
     label = QLabel(badge.text)
     label.setToolTip(badge.tooltip)
     label.setFixedHeight(16)
-    label.setStyleSheet(
-        f"color: {COLORS[fg]}; background: {COLORS[bg]}; font-size: 10px;"
+    theme.style(
+        label,
+        f"color: @{fg}; background: @{bg}; font-size: 10px;"
         " font-weight: 600; border: none; border-radius: 4px; padding: 0px 5px;"
     )
     return label
@@ -170,7 +172,7 @@ class PlotTile(QWidget):
         self.caption.setMinimumWidth(24)
 
         self.scale_label = QLabel()
-        self.scale_label.setStyleSheet(text_style("text_tertiary", 10))
+        theme.style(self.scale_label, text_style("text_tertiary", 10))
         self.scale_label.setToolTip("Intensity axis multiplier")
 
         self._badge_row = QHBoxLayout()
@@ -236,9 +238,7 @@ class PlotTile(QWidget):
         if self._caption_selected is self.is_selected:
             return
         self._caption_selected = self.is_selected
-        self.caption.setStyleSheet(
-            text_style("accent" if self.is_selected else "text", 12, 600)
-        )
+        theme.style(self.caption, text_style("accent" if self.is_selected else "text", 12, 600))
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
@@ -253,7 +253,7 @@ class PlotTile(QWidget):
             painter.setPen(QPen(color("border"), 1))
         painter.drawRoundedRect(rect, RADIUS, RADIUS)
         if self._focused:
-            ring = QColor(color("accent"))
+            ring = color("accent")
             ring.setAlpha(150)
             pen = QPen(ring, 1.5, Qt.DashLine)
             painter.setPen(pen)

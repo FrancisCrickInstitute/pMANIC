@@ -16,9 +16,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.colors import to_hex, to_rgba, to_rgba_array
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import QHBoxLayout, QToolButton, QVBoxLayout, QWidget
 
+from manic.ui import theme
 from manic.ui.theme import COLORS
 
 from manic.constants import (
@@ -54,26 +56,62 @@ matplotlib.rcParams["figure.autolayout"] = (
     False  # Manual layout control for performance
 )
 matplotlib.rcParams["axes.unicode_minus"] = False  # Simplified minus sign rendering
-# Match the app's system font and theme colours.
+# Match the app's system font (macOS, Windows, then matplotlib's own fallback).
 matplotlib.rcParams.update(
     {
         "font.family": "sans-serif",
         "font.sans-serif": ["Helvetica Neue", "Helvetica", "Segoe UI", "DejaVu Sans"],
-        "text.color": COLORS["text"],
-        "axes.edgecolor": COLORS["border_strong"],
-        "axes.labelcolor": COLORS["text_secondary"],
-        "axes.titlecolor": COLORS["text"],
         "axes.titleweight": "semibold",
-        "xtick.color": COLORS["border_strong"],
-        "ytick.color": COLORS["border_strong"],
-        "xtick.labelcolor": COLORS["text_secondary"],
-        "ytick.labelcolor": COLORS["text_secondary"],
-        "legend.edgecolor": COLORS["border"],
         "legend.framealpha": 0.92,
         # Axis multiplier reads "×10⁶", as on the grid tiles, not "1e6".
         "axes.formatter.use_mathtext": True,
     }
 )
+
+
+def _apply_theme_rc() -> None:
+    """Theme colours for artists matplotlib creates later (titles, legends, text)."""
+    matplotlib.rcParams.update(
+        {
+            "text.color": COLORS["text"],
+            "axes.edgecolor": COLORS["border_strong"],
+            "axes.labelcolor": COLORS["text_secondary"],
+            "axes.titlecolor": COLORS["text"],
+            "xtick.color": COLORS["border_strong"],
+            "ytick.color": COLORS["border_strong"],
+            "xtick.labelcolor": COLORS["text_secondary"],
+            "ytick.labelcolor": COLORS["text_secondary"],
+            "legend.edgecolor": COLORS["border"],
+            "legend.facecolor": COLORS["surface"],
+        }
+    )
+
+
+def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
+    """Move every drawn artist that used a token or data colour to the new scheme."""
+
+    def swap(value):
+        rgba = np.atleast_2d(to_rgba_array(value))
+        out = rgba.copy()
+        for row in out:
+            new = remap.get(to_hex(row[:3]))
+            if new is not None:
+                row[:3] = to_rgba(new)[:3]
+        return out if len(out) > 1 else tuple(out[0])
+
+    for artist in figure.findobj():
+        for prop in ("color", "facecolor", "edgecolor", "markeredgecolor", "markerfacecolor"):
+            getter = getattr(artist, f"get_{prop}", None)
+            setter = getattr(artist, f"set_{prop}", None)
+            if getter is None or setter is None:
+                continue
+            try:
+                value = getter()
+                if len(np.atleast_1d(value)) == 0 or (isinstance(value, str) and value in ("none", "auto")):
+                    continue
+                setter(swap(value))
+            except (TypeError, ValueError):
+                continue
 
 
 logger = logging.getLogger(__name__)
@@ -116,34 +154,32 @@ class CompactNavigationToolbar(QWidget):
         )
         layout.setSpacing(TOOLBAR_SPACING)
 
-        self.setStyleSheet(f"background-color: {COLORS['surface']};")
-
-        c = COLORS
         button_style = f"""
+            QWidget {{ background-color: @surface; }}
             QToolButton {{
                 border: none;
                 padding: {TOOLBAR_BUTTON_PADDING}px 8px;
                 margin: {TOOLBAR_BUTTON_MARGIN}px;
                 background-color: transparent;
                 border-radius: 6px;
-                color: {c['text_secondary']};
+                color: @text_secondary;
                 font-size: 12px;
             }}
             QToolButton:hover {{
-                background-color: {c['surface_hover']};
+                background-color: @surface_hover;
             }}
             QToolButton:checked {{
-                background-color: {c['accent_soft']};
-                color: {c['accent']};
+                background-color: @accent_soft;
+                color: @accent;
             }}
         """
+        theme.style(self, button_style)
 
         # Reset button: returns plot to a deterministic data-fitted view state
         self.home_btn = QToolButton()
         self.home_btn.setText("↻ Reset")
         self.home_btn.setToolTip("Reset view")
         self.home_btn.clicked.connect(self._reset_view)
-        self.home_btn.setStyleSheet(button_style)
         layout.addWidget(self.home_btn)
 
         # Drag button: enables plot panning functionality
@@ -152,7 +188,6 @@ class CompactNavigationToolbar(QWidget):
         self.pan_btn.setToolTip("Drag the plot to pan")
         self.pan_btn.setCheckable(True)
         self.pan_btn.clicked.connect(self._on_pan)
-        self.pan_btn.setStyleSheet(button_style)
         layout.addWidget(self.pan_btn)
 
         # Zoom button: activates rectangular zoom selection
@@ -161,7 +196,6 @@ class CompactNavigationToolbar(QWidget):
         self.zoom_btn.setToolTip("Drag a rectangle to zoom")
         self.zoom_btn.setCheckable(True)
         self.zoom_btn.clicked.connect(self._on_zoom)
-        self.zoom_btn.setStyleSheet(button_style)
         layout.addWidget(self.zoom_btn)
 
         layout.addStretch()
@@ -282,8 +316,8 @@ class MatplotlibPlotWidget(QWidget):
 
     def _setup_ui(self):
         """Setup the UI with matplotlib figure."""
-        # Apply consistent white background styling
-        self.setStyleSheet(f"background-color: {COLORS['surface']};")
+        _apply_theme_rc()
+        theme.style(self, "background-color: @surface;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -294,15 +328,14 @@ class MatplotlibPlotWidget(QWidget):
             figsize=(PLOT_FIGURE_WIDTH, PLOT_FIGURE_HEIGHT),
             dpi=PLOT_DPI,
             tight_layout=False,
-            facecolor="white",
-            edgecolor="white",
+            facecolor=COLORS["surface"],
+            edgecolor=COLORS["surface"],
         )
         self.canvas = FigureCanvas(self.figure)
-        # Ensure canvas maintains consistent white background
-        self.canvas.setStyleSheet("background-color: white; border: none;")
+        theme.style(self.canvas, "background-color: @surface; border: none;")
 
         # Configure subplot with optimized margin parameters
-        self.ax = self.figure.add_subplot(111, facecolor="white")
+        self.ax = self.figure.add_subplot(111, facecolor=COLORS["surface"])
         self.figure.subplots_adjust(
             left=PLOT_MARGIN_LEFT,
             right=PLOT_MARGIN_RIGHT,
@@ -329,6 +362,8 @@ class MatplotlibPlotWidget(QWidget):
         )
         self.ax.tick_params(labelsize=PLOT_TICK_FONTSIZE)
 
+        theme.notifier.changed.connect(self._on_theme_changed)
+
         # Integrate custom navigation toolbar
         self.toolbar = CompactNavigationToolbar(self.canvas, self)
 
@@ -343,7 +378,7 @@ class MatplotlibPlotWidget(QWidget):
         """Clear all data from the plot."""
         self.ax.clear()
         self.data_lines = []
-        self.ax.set_facecolor("white")
+        self.ax.set_facecolor(COLORS["surface"])
         self.ax.set_title(
             self.title, fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING
         )
@@ -577,7 +612,7 @@ class MatplotlibPlotWidget(QWidget):
         x: float,
         y: float,
         text: str,
-        color: str = "black",
+        color: str | None = None,
         ha: str = "center",
         va: str = "bottom",
         fontsize: int | None = None,
@@ -606,7 +641,7 @@ class MatplotlibPlotWidget(QWidget):
                 x,
                 y,
                 text,
-                color=color,
+                color=color or COLORS["text"],
                 ha=ha,
                 va=va,
                 fontsize=fontsize,
@@ -615,6 +650,15 @@ class MatplotlibPlotWidget(QWidget):
             )
         except Exception as e:
             logger.error(f"Failed to add text annotation: {e}")
+
+    def _on_theme_changed(self, remap: dict) -> None:
+        if self.figure is None:
+            return
+        _apply_theme_rc()
+        remap_figure_colors(self.figure, remap)
+        self.ax.tick_params(colors=COLORS["border_strong"], labelcolor=COLORS["text_secondary"])
+        self.ax.grid(True, color=COLORS["grid_line"])
+        self.canvas.draw_idle()
 
     def set_title(self, title: str):
         """Update the plot title."""

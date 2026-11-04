@@ -21,7 +21,9 @@ from PySide6.QtWidgets import (
 )
 
 from manic.utils.paths import docs_path
+from manic.ui import theme
 from manic.ui.dialog_kit import sidebar_item_size, sidebar_list, window_title
+from manic.ui.theme import COLORS
 from manic.ui.window_placement import show_over_parent
 
 try:
@@ -164,8 +166,14 @@ class DocumentationViewer(QDialog):
         self.web_view = QWebEngineView()
         custom_page = DocumentationPage(self.web_view, self._handle_navigation)
         self.web_view.setPage(custom_page)
-        self.web_view.setStyleSheet("background-color: white;")
+        self.web_view.page().setBackgroundColor(theme.color("surface"))
         layout.addWidget(self.web_view, 1)
+        theme.notifier.changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, _remap: dict) -> None:
+        self.web_view.page().setBackgroundColor(theme.color("surface"))
+        if self.current_file is not None:
+            self.load_markdown_file(self.current_file, self.current_fragment)
 
     def open(self) -> None:
         if self.current_file is None and self.page_list.count():
@@ -436,6 +444,7 @@ class DocumentationViewer(QDialog):
         Returns:
             Complete HTML document string
         """
+        c = COLORS
         return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -464,8 +473,8 @@ window.MathJax = {{
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
         font-size: 16px;
         line-height: 1.6;
-        color: #24292f;
-        background-color: #ffffff;
+        color: {c["text"]};
+        background-color: {c["surface"]};
         padding: 32px;
         max-width: 980px;
         margin: 0 auto;
@@ -478,19 +487,19 @@ window.MathJax = {{
         margin-bottom: 16px;
         font-weight: 600;
         line-height: 1.25;
-        color: #1f2328;
+        color: {c["text"]};
     }}
     
     h1 {{
         font-size: 2em;
-        border-bottom: 1px solid #d0d7de;
+        border-bottom: 1px solid {c["border"]};
         padding-bottom: 0.3em;
         margin-top: 0;
     }}
     
     h2 {{
         font-size: 1.5em;
-        border-bottom: 1px solid #d0d7de;
+        border-bottom: 1px solid {c["border"]};
         padding-bottom: 0.3em;
     }}
     
@@ -508,7 +517,7 @@ window.MathJax = {{
     
     h6 {{
         font-size: 0.85em;
-        color: #57606a;
+        color: {c["text_secondary"]};
     }}
     
     /* Paragraph and Text */
@@ -519,7 +528,7 @@ window.MathJax = {{
     
     /* Links - GitHub blue */
     a {{
-        color: #0969da;
+        color: {c["accent"]};
         text-decoration: none;
     }}
     
@@ -528,7 +537,7 @@ window.MathJax = {{
     }}
     
     a:visited {{
-        color: #8250df;
+        color: {c["accent"]};
     }}
     
     /* Code Blocks and Inline Code */
@@ -537,7 +546,7 @@ window.MathJax = {{
         overflow: auto;
         font-size: 85%;
         line-height: 1.45;
-        background-color: #f6f8fa;
+        background-color: {c["surface_alt"]};
         border-radius: 6px;
         margin-bottom: 16px;
         font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
@@ -547,7 +556,7 @@ window.MathJax = {{
         padding: 0.2em 0.4em;
         margin: 0;
         font-size: 85%;
-        background-color: rgba(175,184,193,0.2);
+        background-color: {c["surface_alt"]};
         border-radius: 6px;
         font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
     }}
@@ -565,8 +574,8 @@ window.MathJax = {{
     /* Blockquotes - GitHub style */
     blockquote {{
         padding: 0 1em;
-        color: #57606a;
-        border-left: 0.25em solid #d0d7de;
+        color: {c["text_secondary"]};
+        border-left: 0.25em solid {c["border"]};
         margin: 0 0 16px 0;
     }}
     
@@ -592,22 +601,22 @@ window.MathJax = {{
     table th {{
         font-weight: 600;
         padding: 6px 13px;
-        border: 1px solid #d0d7de;
-        background-color: #f6f8fa;
+        border: 1px solid {c["border"]};
+        background-color: {c["surface_alt"]};
     }}
     
     table td {{
         padding: 6px 13px;
-        border: 1px solid #d0d7de;
+        border: 1px solid {c["border"]};
     }}
     
     table tr {{
-        background-color: #ffffff;
-        border-top: 1px solid #d8dee4;
+        background-color: {c["surface"]};
+        border-top: 1px solid {c["border"]};
     }}
     
     table tr:nth-child(2n) {{
-        background-color: #f6f8fa;
+        background-color: {c["surface_alt"]};
     }}
     
     /* Lists */
@@ -634,7 +643,7 @@ window.MathJax = {{
         height: 0.25em;
         padding: 0;
         margin: 24px 0;
-        background-color: #d0d7de;
+        background-color: {c["border"]};
         border: 0;
     }}
     
@@ -642,7 +651,7 @@ window.MathJax = {{
     img {{
         max-width: 100%;
         box-sizing: content-box;
-        background-color: #ffffff;
+        background-color: {c["surface"]};
     }}
     
     /* Task Lists */
@@ -707,23 +716,26 @@ window.MathJax = {{
         Args:
             message: Error message to display
         """
+        c = COLORS
         error_html = f"""
         <html>
         <head>
         <style>
             body {{
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+                color: {c["text"]};
+                background-color: {c["surface"]};
                 padding: 40px;
                 max-width: 600px;
                 margin: 0 auto;
             }}
             h2 {{
-                color: #d73a49;
-                border-bottom: 2px solid #d73a49;
+                color: {c["danger"]};
+                border-bottom: 2px solid {c["danger"]};
                 padding-bottom: 8px;
             }}
             p {{
-                color: #586069;
+                color: {c["text_secondary"]};
                 line-height: 1.6;
             }}
         </style>

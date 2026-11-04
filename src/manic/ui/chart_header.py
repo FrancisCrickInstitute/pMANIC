@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QSize, Qt
 from PySide6.QtGui import QFont, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
+from manic.ui import theme
 from manic.ui.chart_style import text_style, ui_font
+from manic.ui.icon_button import ThemedToolButton
 from manic.ui.theme import color
 
 
@@ -37,13 +39,12 @@ class ChartHeader(QWidget):
         font = ui_font(11, QFont.Weight.DemiBold)
         font.setLetterSpacing(QFont.AbsoluteSpacing, 0.5)
         self.title.setFont(font)
-        self.title.setStyleSheet(text_style("text_tertiary", 11, 600))
+        theme.style(self.title, text_style("text_tertiary", 11, 600))
 
         self.detail = QLabel()
-        self.detail.setStyleSheet(text_style("text_tertiary", 11))
+        theme.style(self.detail, text_style("text_tertiary", 11))
 
-        self.expand_button = QToolButton()
-        self.expand_button.setIcon(expand_icon())
+        self.expand_button = ThemedToolButton(expand_icon)
         self.expand_button.setIconSize(QSize(16, 16))
         self.expand_button.setAutoRaise(True)
         self.expand_button.setProperty("variant", "ghost")

@@ -62,14 +62,13 @@ from .colors import (
     steel_blue_colour,
 )
 from .plot_tile import DENSITY_MIN_TILE, TILE_GAP, PlotTile, grid_columns, tile_badges
-from .theme import COLORS, color
+from .theme import color
+from manic.ui import theme
 
 logger = logging.getLogger(__name__)
 
 PLOT_Y_AXIS_HEADROOM = 1.05
 
-_GUIDE_RT = color("text_secondary")
-_GUIDE_WINDOW = steel_blue_colour
 
 
 def tile_caption(sample_name: str, fit_type: str | None) -> str:
@@ -185,7 +184,7 @@ class GraphView(QWidget):
         header.addWidget(self.channel_legend)
         self.qc_key = QLabel()
         self.qc_key.setTextFormat(Qt.RichText)
-        self.qc_key.setStyleSheet(text_style("text_secondary", 11))
+        theme.style(self.qc_key, text_style("text_secondary", 11))
         self.qc_key.setToolTip(
             "Qualifier ion traces are coloured by each sample's qualifier QC result."
         )
@@ -205,7 +204,7 @@ class GraphView(QWidget):
         header.addWidget(self.qc_key)
         header.addStretch()
         self.selection_summary = QLabel()
-        self.selection_summary.setStyleSheet(text_style("text_secondary", 11))
+        theme.style(self.selection_summary, text_style("text_secondary", 11))
         self.selection_summary.setToolTip(
             "Click a plot to select it. ⌘/Ctrl+A selects all, Esc clears, "
             "arrow keys move, Space toggles, Enter opens the detailed view."
@@ -316,26 +315,26 @@ class GraphView(QWidget):
         self._density_buttons.buttonClicked.connect(
             lambda button: self.set_density(button.property("density"))
         )
-        c = COLORS
-        box.setStyleSheet(
-            f"""
-            QToolButton {{
-                font-size: 11px; color: {c['text_secondary']};
-                background: {c['surface']}; border: 1px solid {c['border_strong']};
+        theme.style(
+            box,
+            """
+            QToolButton {
+                font-size: 11px; color: @text_secondary;
+                background: @surface; border: 1px solid @border_strong;
                 padding: 2px 9px; min-height: 18px;
-            }}
-            QToolButton:hover {{ background: {c['surface_hover']}; }}
-            QToolButton:checked {{
-                color: {c['text']}; background: {c['surface_alt']}; font-weight: 600;
-            }}
-            QToolButton#density_compact {{
+            }
+            QToolButton:hover { background: @surface_hover; }
+            QToolButton:checked {
+                color: @text; background: @surface_alt; font-weight: 600;
+            }
+            QToolButton#density_compact {
                 border-top-left-radius: 6px; border-bottom-left-radius: 6px;
                 border-right: none;
-            }}
-            QToolButton#density_comfortable {{
+            }
+            QToolButton#density_comfortable {
                 border-top-right-radius: 6px; border-bottom-right-radius: 6px;
-            }}
-            """
+            }
+            """,
         )
         return box
 
@@ -1528,12 +1527,12 @@ class GraphView(QWidget):
         rt = compound.retention_time
         self._add_guide_line(
             chart, x_axis, y_axis, rt, 0, scaled_y_max,
-            _GUIDE_RT, role="rt", width=1.0,
+            color("text_secondary"), role="rt", width=1.0,
         )
         for edge in (rt - compound.loffset, rt + compound.roffset):
             self._add_guide_line(
                 chart, x_axis, y_axis, edge, 0, scaled_y_max,
-                _GUIDE_WINDOW, dashed=True, role="window", width=1.0,
+                steel_blue_colour, dashed=True, role="window", width=1.0,
             )
 
     def _add_guide_line(

@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 from manic.models.analysis import IonRole
+from manic.ui.theme import contrast
 from manic.validation.peak_verdict import PEAK_VERDICT_FILL, PeakVerdict
 from manic.validation.unlabelled_identity import (
     QUALIFIER_OUTCOME_FILL,
@@ -41,6 +42,41 @@ label_colors = [
 QUALIFIER_GREEN = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.PASS])
 QUALIFIER_RED = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.FAIL])
 QUALIFIER_GREY = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.NO_QUALIFIERS])
+
+
+# Every data colour above, with its light-scheme value. Consumers hold these
+# QColor objects, so set_dark() retunes them in place.
+_DATA_COLOURS = [
+    steel_blue_colour,
+    dark_red_colour,
+    abundance_colour,
+    *label_colors,
+    QUALIFIER_GREEN,
+    QUALIFIER_RED,
+    QUALIFIER_GREY,
+]
+_LIGHT_VALUES = [QColor(c) for c in _DATA_COLOURS]
+_DARK_MIN_CONTRAST = 3.5
+
+
+def _legible_on(base: QColor, background: QColor) -> QColor:
+    """``base`` mixed toward white until it reads on ``background``; hue is kept."""
+    for step in range(11):
+        t = step / 10
+        mixed = QColor.fromRgbF(*(v + (1 - v) * t for v in (base.redF(), base.greenF(), base.blueF())))
+        if contrast(mixed, background) >= _DARK_MIN_CONTRAST:
+            return mixed
+    return mixed
+
+
+def set_dark(dark: bool, plot_area: QColor) -> dict[str, str]:
+    """Retune the data colours for a scheme; return old -> new hex for each."""
+    remap = {}
+    for qcolor, light in zip(_DATA_COLOURS, _LIGHT_VALUES):
+        new = _legible_on(light, plot_area) if dark else light
+        remap[qcolor.name()] = new.name()
+        qcolor.setRgb(new.rgb())
+    return remap
 
 
 def peak_verdict_qcolor(verdict: PeakVerdict) -> QColor | None:

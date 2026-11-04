@@ -97,7 +97,7 @@ QPushButton:disabled {
 QPushButton:default,
 QPushButton[variant="primary"] {
     background-color: @accent;
-    color: white;
+    color: @on_accent;
     border: 1px solid @accent;
 }
 
@@ -129,7 +129,7 @@ QPushButton[variant="primary"]:disabled {
 QPushButton[variant="danger"],
 QPushButton[variant="danger"]:default {
     background-color: @danger;
-    color: white;
+    color: @on_accent;
     border: 1px solid @danger;
 }
 
@@ -843,12 +843,12 @@ QLabel[role="stepNumber"] {
 
 QLabel[role="stepNumber"][state="next"] {
     background-color: @accent;
-    color: white;
+    color: @on_accent;
 }
 
 QLabel[role="stepNumber"][state="done"] {
     background-color: @success;
-    color: white;
+    color: @on_accent;
 }
 
 QLabel[role="stepDone"] {

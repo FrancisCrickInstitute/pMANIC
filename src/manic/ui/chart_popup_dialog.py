@@ -48,7 +48,8 @@ from manic.ui.identity_chart import (
     identity_cell_tooltip,
     show_identity_tooltip,
 )
-from manic.ui.theme import COLORS, FONT_SIZE_TITLE, color
+from manic.ui.theme import FONT_SIZE_TITLE, color
+from manic.ui import theme
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
 # Every sample gets this much height so its name is never elided.
@@ -156,14 +157,14 @@ class ChartPopupDialog(QDialog):
         layout.setSpacing(12)
 
         self.compound_title = QLabel(compound_name or title)
-        self.compound_title.setStyleSheet(text_style("text", FONT_SIZE_TITLE, 600))
+        theme.style(self.compound_title, text_style("text", FONT_SIZE_TITLE, 600))
         count = len(self.sample_names)
         subtitle = title if compound_name else ""
         subtitle = " · ".join(
             part for part in (subtitle, f"{count} sample{'s' if count != 1 else ''}") if part
         )
         self.subtitle = QLabel(subtitle)
-        self.subtitle.setStyleSheet(text_style("text_secondary", 12))
+        theme.style(self.subtitle, text_style("text_secondary", 12))
         header = QVBoxLayout()
         header.setSpacing(2)
         header.addWidget(self.compound_title)
@@ -184,15 +185,15 @@ class ChartPopupDialog(QDialog):
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._scroll.setWidget(self.chart_view)
-        self._scroll.setStyleSheet(
-            f"QScrollArea {{ background: {COLORS['surface']};"
-            f" border: 1px solid {COLORS['border']}; border-radius: 8px; }}"
+        theme.style(
+            self._scroll,
+            "QScrollArea { background: @surface; border: 1px solid @border; border-radius: 8px; }",
         )
         layout.addWidget(self._scroll, stretch=1)
 
         self.status_legend = QLabel("")
         self.status_legend.setTextFormat(Qt.RichText)
-        self.status_legend.setStyleSheet(text_style("text_secondary", 12))
+        theme.style(self.status_legend, text_style("text_secondary", 12))
         self.status_legend.hide()
 
         footer = QHBoxLayout()
@@ -202,7 +203,7 @@ class ChartPopupDialog(QDialog):
             "Hover a cell for details" if self.chart_type == "identity"
             else "Hover a bar for its value"
         )
-        hint.setStyleSheet(text_style("text_tertiary", 11))
+        theme.style(hint, text_style("text_tertiary", 11))
         footer.addWidget(hint)
         close_button = QPushButton("Close")
         close_button.setAutoDefault(False)

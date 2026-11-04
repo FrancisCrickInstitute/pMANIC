@@ -50,19 +50,22 @@ from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
 from manic.models.analysis import IonRole
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
-from manic.ui.colors import channel_trace_styles, label_colors
+from manic.ui.colors import channel_trace_styles, label_colors, steel_blue_colour
 from manic.validation.unlabelled_identity import IdentitySampleAssessment
 from manic.ui.chart_style import text_style
 from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
+from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
 
-# Same meaning as on the grid tiles: dashed steel blue bounds the
-# integration window, solid grey marks the target tR or m/z.
-_WINDOW_LINE = "rgba(70,130,180,0.85)"
-_TARGET_LINE = COLORS["text_secondary"]
 logger = logging.getLogger(__name__)
 
 
+def _rgba(qcolor, alpha: float) -> str:
+    return f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
+
+
+# Same meaning as on the grid tiles: dashed steel blue bounds the
+# integration window, solid grey marks the target tR or m/z.
 class DetailedPlotDialog(QDialog):
     """
     Modal dialog for detailed compound-sample visualization.
@@ -199,9 +202,9 @@ class DetailedPlotDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         title_label = QLabel(self.compound_name)
-        title_label.setStyleSheet(text_style("text", FONT_SIZE_TITLE, 600))
+        theme.style(title_label, text_style("text", FONT_SIZE_TITLE, 600))
         sample_label = QLabel(f"in {self.sample_name}")
-        sample_label.setStyleSheet(text_style("text_secondary", FONT_SIZE_TITLE))
+        theme.style(sample_label, text_style("text_secondary", FONT_SIZE_TITLE))
         header_layout.addWidget(title_label)
         header_layout.addWidget(sample_label)
         header_layout.addStretch()
@@ -215,9 +218,9 @@ class DetailedPlotDialog(QDialog):
         )  # Allow horizontal scroll if needed
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setFrameShape(QFrame.NoFrame)
-        scroll_area.setStyleSheet(
-            f"QScrollArea {{ background: {COLORS['surface']};"
-            f" border: 1px solid {COLORS['border']}; border-radius: 8px; }}"
+        theme.style(
+            scroll_area,
+            "QScrollArea { background: @surface; border: 1px solid @border; border-radius: 8px; }",
         )
 
         # Ensure scroll area can shrink to fit in small windows
@@ -226,7 +229,7 @@ class DetailedPlotDialog(QDialog):
 
         # Configure scroll area content widget
         scroll_widget = QWidget()
-        scroll_widget.setStyleSheet(f"background-color: {COLORS['surface']};")
+        theme.style(scroll_widget, "background-color: @surface;")
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setContentsMargins(8, 8, 8, 8)
 
@@ -284,7 +287,7 @@ class DetailedPlotDialog(QDialog):
         # Create information display panel
         info_layout = QHBoxLayout()
         self.info_label = QLabel("Loading data...")
-        self.info_label.setStyleSheet(text_style("text_secondary", 11))
+        theme.style(self.info_label, text_style("text_secondary", 11))
         self.info_label.setWordWrap(True)
         info_layout.addWidget(self.info_label, stretch=1)
 
@@ -458,10 +461,10 @@ class DetailedPlotDialog(QDialog):
             # Render integration boundary markers with transparency
             for edge in (left_bound, right_bound):
                 self.eic_plot.add_vertical_line(
-                    edge, color=_WINDOW_LINE, width=PLOT_GUIDELINE_WIDTH, style="dashed"
+                    edge, color=_rgba(steel_blue_colour, 0.85), width=PLOT_GUIDELINE_WIDTH, style="dashed"
                 )
             self.eic_plot.add_vertical_line(
-                rt, color=_TARGET_LINE, width=PLOT_GUIDELINE_WIDTH, style="solid"
+                rt, color=COLORS["text_secondary"], width=PLOT_GUIDELINE_WIDTH, style="solid"
             )
 
             try:
@@ -606,7 +609,7 @@ class DetailedPlotDialog(QDialog):
                 self._style_color(series_index) if multi_trace else label_colors[0]
             )
             if selected:
-                color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},1.0)"
+                color = _rgba(qcolor, 1.0)
                 self.eic_plot.plot_line(
                     grid,
                     row,
@@ -616,7 +619,7 @@ class DetailedPlotDialog(QDialog):
                     style=self._mpl_line_style(series_index),
                 )
             else:
-                color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},0.38)"
+                color = _rgba(qcolor, 0.38)
                 self.eic_plot.plot_line(
                     grid, row, color=color, width=1.2, name="", style="dotted"
                 )
@@ -675,7 +678,7 @@ class DetailedPlotDialog(QDialog):
             if channel_indices is not None and i not in channel_indices:
                 continue
             qcolor = self._style_color(i) if multi_trace else label_colors[0]
-            color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
+            color = _rgba(qcolor, alpha)
             self.eic_plot.plot_line(
                 time,
                 trace,
@@ -735,7 +738,7 @@ class DetailedPlotDialog(QDialog):
             if self.compound_info:
                 rt = self.compound_info.retention_time
                 self.tic_plot.add_vertical_line(
-                    rt, color=_TARGET_LINE, width=PLOT_GUIDELINE_WIDTH, style="solid"
+                    rt, color=COLORS["text_secondary"], width=PLOT_GUIDELINE_WIDTH, style="solid"
                 )
 
             # Execute batch rendering for performance
@@ -810,7 +813,7 @@ class DetailedPlotDialog(QDialog):
             if self.compound_info:
                 self.ms_plot.add_vertical_line(
                     self.compound_info.mass0,
-                    color=_TARGET_LINE,
+                    color=COLORS["text_secondary"],
                     width=PLOT_GUIDELINE_WIDTH,
                     style="solid",
                 )

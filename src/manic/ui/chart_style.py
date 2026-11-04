@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCharts import QAbstractAxis, QChart, QValueAxis
+from PySide6.QtCharts import (
+    QAbstractAxis,
+    QAbstractBarSeries,
+    QAreaSeries,
+    QChart,
+    QValueAxis,
+    QXYSeries,
+)
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QFont, QPen
+from PySide6.QtGui import QBrush, QFont, QPen
 from PySide6.QtWidgets import QApplication
 
-from manic.ui.theme import COLORS, color
+from manic.ui.theme import color, remap_color
 
 AXIS_LABEL_PX = 10
 
@@ -25,9 +32,9 @@ def ui_font(pixel_size: int, weight: QFont.Weight = QFont.Weight.Normal) -> QFon
 
 
 def text_style(token: str, pixel_size: int, weight: int = 400) -> str:
-    """Label stylesheet that wins over app-wide QLabel rules (padding, font size)."""
+    """Label stylesheet template (for ``theme.style``) that wins over app-wide QLabel rules."""
     return (
-        f"color: {COLORS[token]}; font-size: {pixel_size}px; font-weight: {weight};"
+        f"color: @{token}; font-size: {pixel_size}px; font-weight: {weight};"
         " padding: 0px; border: none; background: transparent;"
     )
 
@@ -80,13 +87,43 @@ def style_axis(axis: QAbstractAxis, *, grid: bool = False) -> None:
 
 
 def style_chart(chart: QChart, margins: QMargins = QMargins(0, 0, 0, 0)) -> None:
-    """Transparent chart on a white plot area, no title or built-in legend."""
+    """Transparent chart on a surface-coloured plot area, no title or built-in legend."""
     chart.setBackgroundVisible(False)
     chart.setBackgroundRoundness(0)
     chart.setPlotAreaBackgroundVisible(True)
-    chart.setPlotAreaBackgroundBrush(QColor(color("surface")))
+    chart.setPlotAreaBackgroundBrush(color("surface"))
     chart.setPlotAreaBackgroundPen(QPen(Qt.NoPen))
     chart.legend().setVisible(False)
     chart.setTitle("")
     chart.setMargins(margins)
     chart.layout().setContentsMargins(0, 0, 0, 0)
+
+
+def remap_chart_colors(chart: QChart, remap: dict[str, str]) -> None:
+    """Move a built chart to a new scheme in place, keeping its data and selection."""
+
+    def pen(p: QPen) -> QPen:
+        p = QPen(p)
+        p.setColor(remap_color(p.color(), remap))
+        return p
+
+    def brush(b: QBrush) -> QBrush:
+        b = QBrush(b)
+        b.setColor(remap_color(b.color(), remap))
+        return b
+
+    chart.setPlotAreaBackgroundBrush(brush(chart.plotAreaBackgroundBrush()))
+    for axis in chart.axes():
+        axis.setLabelsColor(remap_color(axis.labelsColor(), remap))
+        axis.setLinePen(pen(axis.linePen()))
+        axis.setGridLinePen(pen(axis.gridLinePen()))
+        axis.setTitleBrush(brush(axis.titleBrush()))
+    for series in chart.series():
+        if isinstance(series, QAbstractBarSeries):
+            for bar_set in series.barSets():
+                bar_set.setPen(pen(bar_set.pen()))
+                bar_set.setBrush(brush(bar_set.brush()))
+                bar_set.setLabelColor(remap_color(bar_set.labelColor(), remap))
+        elif isinstance(series, (QXYSeries, QAreaSeries)):
+            series.setPen(pen(series.pen()))
+            series.setBrush(brush(series.brush()))

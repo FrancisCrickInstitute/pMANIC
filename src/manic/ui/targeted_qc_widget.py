@@ -6,11 +6,7 @@ from PySide6.QtGui import QMouseEvent, QPainter
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
 from manic.ui.chart_header import ChartHeader
-from manic.ui.chart_popup_dialog import (
-    ChartPopupDialog,
-    identity_key_html,
-    identity_status_counts,
-)
+from manic.ui.chart_popup_dialog import ChartPopupDialog, identity_key_html
 from manic.ui.chart_style import style_chart, text_style
 from manic.ui.identity_chart import (
     IdentityGridBinding,
@@ -18,7 +14,7 @@ from manic.ui.identity_chart import (
     identity_cell_tooltip,
     show_identity_tooltip,
 )
-from manic.validation.unlabelled_identity import IdentityAssessmentSet
+from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
 
 class TargetedQcWidget(QWidget):
@@ -74,7 +70,10 @@ class TargetedQcWidget(QWidget):
             self.chart, identity.samples, show_sample_names=False
         )
         self._connect_cell_signals()
-        failed = identity_status_counts(identity)["Failed"]
+        failed = sum(
+            any(q.status is QualifierStatus.FAILED for q in sample.qualifiers)
+            for sample in identity.samples
+        )
         count = len(identity.samples)
         self.header.set_has_data(
             True, f"{count} sample{'s' if count != 1 else ''}"

@@ -301,6 +301,8 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
         assert not y_axis.labelsVisible()
+        assert widget.header.detail.text() == "2 samples · 1 failed"
+        assert "Failed&nbsp;<b>1</b>" in widget.key.text()
         widget.clear()
         assert widget._identity is None
         assert widget.chart.series() == []

@@ -198,7 +198,10 @@ class ChartPopupDialog(QDialog):
         footer = QHBoxLayout()
         footer.addWidget(self.status_legend)
         footer.addStretch()
-        hint = QLabel("Hover a bar for its value")
+        hint = QLabel(
+            "Hover a cell for details" if self.chart_type == "identity"
+            else "Hover a bar for its value"
+        )
         hint.setStyleSheet(text_style("text_tertiary", 11))
         footer.addWidget(hint)
         close_button = QPushButton("Close")

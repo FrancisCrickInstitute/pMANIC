@@ -37,6 +37,16 @@ scratch files only under your own folder, given below.
 - The rubric excludes the science. Never propose changing calculations,
   integration, corrections, or exported values.
 
+## Functional first
+
+The user's top priority is that the app works. Drive the core workflow end to
+end on both datasets before judging looks: load compounds and raw data, read
+every status the app shows after a fresh load (sidebar, grid header, status
+bar), select plots, accept and mark peaks, change the peak window and apply it,
+change a Settings value, open every popup and the detailed view, export. Any
+path that is broken, silently does nothing, or shows stale or missing state is
+a top issue regardless of how the screen looks.
+
 ## Round context
 
 {ROUND_CONTEXT}

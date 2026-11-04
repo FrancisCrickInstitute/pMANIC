@@ -120,3 +120,15 @@ would put it there.
   selection and focus, nothing else.
 - Prefer restraint and the user's real data (recent files, sample names,
   compound names) over generic explanation.
+
+## User directives after round 4 (binding)
+
+- Climb toward 10, not just 8: beautiful, professional, unique, and above all
+  functional. A broken or misleading path outranks any visual polish.
+- The user is very happy with how the graphs look. Do not restyle the plot
+  tiles, traces, colours or chart layout without a finding that names a real
+  problem; fix only what a review flags.
+- No redundant code or tests. Every line and every test must earn its place.
+  Prefer deleting dead code, one-caller wrappers and duplicated helpers. A new
+  test must protect a behaviour a user would notice; do not add tests that
+  restate the implementation, pin copy, or duplicate an existing test.

@@ -1,6 +1,7 @@
 import time
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
 
@@ -20,6 +21,8 @@ def viewer(qapp, tmp_path, monkeypatch):
     yield dialog
     dialog.close()
     dialog.deleteLater()
+    # Free the web page before the app exits, or WebEngine warns about its profile.
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def _wait(predicate, timeout=20.0):

@@ -93,6 +93,9 @@ def test_sidebar_rows_keep_their_marks_and_names_and_scroll(qapp):
         widget.resize(260, 400)
         widget.show()
         qapp.processEvents()
+        # The height cap depends on the settled width, so size it once more.
+        widget.resize(260, 400)
+        qapp.processEvents()
         assert widget.chart_view.height() == 30 * SIDEBAR_ROW
         assert widget._scroll.height() == SIDEBAR_VISIBLE_ROWS * SIDEBAR_ROW
         assert widget._scroll.verticalScrollBar().maximum() > 0

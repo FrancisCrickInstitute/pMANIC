@@ -93,3 +93,26 @@ def test_identity_scrolls_a_selected_row_below_the_fold_into_view(qapp):
         assert bar.value() <= top and top + mark.height() <= bar.value() + widget._scroll.viewport().height()
     finally:
         widget.deleteLater()
+
+
+def test_identity_shrinks_to_a_few_rows_in_a_short_sidebar_and_grows_with_room(qapp):
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from manic.ui.targeted_qc_widget import SIDEBAR_ROW, SIDEBAR_SHORT_ROWS, SIDEBAR_VISIBLE_ROWS
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    widget = TargetedQcWidget()
+    layout.addWidget(widget, 1)
+    names = [f"Sample_{i:02d}" for i in range(30)]
+    try:
+        widget.update_results(_identity(_qualifier(1, 0.4, 0.25), names=names))
+        assert widget.sizeHint().height() < widget.maximumHeight()
+        assert widget._scroll.minimumHeight() == SIDEBAR_SHORT_ROWS * SIDEBAR_ROW
+        host.resize(260, 900)
+        host.show()
+        for _ in range(5):
+            qapp.processEvents()
+        assert widget._scroll.height() == SIDEBAR_VISIBLE_ROWS * SIDEBAR_ROW
+    finally:
+        host.deleteLater()

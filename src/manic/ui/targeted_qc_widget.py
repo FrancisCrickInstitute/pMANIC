@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCharts import QBarSet, QChart, QChartView
-from PySide6.QtCore import QMargins, Qt, Signal
+from PySide6.QtCore import QMargins, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
@@ -40,6 +40,18 @@ from manic.validation.unlabelled_identity import IdentityAssessmentSet, Qualifie
 SIDEBAR_ROW = 18
 # Rows in view before the grid scrolls inside the sidebar.
 SIDEBAR_VISIBLE_ROWS = 8
+# Rows kept when the sidebar is short, so the summary fits without a second scroll.
+SIDEBAR_SHORT_ROWS = 3
+
+
+class _RowsScroll(QScrollArea):
+    """Asks for its minimum height; the sidebar's stretch grows it up to its maximum."""
+
+    def sizeHint(self) -> QSize:
+        return QSize(super().sizeHint().width(), self.minimumHeight())
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
 
 
 class TargetedQcWidget(QWidget):
@@ -65,7 +77,7 @@ class TargetedQcWidget(QWidget):
         self.header = ChartHeader("Identity")
         self.header.expand_button.clicked.connect(self._show_popup_chart)
 
-        self._scroll = QScrollArea()
+        self._scroll = _RowsScroll()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -96,8 +108,8 @@ class TargetedQcWidget(QWidget):
         layout.addWidget(self._scroll)
         layout.addWidget(self.note)
         layout.addWidget(self.key)
-        # As tall as its rows and no taller, so no band opens below one sample.
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        # Grows with the sidebar, but never past its rows (see _cap_height).
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self._identity: IdentityAssessmentSet | None = None
         self._binding: IdentityGridBinding | None = None
@@ -116,9 +128,8 @@ class TargetedQcWidget(QWidget):
         self._binding = add_identity_grid(self.chart, identity.samples)
         height = identity_chart_height(len(identity.samples), SIDEBAR_ROW)
         self.chart_view.setFixedHeight(height)
-        self._scroll.setFixedHeight(
-            min(height, identity_chart_height(SIDEBAR_VISIBLE_ROWS, SIDEBAR_ROW))
-        )
+        self._scroll.setMinimumHeight(min(height, identity_chart_height(SIDEBAR_SHORT_ROWS, SIDEBAR_ROW)))
+        self._scroll.setMaximumHeight(min(height, identity_chart_height(SIDEBAR_VISIBLE_ROWS, SIDEBAR_ROW)))
         self.columns.set_axis("", IDENTITY_COLUMN_HEADERS)
         note = identity_unassessed_note(identity)
         self.note.setText(note or "")
@@ -139,6 +150,22 @@ class TargetedQcWidget(QWidget):
         self.key.setText(identity_key_html(identity))
         self.key.setToolTip(identity_key_tooltip(identity))
         self.key.setVisible(note is None)
+        self._cap_height()
+
+    def _cap_height(self) -> None:
+        """As tall as its rows and no taller, so no band opens below one sample."""
+        grow = 0 if self._scroll.isHidden() else (
+            self._scroll.maximumHeight() - self._scroll.minimumHeight()
+        )
+        preferred = self.heightForWidth(self.width()) if self.hasHeightForWidth() else -1
+        if preferred < 0:
+            preferred = self.sizeHint().height()
+        if self.maximumHeight() != preferred + grow:
+            self.setMaximumHeight(preferred + grow)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._cap_height()
 
     def clear(self) -> None:
         self._identity = None
@@ -148,6 +175,7 @@ class TargetedQcWidget(QWidget):
             widget.hide()
         add_identity_grid(self.chart, ())
         self._paint_highlight()
+        self._cap_height()
 
     def _fit_names(self, *_args) -> None:
         axes = self.chart.axes(Qt.Vertical)

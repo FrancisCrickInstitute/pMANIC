@@ -3,6 +3,7 @@ from collections.abc import Iterable
 from typing import List
 
 from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -574,20 +575,25 @@ class Toolbar(QWidget):
 
     def _show_internal_standard_menu(self) -> None:
         menu = QMenu(self.standard)
+        # One exclusive group, so the current choice (or none) carries the check.
+        choices = QActionGroup(menu)
+        current = self.standard.internal_standard
         names = self.compound_list.real_names()
         if not names:
             menu.addAction("Load a Compound List First").setEnabled(False)
         for name in names:
-            action = menu.addAction(name)
+            action = choices.addAction(menu.addAction(name))
             action.setCheckable(True)
-            action.setChecked(name == self.standard.internal_standard)
+            action.setChecked(name == current)
             action.triggered.connect(
                 lambda _checked=False, n=name: self.on_internal_standard_selected(n)
             )
         menu.addSeparator()
-        clear = menu.addAction("No Internal Standard")
-        clear.setEnabled(self.standard.internal_standard is not None)
-        clear.triggered.connect(self.on_internal_standard_cleared)
+        clear = choices.addAction(menu.addAction("No Internal Standard"))
+        clear.setCheckable(True)
+        clear.setChecked(current is None)
+        if current is not None:
+            clear.triggered.connect(self.on_internal_standard_cleared)
         menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         menu.popup(self.standard.mapToGlobal(self.standard.rect().bottomLeft()))
 

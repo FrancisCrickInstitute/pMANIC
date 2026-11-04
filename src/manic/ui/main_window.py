@@ -342,6 +342,16 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.update_old_data_action)
 
         file_menu.addSeparator()
+        # Settings sits in File where Windows and Linux users look for it. Its role
+        # moves it to the application menu on macOS, which relabels it Preferences.
+        self.settings_action = QAction("Settings...", self)
+        self.settings_action.setMenuRole(QAction.PreferencesRole)
+        self.settings_action.setShortcuts(
+            [QKeySequence.Preferences, QKeySequence("Ctrl+,")]
+        )
+        self.settings_action.triggered.connect(self.open_settings_window)
+        file_menu.addAction(self.settings_action)
+
         self.quit_action = QAction("Quit", self)
         # QKeySequence.Quit has no Windows entry in Qt's standard-key table
         # (KB_X11 | KB_Gnome | KB_KDE | KB_Mac), so on its own it would leave
@@ -356,21 +366,11 @@ class MainWindow(QMainWindow):
         self._build_view_menu(menu_bar)
         self._build_review_menu(menu_bar)
 
-        # About and Settings carry roles so a native macOS menubar moves them
-        # into the application menu (Qt relabels Settings as "Preferences..."
-        # there). Documentation and Check for Updates stay put; giving them
-        # ApplicationSpecificRole made Qt list them twice. On macOS the menu
-        # that keeps them is therefore titled Help, elsewhere it is MANIC.
-        native = menu_bar.isNativeMenuBar()
-        manic_menu = menu_bar.addMenu("Help" if native else "MANIC")
-
-        self.settings_action = QAction("Settings...", self)
-        self.settings_action.setMenuRole(QAction.PreferencesRole)
-        self.settings_action.setShortcuts(
-            [QKeySequence.Preferences, QKeySequence("Ctrl+,")]
-        )
-        self.settings_action.triggered.connect(self.open_settings_window)
-        manic_menu.addAction(self.settings_action)
+        # About carries a role so a native macOS menubar moves it into the
+        # application menu. Documentation and Check for Updates stay put; giving
+        # them ApplicationSpecificRole made Qt list them twice.
+        manic_menu = menu_bar.addMenu("Help")
+        self.help_menu = manic_menu
 
         self.documentation_action = QAction("Documentation", self)
         self.documentation_action.setMenuRole(QAction.NoRole)

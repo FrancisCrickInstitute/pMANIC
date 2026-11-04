@@ -2,18 +2,18 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QComboBox, QLabel, QTableWidget
 
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.models.mm_file_check import MmFileStatus
+from manic.ui import theme
 from manic.ui.main_window import MainWindow
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
 
 from conftest import _make_window
 
-WARNING = QColor(255, 243, 205)
+WARNING = theme.color("warning_soft")
 
 
 def _insert_compound(name: str, mm_files: str | None = None) -> None:
@@ -55,7 +55,7 @@ def test_dialog_status_label_updates_when_combo_changes(qapp):
     combo = dialog.findChild(QComboBox, "internalStandardCombo")
     assert combo.currentText() == "No internal standard"
     assert dialog.selected_internal_standard() is None
-    assert status.text() == "Not set"
+    assert status.text() == "Optional"
     combo.setCurrentText("Alanine")
     assert dialog.selected_internal_standard() == "Alanine"
     assert status.text() == "Set"
@@ -106,7 +106,7 @@ def test_apply_sets_internal_standard_on_toolbar(qapp, empty_db, monkeypatch):
         _close_window(window)
 
 
-def test_skip_leaves_internal_standard_unchanged(qapp, empty_db, monkeypatch):
+def test_continue_without_changes_leaves_internal_standard_unchanged(qapp, empty_db, monkeypatch):
     _insert_compound("Alanine")
     _insert_compound("Norvaline")
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)

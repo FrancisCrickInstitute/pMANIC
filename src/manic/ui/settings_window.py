@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QSignalBlocker, QSize, Signal
+from PySide6.QtCore import Qt, QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -9,11 +9,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDoubleSpinBox,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QListWidgetItem,
     QPushButton,
     QRadioButton,
@@ -28,7 +26,22 @@ from PySide6.QtWidgets import (
 
 from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
+from manic.ui import theme
 from manic.ui.combo_box import ComboBox
+from manic.ui.dialog_kit import (
+    MARKED_ROLE,
+    description_label,
+    form_layout,
+    form_row,
+    hint_label,
+    section_label,
+    set_variant,
+    sidebar_item_size,
+    sidebar_list,
+    style_dialog,
+    title_label,
+    window_title,
+)
 from manic.ui.window_placement import show_over_parent
 
 _ALL_MODES = frozenset(AnalysisMode)
@@ -37,12 +50,6 @@ _ALL_MODES = frozenset(AnalysisMode)
 def _count_samples(names: list[str]) -> str:
     return "1 sample" if len(names) == 1 else f"{len(names)} samples"
 
-_SPIN_STYLE = (
-    "QDoubleSpinBox { background-color: white; color: #212529; }"
-    "QDoubleSpinBox:disabled { background-color: #f8f9fa; color: #adb5bd; "
-    "border: 1px solid #e9ecef; }"
-)
-_HINT_STYLE = "color: gray; font-style: italic; padding: 0px;"
 
 _DECONVOLUTION_LEVEL_OPTIONS = [
     ("Off - no chromatographic deconvolution", "off"),
@@ -66,22 +73,6 @@ _DECONVOLUTION_GATE_OPTIONS = [
     ("Aggressive - only fit clearly smooth peaks", "aggressive"),
     ("Off - always attempt a fit", "off"),
 ]
-
-
-def _form_layout() -> QFormLayout:
-    form = QFormLayout()
-    form.setHorizontalSpacing(16)
-    form.setVerticalSpacing(10)
-    form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-    form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    return form
-
-
-def _hint(text: str) -> QLabel:
-    label = QLabel(text)
-    label.setWordWrap(True)
-    label.setStyleSheet(_HINT_STYLE)
-    return label
 
 
 def _fill_combo(combo: QComboBox, options: list[tuple[str, str]], current: str) -> None:
@@ -116,7 +107,7 @@ class SettingsPage(QWidget):
         return True, ""
 
     def unsaved_hint(self) -> str:
-        return "Unsaved changes"
+        return ""
 
     def set_inputs_enabled(self, enabled: bool) -> None:
         for widget in self._inputs:
@@ -142,21 +133,23 @@ class MassTolerancePage(SettingsPage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        info = QLabel("Set the mass tolerance (±Da) for EIC extraction:")
-        info.setWordWrap(True)
-        layout.addWidget(info)
+        layout.addWidget(
+            description_label(
+                "The ± window in daltons around each ion's m/z used to extract "
+                "its chromatogram (EIC)."
+            )
+        )
 
-        form = _form_layout()
+        form = form_layout()
         self.spin = QDoubleSpinBox()
         self.spin.setObjectName("massToleranceSpin")
         self.spin.setRange(0.01, 1.0)
         self.spin.setSingleStep(0.01)
         self.spin.setDecimals(3)
         self.spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.spin.setStyleSheet(_SPIN_STYLE)
         self.spin.valueChanged.connect(self._mark_dirty)
         self._inputs.append(self.spin)
-        form.addRow("Mass tolerance (Da)", self.spin)
+        form_row(form, "Mass tolerance (Da)", self.spin)
         layout.addLayout(form)
         layout.addStretch()
 
@@ -178,17 +171,15 @@ class PeakValidationPage(SettingsPage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        info = QLabel(
-            "Set the minimum peak area threshold as a fraction of the internal standard "
-            "reference peak area.\n"
-            "Peaks below this threshold will be highlighted with a red background.\n"
-            "Peak validation compares compound total area vs the internal standard "
-            "reference peak."
+        layout.addWidget(
+            description_label(
+                "Peak validation compares each compound's total peak area with the "
+                "internal standard's reference peak. Peaks below the minimum ratio "
+                "are highlighted with a red background."
+            )
         )
-        info.setWordWrap(True)
-        layout.addWidget(info)
 
-        form = _form_layout()
+        form = form_layout()
         self.spin = QDoubleSpinBox()
         self.spin.setObjectName("minPeakAreaSpin")
         self.spin.setRange(0.0, 1.0)
@@ -196,16 +187,15 @@ class PeakValidationPage(SettingsPage):
         self.spin.setDecimals(3)
         self.spin.setSpecialValueText("Off")
         self.spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.spin.setStyleSheet(_SPIN_STYLE)
         self.spin.valueChanged.connect(self._mark_dirty)
         self._inputs.append(self.spin)
-        form.addRow("Minimum area ratio", self.spin)
-        layout.addLayout(form)
-        layout.addWidget(
-            _hint(
-                "(e.g. 0.005 = 0.5% of the internal standard reference peak area)"
-            )
+        form_row(form, "Minimum area ratio", self.spin)
+        form_row(
+            form,
+            "",
+            hint_label("For example 0.005 = 0.5% of the reference peak area. 0 turns it off."),
         )
+        layout.addLayout(form)
         layout.addStretch()
 
     def load(self) -> None:
@@ -229,18 +219,18 @@ class QualifierRatioPage(SettingsPage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        info = QLabel(
-            "Tolerance is a fraction of the expected ratio (0.25 = ±25%). "
-            "An unset tolerance leaves that qualifier unassessed in Identity QC "
-            "and the Qualifier QC sheet."
+        layout.addWidget(
+            description_label(
+                "Tolerance is a fraction of the expected ratio (0.25 = ±25%). "
+                "An unset tolerance leaves that qualifier unassessed in Identity QC "
+                "and the Qualifier QC sheet."
+            )
         )
-        info.setWordWrap(True)
-        layout.addWidget(info)
 
         self.compound_label = QLabel("Compound: none selected")
         layout.addWidget(self.compound_label)
 
-        form = _form_layout()
+        form = form_layout()
         self._labels: dict[int, QLabel] = {}
         self._ratio_labels: dict[int, QLabel] = {}
         self._spins: dict[int, QDoubleSpinBox] = {}
@@ -253,10 +243,9 @@ class QualifierRatioPage(SettingsPage):
             spin.setSingleStep(0.01)
             spin.setSpecialValueText("Not set")
             spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-            spin.setStyleSheet(_SPIN_STYLE)
             spin.valueChanged.connect(self._mark_dirty)
             ratio_label = QLabel()
-            ratio_label.setStyleSheet(_HINT_STYLE)
+            ratio_label.setProperty("role", "hint")
             field = QWidget()
             field_layout = QHBoxLayout(field)
             field_layout.setContentsMargins(0, 0, 0, 0)
@@ -356,7 +345,7 @@ class IntegrationPage(SettingsPage):
         layout.addWidget(self.time_radio)
         layout.addWidget(self.legacy_radio)
         layout.addWidget(
-            _hint(
+            hint_label(
                 "The change will only apply to graphs in the GUI. Integration method "
                 "for export is chosen at the time of export. See documentation for "
                 "detailed information about integration methods."
@@ -396,7 +385,7 @@ class NaturalAbundancePage(SettingsPage):
         self.preview_check.toggled.connect(self._mark_dirty)
         self._inputs.append(self.preview_check)
         layout.addWidget(self.preview_check)
-        layout.addWidget(_hint("Exports always apply the correction."))
+        layout.addWidget(hint_label("Exports always apply the correction."))
         layout.addStretch()
 
     def load(self) -> None:
@@ -417,23 +406,24 @@ class InternalStandardPage(SettingsPage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        info = QLabel(
-            "Select which internal standard isotopologue peak is the reference peak (M+N).\n"
-            "This reference peak is used for peak validation, abundance normalization, and MRRF calculations.\n"
-            "Changing the internal standard compound resets this setting to M0."
+        layout.addWidget(
+            description_label(
+                "Choose which isotopologue peak (M+N) of the internal standard is the "
+                "reference peak. It is used for peak validation, abundance "
+                "normalization, and MRRF calculations. Changing the internal standard "
+                "compound resets this to M+0."
+            )
         )
-        info.setWordWrap(True)
-        layout.addWidget(info)
 
         self.standard_label = QLabel("Internal standard: none")
         layout.addWidget(self.standard_label)
 
-        form = _form_layout()
+        form = form_layout()
         self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
         self.combo.currentIndexChanged.connect(self._mark_dirty)
         self._inputs.append(self.combo)
-        form.addRow("Reference peak", self.combo)
+        form_row(form, "Reference peak", self.combo)
         layout.addLayout(form)
         layout.addStretch()
 
@@ -481,44 +471,47 @@ class DeconvolutionPage(SettingsPage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        info = QLabel(
-            "Choose how MANIC fits and separates overlapping chromatographic peaks "
-            "before integration. Resolution, fit type, and noise gate are saved per "
-            "compound. A sample can override the curve fit from the plot context menu "
-            "or the Per-sample curve fit section below."
+        layout.addWidget(
+            description_label(
+                "Choose how MANIC fits and separates overlapping chromatographic peaks "
+                "before integration. Resolution, fit type, and noise gate are saved per "
+                "compound. A sample can override the curve fit from the plot context "
+                "menu or the Per-sample curve fit section below."
+            )
         )
-        info.setWordWrap(True)
-        layout.addWidget(info)
 
+        layout.addSpacing(4)
+        layout.addWidget(section_label("Compound settings"))
         self.compound_label = QLabel("Compound: none selected")
         layout.addWidget(self.compound_label)
 
-        form = _form_layout()
+        form = form_layout()
         self.level_combo = ComboBox()
         self.level_combo.setObjectName("deconvolutionLevelCombo")
         self.level_combo.currentIndexChanged.connect(self._on_level_changed)
-        form.addRow("Resolution", self.level_combo)
+        form_row(form, "Resolution", self.level_combo)
 
         self.fit_combo = ComboBox()
         self.fit_combo.setObjectName("deconvolutionFitCombo")
         self.fit_combo.currentIndexChanged.connect(self._mark_dirty)
-        form.addRow("Fit type", self.fit_combo)
+        form_row(form, "Fit type", self.fit_combo)
 
         self.gate_combo = ComboBox()
         self.gate_combo.setObjectName("deconvolutionGateCombo")
         self.gate_combo.currentIndexChanged.connect(self._mark_dirty)
-        form.addRow("Noise gate", self.gate_combo)
-        layout.addLayout(form)
+        form_row(form, "Noise gate", self.gate_combo)
 
         self._inputs.extend([self.level_combo, self.fit_combo, self.gate_combo])
 
-        layout.addWidget(
-            _hint(
+        form_row(
+            form,
+            "",
+            hint_label(
                 "Lower levels are faster and less likely to split noise. Forcing a single "
                 "fit type (instead of Auto) is faster because fewer peak shapes are tried. "
                 "The noise gate skips fitting on messy/noise-only peaks (shown as the raw "
                 "trace); a stricter gate is faster but may skip weak real peaks."
-            )
+            ),
         )
 
         self.apply_all = QCheckBox("Apply to all compounds")
@@ -530,19 +523,19 @@ class DeconvolutionPage(SettingsPage):
         )
         self.apply_all.toggled.connect(self._mark_dirty)
         self._inputs.append(self.apply_all)
-        layout.addWidget(self.apply_all)
+        form_row(form, "", self.apply_all)
+        layout.addLayout(form)
 
-        sample_heading = QLabel("Per-sample curve fit")
-        sample_heading.setStyleSheet("font-weight: 600; margin-top: 8px;")
-        layout.addWidget(sample_heading)
+        layout.addSpacing(12)
+        layout.addWidget(section_label("Per-sample curve fit"))
         layout.addWidget(
-            _hint(
+            hint_label(
                 "Overrides replace the compound fit type for individual samples. "
                 "Choose Use compound setting to remove one."
             )
         )
 
-        sample_form = _form_layout()
+        sample_form = form_layout()
         self.sample_fit_combo = ComboBox()
         self.sample_fit_combo.setObjectName("sampleFitCombo")
         self.sample_fit_combo.currentIndexChanged.connect(
@@ -557,9 +550,9 @@ class DeconvolutionPage(SettingsPage):
             "Select tiles in the plot area to set their fit here"
         )
         self.sample_scope_label.setWordWrap(True)
-        self.sample_scope_label.setStyleSheet(_HINT_STYLE)
+        self.sample_scope_label.setProperty("role", "hint")
         sample_field_layout.addWidget(self.sample_scope_label)
-        sample_form.addRow("Selected samples", sample_field)
+        form_row(sample_form, "Selected samples", sample_field)
         layout.addLayout(sample_form)
 
         self.sample_fit_table = QTableWidget(0, 2)
@@ -579,7 +572,7 @@ class DeconvolutionPage(SettingsPage):
         )
         layout.addWidget(self.sample_fit_table)
 
-        self.empty_overrides_label = _hint(
+        self.empty_overrides_label = hint_label(
             "No per-sample overrides for this compound."
         )
         layout.addWidget(self.empty_overrides_label)
@@ -590,6 +583,7 @@ class DeconvolutionPage(SettingsPage):
         self.remove_all_button.setObjectName("removeAllOverridesButton")
         self.remove_all_button.setAutoDefault(False)
         self.remove_all_button.setDefault(False)
+        set_variant(self.remove_all_button, "danger")
         self.remove_all_button.clicked.connect(self._stage_remove_all_overrides)
         remove_row.addWidget(self.remove_all_button)
         layout.addLayout(remove_row)
@@ -782,13 +776,19 @@ SETTINGS_PAGES: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] =
 
 
 class SettingsWindow(QDialog):
-    """Non-modal, shown with show(); a QDialog only so style.qss dialog rules apply."""
+    """Non-modal, shown with show(); a QDialog only so style.qss dialog rules apply.
+
+    Each page saves on its own: a page writes to the compound and samples it
+    loaded with, so "Save this page" never commits another page's edits.
+    """
 
     def __init__(self, parent: QWidget, host) -> None:
         super().__init__(parent)
         self._host = host
         self.setObjectName("settingsWindow")
-        self.setWindowTitle("Settings")
+        # [*] lets setWindowModified() mark unsaved pages in the title bar.
+        self.setWindowTitle(window_title("Settings[*]"))
+        style_dialog(self)
         self.resize(880, 720)
         self.setMinimumSize(720, 480)
 
@@ -802,22 +802,18 @@ class SettingsWindow(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        self.page_list = QListWidget()
-        self.page_list.setObjectName("settingsPageList")
-        self.page_list.setFixedWidth(200)
-        self.page_list.setUniformItemSizes(True)
+        self.page_list = sidebar_list("settingsPageList", 200)
         for page in self._pages:
             item = QListWidgetItem(page.title)
-            item.setSizeHint(QSize(0, 36))
+            item.setSizeHint(sidebar_item_size())
             self.page_list.addItem(item)
         root.addWidget(self.page_list)
 
         right = QVBoxLayout()
-        right.setContentsMargins(20, 16, 20, 16)
-        right.setSpacing(12)
+        right.setContentsMargins(24, 20, 24, 16)
+        right.setSpacing(16)
 
-        self.heading = QLabel(self._pages[0].title if self._pages else "")
-        self.heading.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.heading = title_label(self._pages[0].title if self._pages else "")
         right.addWidget(self.heading)
 
         self.stack = QStackedWidget()
@@ -833,26 +829,36 @@ class SettingsWindow(QDialog):
         scroll.setWidget(self.stack)
         right.addWidget(scroll, stretch=1)
 
+        self.pending_label = QLabel()
+        self.pending_label.setObjectName("settingsPending")
+        self.pending_label.setProperty("role", "pending")
+        self.pending_label.setWordWrap(True)
+        self.pending_label.linkActivated.connect(
+            lambda href: self.page_list.setCurrentRow(int(href))
+        )
+        right.addWidget(self.pending_label)
+
         footer = QHBoxLayout()
-        self.hint_label = QLabel()
+        footer.setSpacing(8)
+        self.hint_label = hint_label("")
         self.hint_label.setObjectName("settingsHint")
-        self.hint_label.setWordWrap(True)
-        self.hint_label.setStyleSheet(_HINT_STYLE)
         footer.addWidget(self.hint_label, stretch=1)
 
-        self.reset_button = QPushButton("Reset")
+        self.reset_button = QPushButton("Discard changes")
         self.reset_button.setObjectName("settingsResetButton")
+        self.reset_button.setAutoDefault(False)
         self.reset_button.setEnabled(False)
         self.reset_button.clicked.connect(self._reset_current)
-        footer.addWidget(self.reset_button)
+        footer.addWidget(self.reset_button, alignment=Qt.AlignBottom)
 
-        self.save_button = QPushButton("Save")
+        self.save_button = QPushButton("Save this page")
         self.save_button.setObjectName("settingsSaveButton")
         self.save_button.setDefault(True)
         self.save_button.setAutoDefault(True)
+        set_variant(self.save_button, "primary")
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(self._save_current)
-        footer.addWidget(self.save_button)
+        footer.addWidget(self.save_button, alignment=Qt.AlignBottom)
 
         right.addLayout(footer)
         root.addLayout(right, stretch=1)
@@ -893,6 +899,26 @@ class SettingsWindow(QDialog):
             self.hint_label.setText("")
         self.reset_button.setEnabled(dirty)
         self.save_button.setEnabled(dirty and editable)
+        self._update_pending()
+
+    def _update_pending(self) -> None:
+        dirty_rows = [row for row, page in enumerate(self._pages) if page.is_dirty()]
+        for row, page in enumerate(self._pages):
+            self.page_list.item(row).setData(MARKED_ROLE, page.is_dirty())
+        self.setWindowModified(bool(dirty_rows))
+        if not dirty_rows:
+            self.pending_label.clear()
+            self.pending_label.hide()
+            return
+        link_style = f"color: {theme.COLORS['accent']}; text-decoration: none;"
+        links = ", ".join(
+            f'<a href="{row}" style="{link_style}">{self._pages[row].title}</a>'
+            for row in dirty_rows
+        )
+        self.pending_label.setText(
+            f"● Unsaved changes: {links}. Each page is saved separately."
+        )
+        self.pending_label.show()
 
     def _save_current(self) -> None:
         page = self._current_page()

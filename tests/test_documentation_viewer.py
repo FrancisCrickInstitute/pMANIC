@@ -109,7 +109,7 @@ def test_documentation_window_loads_first_file(qapp, empty_db, tmp_path, monkeyp
             "Zzz Other",
         ]
         assert viewer.current_file == docs_dir / "00_quick_start.md"
-        assert viewer.windowTitle() == "MANIC Documentation"
+        assert viewer.windowTitle() == "Documentation — MANIC"
     finally:
         if window.documentation_window is not None:
             window.documentation_window.close()

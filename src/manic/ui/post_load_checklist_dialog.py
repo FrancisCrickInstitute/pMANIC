@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -17,12 +16,22 @@ from PySide6.QtWidgets import (
 )
 
 from manic.models.mm_file_check import MmFileStatus
+from manic.ui import theme
 from manic.ui.combo_box import ComboBox
+from manic.ui.dialog_kit import (
+    MARGIN,
+    SECTION_SPACING,
+    button_box,
+    description_label,
+    hint_label,
+    section_label,
+    status_icon,
+    style_dialog,
+    title_label,
+    window_title,
+)
 
 _STATE_ORDER = {"unset": 0, "no_match": 1, "matched": 2}
-_WARNING_CELL = QColor(255, 243, 205)
-_UNSET_STATUS = "color: #dc3545;"
-_SET_STATUS = "color: #212529;"
 
 
 def _matched_cell_text(status: MmFileStatus) -> str:
@@ -66,34 +75,27 @@ class PostLoadChecklistDialog(QDialog):
     ):
         super().__init__(parent)
         self.setObjectName("postLoadChecklistDialog")
-        self.setWindowTitle("Check your data setup")
+        self.setWindowTitle(window_title("Check Data Setup"))
+        style_dialog(self)
         self.setModal(True)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(680)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        layout.setSpacing(8)
 
-        title = QLabel("Check your data setup")
+        title = title_label("Check your data setup")
         title.setObjectName("checklistTitle")
-        title_font = title.font()
-        title_font.setPointSize(16)
-        title_font.setBold(True)
-        title.setFont(title_font)
         layout.addWidget(title)
-
-        explanation = QLabel(
-            "Weak peaks are only flagged (shown in red) when an internal standard is set."
+        layout.addWidget(
+            description_label(
+                "Confirm the internal standard and which samples count as standard "
+                "mixtures before you start reviewing."
+            )
         )
-        explanation.setWordWrap(True)
-        layout.addWidget(explanation)
 
-        is_heading = QLabel("Internal standard")
-        is_font = is_heading.font()
-        is_font.setBold(True)
-        is_heading.setFont(is_font)
-        layout.addWidget(is_heading)
-
+        layout.addSpacing(SECTION_SPACING - 8)
+        layout.addWidget(section_label("Internal standard"))
         is_row = QHBoxLayout()
         is_row.setSpacing(12)
         self.internal_standard_combo = ComboBox()
@@ -107,23 +109,27 @@ class PostLoadChecklistDialog(QDialog):
                 self.internal_standard_combo.setCurrentIndex(index)
         is_row.addWidget(self.internal_standard_combo, 1)
 
+        self._is_icon = QLabel()
+        is_row.addWidget(self._is_icon)
         self._is_status = QLabel()
         self._is_status.setObjectName("internalStandardStatus")
+        self._is_status.setMinimumWidth(56)
         is_row.addWidget(self._is_status)
         layout.addLayout(is_row)
+        layout.addWidget(
+            hint_label(
+                "Weak peaks are only flagged (shown in red) when an internal "
+                "standard is set."
+            )
+        )
         self.internal_standard_combo.currentIndexChanged.connect(
             self._update_internal_standard_status
         )
         self._update_internal_standard_status()
 
-        mm_heading = QLabel("MM file selection")
-        mm_font = mm_heading.font()
-        mm_font.setBold(True)
-        mm_heading.setFont(mm_font)
-        layout.addWidget(mm_heading)
-
-        self._mm_summary = QLabel(_summary_text(mm_report))
-        self._mm_summary.setWordWrap(True)
+        layout.addSpacing(SECTION_SPACING - 8)
+        layout.addWidget(section_label("Standard mixture (MM) files"))
+        self._mm_summary = description_label(_summary_text(mm_report))
         layout.addWidget(self._mm_summary)
 
         self.mm_file_table = QTableWidget(0, 3)
@@ -132,30 +138,34 @@ class PostLoadChecklistDialog(QDialog):
             ["Compound", "MM pattern", "Matched files"]
         )
         self.mm_file_table.verticalHeader().setVisible(False)
-        self.mm_file_table.horizontalHeader().setStretchLastSection(True)
-        self.mm_file_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
-        )
-        self.mm_file_table.horizontalHeader().setHighlightSections(False)
+        header = self.mm_file_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setStretchLastSection(True)
+        header.setHighlightSections(False)
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.mm_file_table.setTextElideMode(Qt.ElideMiddle)
+        self.mm_file_table.setWordWrap(False)
         self.mm_file_table.setShowGrid(False)
         self.mm_file_table.setSelectionMode(QAbstractItemView.NoSelection)
         self.mm_file_table.setFocusPolicy(Qt.NoFocus)
         self.mm_file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.mm_file_table.verticalHeader().setDefaultSectionSize(32)
-        self.mm_file_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.mm_file_table.verticalHeader().setDefaultSectionSize(30)
+        self.mm_file_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._fill_mm_table(mm_report)
-        layout.addWidget(self.mm_file_table)
+        layout.addWidget(self.mm_file_table, stretch=1)
 
-        hint = QLabel(
-            "MM patterns are edited in the compound list spreadsheet "
-            "(the mmfiles column) or the Add Compound dialog."
+        layout.addWidget(
+            hint_label(
+                "Each pattern picks the standard mixture samples for that compound; "
+                "hover a row to see the full pattern and every matched file. "
+                "Patterns are edited in the compound list spreadsheet (the mmfiles "
+                "column) or the Add Compound dialog."
+            )
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(hint)
 
         self.user_guide_link = QLabel('<a href="guide">Open the user guide</a>')
         self.user_guide_link.setObjectName("userGuideLink")
+        self.user_guide_link.setProperty("role", "hint")
         self.user_guide_link.setTextFormat(Qt.RichText)
         self.user_guide_link.setTextInteractionFlags(Qt.TextBrowserInteraction)
         self.user_guide_link.linkActivated.connect(
@@ -163,10 +173,8 @@ class PostLoadChecklistDialog(QDialog):
         )
         layout.addWidget(self.user_guide_link)
 
-        buttons = QDialogButtonBox()
-        apply_button = buttons.addButton("Apply", QDialogButtonBox.AcceptRole)
-        buttons.addButton("Skip", QDialogButtonBox.RejectRole)
-        apply_button.setDefault(True)
+        layout.addSpacing(8)
+        buttons, _apply = button_box("Apply", "Continue without changes")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -178,18 +186,29 @@ class PostLoadChecklistDialog(QDialog):
         return str(value)
 
     def _update_internal_standard_status(self) -> None:
-        if self.internal_standard_combo.currentData() is None:
-            self._is_status.setText("Not set")
-            self._is_status.setStyleSheet(_UNSET_STATUS)
-        else:
-            self._is_status.setText("Set")
-            self._is_status.setStyleSheet(_SET_STATUS)
+        chosen = self.internal_standard_combo.currentData() is not None
+        self._is_status.setText("Set" if chosen else "Optional")
+        self._is_status.setProperty("role", None if chosen else "hint")
+        self._is_status.style().unpolish(self._is_status)
+        self._is_status.style().polish(self._is_status)
+        self._is_icon.setPixmap(status_icon(True).pixmap(14, 14) if chosen else QPixmap())
+        self._is_icon.setVisible(chosen)
 
     def _fill_mm_table(self, report: list[MmFileStatus]) -> None:
         rows = sorted(report, key=lambda status: _STATE_ORDER[status.state])
         table = self.mm_file_table
         table.setRowCount(len(rows))
+        warning_fill = theme.color("warning_soft")
         for row, status in enumerate(rows):
+            matched = status.state == "matched"
+            tooltip = (
+                f"Pattern: {status.pattern or 'not set'}\n"
+                + (
+                    "Matched files:\n" + "\n".join(status.matched)
+                    if matched
+                    else _matched_cell_text(status)
+                )
+            )
             values = (
                 status.compound_name,
                 _pattern_cell_text(status),
@@ -198,9 +217,15 @@ class PostLoadChecklistDialog(QDialog):
             for column, text in enumerate(values):
                 item = QTableWidgetItem(text)
                 item.setFlags(Qt.ItemIsEnabled)
-                if column == 2 and status.state in ("unset", "no_match"):
-                    item.setBackground(_WARNING_CELL)
+                item.setToolTip(tooltip)
+                if column == 2:
+                    item.setIcon(status_icon(matched))
+                    if not matched:
+                        item.setBackground(warning_fill)
                 table.setItem(row, column, item)
+        table.resizeColumnToContents(0)
+        table.setColumnWidth(0, min(table.columnWidth(0) + 16, 200))
+        table.setColumnWidth(1, 200)
         self._fit_table_height()
 
     def _fit_table_height(self) -> None:
@@ -209,4 +234,4 @@ class PostLoadChecklistDialog(QDialog):
         row_h = table.verticalHeader().defaultSectionSize()
         frame = 2 * table.frameWidth()
         visible_rows = min(max(table.rowCount(), 1), 8)
-        table.setFixedHeight(header + visible_rows * row_h + frame)
+        table.setMinimumHeight(header + visible_rows * row_h + frame)

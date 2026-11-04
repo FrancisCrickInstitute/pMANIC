@@ -837,10 +837,10 @@ QLabel#peakScope[state="selected"] {
 
 /* ---------- Start panel ---------- */
 
-/* The empty canvas is the drop target; it lights only for a drop the window takes. */
+/* The empty canvas is the drop target: no outline at rest, lit only for a drop the window takes. */
 QFrame#dropZone {
     background-color: transparent;
-    border: 2px dashed @border;
+    border: 2px dashed transparent;
     border-radius: 12px;
 }
 

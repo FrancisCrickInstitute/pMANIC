@@ -249,7 +249,7 @@ class MainWindow(QMainWindow):
 
         # The grid replaces the start panel once raw data is loaded.
         self.graph_view = GraphView()
-        self.start_panel = StartPanel(self.analysis_mode)
+        self.start_panel = StartPanel()
         self.workspace = QStackedWidget()
         self.workspace.setObjectName("workspace")
         self.no_samples_panel = self._build_no_samples_panel()
@@ -671,7 +671,6 @@ class MainWindow(QMainWindow):
             return
         self.start_panel.refresh(
             self.compound_data_loaded,
-            self.toolbar.compound_list.real_count(),
             self.load_compound_action.isEnabled(),
             self.load_cdf_action.isEnabled(),
             self._recent_compounds.paths(),
@@ -1047,6 +1046,7 @@ class MainWindow(QMainWindow):
         self._recent_compounds.clear()
         self._recent_cdf.clear()
         self.open_recent_menu.setEnabled(False)
+        self._refresh_shell()
 
     def load_compound_list_data(self: QMainWindow) -> None:
         """

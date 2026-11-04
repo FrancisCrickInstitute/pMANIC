@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QDialog,
     QMenu,
     QMessageBox,
+    QPushButton,
     QStackedWidget,
     QListWidget,
     QWidget,
@@ -155,12 +156,50 @@ def load(tour: Tour, folder: Path) -> None:
 
 
 def charts(window):
+    """Visible tiles in reading order of the grid, so [0] is the top-left tile."""
     from manic.ui.graphs import ClickableChartView
 
-    views = window.graph_view.findChildren(ClickableChartView)
-    return sorted(
-        (v for v in views if v.isVisible()), key=lambda v: (v.y(), v.x())
-    )
+    grid = window.graph_view
+    views = (v for v in grid.findChildren(ClickableChartView) if v.isVisible())
+
+    def grid_position(view):
+        pos = view.mapTo(grid, QPoint())
+        return pos.y(), pos.x()
+
+    return sorted(views, key=grid_position)
+
+
+def add_compound_empty_submit(tour: Tour) -> None:
+    """Open Add Compound the way the menu does and press Add with every field empty."""
+    from manic.ui.add_compound_dialog import AddCompoundDialog
+
+    def submit_empty(dialog):
+        dialog.show()
+        tour.pump(0.2)
+        add = next(
+            b for b in dialog.findChildren(QPushButton) if b.text() == "Add compound"
+        )
+        add.click()
+        if not dialog.validation_message:
+            raise RuntimeError("Add with empty fields showed no errors")
+        tour.save(dialog, f"__{type(dialog).__name__}")
+        dialog.close()
+        return QDialog.Rejected
+
+    AddCompoundDialog.exec = submit_empty
+    try:
+        tour.window.show_add_compound_dialog()
+    finally:
+        del AddCompoundDialog.exec
+
+
+def settings_page(tour: Tour, title: str) -> None:
+    window = tour.window
+    window.open_settings_window()
+    settings = window.settings_window
+    settings.page_list.setCurrentRow(settings._pages.index(settings.page_named(title)))
+    tour.save(settings, f"__{type(settings).__name__}")
+    settings.close()
 
 
 def tour_steps(tour: Tour) -> None:
@@ -260,6 +299,11 @@ def tour_steps(tour: Tour) -> None:
         "documentation", tour.window.open_documentation_window, grab_main=False
     )
     tour.run("add_compound", tour.window.show_add_compound_dialog, grab_main=False)
+    tour.run(
+        "add_compound_empty_submit",
+        lambda: add_compound_empty_submit(tour),
+        grab_main=False,
+    )
     tour.run("process_external", tour.window.update_old_data, grab_main=False)
     tour.run("about", tour.window.show_about, grab_main=False)
 
@@ -283,6 +327,16 @@ def tour_steps(tour: Tour) -> None:
         tour.pump(1.5)
 
     tour.run("unlabelled_another_compound", unlabelled_problem_compound)
+    tour.run(
+        "unlabelled_settings_deconvolution",
+        lambda: settings_page(tour, "Deconvolution"),
+        grab_main=False,
+    )
+    tour.run(
+        "unlabelled_add_compound_empty_submit",
+        lambda: add_compound_empty_submit(tour),
+        grab_main=False,
+    )
 
     def filter_and_samples():
         toolbar = tour.window.toolbar

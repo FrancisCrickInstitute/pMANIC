@@ -13,10 +13,13 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QMouseEvent
-from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QPainter, QMouseEvent
+from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
 
 from manic.io.eic_reader import EIC
+from manic.ui.chart_header import ChartHeader
+from manic.ui.chart_style import scale_text, style_axis, style_chart
+from manic.ui.colors import abundance_colour
 
 logger = logging.getLogger(__name__)
 
@@ -51,23 +54,22 @@ class TotalAbundanceWidget(QWidget):
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
+        self.chart_view.setFrameShape(QFrame.NoFrame)
+        self.chart_view.setStyleSheet("background: transparent; border: none;")
+        self.chart_view.setToolTip("Double-click to enlarge with sample names")
+
         # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
-        # Setup chart appearance
-        self.chart.setBackgroundVisible(False)
-        self.chart.setPlotAreaBackgroundVisible(True)
-        self.chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
-        self.chart.legend().setVisible(False)
-        self.chart.setTitle("Total Abundance")
-        self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
-        self.chart.setTitleBrush(QColor("black"))
-        self.chart.setMargins(QMargins(5, 5, 5, 5))
+        style_chart(self.chart, QMargins(4, 0, 8, 0))
 
-        # Layout
+        self.header = ChartHeader("Total abundance")
+        self.header.expand_button.clicked.connect(self._show_popup_chart)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+        layout.addWidget(self.header)
         layout.addWidget(self.chart_view)
 
         # Responsive height to match isotopologue widget
@@ -75,8 +77,7 @@ class TotalAbundanceWidget(QWidget):
         self.setMaximumHeight(330)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
-        # Single color for all bars - dark teal (not in isotopologue palette)
-        self.bar_color = QColor(0, 128, 128)  # Dark teal
+        self.bar_color = abundance_colour
 
         # Data storage
         self._current_eics: Optional[List[EIC]] = None
@@ -157,6 +158,7 @@ class TotalAbundanceWidget(QWidget):
         # Create single bar set with all abundance values
         bar_set = QBarSet("Total Abundance")
         bar_set.setColor(self.bar_color)
+        bar_set.setBorderColor(self.bar_color)
 
         # Calculate scaling for display like EIC plots
         max_abundance = float(np.max(abundances)) if len(abundances) > 0 else 1.0
@@ -202,32 +204,18 @@ class TotalAbundanceWidget(QWidget):
         self._scale_exp = scale_exp
         self._scale_factor = scale_factor
 
-        # Format labels like EIC plots (simple numbers)
-        x_axis.setLabelFormat("%.1f")  # Simple decimal format
-        x_axis.setLabelsFont(QFont("Arial", 8))
-        x_axis.setGridLineVisible(False)
+        x_axis.setLabelFormat("%.1f")
+        style_axis(x_axis, grid=True)
         x_axis.setLineVisible(False)
-        x_axis.setTickCount(5)  # Same as graph plots - prevents overcrowding
-        x_axis.setLabelsVisible(True)
+        x_axis.setTickCount(3)
+        self.header.set_has_data(True, scale_text(scale_exp))
 
-        # Set scaling factor as axis title with larger font
-        if scale_exp != 0:
-
-            def superscript(n):
-                sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
-                return str(n).translate(sup_map)
-
-            # Use larger font for entire title (since HTML doesn't work in axis titles)
-            x_axis.setTitleText(f"×10{superscript(scale_exp)}")
-            x_axis.setTitleFont(QFont("Arial", 14))  # Larger font for better visibility
-
-        # Y-axis (vertical): Sample names - hidden to save space (same as isotopologue)
+        # Sample names are hidden here; the enlarged view shows them.
         y_axis = QBarCategoryAxis()
         y_axis.append(sample_names)
-        y_axis.setLabelsFont(QFont("Arial", 8))
-        y_axis.setGridLineVisible(False)
+        style_axis(y_axis)
         y_axis.setLineVisible(False)
-        y_axis.setLabelsVisible(False)  # Hide sample names to save space
+        y_axis.setLabelsVisible(False)
 
         # Add axes to chart
         self.chart.addAxis(x_axis, Qt.AlignBottom)
@@ -238,6 +226,7 @@ class TotalAbundanceWidget(QWidget):
         self.chart.removeAllSeries()
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
+        self.header.set_has_data(False)
 
         # Reset data
         self._current_eics = None
@@ -272,7 +261,8 @@ class TotalAbundanceWidget(QWidget):
                 title="Total Abundance",
                 data=self._current_abundances,
                 sample_names=self._current_sample_names,
-                parent=self
+                parent=self,
+                compound_name=self._current_compound,
             )
             dialog.exec()
             

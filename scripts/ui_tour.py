@@ -454,9 +454,13 @@ def tour_steps(tour: Tour) -> None:
     )
     tour.run("checklist", lambda: checklist(tour), grab_main=False)
     tour.run("settings", tour.window.open_settings_window, grab_main=False)
-    tour.run(
-        "documentation", tour.window.open_documentation_window, grab_main=False
-    )
+    def documentation():
+        tour.window.open_documentation_window()
+        # The web view renders after it opens; capture the page, not its loading note.
+        tour.wait_for(tour.window.documentation_window.is_rendered, timeout=30)
+        tour.pump(0.5)
+
+    tour.run("documentation", documentation, grab_main=False)
     tour.run("add_compound", tour.window.show_add_compound_dialog, grab_main=False)
     tour.run(
         "add_compound_empty_submit",

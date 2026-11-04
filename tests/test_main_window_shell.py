@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
-from PySide6.QtCore import QMimeData, QUrl
+from PySide6.QtCore import QEvent, QMimeData, QPoint, Qt, QUrl
+from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent
+from PySide6.QtWidgets import QApplication
 
 from manic.models.analysis import AnalysisMode
 
@@ -62,8 +64,37 @@ def test_drop_accepts_only_what_can_be_loaded_now(qapp, monkeypatch, tmp_path):
         window._update_menu_states()
         assert window._dropped_path(_drop(tmp_path)) == tmp_path
         assert window._dropped_path(_drop(compounds)) is None
-        assert window.start_panel.compounds_step.done_label.isVisibleTo(
-            window.start_panel
-        )
+        window._refresh_shell()
+        assert window.start_panel.primary_button.text() == "Load raw data folder…"
+    finally:
+        window.close()
+
+
+def test_drop_zone_lights_only_for_a_drop_the_window_takes(qapp, monkeypatch, tmp_path):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    zone = window.start_panel.drop_zone
+
+    def drag(kind, path=None):
+        if kind == QEvent.Type.DragLeave:
+            event = QDragLeaveEvent()
+        else:
+            data = _drop(path).mimeData()  # the event does not own it; keep it alive
+            event = QDragEnterEvent(
+                QPoint(10, 10),
+                Qt.DropAction.CopyAction,
+                data,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        QApplication.sendEvent(window, event)
+        return zone.property("dragOver") == "true"
+
+    compounds = tmp_path / "compounds.csv"
+    compounds.write_text("x")
+    try:
+        assert drag(QEvent.Type.DragEnter, compounds)
+        assert not drag(QEvent.Type.DragLeave)
+        # A raw data folder is refused until a compound list is loaded.
+        assert not drag(QEvent.Type.DragEnter, tmp_path)
     finally:
         window.close()

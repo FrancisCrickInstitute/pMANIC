@@ -454,8 +454,9 @@ class MainWindow(QMainWindow):
         self.start_panel.documentation_requested.connect(
             self.open_documentation_window
         )
+        self.installEventFilter(self.start_panel)
         self._refresh_shell()
-        self.start_panel.compounds_step.button.setFocus()
+        self.start_panel.primary_button.setFocus()
 
     def _build_view_menu(self, menu_bar: QMenuBar) -> None:
         """Display toggles mirror the sidebar checkboxes, which stay the source of truth."""

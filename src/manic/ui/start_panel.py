@@ -1,12 +1,12 @@
-"""The workspace shown before raw data is loaded: two steps, recent files, drop hint."""
+"""The workspace shown before raw data is loaded: the empty canvas as a drop target."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
-    QGridLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -15,57 +15,18 @@ from PySide6.QtWidgets import (
 )
 
 from manic.models.analysis import AnalysisMode
-from manic.ui.sidebar_widgets import ElidedLabel, divider, section_heading, shortcut_text
+from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.theme import set_style_property
-from manic.ui.logo import LogoLabel
 
 RECENT_LIMIT = 3
 
 
-class _Step(QWidget):
-    clicked = Signal()
-
-    def __init__(self, number: int, title: str, detail: str, button_text: str):
-        super().__init__()
-        layout = QGridLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setHorizontalSpacing(14)
-        layout.setVerticalSpacing(2)
-        self._number = number
-        self.badge = QLabel(str(number))
-        self.badge.setProperty("role", "stepNumber")
-        self.badge.setFixedSize(24, 24)
-        self.badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-weight: 600;")
-        detail_label = QLabel(detail)
-        detail_label.setProperty("role", "secondary")
-        detail_label.setWordWrap(True)
-        self.button = QPushButton(button_text)
-        self.button.setMinimumWidth(150)
-        self.button.clicked.connect(self.clicked.emit)
-        self.done_label = QLabel()
-        self.done_label.setProperty("role", "stepDone")
-        layout.addWidget(self.badge, 0, 0, 2, 1, Qt.AlignmentFlag.AlignTop)
-        layout.addWidget(title_label, 0, 1)
-        layout.addWidget(detail_label, 1, 1)
-        layout.addWidget(self.button, 0, 2, 2, 1, Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.done_label, 0, 2, 2, 1, Qt.AlignmentFlag.AlignVCenter)
-        layout.setColumnStretch(1, 1)
-
-    def set_state(self, state: str, done_text: str = "") -> None:
-        """state is 'done', 'next' or 'later'."""
-        self.badge.setText("✓" if state == "done" else str(self._number))
-        set_style_property(self.badge, "state", state)
-        self.button.setVisible(state != "done")
-        self.button.setEnabled(state == "next")
-        set_style_property(self.button, "variant", "primary" if state == "next" else None)
-        self.done_label.setVisible(state == "done")
-        self.done_label.setText(done_text)
-
-
 class StartPanel(QWidget):
-    """Same actions as the File menu, laid out as the first thing a new user sees."""
+    """One next step at a time; the sidebar header owns the load status.
+
+    Install it as an event filter on the main window so the drop zone lights up
+    while a drag the window would accept is over it.
+    """
 
     load_compounds_requested = Signal()
     load_raw_data_requested = Signal()
@@ -78,115 +39,74 @@ class StartPanel(QWidget):
         super().__init__(parent)
         self.setObjectName("startPanel")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 24, 24, 24)
-        outer.addStretch(2)
+        outer.setContentsMargins(20, 20, 20, 20)
+
+        self.drop_zone = QFrame()
+        self.drop_zone.setObjectName("dropZone")
+        outer.addWidget(self.drop_zone)
+        zone = QVBoxLayout(self.drop_zone)
+        zone.setContentsMargins(24, 24, 24, 16)
+        zone.setSpacing(0)
+        zone.addStretch(2)
 
         column = QWidget()
-        column.setMaximumWidth(560)
-        column.setMinimumWidth(420)
+        column.setFixedWidth(360)
         layout = QVBoxLayout(column)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-
-        logo = LogoLabel(44)
-        logo.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(logo)
-        layout.addSpacing(12)
-
-        title = QLabel(f"Start a {mode.display_name.lower()} analysis")
-        title.setProperty("role", "title")
-        title.setStyleSheet("font-size: 20px;")
-        layout.addWidget(title)
-        layout.addSpacing(4)
-        subtitle = QLabel("Load your compound list, then the folder of raw data.")
-        subtitle.setProperty("role", "secondary")
-        subtitle.setStyleSheet("font-size: 13px;")
-        layout.addWidget(subtitle)
-        layout.addSpacing(20)
-
-        card = QWidget()
-        card.setObjectName("startCard")
-        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(0)
-        self.compounds_step = _Step(
-            1,
-            "Compound list",
-            "A CSV or Excel file (.csv, .xls, .xlsx) with one row per compound.",
-            f"Load list…   {shortcut_text('Ctrl+O')}",
-        )
-        self.raw_step = _Step(
-            2,
-            "Raw data folder",
-            "A folder of .CDF files exported from the instrument.",
-            f"Load folder…   {shortcut_text('Ctrl+Shift+O')}",
-        )
-        self.compounds_step.clicked.connect(self.load_compounds_requested.emit)
-        self.raw_step.clicked.connect(self.load_raw_data_requested.emit)
-        card_layout.addWidget(self.compounds_step)
-        card_layout.addWidget(divider())
-        card_layout.addWidget(self.raw_step)
-        layout.addWidget(card)
-        layout.addSpacing(8)
-        after = QLabel(
-            "Then confirm the data setup and review each compound's plots. "
-            "The Review menu lists every review command and its key."
-        )
-        after.setObjectName("startNextSteps")
-        after.setProperty("role", "hint")
-        after.setWordWrap(True)
-        layout.addWidget(after)
-
-        layout.addSpacing(24)
-        self._recent_heading = section_heading("Recent")
+        self.prompt = QLabel()
+        self.prompt.setObjectName("dropPrompt")
+        self.prompt.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.prompt)
+        layout.addSpacing(16)
+        self.primary_button = QPushButton()
+        self.primary_button.setProperty("variant", "primary")
+        self.primary_button.setMinimumWidth(200)
+        self.primary_button.clicked.connect(self._primary_clicked)
+        layout.addWidget(self.primary_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._recent_space = QWidget()
+        self._recent_space.setFixedHeight(36)
+        layout.addWidget(self._recent_space)
+        self._recent_heading = QLabel("Recent")
+        self._recent_heading.setProperty("role", "hint")
         layout.addWidget(self._recent_heading)
-        layout.addSpacing(4)
+        layout.addSpacing(6)
         self._recent_box = QVBoxLayout()
-        self._recent_box.setSpacing(0)
+        self._recent_box.setSpacing(2)
         layout.addLayout(self._recent_box)
-        self._recent_spacer = QWidget()
-        self._recent_spacer.setFixedHeight(20)
-        layout.addWidget(self._recent_spacer)
 
-        drop = QLabel(
-            "You can also drop a compound list or a raw data folder onto this window."
-        )
-        drop.setProperty("role", "hint")
-        drop.setWordWrap(True)
-        layout.addWidget(drop)
-        layout.addSpacing(4)
-        session = QLabel(
-            "Have a saved session? Load the same data, then choose "
-            f"File → Import Session ({shortcut_text('Ctrl+I')})."
-        )
-        session.setProperty("role", "hint")
-        session.setWordWrap(True)
-        layout.addWidget(session)
-        layout.addSpacing(12)
-
-        links = QHBoxLayout()
-        links.setSpacing(16)
-        guide = QPushButton("Quick start guide")
-        guide.setProperty("variant", "link")
-        guide.setCursor(Qt.CursorShape.PointingHandCursor)
-        guide.clicked.connect(self.documentation_requested.emit)
-        switch = QPushButton("Change analysis mode…")
-        switch.setProperty("variant", "link")
-        switch.setCursor(Qt.CursorShape.PointingHandCursor)
-        switch.clicked.connect(self.new_session_requested.emit)
-        links.addWidget(guide)
-        links.addWidget(switch)
-        links.addStretch(1)
-        layout.addLayout(links)
-
-        row = QHBoxLayout()
-        row.addStretch(1)
-        row.addWidget(column, 3)
-        row.addStretch(1)
-        outer.addLayout(row)
-        outer.addStretch(3)
+        zone.addWidget(column, 0, Qt.AlignmentFlag.AlignHCenter)
+        zone.addStretch(3)
+        centred = QHBoxLayout()
+        centred.addStretch(1)
+        centred.addWidget(self._footer(mode), 1000)  # grows to its cap before the margins do
+        centred.addStretch(1)
+        zone.addLayout(centred)
+        self._compounds_next = True
         self.refresh(False, 0, True, False, [], [])
+
+    def _footer(self, mode: AnalysisMode) -> QWidget:
+        footer = QWidget()
+        row = QHBoxLayout(footer)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        switch = _footer_link("Change analysis mode", self.new_session_requested)
+        switch.setToolTip(f"This window runs a {mode.display_name.lower()} analysis")
+        session = QLabel("Saved session: load its data, then File → Import Session")
+        session.setProperty("role", "hint")
+        for widget in (
+            switch,
+            _dot(),
+            _footer_link("Quick start guide", self.documentation_requested),
+            _dot(),
+        ):
+            row.addWidget(widget)
+        row.addWidget(session, 1)
+        # One line when it fits; below that the hint wraps instead of widening the window.
+        footer.ensurePolished()
+        footer.setMaximumWidth(footer.sizeHint().width())
+        session.setWordWrap(True)
+        return footer
 
     def refresh(
         self,
@@ -197,49 +117,86 @@ class StartPanel(QWidget):
         recent_compound_lists: list[str],
         recent_raw_folders: list[str],
     ) -> None:
-        if compounds_loaded:
-            noun = "compound" if compound_count == 1 else "compounds"
-            self.compounds_step.set_state("done", f"{compound_count} {noun} loaded")
-            self.raw_step.set_state("next" if can_load_raw else "later")
+        # The sidebar already says what is loaded and how many compounds; only the next step lives here.
+        self._compounds_next = not compounds_loaded
+        if self._compounds_next:
+            self.prompt.setText("Drop a compound list here")
+            self.primary_button.setText("Load compound list…")
+            enabled, paths = can_load_compounds, recent_compound_lists
+            signal = self.recent_compound_list_requested
         else:
-            self.compounds_step.set_state("next" if can_load_compounds else "later")
-            self.raw_step.set_state("later")
+            self.prompt.setText("Drop the folder of CDF files here")
+            self.primary_button.setText("Load raw data folder…")
+            enabled, paths = can_load_raw, recent_raw_folders
+            signal = self.recent_raw_data_requested
+        self.primary_button.setEnabled(enabled)
 
         while self._recent_box.count():
             widget = self._recent_box.takeAt(0).widget()
             if widget is not None:
                 widget.deleteLater()
-        recent = [
-            (path, "List", can_load_compounds, self.recent_compound_list_requested)
-            for path in recent_compound_lists[:RECENT_LIMIT]
-        ] + [
-            (path, "Folder", can_load_raw, self.recent_raw_data_requested)
-            for path in recent_raw_folders[:RECENT_LIMIT]
-        ]
-        for path, kind, enabled, signal in recent:
-            self._recent_box.addWidget(_recent_row(path, kind, enabled, signal))
-        has_recent = bool(recent)
+        for path in paths[:RECENT_LIMIT]:
+            self._recent_box.addWidget(_recent_row(path, enabled, signal))
+        has_recent = bool(paths)
+        self._recent_space.setVisible(has_recent)
         self._recent_heading.setVisible(has_recent)
-        self._recent_spacer.setVisible(has_recent)
+
+    def _primary_clicked(self) -> None:
+        if self._compounds_next:
+            self.load_compounds_requested.emit()
+        else:
+            self.load_raw_data_requested.emit()
+
+    def eventFilter(self, watched, event):  # noqa: N802 (Qt override)
+        kind = event.type()
+        if kind == QEvent.Type.DragEnter:
+            # Let the window decide first, so the zone only lights for drops it will take.
+            handled = watched.event(event)
+            self._set_drag_over(event.isAccepted())
+            return handled
+        if kind in (QEvent.Type.DragLeave, QEvent.Type.Drop):
+            self._set_drag_over(False)
+        return False
+
+    def _set_drag_over(self, active: bool) -> None:
+        set_style_property(self.drop_zone, "dragOver", "true" if active else None)
 
 
-def _recent_row(path: str, kind: str, enabled: bool, signal) -> QWidget:
+def _footer_link(text: str, signal) -> QPushButton:
+    button = QPushButton(text)
+    button.setObjectName("startFooterLink")
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.clicked.connect(signal.emit)
+    return button
+
+
+def _dot() -> QLabel:
+    dot = QLabel("·")
+    dot.setProperty("role", "hint")
+    return dot
+
+
+def _recent_row(path: str, enabled: bool, signal) -> QWidget:
     row = QWidget()
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(8)
-    kind_label = QLabel(kind)
-    kind_label.setProperty("role", "hint")
-    kind_label.setFixedWidth(44)
+    layout.setSpacing(10)
     button = QPushButton(Path(path).name or path)
-    button.setProperty("variant", "link")
+    button.setObjectName("recentName")
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     button.setToolTip(path)
     button.setEnabled(enabled)
     button.clicked.connect(lambda: signal.emit(path))
-    where = ElidedLabel(str(Path(path).parent))
+    where = ElidedLabel(_home_relative(Path(path).parent))
     where.setProperty("role", "hint")
-    layout.addWidget(kind_label)
+    where.setToolTip(path)
     layout.addWidget(button)
     layout.addWidget(where, 1)
     return row
+
+
+def _home_relative(folder: Path) -> str:
+    try:
+        return str(Path("~") / folder.relative_to(Path.home()))
+    except ValueError:
+        return str(folder)

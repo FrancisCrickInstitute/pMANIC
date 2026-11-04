@@ -102,8 +102,12 @@ The user wants the app to show real taste and not look AI-generated. Before
 you add anything, ask whether a careful human designer working only on MANIC
 would put it there.
 
-- One place for each piece of state. If the sidebar shows what is loaded, the
-  canvas and status bar do not repeat it.
+- One place for each piece of information. Redundancy is generally bad: if
+  the sidebar shows what is loaded, the canvas and status bar do not repeat
+  it; helper text does not restate its heading; a dialog does not show the
+  same value twice. Duplicate only with a clear reason (a menu command that is
+  also in a context menu or has a shortcut; a value shown again where the user
+  acts on it, far from where it first appears) and be ready to name it.
 - Copy is short and specific to GC-MS work. Cut sentences that explain what
   the UI already shows. No "You can also", "Simply", "Let's", or marketing tone.
   Instructions longer than a line belong in the quick start guide.

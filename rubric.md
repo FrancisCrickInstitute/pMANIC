@@ -45,7 +45,14 @@ and `file:line`):
 - Template layouts: hero heading plus numbered stepper card plus helper
   paragraphs plus a row of links; symmetrical card grids with an icon, title
   and blurb each; decorative badges, pills or chips that carry no information.
-- The same status or instruction shown in two or three places at once.
+- Redundancy: the same information, state, instruction or control shown in
+  two or more places at once (sidebar and canvas and status bar; a heading
+  plus helper text that restates it; a legend repeating a label; two buttons
+  for one action side by side). The user considers this generally bad.
+  Duplication earns a pass only with a clear reason, such as a menu command
+  that also has a context-menu entry or a shortcut, or a value repeated where
+  the user acts on it far from its first appearance. Name each duplication
+  and whether it is justified.
 - Wordy copy: explaining what the UI already shows, "You can also…",
   "Simply…", "Let's get started", restating labels in helper text,
   paragraphs where a label would do, marketing tone in a lab tool.

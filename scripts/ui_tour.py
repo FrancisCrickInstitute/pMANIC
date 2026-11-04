@@ -12,6 +12,8 @@ Run from the repository root:
 from __future__ import annotations
 
 import argparse
+import atexit
+import shutil
 import sys
 import tempfile
 import time
@@ -533,6 +535,8 @@ def main() -> int:
     from manic.models import database
 
     scratch = Path(tempfile.mkdtemp(prefix="manic-ui-tour-"))
+    # Each run's database holds every extracted EIC (tens of MB); never leave it behind.
+    atexit.register(shutil.rmtree, scratch, ignore_errors=True)
     database.DB_FILE = scratch / "tour.db"
     QSettings.setDefaultFormat(QSettings.IniFormat)
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(scratch))

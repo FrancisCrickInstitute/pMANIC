@@ -92,12 +92,12 @@ def test_identity_counts_name_their_units_and_grey_states(qapp):
     widget = TargetedQcWidget()
     try:
         widget.update_results(_identity())
-        assert widget.header.detail.text() == "3 samples · 2 samples failed"
+        assert widget.header.detail.text() == "2 samples failed"
         key = widget.key.text()
         assert QTextDocumentFragment.fromHtml(key).toPlainText().startswith("Qualifier cells")
         assert "Validated&nbsp;<b>1</b>" in key
         assert "Failed&nbsp;<b>2</b>" in key
-        assert "No verdict&nbsp;<b>3</b>" in key
+        assert "–&nbsp;Absent&nbsp;<b>3</b>" in key and "No verdict" not in key
         assert widget.key.toolTip() == (
             "Counts are qualifier cells: one per sample for each qualifier ion.\n"
             "No verdict (grey): 3 absent, 0 not assessed, 0 unavailable."

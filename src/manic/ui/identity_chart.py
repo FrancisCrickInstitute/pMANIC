@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QCursor, QFontMetrics
 from PySide6.QtWidgets import QGraphicsSimpleTextItem, QToolTip, QWidget
 
 from manic.models.analysis import IonRole
+from manic.ui.channel_chips import expectation_text
 from manic.ui.chart_style import style_axis, ui_font
 from manic.ui.colors import QUALIFIER_STATUS_COLORS
 from manic.ui.theme import color, contrast
@@ -31,6 +32,20 @@ _TOOLTIP_HOLD_MS = 86_400_000
 IDENTITY_ROW_MAX = 24
 # Column header text at each column's centre, for a PinnedAxis above the grid.
 IDENTITY_COLUMN_HEADERS = [(0.5, "Qualifier 1"), (1.5, "Qualifier 2")]
+
+
+def identity_column_headers(channels) -> list[tuple[float, str]]:
+    """Two-line headers naming each qualifier column's ion and expectation."""
+    by_ordinal = {c.ordinal: c for c in channels if c.role is IonRole.QUALIFIER}
+    headers = []
+    for x, title in IDENTITY_COLUMN_HEADERS:
+        channel = by_ordinal.get(int(x + 0.5))
+        detail = (
+            "not in the method" if channel is None
+            else f"m/z {channel.mz:g}   {expectation_text(channel)}"
+        )
+        headers.append((x, f"{title}\n{detail}"))
+    return headers
 
 STATUS_LABELS = {
     QualifierStatus.VALIDATED: "Validated",
@@ -56,15 +71,30 @@ def identity_chart_height(rows: int, row_height: int = IDENTITY_ROW_MAX) -> int:
     return rows * row_height
 
 
+MISSING_RATIO_STEP = (
+    "Expected ratios come from the compound list. Fill its Qualifier Ratio columns "
+    "and reload the list; Help\u00a0›\u00a0Check\u00a0Data\u00a0Setup lists the reload steps."
+)
+MISSING_TOLERANCE_STEP = "Set the missing tolerances in Settings\u00a0›\u00a0Qualifier\u00a0Ratios."
+
+
 def identity_unassessed_note(identity: IdentityAssessmentSet) -> str | None:
-    """One line for a compound none of whose qualifiers can be checked, else None."""
+    """The next step for a compound none of whose qualifiers can be checked, else None.
+
+    The key chips already name what is missing, so this says only how to fix it:
+    Settings edits tolerances, never expected ratios.
+    """
     qualifiers = [c for c in identity.channels if c.role is IonRole.QUALIFIER]
-    name = identity.compound_name
     if not qualifiers:
-        return f"{name} has no qualifier ions, so there is no identity to check."
-    if all(c.expected_ratio is None or c.ratio_tolerance is None for c in qualifiers):
-        return f"No expected ratios set for {name}. Add them in Settings › Qualifier Ratios."
-    return None
+        return f"{identity.compound_name} has no qualifier ions, so there is no identity to check."
+    if any(c.expected_ratio is not None and c.ratio_tolerance is not None for c in qualifiers):
+        return None
+    steps = []
+    if any(c.expected_ratio is None for c in qualifiers):
+        steps.append(MISSING_RATIO_STEP)
+    if any(c.expected_ratio is not None for c in qualifiers):
+        steps.append(MISSING_TOLERANCE_STEP)
+    return " ".join(steps)
 
 
 class _CellMark(QGraphicsSimpleTextItem):

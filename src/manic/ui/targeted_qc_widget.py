@@ -132,10 +132,9 @@ class TargetedQcWidget(QWidget):
             any(q.status is QualifierStatus.FAILED for q in sample.qualifiers)
             for sample in identity.samples
         )
-        count = len(identity.samples)
+        # The sample total is the Samples section's; only the failures are news here.
         self.header.set_has_data(
-            True, f"{count} sample{'s' if count != 1 else ''}"
-            + (f" · {failed} sample{'s' if failed != 1 else ''} failed" if failed else "")
+            True, f"{failed} sample{'s' if failed != 1 else ''} failed" if failed else ""
         )
         self.key.setText(identity_key_html(identity))
         self.key.setToolTip(identity_key_tooltip(identity))
@@ -167,9 +166,13 @@ class TargetedQcWidget(QWidget):
             axes[0].setCategories(names)
 
     def set_highlighted(self, sample_names) -> None:
-        """Outline the rows of the samples selected in the grid; every row stays."""
+        """Outline the rows of the samples selected in the grid and scroll to the first; every row stays."""
         self._highlighted = set(sample_names)
         self._paint_highlight()
+        if self._marks:
+            first = min(self._marks, key=lambda mark: mark.rect().top())
+            centre = self.chart_view.mapFromScene(first.sceneBoundingRect().center())
+            self._scroll.ensureVisible(centre.x(), centre.y(), 0, int(first.rect().height()))
 
     def highlighted_rows(self) -> list[str]:
         return [mark.data(0) for mark in self._marks]

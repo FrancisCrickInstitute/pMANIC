@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from manic.models.analysis import IonRole
 from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
@@ -47,12 +48,12 @@ from manic.ui.colors import (
     label_colors,
 )
 from manic.ui.identity_chart import (
-    IDENTITY_COLUMN_HEADERS,
     STATUS_MARKS,
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
     identity_chart_height,
+    identity_column_headers,
     identity_unassessed_note,
     show_identity_tooltip,
 )
@@ -98,22 +99,27 @@ def _grey_counts(identity: IdentityAssessmentSet) -> dict[QualifierStatus, int]:
 
 def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
     counts = identity_status_counts(identity) if identity is not None else None
+    grey_counts = _grey_counts(identity) if identity is not None else {}
+    grey_kinds = [status for status, n in grey_counts.items() if n]
+    # One grey kind is named once, as itself, not as "No verdict" plus its only subtype.
+    grey_entry = (
+        (STATUS_MARKS[grey_kinds[0]], _NO_VERDICT_STATES[grey_kinds[0]].capitalize())
+        if len(grey_kinds) == 1 else ("", "No verdict")
+    )
     parts = []
-    for qcolor, name, mark in (
-        (QUALIFIER_GREEN, "Validated", STATUS_MARKS[QualifierStatus.VALIDATED]),
-        (QUALIFIER_RED, "Failed", STATUS_MARKS[QualifierStatus.FAILED]),
-        (QUALIFIER_GREY, "No verdict", ""),
+    for qcolor, (mark, name), key in (
+        (QUALIFIER_GREEN, (STATUS_MARKS[QualifierStatus.VALIDATED], "Validated"), "Validated"),
+        (QUALIFIER_RED, (STATUS_MARKS[QualifierStatus.FAILED], "Failed"), "Failed"),
+        (QUALIFIER_GREY, grey_entry, "No verdict"),
     ):
-        count = "" if counts is None else f"&nbsp;<b>{counts[name]}</b>"
+        count = "" if counts is None else f"&nbsp;<b>{counts[key]}</b>"
         mark = f"{mark}&nbsp;" if mark else ""
         parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{mark}{name}{count}')
-    if counts is not None and counts["No verdict"]:
+    if len(grey_kinds) > 1:
         # Each grey state by its cell mark, so the key reads without hovering.
-        grey_counts = _grey_counts(identity)
         grey = ", ".join(
-            f"{STATUS_MARKS[status]}&nbsp;{grey_counts[status]}&nbsp;{label}"
-            for status, label in _NO_VERDICT_STATES.items()
-            if grey_counts[status]
+            f"{STATUS_MARKS[status]}&nbsp;{grey_counts[status]}&nbsp;{_NO_VERDICT_STATES[status]}"
+            for status in grey_kinds
         )
         parts[-1] += f" ({grey})"
     # Counts are cells, not samples; the unit leads so it is read first.
@@ -134,6 +140,11 @@ def identity_key_tooltip(identity: IdentityAssessmentSet) -> str:
         "Counts are qualifier cells: one per sample for each qualifier ion.\n"
         f"No verdict (grey): {breakdown}."
     )
+
+
+def missing_ratio_note(sample_name: str) -> str:
+    """Hover text for a label-incorporation row with no bar."""
+    return f"{sample_name}\nNo ratio: this sample has no integrated peak area for this compound."
 
 
 def bar_value_text(value: float) -> str:
@@ -183,7 +194,8 @@ class PinnedAxis(QWidget):
     def set_axis(self, title: str, ticks: list[tuple[float, str]]) -> None:
         self._title = title
         self._ticks = list(ticks)
-        height = QFontMetrics(self._font).height() + 4
+        lines = max((text.count("\n") + 1 for _value, text in ticks), default=1)
+        height = QFontMetrics(self._font).height() * lines + 4
         if title:
             height += QFontMetrics(self._title_font).height() + 2
         self.setFixedHeight(height)
@@ -220,9 +232,10 @@ class PinnedAxis(QWidget):
         painter.setFont(self._font)
         metrics = QFontMetrics(self._font)
         for text, x in ticks:
-            width = metrics.horizontalAdvance(text)
-            left = min(max(x - width // 2, 0), self.width() - width)
-            painter.drawText(QPoint(left, y + metrics.ascent()), text)
+            for number, line in enumerate(text.split("\n")):
+                width = metrics.horizontalAdvance(line)
+                left = min(max(x - width // 2, 0), self.width() - width)
+                painter.drawText(QPoint(left, y + number * metrics.height() + metrics.ascent()), line)
 
 
 class _BackedText(QGraphicsSimpleTextItem):
@@ -266,8 +279,6 @@ class ChartPopupDialog(QDialog):
         self._hover_categories: list[str] | None = None
         self._hover_notes: list[str] | None = None
         self._identity_binding: IdentityGridBinding | None = None
-        self._total_abundance_scale_factor: float = 1.0
-        self._total_abundance_scale_exp: int = 0
         self._value_labels: list[tuple[QGraphicsSimpleTextItem, float, int]] = []
         self._current_row: int | None = None
         # Tooltip for each row that has nothing drawn, by category index.
@@ -442,19 +453,12 @@ class ChartPopupDialog(QDialog):
         max_abundance = float(np.max(self.data)) if len(self.data) > 0 else 1.0
         scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
         scale_factor = 10**scale_exp if scale_exp != 0 else 1
-        self._total_abundance_scale_factor = float(scale_factor)
-        self._total_abundance_scale_exp = scale_exp
 
         scaled = [float(abundance) / scale_factor for abundance in self.data]
         for value in scaled:
             bar_set.append(value)
 
-        bar_set.hovered.connect(
-            lambda status, index, bs=bar_set: self._on_total_abundance_bar_hover(
-                bs, status, index
-            )
-        )
-
+        # No hover text: each row already shows its name and the same rounded value.
         bar_series.append(bar_set)
         self.chart.addSeries(bar_series)
 
@@ -549,10 +553,7 @@ class ChartPopupDialog(QDialog):
         totals = np.nansum(self.data, axis=1) if self.data.ndim > 1 else np.ones(len(self.data))
         empty = [index for index, total in enumerate(totals) if not total > 0]
         for index in empty:
-            self._row_notes[index] = (
-                f"{self.sample_names[index]}\n"
-                "No ratio: this sample has no integrated peak area for this compound."
-            )
+            self._row_notes[index] = missing_ratio_note(self.sample_names[index])
         if empty:
             self._add_value_labels(stacked_series, [(index, 0.0) for index in empty])
 
@@ -560,20 +561,27 @@ class ChartPopupDialog(QDialog):
         if self._identity is None or not self._identity.samples:
             return
 
-        labels, styles = identity_key_chips(self._identity.channels)
-        self.ion_legend.set_channels(labels, styles)
         note = identity_unassessed_note(self._identity)
         if note is not None:
+            # With no grid, the chips name what each qualifier is missing.
+            self.ion_legend.set_channels(*identity_key_chips(self._identity.channels))
             self.empty_note.setText(note)
             self.empty_note.show()
             self._scroll.hide()
             self._hover_hint = ""
             self._hint.clear()
             return
+        quantifier = next(
+            (c.label for c in self._identity.channels if c.role is IonRole.QUANTIFIER), ""
+        )
+        count = len(self.sample_names)
+        self.subtitle.setText(
+            " · ".join(p for p in ("Identity", quantifier, f"{count} sample{'s' if count != 1 else ''}") if p)
+        )
         self._identity_binding = add_identity_grid(
             self.chart, self._identity.samples, label_font_size=11
         )
-        self.pinned_axis.set_axis("", IDENTITY_COLUMN_HEADERS)
+        self.pinned_axis.set_axis("", identity_column_headers(self._identity.channels))
         self.status_legend.setText(identity_key_html(self._identity))
         self.status_legend.setToolTip(identity_key_tooltip(self._identity))
         self.status_legend.show()
@@ -639,26 +647,6 @@ class ChartPopupDialog(QDialog):
             self.chart_view,
         )
 
-    def _on_total_abundance_bar_hover(
-        self, bar_set: QBarSet, status: bool, index: int
-    ) -> None:
-        if not status:
-            QToolTip.hideText()
-            return
-
-        sample_name = self._sample_name_for_hover_index(index)
-        if sample_name is None:
-            return
-
-        scaled_value = float(bar_set.at(index))
-        unit = scale_text(self._total_abundance_scale_exp)
-
-        QToolTip.showText(
-            QCursor.pos(),
-            f"{sample_name}\nTotal abundance: {bar_value_text(scaled_value)} {unit}".rstrip(),
-            self.chart_view,
-        )
-
     def _sample_axis(self, names: list[str]) -> QBarCategoryAxis:
         axis = QBarCategoryAxis()
         axis.append(names)
@@ -685,9 +673,8 @@ class ChartPopupDialog(QDialog):
 
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
-        self._pin_value_axis(
-            x_axis, f"Total abundance  {scale_text(scale_exp)}" if scale_exp else "Total abundance"
-        )
+        # The subtitle names the metric; the axis carries only its multiplier.
+        self._pin_value_axis(x_axis, scale_text(scale_exp))
 
         self._hover_categories = list(self.sample_names)
 

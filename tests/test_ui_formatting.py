@@ -304,7 +304,7 @@ def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
         assert y_axis.labelsVisible()
-        assert widget.header.detail.text() == "2 samples · 1 sample failed"
+        assert widget.header.detail.text() == "1 sample failed"
         assert "Failed&nbsp;<b>1</b>" in widget.key.text()
         widget.clear()
         assert widget._identity is None
@@ -398,18 +398,17 @@ def test_identity_chart_popup_shows_sample_names(qapp):
         assert dialog.chart.title() == ""
         assert not dialog.chart.legend().isVisible()
         assert dialog.compound_title.text() == "Target"
-        assert dialog.ion_legend.labels() == [
-            "Q ion m/z 217",
-            "Qualifier ion 1 m/z 147   expected 0.400  ±25%",
-            "Qualifier ion 2 m/z 73   expected 0.200  ±25%",
-        ]
+        # The qualifier chips' content lives in the column headers; the Q ion in the subtitle.
+        assert dialog.ion_legend.labels() == []
+        assert dialog.subtitle.text() == "Identity · Q ion m/z 217 · 2 samples"
         y_axis = dialog.chart.axes(Qt.Vertical)[0]
         assert isinstance(y_axis, QBarCategoryAxis)
         assert list(y_axis.categories()) == ["S2", "S1"]
         assert y_axis.labelsVisible()
         assert y_axis.labelsFont().pixelSize() == 11
         assert [text for text, _x in dialog.pinned_axis.tick_positions()] == [
-            "Qualifier 1", "Qualifier 2"
+            "Qualifier 1\nm/z 147   expected 0.400  ±25%",
+            "Qualifier 2\nm/z 73   expected 0.200  ±25%",
         ]
         assert dialog._identity_binding is not None
         bar_sets = dialog._identity_binding.bar_sets

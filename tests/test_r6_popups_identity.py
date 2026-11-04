@@ -49,7 +49,7 @@ def _marks(chart):
 
 def test_compound_with_no_expected_ratios_says_so_instead_of_a_grey_grid(qapp):
     identity = _identity(UNSET, ["MM_01", "MM_02"])
-    note = "No expected ratios set for Glycine. Add them in Settings › Qualifier Ratios."
+    from manic.ui.identity_chart import MISSING_RATIO_STEP as note
     dialog = ChartPopupDialog.for_identity(identity)
     widget = TargetedQcWidget()
     try:

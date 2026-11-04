@@ -69,7 +69,7 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         # Qualifier 1 validated or failed; qualifier 2 is absent (grey) in both.
         assert _marks(dialog.chart) == [("–", True), ("–", True), ("✓", True), ("✕", True)]
         key = dialog.status_legend.text()
-        assert "No verdict&nbsp;<b>2</b> (–&nbsp;2&nbsp;absent)" in key
+        assert "–&nbsp;Absent&nbsp;<b>2</b>" in key and "No verdict" not in key
         assert "✓&nbsp;Validated" in key and "✕&nbsp;Failed" in key
     finally:
         dialog.deleteLater()
@@ -102,7 +102,9 @@ def test_one_sample_is_a_slim_strip_not_a_slab(qapp):
         assert dialog.chart_view.y() == 0
         # The column headers sit above the scrolled rows, not inside them.
         for header, scroll in ((dialog.pinned_axis, dialog._scroll), (widget.columns, widget._scroll)):
-            assert [text for text, _x in header.tick_positions()] == ["Qualifier 1", "Qualifier 2"]
+            assert [text.split("\n")[0] for text, _x in header.tick_positions()] == [
+                "Qualifier 1", "Qualifier 2"
+            ]
             assert header.isVisible() and header.geometry().bottom() < scroll.geometry().top()
     finally:
         widget.deleteLater()

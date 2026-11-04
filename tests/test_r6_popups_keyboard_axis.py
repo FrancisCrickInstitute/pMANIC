@@ -89,7 +89,7 @@ def test_value_axis_and_unit_stay_in_view_at_the_bottom_of_a_long_list(qapp):
         qapp.processEvents()
         assert bar.maximum() > 0
         axis = dialog.pinned_axis
-        assert axis.isVisible() and axis.title() == "Total abundance  ×10⁶"
+        assert axis.isVisible() and axis.title() == "×10⁶"
         # Pinned outside the scrolled rows, just above them.
         assert axis.geometry().bottom() < dialog._scroll.geometry().top()
         assert not dialog.chart.axes(Qt.Horizontal)[0].labelsVisible()

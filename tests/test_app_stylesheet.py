@@ -5,7 +5,7 @@ from manic.ui.analysis_mode_dialog import AnalysisModeDialog
 from manic.ui.theme import COLORS
 from manic.utils.utils import apply_app_stylesheet
 
-STYLED_DEFAULT_BUTTON = QColor(COLORS["accent"])
+STYLED_DEFAULT_BUTTON = QColor(COLORS["accent_fill"])
 
 
 def _default_button_fill(dialog: AnalysisModeDialog) -> QColor:

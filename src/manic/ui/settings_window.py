@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
@@ -862,7 +863,6 @@ class SettingsWindow(QDialog):
         self.reset_button.setAutoDefault(False)
         self.reset_button.setEnabled(False)
         self.reset_button.clicked.connect(self._reset_current)
-        footer.addWidget(self.reset_button, alignment=Qt.AlignBottom)
 
         self.save_button = QPushButton("Save this page")
         self.save_button.setObjectName("settingsSaveButton")
@@ -871,7 +871,10 @@ class SettingsWindow(QDialog):
         set_variant(self.save_button, "primary")
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(self._save_current)
-        footer.addWidget(self.save_button, alignment=Qt.AlignBottom)
+        buttons = QDialogButtonBox()
+        buttons.addButton(self.save_button, QDialogButtonBox.AcceptRole)
+        buttons.addButton(self.reset_button, QDialogButtonBox.RejectRole)
+        footer.addWidget(buttons, alignment=Qt.AlignBottom)
         # The macOS style gives a default button different layout margins, which
         # put Save 8px above Discard; lay both out by their visible rects.
         for button in (self.reset_button, self.save_button):

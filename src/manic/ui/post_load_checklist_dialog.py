@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QPixmap
+from pathlib import Path
+
+from PySide6.QtCore import QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -25,6 +28,7 @@ from manic.ui.dialog_kit import (
     description_label,
     hint_label,
     section_label,
+    set_variant,
     status_icon,
     style_dialog,
     title_label,
@@ -32,6 +36,22 @@ from manic.ui.dialog_kit import (
 )
 
 _STATE_ORDER = {"unset": 0, "no_match": 1, "matched": 2}
+
+# Load Compounds stays disabled while a list is loaded, so a corrected file needs
+# Clear Session first; sessions store mm_files, so importing an old one undoes it.
+_CHANGE_PATTERN_STEPS = (
+    "For a compound already in the list:\n"
+    "1. Edit its mmfiles cell in the compound list and save the file.\n"
+    "2. Choose File → Clear Session. This removes the loaded compounds (including "
+    "any added with Add Compound), the raw data, the internal standard, "
+    "integration changes, peak reviews and curve-fit choices.\n"
+    "3. Choose File → Load Compounds/Parameter List with the saved file, then "
+    "File → Load Raw Data (CDF) with the same folder. File → Open Recent lists both.\n"
+    "Change patterns before you review: importing a session exported earlier "
+    "brings its old patterns back.\n\n"
+    "For a compound that is not in the list yet, File → Add Compound... sets its "
+    "MM pattern without reloading."
+)
 
 
 def _matched_cell_text(status: MmFileStatus) -> str:
@@ -81,6 +101,8 @@ class PostLoadChecklistDialog(QDialog):
         current_internal_standard: str | None,
         mm_report: list[MmFileStatus],
         parent: QWidget | None = None,
+        *,
+        compound_list_path: str | None = None,
     ):
         super().__init__(parent)
         self.setObjectName("postLoadChecklistDialog")
@@ -166,11 +188,14 @@ class PostLoadChecklistDialog(QDialog):
         layout.addWidget(
             hint_label(
                 "Each pattern picks the standard mixture samples for that compound; "
-                "hover a row to see the full pattern and every matched file. "
-                "Patterns are edited in the compound list spreadsheet (the mmfiles "
-                "column) or the Add Compound dialog."
+                "hover a row to see the full pattern and every matched file."
             )
         )
+
+        layout.addSpacing(SECTION_SPACING - 8)
+        layout.addWidget(section_label("Changing a pattern"))
+        layout.addLayout(self._source_file_row(compound_list_path))
+        layout.addWidget(hint_label(_CHANGE_PATTERN_STEPS))
 
         self.user_guide_link = QLabel('<a href="guide">Open the user guide</a>')
         self.user_guide_link.setObjectName("userGuideLink")
@@ -187,6 +212,34 @@ class PostLoadChecklistDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _source_file_row(self, path: str | None) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        self.compound_list_label = description_label(
+            f"Compound list: {Path(path).name}" if path else "Compound list: the file you loaded"
+        )
+        self.compound_list_label.setObjectName("compoundListFile")
+        self.compound_list_label.setWordWrap(False)
+        row.addWidget(self.compound_list_label, 1)
+        if path:
+            self.compound_list_label.setToolTip(str(Path(path)))
+            for name, text, target in (
+                ("openCompoundListButton", "Open File", Path(path)),
+                ("showCompoundListFolderButton", "Show in Folder", Path(path).parent),
+            ):
+                button = QPushButton(text)
+                button.setObjectName(name)
+                set_variant(button, "link")
+                button.setCursor(Qt.PointingHandCursor)
+                button.setAutoDefault(False)
+                button.clicked.connect(
+                    lambda _checked=False, t=target: QDesktopServices.openUrl(
+                        QUrl.fromLocalFile(str(t))
+                    )
+                )
+                row.addWidget(button)
+        return row
 
     def selected_internal_standard(self) -> str | None:
         value = self.internal_standard_combo.currentData()

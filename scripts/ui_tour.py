@@ -38,6 +38,10 @@ LABELLED = ROOT / "testdata" / "bench" / "labelled"
 UNLABELLED = ROOT / "testdata" / "unlabelled_synthetic"
 
 
+class Skip(Exception):
+    """A step that cannot run on this revision; reported, not counted as an error."""
+
+
 class Tour:
     def __init__(self, app: QApplication, out: Path, size: tuple[int, int]):
         self.app = app
@@ -47,6 +51,7 @@ class Tour:
         self.index = 0
         self.saved: list[str] = []
         self.errors: list[str] = []
+        self.skipped: list[str] = []
         self.window = None
 
     def pump(self, seconds: float = 0.3) -> None:
@@ -96,6 +101,9 @@ class Tour:
             if grab_main and self.window is not None:
                 self.save(self.window)
             self.capture_popups()
+        except Skip as note:
+            self.skipped.append(f"{name}: {note}")
+            print(f"STEP SKIPPED {name}: {note}")
         except Exception:
             self.errors.append(f"{name}: {traceback.format_exc(limit=3)}")
             print(f"STEP FAILED {name}", file=sys.stderr)
@@ -191,6 +199,58 @@ def add_compound_empty_submit(tour: Tour) -> None:
         tour.window.show_add_compound_dialog()
     finally:
         del AddCompoundDialog.exec
+
+
+def detailed_scheme_switch(tour: Tour) -> None:
+    """Open the detailed view, flip the scheme while it is open, and grab it after."""
+    from manic.ui import theme
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    def switch_while_open(dialog):
+        dialog.show()
+        tour.pump(0.5)
+        start = Qt.ColorScheme.Dark if theme.is_dark() else Qt.ColorScheme.Light
+        flipped = Qt.ColorScheme.Light if theme.is_dark() else Qt.ColorScheme.Dark
+        set_scheme(tour, flipped)
+        tour.save(dialog, f"__{type(dialog).__name__}_switched")
+        set_scheme(tour, start)
+        dialog.close()
+        return QDialog.Rejected
+
+    window = tour.window
+    DetailedPlotDialog.exec = switch_while_open
+    try:
+        window.graph_view._show_detailed_view(
+            window.selected_compound_name(), charts(window)[0].sample_name
+        )
+    finally:
+        del DetailedPlotDialog.exec
+
+
+def samples_1024(tour: Tour) -> None:
+    toolbar = tour.window.toolbar
+    toolbar.compound_filter.setText("")
+    toolbar.sample_filter.setText("")
+    tour.window.resize(1024, 768)
+    toolbar.samples_section.set_expanded(True)
+    tour.pump(1.0)
+
+
+def all_samples_unchecked(tour: Tour) -> None:
+    """Untick every sample the way a user does: select all rows, press Space."""
+    from PySide6.QtTest import QTest
+
+    samples = getattr(tour.window.toolbar, "sample_list", None)
+    if samples is None or not hasattr(samples, "shown_samples"):
+        raise Skip("the sidebar has no sample_list with shown_samples() on this revision")
+    tour.window.toolbar.samples_section.set_expanded(True)
+    samples.setFocus()
+    samples.setCurrentRow(0)
+    samples.selectAll()
+    QTest.keyClick(samples, Qt.Key_Space)
+    tour.pump(1.0)
+    if samples.shown_samples():
+        raise Skip(f"Space left {len(samples.shown_samples())} samples ticked")
 
 
 def settings_page(tour: Tour, title: str) -> None:
@@ -366,6 +426,14 @@ def tour_steps(tour: Tour) -> None:
         tour.window.toolbar._show_internal_standard_menu,
         grab_main=False,
     )
+    tour.run(
+        "identity_popup",
+        lambda: tour.window.toolbar.targeted_qc._show_popup_chart(),
+        grab_main=False,
+    )
+    tour.run("detailed_scheme_switch", lambda: detailed_scheme_switch(tour), grab_main=False)
+    tour.run("samples_1024x768", lambda: samples_1024(tour))
+    tour.run("all_samples_unchecked", lambda: all_samples_unchecked(tour))
 
 
 def main() -> int:
@@ -417,6 +485,9 @@ def main() -> int:
         tour.window.close()
 
     print(f"screenshots: {len(tour.saved)} in {args.out}")
+    print(f"skipped: {len(tour.skipped)}")
+    for note in tour.skipped:
+        print(f"  {note}")
     print(f"errors: {len(tour.errors)}")
     for error in tour.errors:
         print(error)

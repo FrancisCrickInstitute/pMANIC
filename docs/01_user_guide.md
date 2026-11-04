@@ -86,7 +86,7 @@ Upon completion, verify the data loaded correctly:
 * Expand **Samples** in the sidebar to see the filenames of your imported samples.
 * Selecting a compound shows one plot per sample in the main view.
 
-After the import finishes, MANIC opens a **Check your data setup** dialog. The dialog shows whether an internal standard is set. Weak peaks are flagged only when one is. It also shows whether each compound's `mmfiles` pattern matches any loaded sample. Click **Apply** to keep the internal standard chosen in the dialog. Click **Continue without changes** to leave the current selection unchanged. You can run the same check later from **MANIC → Check Data Setup...**. On macOS that command lives under **Help**.
+After the import finishes, MANIC opens a **Check your data setup** dialog. The dialog shows whether an internal standard is set. Weak peaks are flagged only when one is. It also shows whether each compound's `mmfiles` pattern matches any loaded sample. Click **Apply** to keep the internal standard chosen in the dialog. Click **Continue without changes** to leave the current selection unchanged. You can run the same check later from **Help → Check Data Setup...**. To change the pattern of a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. The dialog shows the loaded file with **Open File** and **Show in Folder**. For a compound not in the list, use **File → Add Compound...**.
 
 ---
 
@@ -163,10 +163,10 @@ You can adjust integration parameters for all samples at once or for specific ou
 **Review menu.** The **Review** menu in the menu bar holds the plot right-click menu's selection and review commands, so you can review from the keyboard. Its commands act on the selected plots, led by the focused plot, or on the focused plot when nothing is selected. Labels name the count, for example **Curve Fit for 3 Samples**.
 
 * **Inspect *sample*...** (Return)
-* **Select All Plots**, **Deselect All**, **Show Only Selected Samples**, **Show All Samples**
+* **Select All Plots** (Ctrl+A, ⌘A on macOS), **Deselect All** (Esc), **Show Only Selected Samples**, **Show All Samples**
 * **Accept Peak (Below Threshold)**, **Mark Peak as Bad**, and the **Curve Fit** submenu
 
-Move the focus between plots with the arrow keys and press Space to select or deselect the focused plot.
+Click a plot so the grid has keyboard focus. Move the focus between plots with the arrow keys and press Space to select or deselect the focused plot.
 
 #### 4. Adjusting Boundaries (Peak window)
 Locate the **Peak window** section of the sidebar, below the compound list.
@@ -350,7 +350,7 @@ The **Summary** section of the sidebar contains two charts: **Label incorporatio
 
 ## 8. Settings & Configuration
 
-Open **Settings**, **Documentation**, **Check for Updates** and **About** from the **MANIC** menu (on macOS, About and Settings sit in the application menu and the other two under **Help**), or use the book and gear icons at the top right of the plot area.
+Open **Settings**, **Documentation**, **Check Data Setup**, **Check for Updates** and **About** from the **Help** menu on Windows. On macOS, **Settings** and **About** sit in the **MANIC** application menu and the other three under **Help**. The book and gear icons at the top right of the plot area open Documentation and Settings too.
 
 **Shortcuts.** **Settings...** is Ctrl+, (Preferences on macOS). **Documentation** is F1 (HelpContents).
 
@@ -379,7 +379,7 @@ These settings control the global behavior of the application.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
 
 ### Baseline Correction
-The **Baseline correction** checkbox is in the **Peak window** section of the sidebar, under the **tR window** field. **View → Baseline Correction** toggles it too.
+The **Baseline correction** checkbox is in the **Peak window** section of the sidebar, under the **tR window** field. **Review → Baseline Correction** toggles it too.
 * **On (Default):** Subtracts a linear baseline from each peak area. A dashed line will appear on plots showing the fitted baseline.
 * **Off:** Uses the raw integrated area without baseline subtraction.
 * **Scope:** This is a per-compound setting. Toggling it affects all samples for the selected compound.

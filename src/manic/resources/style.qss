@@ -113,9 +113,10 @@ QPushButton[variant="primary"]:pressed {
     border: 1px solid @accent_fill_pressed;
 }
 
+/* A ring in the text colour, so focus shows on a filled button in both schemes. */
 QPushButton:default:focus,
 QPushButton[variant="primary"]:focus {
-    border: 1px solid @accent_fill_pressed;
+    border: 1px solid @text;
 }
 
 QPushButton:default:disabled,
@@ -134,11 +135,14 @@ QPushButton[variant="danger"]:default {
 }
 
 QPushButton[variant="danger"]:hover,
-QPushButton[variant="danger"]:focus,
-QPushButton[variant="danger"]:default:hover,
-QPushButton[variant="danger"]:default:focus {
+QPushButton[variant="danger"]:default:hover {
     background-color: @danger_fill_hover;
     border: 1px solid @danger_fill_hover;
+}
+
+QPushButton[variant="danger"]:focus,
+QPushButton[variant="danger"]:default:focus {
+    border: 1px solid @text;
 }
 
 QPushButton[variant="danger"]:disabled {
@@ -182,7 +186,8 @@ QPushButton[variant="link"] {
     font-weight: 400;
 }
 
-QPushButton[variant="link"]:hover {
+QPushButton[variant="link"]:hover,
+QPushButton[variant="link"]:focus {
     text-decoration: underline;
 }
 

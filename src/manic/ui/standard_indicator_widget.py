@@ -1,71 +1,22 @@
-import sys
-
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics
-from PySide6.QtWidgets import QLabel, QSizePolicy
-
-from manic.constants import BLUE, GREEN, GREY, RED, create_font
+from manic.ui.sidebar_widgets import StatusRow
 
 
-class TitledPill(QLabel):
-    """A full-width status pill reading ``Title: value``, elided to fit."""
+class StandardIndicator(StatusRow):
+    """Header row for the optional internal standard. Unset is neutral, not an error."""
 
-    def __init__(self, title: str, parent=None):
-        super().__init__(parent)
-        self._title = title
-        self._value = ""
-        self.setFont(create_font(10))
-        self.setTextFormat(Qt.RichText)
-        self.setAlignment(Qt.AlignCenter)
-        # Ignored: the text must never widen the toolbar, it elides to fit instead
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.setFixedHeight(22 if sys.platform == "win32" else 20)
-
-    def set_value(self, value: str, color: QColor) -> None:
-        self._value = value
-        self.setToolTip(f"{self._title}: {value}")
-        self.setStyleSheet(
-            f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-            f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
-        )
-        self._elide()
-
-    def resizeEvent(self, event):
-        self._elide()
-        super().resizeEvent(event)
-
-    def _elide(self) -> None:
-        metrics = QFontMetrics(self.font())
-        title = f"{self._title}: "
-        bold = QFont(self.font())
-        bold.setBold(True)
-        available = self.width() - 12 - metrics.horizontalAdvance(title)
-        value = QFontMetrics(bold).elidedText(self._value, Qt.ElideRight, available)
-        self.setText(f"{title}<b>{value}</b>")
-
-
-class StandardIndicator(TitledPill):
     def __init__(self, parent=None):
-        super().__init__("Int Std", parent)
+        super().__init__("Internal standard", parent)
         self.internal_standard = None
-        self.set_value("none", RED)
+        self.clear_internal_standard()
 
     def set_internal_standard(self, compound_name: str):
         self.internal_standard = compound_name
-        self.set_value(compound_name, GREEN)
+        self.set_state("done", compound_name)
+        self.setToolTip(f"Internal standard: {compound_name}\nClick to change")
 
     def clear_internal_standard(self):
         self.internal_standard = None
-        self.set_value("none", RED)
-
-
-class CompoundIndicator(TitledPill):
-    def __init__(self, parent=None):
-        super().__init__("Compound", parent)
-        self.set_compound("")
-
-    def set_compound(self, compound_name: str):
-        if compound_name:
-            self.set_value(compound_name, BLUE)
-        else:
-            self.set_value("--", GREY)
+        self.set_state("optional", "None (optional)")
+        self.setToolTip(
+            "No internal standard (optional)\nClick to choose one from the compounds"
+        )

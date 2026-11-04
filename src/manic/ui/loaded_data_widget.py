@@ -1,54 +1,55 @@
-import sys
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QGridLayout, QWidget
 
-from manic.constants import GREEN, RED, create_font
+from manic.ui.sidebar_widgets import StatusRow, shortcut_text
+
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
 
 
 class LoadedDataWidget(QWidget):
+    """Header rows saying in words what is loaded; each row is a shortcut to load it."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("loadedDataWidget")
-        self._setup_ui()
+        self._layout = QGridLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setHorizontalSpacing(4)
+        self._layout.setVerticalSpacing(2)
+        self.compounds_row = StatusRow("Compound list")
+        self.raw_data_row = StatusRow("Raw data")
+        self.update_status(False, False)
 
-    def _setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+    def update_status(
+        self,
+        raw_loaded: bool,
+        compounds_loaded: bool,
+        compound_count: int = 0,
+        sample_count: int = 0,
+    ):
+        # Once both are loaded the rows only confirm it, so they share one line.
+        both = raw_loaded and compounds_loaded
+        self._layout.addWidget(self.compounds_row, 0, 0)
+        self._layout.addWidget(self.raw_data_row, 0 if both else 1, 1 if both else 0)
+        self._layout.setColumnStretch(0, 1)
+        self._layout.setColumnStretch(1, 1 if both else 0)
+        self.compounds_row.set_compact(both)
+        self.raw_data_row.set_compact(both)
 
-        # Store references to labels for easier updates
-        # Compounds on the left, Raw Data on the right
-        self.compounds_label = self._create_status_label("Compounds", RED)
-        self.raw_data_label = self._create_status_label("Raw Data", RED)
-
-        layout.addWidget(self.compounds_label)
-        layout.addWidget(self.raw_data_label)
-
-    def _create_status_label(self, text: str, color) -> QLabel:
-        """Create a consistently styled status label with platform-specific sizing"""
-        label = QLabel(text)
-        label.setAlignment(Qt.AlignCenter)
-        label.setAutoFillBackground(True)
-        label.setFont(create_font(10))  # Use cross-platform font
-        
-        # Platform-specific sizing for better text fit
-        if sys.platform == "win32":
-            # Windows needs more horizontal space due to Arial font width
-            label.setFixedSize(85, 22)  # Wider and slightly taller
+        if compounds_loaded:
+            self.compounds_row.set_state("done", _plural(compound_count, "compound"))
+            self.compounds_row.setToolTip(f"Find a compound ({shortcut_text('Ctrl+F')})")
         else:
-            # macOS and Linux use original dimensions
-            label.setFixedSize(75, 20)
-        
-        self._apply_color(label, color)
-        return label
+            self.compounds_row.set_state("todo", "Load…")
+            self.compounds_row.setToolTip(f"Load a compound list ({shortcut_text('Ctrl+O')})")
 
-    def _apply_color(self, label: QLabel, color):
-        """Apply color styling to a label"""
-        label.setStyleSheet(
-            f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-            f"{color.alpha() / 255}); color: black; border-radius: 10px;"
-        )
-
-    def update_status(self, raw_loaded: bool, compounds_loaded: bool):
-        """Update the visual status of both indicators"""
-        self._apply_color(self.raw_data_label, GREEN if raw_loaded else RED)
-        self._apply_color(self.compounds_label, GREEN if compounds_loaded else RED)
+        if raw_loaded:
+            self.raw_data_row.set_state("done", _plural(sample_count, "sample"))
+            self.raw_data_row.setToolTip("Show the sample list")
+        elif compounds_loaded:
+            self.raw_data_row.set_state("todo", "Load…")
+            self.raw_data_row.setToolTip(f"Load a folder of raw CDF files ({shortcut_text('Ctrl+Shift+O')})")
+        else:
+            self.raw_data_row.set_state("blocked", "After compounds")
+            self.raw_data_row.setToolTip("Load a compound list first")

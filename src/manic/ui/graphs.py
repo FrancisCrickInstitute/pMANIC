@@ -525,7 +525,12 @@ class GraphView(QWidget):
             identity = None
         self._identity = identity
 
-        # Begin compound plotting - logging removed to reduce noise
+        # Re-plotting the same compound (a fit or scale change) keeps selection and focus.
+        same_compound = compound_name == self._current_compound
+        kept_selection = self.get_selected_samples() if same_compound else []
+        focused = self._focused_plot() if same_compound else None
+        kept_focus = focused.sample_name if focused is not None else None
+
         self._clear_layout()
         self._set_title(compound_name)
         if not samples:
@@ -610,11 +615,20 @@ class GraphView(QWidget):
                     container.show()
             self._hide_unused_tiles()
 
-        if self._focus_index is not None and self._focus_index >= num:
+        if same_compound:
+            names = [plot.sample_name for plot in self._current_plots]
+            self._focus_index = names.index(kept_focus) if kept_focus in names else None
+            for plot in self._current_plots:
+                if plot.sample_name in kept_selection:
+                    plot.set_selected(True)
+                    self._selected_plots.add(plot)
+        elif self._focus_index is not None and self._focus_index >= num:
             self._focus_index = None
         self._paint_focus()
         self._update_selection_summary()
         self._layout.activate()
+        if same_compound and self.get_selected_samples() != kept_selection:
+            self.selection_changed.emit(self.get_selected_samples())
 
         self._prepared_displays.clear()
 

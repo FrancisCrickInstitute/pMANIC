@@ -435,11 +435,15 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
 
 
 def test_settings_window_opens_centred_on_a_visible_main_window(labelled_window):
-    labelled_window.resize(1200, 800)
+    screen_area = labelled_window.screen().availableGeometry()
+    # A parent hanging off the screen makes the clamp, not the centring, decide x.
+    labelled_window.move(screen_area.topLeft())
+    labelled_window.resize(
+        min(1200, screen_area.width() - 40), min(800, screen_area.height() - 40)
+    )
     labelled_window.show()
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    screen_area = labelled_window.screen().availableGeometry()
     frame = settings.frameGeometry()
     assert screen_area.contains(frame.topLeft())
     parent_centre = labelled_window.frameGeometry().center()

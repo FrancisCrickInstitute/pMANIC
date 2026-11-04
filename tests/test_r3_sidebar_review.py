@@ -56,8 +56,8 @@ def test_review_menu_names_its_targets_and_acts_on_them(qapp, monkeypatch):
         assert window.show_only_selected_action.text() == "Show Only 2 Selected Samples"
         assert window.inspect_action.text() == "Inspect A..."
         window.review_menu.aboutToShow.emit()
-        assert window.review_fit_menu.title() == "Curve Fit (2 Samples)"
-        assert "Use compound setting" in [a.text() for a in window.review_fit_menu.actions()]
+        assert window.review_fit_menu.title() == "Curve Fit for 2 Samples"
+        assert "Use Compound Setting" in [a.text() for a in window.review_fit_menu.actions()]
 
         window.reject_peak_action.trigger()
         assert emitted == [("Cmp", ["A", "B"], PeakReview.REJECTED)]

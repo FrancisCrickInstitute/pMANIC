@@ -127,8 +127,8 @@ class PostLoadChecklistDialog(QDialog):
         layout.addLayout(is_row)
         layout.addWidget(
             hint_label(
-                "Weak peaks are only flagged (shown in red) when an internal "
-                "standard is set."
+                "Weak peaks get an amber Below threshold badge only when an "
+                "internal standard is set."
             )
         )
         self.internal_standard_combo.currentIndexChanged.connect(

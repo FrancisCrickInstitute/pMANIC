@@ -119,18 +119,18 @@ def test_review_commands_name_how_many_plots_they_change(review_grid):
     view._selected_plots = set(charts.values())
     texts = _menu_texts(view, charts["A"])
     # Accept skips the passing tile C, so it targets two of the three.
-    assert "Accept 2 peaks (below threshold)" in texts
-    assert "Mark 3 peaks as bad" in texts
-    assert "Curve fit for 3 samples" in texts
+    assert "Accept 2 Peaks (Below Threshold)" in texts
+    assert "Mark 3 Peaks as Bad" in texts
+    assert "Curve Fit for 3 Samples" in texts
 
 
 def test_review_commands_stay_singular_for_one_plot(review_grid):
     view, charts = review_grid
     view._selected_plots = {charts["A"], charts["B"]}
     texts = _menu_texts(view, charts["C"])
-    assert "Accept peak (below threshold)" in texts
-    assert "Mark peak as bad" in texts
-    assert "Curve fit" in texts
+    assert "Accept Peak (Below Threshold)" in texts
+    assert "Mark Peak as Bad" in texts
+    assert "Curve Fit" in texts
 
 
 def test_chip_row_wraps_before_truncating_a_chip(qapp):

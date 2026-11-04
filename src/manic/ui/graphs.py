@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Sequence, Set
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QEvent, QMargins, QRect, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QActionGroup, QColor, QKeySequence, QPainter, QPen
+from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -736,9 +736,6 @@ class GraphView(QWidget):
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
 
-    def _on_plot_double_clicked(self, plot: ClickableChartView) -> None:
-        self._show_detailed_view(plot.compound_name, plot.sample_name)
-
     def _focused_plot(self) -> ClickableChartView | None:
         if self._focus_index is None or self._focus_index >= len(self._current_plots):
             return None
@@ -788,7 +785,7 @@ class GraphView(QWidget):
         elif key == Qt.Key_Space and self._focused_plot() is not None:
             self._on_plot_clicked(self._focused_plot())
         elif key in (Qt.Key_Return, Qt.Key_Enter) and self._focused_plot() is not None:
-            self._on_plot_double_clicked(self._focused_plot())
+            self.inspect_plot(self._focused_plot())
         else:
             super().keyPressEvent(event)
             return
@@ -837,85 +834,127 @@ class GraphView(QWidget):
             select_only_action.setToolTip("Right-click a specific plot")
 
         show_only_action = context_menu.addAction("Show Only Selected Samples")
-        if self._selected_plots:
-            focus_names = self._focus_sample_names(clicked_plot)
-            show_only_action.triggered.connect(
-                lambda checked=False, names=focus_names: (
-                    self.focus_selected_requested.emit(names)
-                )
-            )
-        else:
-            show_only_action.setEnabled(False)
+        show_only_action.triggered.connect(lambda: self.show_only_samples(clicked_plot))
 
         show_all_action = context_menu.addAction("Show All Samples")
         show_all_action.triggered.connect(
             lambda: self.show_all_samples_requested.emit()
         )
 
-        # Plot-specific actions
         context_menu.addSeparator()
-
-        # Add detailed view action
-        detailed_action = context_menu.addAction("View Detailed...")
-        _show_shortcut(detailed_action, QKeySequence(Qt.Key_Return))
-
-        if clicked_plot is not None:
-            # Case: Right-clicked a specific plot.
-            # Enable detailed view for this plot regardless of other selections.
-            detailed_action.triggered.connect(
-                lambda: self._show_detailed_view(
-                    clicked_plot.compound_name, clicked_plot.sample_name
-                )
-            )
-        else:
-            # Case: Right-clicked background.
-            # Disable detailed view entirely.
-            detailed_action.setEnabled(False)
-            detailed_action.setToolTip("Right-click a specific plot to view details")
-
+        inspect_action = context_menu.addAction("Inspect Sample...")
+        _show_shortcut(inspect_action, QKeySequence(Qt.Key_Return))
         context_menu.addSeparator()
-        accept_count = reject_count = fit_count = 1
-        if clicked_plot is not None:
-            accept_count = len(self._peak_review_targets(clicked_plot, PeakReview.ACCEPTED)[1])
-            reject_count = len(self._peak_review_targets(clicked_plot, PeakReview.REJECTED)[1])
-            fit_count = len(self._curve_fit_targets(clicked_plot))
-        accept_action = context_menu.addAction(
-            f"Accept {accept_count} peaks (below threshold)" if accept_count > 1
-            else "Accept peak (below threshold)"
+        accept_action = context_menu.addAction("Accept Peak (Below Threshold)")
+        reject_action = context_menu.addAction("Mark Peak as Bad")
+        fit_menu = context_menu.addMenu("Curve Fit")
+        self.update_review_actions(
+            clicked_plot,
+            inspect=inspect_action,
+            show_only=show_only_action,
+            accept=accept_action,
+            reject=reject_action,
+            fit_menu=fit_menu,
         )
-        accept_action.setCheckable(True)
-        reject_action = context_menu.addAction(
-            f"Mark {reject_count} peaks as bad" if reject_count > 1 else "Mark peak as bad"
-        )
-        reject_action.setCheckable(True)
         if clicked_plot is None:
-            accept_action.setEnabled(False)
-            reject_action.setEnabled(False)
+            inspect_action.setToolTip("Right-click a specific plot to inspect it")
         else:
-            current_review = self._review_for_plot(clicked_plot)
-            verdict = self._verdict_for_plot(clicked_plot)
-            accept_action.setChecked(current_review is PeakReview.ACCEPTED)
-            reject_action.setChecked(current_review is PeakReview.REJECTED)
-            accept_action.setEnabled(
-                verdict in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
-            )
+            inspect_action.triggered.connect(lambda: self.inspect_plot(clicked_plot))
             accept_action.triggered.connect(
-                lambda: self._toggle_peak_review(clicked_plot, PeakReview.ACCEPTED)
+                lambda: self.toggle_peak_review(clicked_plot, PeakReview.ACCEPTED)
             )
             reject_action.triggered.connect(
-                lambda: self._toggle_peak_review(clicked_plot, PeakReview.REJECTED)
+                lambda: self.toggle_peak_review(clicked_plot, PeakReview.REJECTED)
             )
-
-        fit_menu = context_menu.addMenu(
-            f"Curve fit for {fit_count} samples" if fit_count > 1 else "Curve fit"
-        )
-        if clicked_plot is None:
-            fit_menu.setEnabled(False)
-        else:
-            self._populate_curve_fit_menu(fit_menu, clicked_plot)
 
         # Show menu at position - use popup() instead of exec() for better behavior
         context_menu.popup(global_pos)
+
+    def has_plots(self) -> bool:
+        return bool(self._current_plots)
+
+    def review_lead(self) -> ClickableChartView | None:
+        """The plot the Review menu acts from: the focused plot if it is selected,
+        else the first selected plot, else the focused plot."""
+        selected = [plot for plot in self._current_plots if plot in self._selected_plots]
+        focused = self._focused_plot()
+        if selected:
+            return focused if focused in selected else selected[0]
+        return focused
+
+    def update_review_actions(
+        self,
+        lead: ClickableChartView | None,
+        *,
+        inspect: QAction,
+        show_only: QAction,
+        accept: QAction,
+        reject: QAction,
+        fit_menu: QMenu,
+    ) -> None:
+        """Label, enable and check the review commands for `lead`.
+
+        The plot context menu and the Review menu both call this, so their
+        target counts and states always agree. `lead` None disables the
+        commands that need a plot.
+        """
+        inspect.setEnabled(lead is not None)
+        inspect.setText(
+            f"Inspect {lead.sample_name}..." if lead is not None else "Inspect Sample..."
+        )
+
+        show_only.setEnabled(bool(self._selected_plots))
+        shown = len(self._focus_sample_names(lead))
+        if not self._selected_plots:
+            show_only.setText("Show Only Selected Samples")
+        elif lead is not None and lead not in self._selected_plots:
+            show_only.setText("Show Only This Sample")
+        elif shown == 1:
+            show_only.setText("Show Only Selected Sample")
+        else:
+            show_only.setText(f"Show Only {shown} Selected Samples")
+
+        accept_count = reject_count = fit_count = 1
+        review = None
+        if lead is not None:
+            accept_count = len(self._peak_review_targets(lead, PeakReview.ACCEPTED)[1])
+            reject_count = len(self._peak_review_targets(lead, PeakReview.REJECTED)[1])
+            fit_count = len(self._curve_fit_targets(lead))
+            review = self._review_for_plot(lead)
+        accept.setCheckable(True)
+        accept.setChecked(review is PeakReview.ACCEPTED)
+        accept.setEnabled(
+            lead is not None
+            and self._verdict_for_plot(lead) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
+        )
+        accept.setText(
+            f"Accept {accept_count} Peaks (Below Threshold)"
+            if accept_count > 1
+            else "Accept Peak (Below Threshold)"
+        )
+        reject.setCheckable(True)
+        reject.setChecked(review is PeakReview.REJECTED)
+        reject.setEnabled(lead is not None)
+        reject.setText(
+            f"Mark {reject_count} Peaks as Bad" if reject_count > 1 else "Mark Peak as Bad"
+        )
+
+        for group in fit_menu.findChildren(QActionGroup):
+            group.deleteLater()
+        fit_menu.clear()
+        fit_menu.setTitle(
+            f"Curve Fit for {fit_count} Samples" if fit_count > 1 else "Curve Fit"
+        )
+        fit_menu.setEnabled(lead is not None)
+        if lead is not None:
+            self._populate_curve_fit_menu(fit_menu, lead)
+
+    def inspect_plot(self, plot: ClickableChartView) -> None:
+        self._show_detailed_view(plot.compound_name, plot.sample_name)
+
+    def show_only_samples(self, plot: ClickableChartView | None) -> None:
+        """Show only the selection, or only `plot` when it is not selected."""
+        self.focus_selected_requested.emit(self._focus_sample_names(plot))
 
     def _verdict_for_plot(self, plot: ClickableChartView) -> PeakVerdict:
         container = plot.parent()
@@ -947,7 +986,7 @@ class GraphView(QWidget):
             }
         return new_review, plots
 
-    def _toggle_peak_review(
+    def toggle_peak_review(
         self, clicked_plot: ClickableChartView, review: PeakReview
     ) -> None:
         new_review, plots = self._peak_review_targets(clicked_plot, review)
@@ -974,7 +1013,7 @@ class GraphView(QWidget):
         common = next(iter(current_values)) if len(current_values) == 1 else object()
         group = QActionGroup(fit_menu)
         group.setExclusive(True)
-        inherit_action = fit_menu.addAction("Use compound setting")
+        inherit_action = fit_menu.addAction("Use Compound Setting")
         inherit_action.setCheckable(True)
         inherit_action.setChecked(common is None)
         inherit_action.triggered.connect(
@@ -1282,7 +1321,7 @@ class GraphView(QWidget):
         # Connect click signals for new container
         chart_view.clicked.connect(self._on_plot_clicked)
         chart_view.right_clicked.connect(self._on_plot_right_clicked)
-        chart_view.double_clicked.connect(self._on_plot_double_clicked)
+        chart_view.double_clicked.connect(self.inspect_plot)
 
         # Apply validation styling
         self._apply_validation_styling(container, verdict)
@@ -1343,7 +1382,7 @@ class GraphView(QWidget):
                 try:
                     chart_view.clicked.disconnect(self._on_plot_clicked)
                     chart_view.right_clicked.disconnect(self._on_plot_right_clicked)
-                    chart_view.double_clicked.disconnect(self._on_plot_double_clicked)
+                    chart_view.double_clicked.disconnect(self.inspect_plot)
                 except Exception:
                     pass  # Signals weren't connected
 
@@ -1362,7 +1401,7 @@ class GraphView(QWidget):
             # Reconnect signals for this specific usage
             chart_view.clicked.connect(self._on_plot_clicked)
             chart_view.right_clicked.connect(self._on_plot_right_clicked)
-            chart_view.double_clicked.connect(self._on_plot_double_clicked)
+            chart_view.double_clicked.connect(self.inspect_plot)
 
             # Ensure event filter is installed on all parts (idempotent)
             # Must include viewport for charts!
@@ -1497,7 +1536,7 @@ class GraphView(QWidget):
                     try:
                         plot.clicked.disconnect(self._on_plot_clicked)
                         plot.right_clicked.disconnect(self._on_plot_right_clicked)
-                        plot.double_clicked.disconnect(self._on_plot_double_clicked)
+                        plot.double_clicked.disconnect(self.inspect_plot)
                         plot._signal_connected = False  # Mark as disconnected
                     except (TypeError, RuntimeError):
                         pass  # Signals weren't connected to these specific slots

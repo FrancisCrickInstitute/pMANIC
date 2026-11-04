@@ -7,7 +7,6 @@ import numpy as np
 from PySide6.QtCore import QCoreApplication, Qt, QThread, QUrl
 from PySide6.QtGui import (
     QAction,
-    QActionGroup,
     QDesktopServices,  # Add this for opening URLs
     QIcon,
     QKeySequence,
@@ -520,9 +519,8 @@ class MainWindow(QMainWindow):
     def _build_review_menu(self, menu_bar: QMenuBar) -> None:
         """The plot context menu's review commands, on the menu bar.
 
-        They act on the selected plots (the focused one leads), or on the focused
-        plot when nothing is selected, through the same graph-view methods the
-        context menu calls. Labels carry the target count.
+        They act from the graph view's review lead, and the graph view labels and
+        enables them exactly as it does its context menu.
         """
         menu = menu_bar.addMenu("Review")
         self.review_menu = menu
@@ -534,7 +532,9 @@ class MainWindow(QMainWindow):
 
         self.inspect_action = QAction("Inspect Sample...", self)
         grid_key(self.inspect_action, Qt.Key_Return)
-        self.inspect_action.triggered.connect(self._inspect_review_target)
+        self.inspect_action.triggered.connect(
+            lambda: self._with_review_lead(self.graph_view.inspect_plot)
+        )
         menu.addAction(self.inspect_action)
         menu.addSeparator()
 
@@ -548,22 +548,24 @@ class MainWindow(QMainWindow):
         menu.addAction(self.deselect_plots_action)
         self.show_only_selected_action = QAction("Show Only Selected Samples", self)
         self.show_only_selected_action.triggered.connect(
-            lambda: self.focus_on_samples(self.graph_view.get_selected_samples())
+            lambda: self.graph_view.show_only_samples(self.graph_view.review_lead())
         )
         menu.addAction(self.show_only_selected_action)
         menu.addAction(self.show_all_samples_action)
         menu.addSeparator()
 
         self.accept_peak_action = QAction("Accept Peak (Below Threshold)", self)
-        self.accept_peak_action.setCheckable(True)
         self.accept_peak_action.triggered.connect(
-            lambda: self._review_targets_with(PeakReview.ACCEPTED)
+            lambda: self._with_review_lead(
+                lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.ACCEPTED)
+            )
         )
         menu.addAction(self.accept_peak_action)
         self.reject_peak_action = QAction("Mark Peak as Bad", self)
-        self.reject_peak_action.setCheckable(True)
         self.reject_peak_action.triggered.connect(
-            lambda: self._review_targets_with(PeakReview.REJECTED)
+            lambda: self._with_review_lead(
+                lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.REJECTED)
+            )
         )
         menu.addAction(self.reject_peak_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
@@ -572,80 +574,23 @@ class MainWindow(QMainWindow):
         self.graph_view.selection_changed.connect(self._sync_review_menu)
         self._sync_review_menu()
 
-    def _review_target(self):
-        """(lead plot, every plot a review command acts on)."""
-        view = self.graph_view
-        selected = [plot for plot in view._current_plots if plot in view._selected_plots]
-        focused = view._focused_plot()
-        if selected:
-            return (focused if focused in selected else selected[0]), selected
-        if focused is not None:
-            return focused, [focused]
-        return None, []
-
     def _sync_review_menu(self, *_args) -> None:
-        lead, targets = self._review_target()
         view = self.graph_view
-        count = len(targets)
-        selected = len(view.get_selected_samples())
-
-        self.inspect_action.setEnabled(lead is not None)
-        self.inspect_action.setText(
-            f"Inspect {lead.sample_name}..." if lead is not None else "Inspect Sample..."
-        )
-        has_plots = bool(view._current_plots)
-        self.select_all_plots_action.setEnabled(has_plots)
-        self.deselect_plots_action.setEnabled(selected > 0)
-        self.show_only_selected_action.setEnabled(selected > 0)
-        self.show_only_selected_action.setText(
-            "Show Only Selected Sample"
-            if selected == 1
-            else f"Show Only {selected} Selected Samples"
-            if selected
-            else "Show Only Selected Samples"
+        self.select_all_plots_action.setEnabled(view.has_plots())
+        self.deselect_plots_action.setEnabled(bool(view.get_selected_samples()))
+        view.update_review_actions(
+            view.review_lead(),
+            inspect=self.inspect_action,
+            show_only=self.show_only_selected_action,
+            accept=self.accept_peak_action,
+            reject=self.reject_peak_action,
+            fit_menu=self.review_fit_menu,
         )
 
-        review = view._review_for_plot(lead) if lead is not None else None
-        acceptable = [
-            plot
-            for plot in targets
-            if view._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
-        ]
-        accept_count = count if review is PeakReview.ACCEPTED else len(acceptable)
-        self.accept_peak_action.setEnabled(
-            lead is not None
-            and view._verdict_for_plot(lead) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
-        )
-        self.accept_peak_action.setChecked(review is PeakReview.ACCEPTED)
-        self.accept_peak_action.setText(
-            f"Accept {accept_count} Peaks (Below Threshold)"
-            if accept_count > 1
-            else "Accept Peak (Below Threshold)"
-        )
-        self.reject_peak_action.setEnabled(lead is not None)
-        self.reject_peak_action.setChecked(review is PeakReview.REJECTED)
-        self.reject_peak_action.setText(
-            f"Mark {count} Peaks as Bad" if count > 1 else "Mark Peak as Bad"
-        )
-
-        fit_menu = self.review_fit_menu
-        for group in fit_menu.findChildren(QActionGroup):
-            group.deleteLater()
-        fit_menu.clear()
-        fit_menu.setTitle(f"Curve Fit ({count} Samples)" if count > 1 else "Curve Fit")
-        fit_menu.setEnabled(lead is not None)
+    def _with_review_lead(self, command) -> None:
+        lead = self.graph_view.review_lead()
         if lead is not None:
-            view._populate_curve_fit_menu(fit_menu, lead)
-
-    def _inspect_review_target(self) -> None:
-        lead, _targets = self._review_target()
-        if lead is not None:
-            self.graph_view._show_detailed_view(lead.compound_name, lead.sample_name)
-
-    def _review_targets_with(self, review: PeakReview) -> None:
-        lead, _targets = self._review_target()
-        if lead is not None:
-            self.graph_view._toggle_peak_review(lead, review)
+            command(lead)
         self._sync_review_menu()
 
     def _toggle_display(self, action: QAction, checkbox: QCheckBox, checked: bool):

@@ -505,7 +505,7 @@ class Toolbar(QWidget):
         menu = QMenu(self.standard)
         names = self.compound_list.real_names()
         if not names:
-            menu.addAction("Load a compound list first").setEnabled(False)
+            menu.addAction("Load a Compound List First").setEnabled(False)
         for name in names:
             action = menu.addAction(name)
             action.setCheckable(True)
@@ -514,7 +514,7 @@ class Toolbar(QWidget):
                 lambda _checked=False, n=name: self.on_internal_standard_selected(n)
             )
         menu.addSeparator()
-        clear = menu.addAction("No internal standard")
+        clear = menu.addAction("No Internal Standard")
         clear.setEnabled(self.standard.internal_standard is not None)
         clear.triggered.connect(self.on_internal_standard_cleared)
         menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)

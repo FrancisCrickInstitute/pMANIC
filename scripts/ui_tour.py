@@ -255,19 +255,34 @@ def tour_steps(tour: Tour) -> None:
 
     tour.run("live_scheme_switch", live_scheme_switch, grab_main=False)
 
-    def context_menu():
-        views = charts(tour.window)
-        view = views[0]
-        pos = view.mapToGlobal(QPoint(view.width() // 2, view.height() // 2))
-        tour.window.graph_view._show_context_menu(pos, view)
+    def grab_three_selected_popup(show) -> None:
+        if len(tour.window.graph_view.get_selected_samples()) != 3:
+            raise RuntimeError("expected three selected plots")
+        show()
         # popup() is asynchronous; grab it now in case it closes before the step ends.
         tour.pump(0.3)
         popup = QApplication.activePopupWidget()
-        if popup is not None:
-            tour.save(popup, "__menu")
-            popup.close()
+        if popup is None:
+            raise RuntimeError("menu did not open")
+        tour.save(popup, "__menu")
+        popup.close()
+
+    def context_menu():
+        view = charts(tour.window)[0]
+        pos = view.mapToGlobal(QPoint(view.width() // 2, view.height() // 2))
+        grab_three_selected_popup(lambda: tour.window.graph_view._show_context_menu(pos, view))
 
     tour.run("plot_context_menu", context_menu)
+
+    def review_menu():
+        window = tour.window
+        bar = window.menuBar()
+        title = bar.actionGeometry(window.review_menu.menuAction())
+        grab_three_selected_popup(
+            lambda: window.review_menu.popup(bar.mapToGlobal(title.bottomLeft()))
+        )
+
+    tour.run("review_menu", review_menu)
 
     def detailed():
         window = tour.window

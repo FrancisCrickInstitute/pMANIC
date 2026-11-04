@@ -40,7 +40,7 @@ The validation status is communicated in two places:
 ### 1. In the Application (Step 4)
 When reviewing integration, look at the badge in the top-right corner of each mini-plot:
 * **No badge:** The peak is healthy.
-* **Below threshold** (amber badge, amber tile): The peak is weak. Right-click the plot and choose **Accept peak (below threshold)** or **Mark peak as bad** to record a decision. The badge then reads **Accepted** (green) or **Marked bad** (red).
+* **Below threshold** (amber badge, amber tile): The peak is weak. Right-click the plot, or open the **Review** menu, and choose **Accept Peak (Below Threshold)** or **Mark Peak as Bad** to record a decision. The badge then reads **Accepted** (green) or **Marked bad** (red).
 
 ### 2. In the Exported Excel File (Step 5)
 In the final results workbook (specifically the **Abundances** sheet):

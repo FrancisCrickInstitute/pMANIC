@@ -1,5 +1,4 @@
 from collections.abc import Iterable
-from pathlib import Path
 from typing import List
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
@@ -12,28 +11,7 @@ from PySide6.QtWidgets import (
 
 from manic.models.database import get_deleted_samples, soft_delete_samples
 from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
-from manic.ui import theme
 from manic.ui.theme import set_style_property
-from manic.utils.paths import resource_path
-
-
-_INDICATOR_STYLE = """
-QListView::indicator {
-    width: 14px;
-    height: 14px;
-    border: 1px solid @border_strong;
-    border-radius: 4px;
-    background-color: @surface;
-}
-QListView::indicator:hover {
-    border: 1px solid @accent;
-}
-QListView::indicator:checked {
-    background-color: @accent;
-    border: 1px solid @accent;
-    image: url("CHECKMARK");
-}
-"""
 
 
 class SampleListWidget(QListWidget):
@@ -47,14 +25,13 @@ class SampleListWidget(QListWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("sampleList")
         self.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.setMinimumHeight(72)
         self.setUniformItemSizes(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.itemChanged.connect(self.shown_changed)
-        checkmark = Path(resource_path("resources", "checkmark.svg")).as_posix()
-        theme.style(self, _INDICATOR_STYLE.replace("CHECKMARK", checkmark))
         self._show_empty()
 
     def _show_empty(self):

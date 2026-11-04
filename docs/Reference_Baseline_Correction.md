@@ -42,7 +42,7 @@ If the baseline subtraction results in a negative area (which can occur when the
 
 When baseline correction is enabled, MANIC displays the fitted baseline as a **dashed line** on both:
 - The main chromatogram grid plots
-- The detailed EIC view (accessed via right-click → View Detailed...)
+- The detailed EIC view (right-click a plot → **Inspect *sample*...**)
 
 The baseline line uses the same color as its corresponding isotopologue trace, making it easy to see which baseline applies to which signal.
 
@@ -60,7 +60,7 @@ The baseline line uses the same color as its corresponding isotopologue trace, m
 
 ### Enabling/Disabling
 
-The baseline correction checkbox is in the **Display** section of the sidebar, between the Peak window and the Label Incorporation chart. **View → Baseline Correction** toggles it too.
+The baseline correction checkbox is in the **Peak window** section of the sidebar, under the **tR window** field. **View → Baseline Correction** toggles it too.
 
 1. **Select a Compound** from the compound list.
 2. **Toggle the Checkbox** labeled "Baseline correction".

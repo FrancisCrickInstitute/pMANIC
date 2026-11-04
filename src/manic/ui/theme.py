@@ -46,3 +46,12 @@ def substitute_tokens(stylesheet: str) -> str:
     for name in sorted(COLORS, key=len, reverse=True):
         stylesheet = stylesheet.replace(f"@{name}", COLORS[name])
     return stylesheet
+
+
+def set_style_property(widget, name: str, value) -> None:
+    """Set a property the stylesheet selects on and re-polish so it shows."""
+    if widget.property(name) == value:
+        return
+    widget.setProperty(name, value)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)

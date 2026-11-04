@@ -1,7 +1,7 @@
 from typing import List
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QFont
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QListWidget,
@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from manic.constants import FONT
 from manic.models.database import get_deleted_compounds, soft_delete_compound
 from manic.ui.compound_recovery_dialog import CompoundRecoveryDialog
 
@@ -25,9 +24,8 @@ class CompoundListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
-        self.setFont(QFont(FONT, 10))
-        self.setMaximumHeight(150)
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(72)
+        self.setUniformItemSizes(True)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.itemSelectionChanged.connect(self._center_current_item)
@@ -35,26 +33,6 @@ class CompoundListWidget(QListWidget):
         self._pending_selection_index = None
         self._context_item: QListWidgetItem | None = None
 
-        # Custom scrollbar styling with rounded edges
-        self.setStyleSheet("""
-            QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 10px;
-                border: none;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 5px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
         self._show_empty()
 
     def _show_empty(self):
@@ -99,14 +77,16 @@ class CompoundListWidget(QListWidget):
             self.itemSelectionChanged.emit()
             self._center_current_item()
 
-    def _get_total_compound_count(self) -> int:
-        """Get total number of real compounds (excluding placeholder)"""
-        count = 0
-        for i in range(self.count()):
-            item = self.item(i)
-            if item and not item.text().startswith("- No"):
-                count += 1
-        return count
+    def real_names(self) -> List[str]:
+        """Compound names in list order, without the empty-list placeholder."""
+        return [
+            item.text()
+            for item in (self.item(row) for row in range(self.count()))
+            if item and not item.text().startswith("- No")
+        ]
+
+    def real_count(self) -> int:
+        return len(self.real_names())
 
     def mousePressEvent(self, event):
         # Right-click selects the item, selection centres it, and the list scrolls
@@ -122,31 +102,6 @@ class CompoundListWidget(QListWidget):
         self._context_item = None
         menu = QMenu(self)
 
-        # Set menu style to ensure black text on white background
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: white;
-                color: black;
-                border: none;
-            }
-            QMenu::item {
-                background-color: white;
-                color: black;
-                padding: 5px 15px;
-            }
-            QMenu::item:selected {
-                background-color: #e0e0e0;
-                color: black;
-            }
-            QMenu::item:disabled {
-                color: #999999;
-            }
-            QMenu::separator {
-                height: 1px;
-                background-color: #d0d0d0;
-                margin: 4px 10px;
-            }
-        """)
 
         add_action = menu.addAction("Add Compound...")
         add_action.triggered.connect(self.add_compound_requested.emit)
@@ -169,7 +124,7 @@ class CompoundListWidget(QListWidget):
             delete_action = menu.addAction("Delete Compound")
             
             # Disable delete if this is the only compound
-            total_compounds = self._get_total_compound_count()
+            total_compounds = self.real_count()
             can_delete = total_compounds > 1
             delete_action.setEnabled(can_delete)
             delete_action.triggered.connect(
@@ -207,47 +162,17 @@ class CompoundListWidget(QListWidget):
         )
         msg_box.setDefaultButton(QMessageBox.StandardButton.No)
 
-        # Style the message box with clean styling, no borders or images
-        msg_box.setStyleSheet("""
-            QMessageBox {
-                background-color: white;
-                color: black;
-                border: none;
-            }
-            QMessageBox QLabel {
-                color: black;
-                background-color: transparent;
-                border: none;
-            }
-            QMessageBox QPushButton {
-                background-color: #f0f0f0;
-                color: black;
-                border: none;
-                padding: 8px 20px;
-                border-radius: 4px;
-                min-width: 70px;
-                font-weight: normal;
-            }
-            QMessageBox QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QMessageBox QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-            QMessageBox QFrame {
-                border: none;
-            }
-            QMessageBox * {
-                border: none;
-            }
-        """)
+        confirm = msg_box.button(QMessageBox.StandardButton.Yes)
+        confirm.setText("Delete")
+        confirm.setProperty("variant", "danger")
+        msg_box.button(QMessageBox.StandardButton.No).setText("Cancel")
 
         reply = msg_box.exec()
 
         if reply == QMessageBox.StandardButton.Yes:
             # Calculate the next index to select after deletion
             current_index = self.currentRow()
-            total_before = self._get_total_compound_count()
+            total_before = self.real_count()
 
             if current_index >= total_before - 1:
                 # Deleting last item, select the new last item (previous one)

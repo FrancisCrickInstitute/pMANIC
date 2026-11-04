@@ -2,15 +2,17 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QPushButton
 
 from manic.ui.analysis_mode_dialog import AnalysisModeDialog
+from manic.ui.theme import COLORS
 from manic.utils.utils import apply_app_stylesheet
 
-STYLED_DEFAULT_BUTTON = QColor("#0d6efd")
+STYLED_DEFAULT_BUTTON = QColor(COLORS["accent"])
 
 
 def _default_button_fill(dialog: AnalysisModeDialog) -> QColor:
     button = next(b for b in dialog.findChildren(QPushButton) if b.isDefault())
     image = button.grab().toImage()
-    return image.pixelColor(image.width() // 2, image.height() // 2)
+    # Sample the fill beside the label, not the centred text.
+    return image.pixelColor(4, image.height() // 2)
 
 
 def test_parentless_dialog_is_styled_once_stylesheet_is_app_wide(qapp):

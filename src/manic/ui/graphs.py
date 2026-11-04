@@ -98,8 +98,7 @@ class ClickableChartView(QChartView):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setFocusPolicy(Qt.NoFocus)
         self.setFrameShape(QFrame.NoFrame)
-        # Transparent so the card's QC tint shows; a stylesheet here would
-        # make every tile re-polish on show.
+        # Transparent so the card's QC tint shows through.
         self.setBackgroundBrush(Qt.NoBrush)
         self.viewport().setAutoFillBackground(False)
         self.setCursor(Qt.PointingHandCursor)
@@ -180,7 +179,7 @@ class GraphView(QWidget):
         header.setContentsMargins(8, 6, 6, 2)
         header.setSpacing(8)
         self.channel_legend = ChannelChipRow()
-        # The legend and key clip on narrow windows instead of setting the
+        # The legend and key shrink on narrow windows instead of setting the
         # window's minimum width.
         self.channel_legend.setMinimumWidth(1)
         header.addWidget(self.channel_legend)

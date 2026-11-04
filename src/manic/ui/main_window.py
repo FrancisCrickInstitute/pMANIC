@@ -741,15 +741,36 @@ class MainWindow(QMainWindow):
                 if self._export_thread is not None:
                     self._export_thread.wait()
         elif self.compound_data_loaded or self.cdf_data_loaded:
-            reply = self._show_question_dialog(
-                "Quit MANIC?",
-                "This session is not saved. Use File > Export Method... to keep the compound settings before quitting.",
-                default_button=QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
+            reply = self._ask_export_before_quit()
+            if reply == QMessageBox.Cancel or (
+                reply == QMessageBox.Save and not self.export_method()
+            ):
                 event.ignore()
                 return
         event.accept()
+
+    def _ask_export_before_quit(self) -> int:
+        msg_box = self._create_message_box(
+            "question",
+            "Quit MANIC?",
+            "Export the session before quitting?",
+            "MANIC clears your compound settings when it closes.",
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
+        )
+        msg_box.button(QMessageBox.Save).setText("Export Session...")
+        msg_box.button(QMessageBox.Discard).setText("Quit Without Exporting")
+        # Not "Cancel": the stylesheet paints Cancel red, which reads as the risky choice.
+        msg_box.button(QMessageBox.Cancel).setText("Keep Working")
+        for button in msg_box.buttons():
+            # Re-polish so the stylesheet's text selectors see the new labels, then
+            # stop QMessageBox squeezing them to fit its text width.
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.setMinimumWidth(button.sizeHint().width())
+        msg_box.setDefaultButton(QMessageBox.Save)
+        return msg_box.exec()
 
     def _rebuild_open_recent_menu(self) -> None:
         self.open_recent_menu.clear()
@@ -1790,7 +1811,7 @@ class MainWindow(QMainWindow):
         )
         msg_box.exec()
 
-    def export_method(self):
+    def export_method(self) -> bool:
         """Export current analytical session to a file."""
         from PySide6.QtWidgets import QFileDialog
 
@@ -1803,7 +1824,7 @@ class MainWindow(QMainWindow):
         )
 
         if not file_path:
-            return  # User cancelled
+            return False  # User cancelled
 
         try:
             success = export_session_method(
@@ -1837,6 +1858,7 @@ class MainWindow(QMainWindow):
                 )
                 msg_box.exec()
                 logger.info(f"Session exported to {export_dir}")
+                return True
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -1853,6 +1875,7 @@ class MainWindow(QMainWindow):
                 f"An error occurred during export:\n{str(e)}",
             )
             msg_box.exec()
+        return False
 
     def import_session(self):
         """Import session overrides from a session file."""

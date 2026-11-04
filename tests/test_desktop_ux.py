@@ -12,36 +12,36 @@ from manic.utils.workers import ExportWorker
 from conftest import _make_window
 
 
-def test_close_event_ignores_loaded_session_when_declined(
-    qapp, empty_db, monkeypatch
-):
+def _close_loaded_window(monkeypatch, reply, exported=None):
     window = _make_window(monkeypatch)
     window._skip_close_guard = False
     window.cdf_data_loaded = True
-    monkeypatch.setattr(
-        window, "_show_question_dialog", lambda *args, **kwargs: QMessageBox.No
-    )
-    try:
-        event = QCloseEvent()
-        window.closeEvent(event)
-        assert not event.isAccepted()
-    finally:
-        window._skip_close_guard = True
-        window.close()
-
-
-def test_close_event_accepts_loaded_session_when_confirmed(
-    qapp, empty_db, monkeypatch
-):
-    window = _make_window(monkeypatch)
-    window._skip_close_guard = False
-    window.cdf_data_loaded = True
-    monkeypatch.setattr(
-        window, "_show_question_dialog", lambda *args, **kwargs: QMessageBox.Yes
-    )
+    monkeypatch.setattr(window, "_ask_export_before_quit", lambda: reply)
+    if exported is not None:
+        monkeypatch.setattr(window, "export_method", lambda: exported)
     event = QCloseEvent()
     window.closeEvent(event)
-    assert event.isAccepted()
+    window._skip_close_guard = True
+    window.close()
+    return event.isAccepted()
+
+
+def test_close_event_stays_open_when_cancelled(qapp, empty_db, monkeypatch):
+    assert not _close_loaded_window(monkeypatch, QMessageBox.Cancel)
+
+
+def test_close_event_quits_without_exporting(qapp, empty_db, monkeypatch):
+    assert _close_loaded_window(monkeypatch, QMessageBox.Discard)
+
+
+def test_close_event_quits_after_successful_export(qapp, empty_db, monkeypatch):
+    assert _close_loaded_window(monkeypatch, QMessageBox.Save, exported=True)
+
+
+def test_close_event_stays_open_when_export_fails_or_is_cancelled(
+    qapp, empty_db, monkeypatch
+):
+    assert not _close_loaded_window(monkeypatch, QMessageBox.Save, exported=False)
 
 
 def test_close_event_accepts_empty_session_without_asking(
@@ -53,7 +53,7 @@ def test_close_event_accepts_empty_session_without_asking(
     def boom(*args, **kwargs):
         raise AssertionError("close guard asked on an empty session")
 
-    monkeypatch.setattr(window, "_show_question_dialog", boom)
+    monkeypatch.setattr(window, "_ask_export_before_quit", boom)
     try:
         event = QCloseEvent()
         window.closeEvent(event)

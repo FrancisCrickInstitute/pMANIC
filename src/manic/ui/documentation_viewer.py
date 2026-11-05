@@ -10,7 +10,7 @@ This implementation uses QWebEngineView for:
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidgetItem,
     QPushButton,
-    QStackedLayout,
     QStackedWidget,
     QStyledItemDelegate,
     QVBoxLayout,
@@ -41,10 +40,6 @@ except ImportError:
     HAS_MARKDOWN = False
 
 logger = logging.getLogger(__name__)
-
-# How long a loaded page renders under the status note before it is shown:
-# loadFinished can come before the first frame is painted.
-_FIRST_PAINT_MS = 250
 
 
 def _documentation_title(path: Path) -> str:
@@ -225,8 +220,6 @@ class DocumentationViewer(QDialog):
         self.content = QStackedWidget()
         self.content.addWidget(self.status_page)
         self.content.addWidget(self.web_view)
-        # A loaded page renders under the status note, since a hidden page never paints.
-        self.content.layout().setStackingMode(QStackedLayout.StackAll)
         self._show_status("Loading…")
         layout.addWidget(self.content, 1)
         theme.notifier.changed.connect(self._on_theme_changed)
@@ -237,8 +230,6 @@ class DocumentationViewer(QDialog):
             self.status_label, text_style("text_secondary" if retry else "text_tertiary", 13)
         )
         self.retry_button.setVisible(retry)
-        # Hidden while it loads, as before StackAll; it shows under the note once loaded.
-        self.web_view.hide()
         self.content.setCurrentWidget(self.status_page)
 
     def _request_title(self) -> str:
@@ -253,14 +244,7 @@ class DocumentationViewer(QDialog):
         if self._pending_fragment:
             self.web_view.page().runJavaScript(f"location.hash = '#{self._pending_fragment}';")
             self._pending_fragment = None
-        self.web_view.show()
-        self.content.currentWidget().raise_()
-        request = self._request
-        QTimer.singleShot(_FIRST_PAINT_MS, self, lambda: self._reveal(request))
-
-    def _reveal(self, request: int) -> None:
-        if request == self._request and self.web_view.title() == self._request_title():
-            self.content.setCurrentWidget(self.web_view)
+        self.content.setCurrentWidget(self.web_view)
 
     def _retry(self) -> None:
         if self.current_file is not None:

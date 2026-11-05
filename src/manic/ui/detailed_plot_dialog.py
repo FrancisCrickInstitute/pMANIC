@@ -798,23 +798,28 @@ class DetailedPlotDialog(QDialog):
             # Reset plot area before rendering
             self.ms_plot.clear_plot()
 
-            # Render mass spectrum as stem plot
+            channels = self.compound_info.analysis_channels if self.compound_info else ()
+            isotopologues = bool(channels) and all(
+                channel.role is IonRole.ISOTOPOLOGUE for channel in channels
+            )
+            # Isotopologue stems in their trace colours, so the cluster stands out of the scan.
             self.ms_plot.plot_stems(
                 self.ms_data.mz,
                 self.ms_data.intensity,
-                color=COLORS["text"],
+                color=COLORS["text_tertiary" if isotopologues else "text"],
                 width=PLOT_STEM_WIDTH,
+                highlight=[
+                    (channel.mz, self._style_color(i).name()) for i, channel in enumerate(channels)
+                ] if isotopologues else (),
             )
 
-            channels = self.compound_info.analysis_channels if self.compound_info else ()
-            isotopologues = all(channel.role is IonRole.ISOTOPOLOGUE for channel in channels)
             self.ms_plot.label_peaks(
                 self.ms_data.mz,
                 self.ms_data.intensity,
                 own_mz=[channel.mz for channel in channels],
                 own_names=[f"M+{channel.ordinal}" for channel in channels] if isotopologues else None,
             )
-            if channels and isotopologues:
+            if isotopologues:
                 # The cluster is a few m/z wide; at full scan it is one sliver.
                 masses = [channel.mz for channel in channels]
                 self.ms_plot.show_x_range(min(masses) - SPECTRUM_CLUSTER_MARGIN, max(masses) + SPECTRUM_CLUSTER_MARGIN)

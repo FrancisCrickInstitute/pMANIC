@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QTextDocumentFragment
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QFontMetricsF, QTextDocumentFragment
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget
 
@@ -11,6 +11,7 @@ from manic.io.compound_reader import Compound
 from manic.models.analysis import IonChannel, IonRole
 from manic.processors.tile_y_scale import YScalePolicy
 from manic.ui import theme
+from manic.ui.chart_popup_dialog import value_axis_ticks
 from manic.ui.channel_chips import ChannelChip, ChannelChipRow
 from manic.ui.colors import ChannelTraceStyle, label_colors
 from manic.ui.graphs import ClickableChartView, GraphView
@@ -501,3 +502,28 @@ def test_chip_tooltip_appears_only_when_the_label_is_cut(qapp):
         assert chip.toolTip() == "Qualifier ion 1 m/z 147"
     finally:
         chip.deleteLater()
+
+
+@pytest.mark.parametrize("density", ["compact", "comfortable"])
+def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, density):
+    min_width = DENSITY_MIN_TILE[density][0]
+    grid.set_density(density)
+    grid.resize(1200, 600)
+    grid.show()
+    grid.plot_compound("Cmp", [f"S{i}" for i in range(30)])
+    qapp.processEvents()
+    # Four tiles at their narrowest fill the row.
+    grid.resize(1200 - grid._grid_viewport()[0] + 4 * min_width + 3 * 8, 600)
+    QTest.qWait(150)  # the grid re-lays its tiles shortly after a resize
+    plot = _plots(grid)["S0"]
+    assert plot.parent().width() <= min_width
+    chart = plot.chart()
+    axis = chart.axes(Qt.Horizontal)[0]
+    metrics = QFontMetricsF(axis.labelsFont())
+    edges = []
+    for value, text in value_axis_ticks(axis):
+        centre = chart.mapToPosition(QPointF(value, 0)).x()
+        half = metrics.horizontalAdvance(text) / 2
+        edges.append((centre - half, centre + half))
+    assert len(edges) >= 2
+    assert all(right + 4 < left for (_, right), (left, _) in zip(edges, edges[1:]))

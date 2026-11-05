@@ -13,7 +13,7 @@ from PySide6.QtCharts import (
     QXYSeries,
 )
 from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QBrush, QFont, QPen
+from PySide6.QtGui import QBrush, QFont, QFontMetricsF, QPen
 from PySide6.QtWidgets import QApplication
 
 from manic.ui.theme import color, remap_color
@@ -72,11 +72,34 @@ def step_decimals(step: float) -> int:
     return max(0, -math.floor(math.log10(step) + 1e-9))
 
 
+def _next_step(step: float) -> float:
+    """The 1-2-5 step after ``step``."""
+    magnitude = 10 ** math.floor(math.log10(step) + 1e-9)
+    return next(m * magnitude for m in (2, 5, 10) if m * magnitude > step * (1 + 1e-9))
+
+
 def set_nice_ticks(
-    axis: QValueAxis, low: float, high: float, *, max_ticks: float, decimals: int | None = None
+    axis: QValueAxis,
+    low: float,
+    high: float,
+    *,
+    max_ticks: float,
+    decimals: int | None = None,
+    plot_px: float = 0,
 ) -> None:
-    """Ticks on round numbers inside [low, high] without changing the range."""
+    """Ticks on round numbers inside [low, high] without changing the range.
+
+    For a horizontal axis ``plot_px`` wide, the step widens until neighbouring
+    labels in the axis font stay two digits apart.
+    """
     step = nice_step(high - low, max_ticks)
+    if plot_px > 0 and high > low:
+        metrics = QFontMetricsF(axis.labelsFont())
+        places = step_decimals(step) if decimals is None else decimals
+        label = max(metrics.horizontalAdvance(f"{v:.{places}f}") for v in (low, high))
+        min_step = (label + metrics.horizontalAdvance("00")) * (high - low) / plot_px
+        while step < min_step:
+            step = _next_step(step)
     axis.setTickType(QValueAxis.TicksDynamic)
     axis.setTickAnchor(math.ceil(low / step) * step)
     axis.setTickInterval(step)

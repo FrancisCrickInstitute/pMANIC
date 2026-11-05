@@ -16,6 +16,7 @@ from PySide6.QtCore import QMargins, Qt, Signal
 from PySide6.QtGui import QCursor, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QFrame, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
+from manic.io.compound_reader import read_compound
 from manic.io.eic_reader import EIC
 from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
@@ -30,6 +31,13 @@ from manic.ui.sidebar_widgets import (
 from manic.ui.theme import color
 
 logger = logging.getLogger(__name__)
+
+
+def peak_area_label(compound_name: str) -> str:
+    """What the bars measure, as DataProvider.get_compound_total_area takes it."""
+    if read_compound(compound_name).is_unlabelled_target:
+        return "Q-ion peak area"
+    return "Peak area, sum of isotopologues"
 
 
 def abundances_from_provider(provider, compound_name: str, sample_names: list[str]) -> np.ndarray:
@@ -257,6 +265,7 @@ class TotalAbundanceWidget(QWidget):
                 parent=self,
                 compound_name=self._current_compound,
                 highlighted=self._highlighted,
+                quantity=peak_area_label(self._current_compound),
             )
             dialog.sample_activated.connect(self.sample_activated)
             dialog.exec()

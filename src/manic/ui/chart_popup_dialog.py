@@ -12,7 +12,7 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QEvent, QMargins, QPoint, QPointF, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QCursor, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -137,6 +137,13 @@ def bar_value_text(value: float, *, precise: bool = False) -> str:
     return f"{value:.2f}"
 
 
+def percent_text(ratio: float) -> str:
+    """'18.1%', '<0.1%' for a trace, '0%'; padded with figure spaces to one width."""
+    percent = ratio * 100
+    text = "0%" if percent == 0 else "<0.1%" if percent < 0.05 else f"{percent:.1f}%"
+    return text.rjust(6, "\u2007")
+
+
 def category_rect(chart: QChart, category: int) -> QRectF:
     """One category's row across the plot, in chart coordinates."""
     series = chart.series()[0]
@@ -252,6 +259,7 @@ class ChartPopupDialog(QDialog):
         identity: IdentityAssessmentSet | None = None,
         compound_name: str = "",
         highlighted=(),
+        quantity: str = "",
     ):
         super().__init__(parent)
         self.chart_type = chart_type
@@ -259,10 +267,13 @@ class ChartPopupDialog(QDialog):
         self.sample_names = sample_names
         self.hover_notes = hover_notes
         self._identity = identity
+        # What the abundance bars measure, such as "Q-ion peak area".
+        self._quantity = quantity
         # The grid's selected samples, filled in the accent as in the sidebar.
         self._highlighted = set(highlighted)
 
-        self._hover_categories: list[str] | None = None
+        # The ion key's (labels, styles); with a current row it reads that row's shares.
+        self._ratio_key: tuple[list[str], list[ChannelTraceStyle]] | None = None
         self._hover_notes: list[str] | None = None
         self._identity_binding: IdentityGridBinding | None = None
         self._value_labels: list[tuple[QGraphicsSimpleTextItem, float, int]] = []
@@ -390,7 +401,7 @@ class ChartPopupDialog(QDialog):
         footer.addStretch()
         hover = {
             "identity": "Hover a cell for details",
-            "isotopologue_ratios": "Hover a bar for its value",
+            "isotopologue_ratios": "Hover or ↑↓ to read a sample's percentages",
         }.get(self.chart_type, "")
         self._hint = QLabel(hover)
         self._hover_hint = hover
@@ -525,12 +536,6 @@ class ChartPopupDialog(QDialog):
                 else:
                     ratio = 1.0 if i == 0 else 0.0  # Single trace case
                 bar_set.append(ratio)
-
-            bar_set.hovered.connect(
-                lambda status, index, bs=bar_set: self._on_stacked_bar_segment_hover(
-                    bs, status, index
-                )
-            )
             stacked_series.append(bar_set)
 
         self.chart.addSeries(stacked_series)
@@ -539,7 +544,8 @@ class ChartPopupDialog(QDialog):
         self._setup_isotopologue_axes()
 
         if num_isotopologues > 1:
-            self.ion_legend.set_channels(labels, styles)
+            self._ratio_key = (labels, styles)
+            self._refresh_ratio_key()
 
         # Attach series to axes
         stacked_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
@@ -610,39 +616,6 @@ class ChartPopupDialog(QDialog):
         QToolTip.hideText()
         super().closeEvent(event)
 
-    def _sample_name_for_hover_index(self, index: int) -> str | None:
-        if index < 0:
-            return None
-
-        if self._hover_categories is None:
-            return None
-
-        if index >= len(self._hover_categories):
-            return None
-
-        return self._hover_categories[index]
-
-    def _on_stacked_bar_segment_hover(
-        self, bar_set: QBarSet, status: bool, index: int
-    ) -> None:
-        if not status:
-            QToolTip.hideText()
-            return
-
-        sample_name = self._sample_name_for_hover_index(index)
-        if sample_name is None:
-            return
-
-        ratio = float(bar_set.at(index))
-        percent = ratio * 100.0
-        mx_label = bar_set.label()
-
-        QToolTip.showText(
-            QCursor.pos(),
-            f"{sample_name}\n{mx_label}: {percent:.1f}%",
-            self.chart_view,
-        )
-
     def _sample_axis(self, names: list[str]) -> QBarCategoryAxis:
         axis = QBarCategoryAxis()
         axis.append(names)
@@ -669,10 +642,11 @@ class ChartPopupDialog(QDialog):
 
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
-        # The subtitle names the metric; the axis carries only its multiplier.
-        self._pin_value_axis(x_axis, scale_text(scale_exp))
-
-        self._hover_categories = list(self.sample_names)
+        scale = scale_text(scale_exp)
+        title = scale
+        if self._quantity:
+            title = f"{self._quantity} ({scale})" if scale else self._quantity
+        self._pin_value_axis(x_axis, title)
 
     def _pin_value_axis(self, axis: QValueAxis, title: str) -> None:
         """Gridlines stay in the scrolled chart; the tick text and unit move above it."""
@@ -692,7 +666,6 @@ class ChartPopupDialog(QDialog):
         x_axis.setTickCount(6)
 
         y_axis = self._sample_axis(list(self.sample_names))
-        self._hover_categories = list(self.sample_names)
 
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
@@ -740,7 +713,19 @@ class ChartPopupDialog(QDialog):
         self._current_row = row
         self._place_row_marker()
         self._refresh_value_labels()
+        self._refresh_ratio_key()
         self._show_row_tip()
+
+    def _refresh_ratio_key(self) -> None:
+        """Each isotopologue chip gives the current row's percentage, as its bar shows."""
+        if self._ratio_key is None:
+            return
+        labels, styles = self._ratio_key
+        if self._current_row is not None:
+            ratios = self.data[len(self.sample_names) - 1 - self._current_row]
+            if np.nansum(ratios) > 0:
+                labels = [f"{label}  {percent_text(ratio)}" for label, ratio in zip(labels, ratios)]
+        self.ion_legend.set_channels(labels, styles)
 
     def _place_row_marker(self, *_args) -> None:
         if self._current_row is None or not self.chart.series():

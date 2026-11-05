@@ -158,8 +158,13 @@ def test_isotopologues_are_named_together_at_full_range_and_apart_when_zoomed(sp
 
 def test_labelled_spectrum_opens_on_its_cluster_and_full_scan_is_one_toggle(qapp, dialog):
     from manic.models.analysis import IonChannel, IonRole
+    from manic.ui import theme
+    from manic.ui.colors import label_colors
 
-    dialog.ms_data = SimpleNamespace(mz=SPECTRUM_MZ, intensity=SPECTRUM_INTENSITY)
+    # A centroided scan also holds trace stems nearer the nominal masses than the peaks.
+    dialog.ms_data = SimpleNamespace(
+        mz=np.append(SPECTRUM_MZ, [174.0, 175.0]), intensity=np.append(SPECTRUM_INTENSITY, [300.0, 300.0])
+    )
     dialog.compound_info = SimpleNamespace(
         analysis_channels=[IonChannel(mz, IonRole.ISOTOPOLOGUE, ordinal=i) for i, mz in enumerate(OWN_IONS)],
         mass0=174.0,
@@ -168,9 +173,20 @@ def test_labelled_spectrum_opens_on_its_cluster_and_full_scan_is_one_toggle(qapp
     plot = dialog.ms_plot
     toggle = plot.full_scan_button
     assert plot.ax.get_xlim() == (154.0, 197.0) and not toggle.isChecked()
+    plot.canvas.draw()
+    plot.canvas.draw()
+    assert _shown_labels(plot) == ["M+0…M+3"]
     toggle.click()
     low, high = plot.ax.get_xlim()
     assert low < 73.02 and high > 300.0
+    # At full scan the cluster keeps its name and colours; the rest of the scan is muted.
+    plot.canvas.draw()
+    plot.canvas.draw()
+    assert "M+0…M+3" in _shown_labels(plot)
+    [stems] = plot.ax.collections
+    muted = theme.COLORS["text_tertiary"].lower()
+    own = [label_colors[i].name() for i in range(4)]
+    assert [to_hex(c) for c in stems.get_colors()] == [muted, muted, *own, muted, muted, muted, muted, muted]
     # Reset all returns to the opening view, not the scan.
     dialog.nav_toolbar.home_btn.click()
     assert plot.ax.get_xlim() == (154.0, 197.0) and not toggle.isChecked()

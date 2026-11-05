@@ -10,14 +10,15 @@ This implementation uses QWebEngineView for:
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QFont
+from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QFont, QIcon, QKeySequence, QShortcut, QTransform
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidgetItem,
     QPushButton,
     QStackedWidget,
@@ -30,6 +31,7 @@ from manic.utils.paths import docs_path
 from manic.ui import theme
 from manic.ui.chart_style import text_style, ui_font
 from manic.ui.dialog_kit import resize_to_screen, sidebar_item_size, sidebar_list, window_title
+from manic.ui.icon_button import ThemedToolButton, svg_icon
 from manic.ui.theme import COLORS
 from manic.ui.window_placement import show_over_parent
 
@@ -80,6 +82,16 @@ class _HeadingDelegate(QStyledItemDelegate):
         painter.setPen(theme.color("text_secondary"))
         painter.drawText(option.rect.adjusted(13, 0, 0, -6), Qt.AlignLeft | Qt.AlignBottom, index.data())
         painter.restore()
+
+
+def _chevron(up: bool) -> QIcon:
+    icon = svg_icon("chevron_down.svg")
+    if not up:
+        return icon
+    pixmap = icon.pixmap(QSize(20, 20))
+    turned = pixmap.transformed(QTransform().rotate(180))
+    turned.setDevicePixelRatio(pixmap.devicePixelRatio())
+    return QIcon(turned)
 
 
 def documentation_index(docs_dir: Path) -> list[tuple[str, Path]]:
@@ -221,8 +233,94 @@ class DocumentationViewer(QDialog):
         self.content.addWidget(self.status_page)
         self.content.addWidget(self.web_view)
         self._show_status("Loading…")
-        layout.addWidget(self.content, 1)
+        article = QVBoxLayout()
+        article.setSpacing(0)
+        article.addWidget(self._build_find_bar())
+        article.addWidget(self.content, 1)
+        layout.addLayout(article, 1)
         theme.notifier.changed.connect(self._on_theme_changed)
+
+    def _build_find_bar(self) -> QWidget:
+        """Find on page: Return and Shift+Return step through matches, Esc closes it."""
+        self.find_bar = QWidget()
+        self.find_bar.setObjectName("findBar")
+        theme.style(
+            self.find_bar, "QWidget#findBar { background: @surface; border-bottom: 1px solid @border; }"
+        )
+        row = QHBoxLayout(self.find_bar)
+        row.setContentsMargins(16, 8, 16, 8)
+        row.setSpacing(4)
+        row.addStretch()
+        self.find_field = QLineEdit()
+        self.find_field.setPlaceholderText("Find on page")
+        self.find_field.setClearButtonEnabled(True)
+        self.find_field.setFixedWidth(240)
+        self.find_field.textChanged.connect(lambda _text: self._find())
+        self.find_field.installEventFilter(self)
+        row.addWidget(self.find_field)
+        self.find_count = QLabel()
+        self.find_count.setMinimumWidth(72)
+        self.find_count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        theme.style(self.find_count, text_style("text_tertiary", 12))
+        row.addWidget(self.find_count)
+        for up, tip, key in (
+            (True, "Previous match", Qt.SHIFT | Qt.Key_Return),
+            (False, "Next match", Qt.Key_Return),
+        ):
+            button = ThemedToolButton(lambda up=up: _chevron(up))
+            button.setIconSize(QSize(20, 20))
+            button.setAutoRaise(True)
+            button.setProperty("variant", "ghost")
+            button.setToolTip(f"{tip} ({QKeySequence(key).toString(QKeySequence.NativeText)})")
+            button.clicked.connect(lambda _checked=False, back=up: self._find(backward=back))
+            row.addWidget(button)
+        done = QPushButton("Done")
+        done.setAutoDefault(False)
+        done.clicked.connect(self.close_find)
+        row.addWidget(done)
+        self.find_bar.hide()
+        self.web_view.page().findTextFinished.connect(self._show_find_result)
+        QShortcut(QKeySequence.Find, self, self.show_find)
+        return self.find_bar
+
+    def show_find(self) -> None:
+        self.find_bar.show()
+        self.find_field.setFocus(Qt.ShortcutFocusReason)
+        self.find_field.selectAll()
+
+    def close_find(self) -> None:
+        self.find_bar.hide()
+        self.find_count.clear()
+        self.web_view.page().findText("")
+        self.web_view.setFocus(Qt.OtherFocusReason)
+
+    def _find(self, *, backward: bool = False) -> None:
+        text = self.find_field.text()
+        if not text:
+            self.find_count.clear()
+        if self.is_rendered():
+            flags = QWebEnginePage.FindFlag.FindBackward if backward else QWebEnginePage.FindFlag(0)
+            self.web_view.page().findText(text, flags)
+
+    def _show_find_result(self, result) -> None:
+        if not self.find_field.text():
+            return
+        matches = result.numberOfMatches()
+        self.find_count.setText(f"{result.activeMatch()} of {matches}" if matches else "No matches")
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.find_field and event.type() == QEvent.KeyPress:
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self._find(backward=bool(event.modifiers() & Qt.ShiftModifier))
+                return True
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event) -> None:
+        # Esc closes the find bar first, then the window.
+        if event.key() == Qt.Key_Escape and self.find_bar.isVisible():
+            self.close_find()
+            return
+        super().keyPressEvent(event)
 
     def _show_status(self, text: str, *, retry: bool = False) -> None:
         self.status_label.setText(text)
@@ -245,6 +343,8 @@ class DocumentationViewer(QDialog):
             self.web_view.page().runJavaScript(f"location.hash = '#{self._pending_fragment}';")
             self._pending_fragment = None
         self.content.setCurrentWidget(self.web_view)
+        if self.find_bar.isVisible():
+            self._find()  # the same search on the newly shown page
 
     def _retry(self) -> None:
         if self.current_file is not None:

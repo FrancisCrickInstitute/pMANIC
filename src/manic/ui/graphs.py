@@ -161,6 +161,14 @@ class ClickableChartView(QChartView):
             tile.refresh_selection()
 
 
+def _fit_time_ticks(chart: QChart) -> None:
+    """Time ticks as dense as the tile's plot width allows without labels touching."""
+    axis = chart.axes(Qt.Horizontal)[0]
+    set_nice_ticks(
+        axis, axis.min(), axis.max(), max_ticks=2.5, decimals=2, plot_px=chart.plotArea().width()
+    )
+
+
 def _review_command_text(
     review: PeakReview | None, plots, set_text: str, clear_text: str
 ) -> str:
@@ -418,6 +426,7 @@ class GraphView(QWidget):
         tile.set_text_size(tick_px, caption_px)
         for axis in tile.chart_view.chart().axes():
             axis.setLabelsFont(ui_font(tick_px))
+        _fit_time_ticks(tile.chart_view.chart())
 
     def density(self) -> str:
         return self._density
@@ -1495,6 +1504,8 @@ class GraphView(QWidget):
         style_axis(y_axis, grid=True)
         chart.addAxis(x_axis, Qt.AlignBottom)
         chart.addAxis(y_axis, Qt.AlignLeft)
+        # The tile's width settles after layout and on every resize.
+        chart.plotAreaChanged.connect(lambda _area, c=chart: _fit_time_ticks(c))
         self._draw_eic(chart, x_axis, y_axis, eic, axis_scale)
         return ClickableChartView(chart, eic.sample_name, eic.compound_name)
 
@@ -1519,6 +1530,7 @@ class GraphView(QWidget):
 
         # The x range is the actual EIC extract, so it reflects the tR window.
         self._set_tile_ranges(x_axis, y_axis, eic.time, scaled_y_max)
+        _fit_time_ticks(chart)
         self._add_tile_guides(chart, x_axis, y_axis, compound, scaled_y_max)
         self._add_baseline_lines(
             chart,
@@ -1536,7 +1548,6 @@ class GraphView(QWidget):
         x_min = float(np.min(eic_time))
         x_max = float(np.max(eic_time))
         x_axis.setRange(x_min, x_max)
-        set_nice_ticks(x_axis, x_min, x_max, max_ticks=2.5, decimals=2)
         y_max = scaled_y_max * PLOT_Y_AXIS_HEADROOM
         y_axis.setRange(0, y_max)
         set_nice_ticks(y_axis, 0, y_max, max_ticks=2)

@@ -583,11 +583,12 @@ def test_dragged_split_is_remembered(qapp):
         again.deleteLater()
 
 
+# Short of room, Samples gives up rows before Compounds drops below three.
 @pytest.mark.parametrize(
     "height, samples_open, compound_rows, sample_rows",
-    [(LAPTOP_720, True, 4, 3), (700, False, 6, 0)],
+    [(LAPTOP_720, True, 4, 3), (700, False, 6, 0), (540, True, 3, 1)],
 )
-def test_laptop_lists_keep_four_compounds_and_three_samples_with_samples_open(
+def test_laptop_lists_keep_their_rows_with_samples_open(
     qapp, height, samples_open, compound_rows, sample_rows
 ):
     toolbar = _sidebar(height, samples_open)

@@ -48,10 +48,11 @@ logger = logging.getLogger(__name__)
 # The lists give rows to the Peak window down to BROWSE_HARD_ROWS each (compounds,
 # samples) for its editor and folded rows, and down to BROWSE_KEEP_ROWS for the rest
 # of it. Then they grow to BROWSE_MIN_ROWS and together this share of the sidebar.
-BROWSE_HARD_ROWS = (2, 3)
-# Short of those, they give rows up in this order, so Samples keeps three as long as it can:
-# down to one compound and three samples, then to one row each.
-BROWSE_LAST_ROWS = ((1, 1), (1, 3))
+BROWSE_HARD_ROWS = (3, 3)
+# Short of those, they give rows up in this order, so Compounds keeps three as long as it
+# can (Samples has its own filter, and the grid shows what is checked): down to three
+# compounds and one sample, then to one row each.
+BROWSE_LAST_ROWS = ((1, 1), (3, 1))
 BROWSE_KEEP_ROWS = (4, 3)
 BROWSE_MIN_ROWS = (6, 4)
 BROWSE_MIN_SHARE = 0.45

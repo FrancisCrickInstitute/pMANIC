@@ -135,7 +135,7 @@ class ClickableChartView(QChartView):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.m_pressPos = event.pos()
+            self.m_pressPos = event.position().toPoint()
         elif event.button() == Qt.RightButton:
             self.right_clicked.emit(self, event.globalPosition())
         super().mousePressEvent(event)
@@ -144,7 +144,7 @@ class ClickableChartView(QChartView):
         if event.button() == Qt.LeftButton and self._swallow_release:
             self._swallow_release = False
         elif event.button() == Qt.LeftButton and hasattr(self, "m_pressPos"):
-            dist = (event.pos() - self.m_pressPos).manhattanLength()
+            dist = (event.position().toPoint() - self.m_pressPos).manhattanLength()
             if dist < QApplication.startDragDistance():
                 self.clicked.emit(self)
         super().mouseReleaseEvent(event)
@@ -415,7 +415,7 @@ class GraphView(QWidget):
         if event.type() == QEvent.MouseButtonPress:
             me = event
             if me.button() == Qt.LeftButton:
-                self._drag_origin = self.mapFromGlobal(me.globalPos())
+                self._drag_origin = self.mapFromGlobal(me.globalPosition().toPoint())
                 self._is_dragging = False
             # Always return False to let children process press events (e.g. for click detection)
             return False
@@ -445,7 +445,7 @@ class GraphView(QWidget):
         if self._drag_origin is None:
             return False
 
-        current_pos = self.mapFromGlobal(me.globalPos())
+        current_pos = self.mapFromGlobal(me.globalPosition().toPoint())
 
         if not self._is_dragging:
             # Check drag threshold
@@ -477,7 +477,7 @@ class GraphView(QWidget):
         self._rubber_band.hide()
 
         # Final update
-        final_pos = self.mapFromGlobal(me.globalPos())
+        final_pos = self.mapFromGlobal(me.globalPosition().toPoint())
         rect = QRect(self._drag_origin, final_pos).normalized()
         self._update_selection_from_rubberband(rect)
 

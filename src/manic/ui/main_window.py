@@ -101,6 +101,10 @@ from manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
 
+
+def _eics(count: int) -> str:
+    return f"{count} EIC" if count == 1 else f"{count} EICs"
+
 SIDEBAR_WIDTH = 296
 COMPOUND_LIST_SUFFIXES = {".csv", ".xls", ".xlsx"}
 
@@ -1859,13 +1863,10 @@ class MainWindow(QMainWindow):
         # Re-enable UI
         self._re_enable_ui_actions()
 
-        # Show success message
-        msg = self._create_message_box(
-            "information",
-            "Regeneration Complete",
-            f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
+        show_status_toast(
+            self.statusBar(),
+            f"Regenerated {_eics(regenerated_count)} at {self.mass_tolerance} Da mass tolerance",
         )
-        msg.exec()
 
     def _mass_tolerance_reload_failed(self, error_msg: str):
         """Handle mass tolerance reload failure"""
@@ -1953,14 +1954,7 @@ class MainWindow(QMainWindow):
             else:
                 self.graph_view.refresh_plots_with_session_data()
 
-            msg_box = self._create_message_box(
-                "information",
-                "Regeneration Complete",
-                f"Data regeneration completed successfully!\n\n"
-                f"Regenerated {regenerated_count} EIC records.\n"
-                f"Plots have been refreshed with new data.",
-            )
-            msg_box.exec()
+            show_status_toast(self.statusBar(), f"Regenerated {_eics(regenerated_count)}")
 
         except Exception as e:
             self.toolbar.integration._pending_session_update = None

@@ -118,12 +118,14 @@ def test_tile_colours_match_the_workbook_verdict_fills(scheme, grid):
         fill = PEAK_VERDICT_FILL[verdicts[sample]]
         if fill is None:
             assert card == theme.color("surface")
-        elif theme.is_dark():
-            # A dim card of the workbook hue; the badge carries the fill itself.
-            assert abs(card.hslHue() - QColor(fill).hslHue()) <= 2
-            assert card.lightness() < 80
         else:
-            assert card.name() == fill.lower()
+            # A translucent wash of the workbook colour: its hue, between the card and the fill.
+            surface, wash = theme.color("surface"), QColor(fill)
+            hue_gap = abs(card.hslHue() - wash.hslHue()) % 360
+            assert min(hue_gap, 360 - hue_gap) <= (35 if theme.is_dark() else 5)
+            assert card != surface and card != wash
+            assert min(surface.lightness(), wash.lightness()) <= card.lightness()
+            assert card.lightness() <= max(surface.lightness(), wash.lightness())
         for badge in badges:
             pill = badge.grab().toImage().pixelColor(2, badge.height() // 2)
             assert pill != card

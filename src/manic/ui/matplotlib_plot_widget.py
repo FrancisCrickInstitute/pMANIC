@@ -94,6 +94,9 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
                 row[:3] = to_rgba(new)[:3]
         return out if len(out) > 1 else tuple(out[0])
 
+    # Read every colour before writing any: a figure and its patch share one facecolor,
+    # and remapping it twice turns dark surface into white, then into light on_accent.
+    updates = []
     for artist in figure.findobj():
         for prop in ("color", "facecolor", "edgecolor", "markeredgecolor", "markerfacecolor"):
             getter = getattr(artist, f"get_{prop}", None)
@@ -104,9 +107,14 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
                 value = getter()
                 if len(np.atleast_1d(value)) == 0 or (isinstance(value, str) and value in ("none", "auto")):
                     continue
-                setter(swap(value))
+                updates.append((setter, swap(value)))
             except (TypeError, ValueError):
                 continue
+    for setter, value in updates:
+        try:
+            setter(value)
+        except (TypeError, ValueError):
+            continue
 
 
 logger = logging.getLogger(__name__)

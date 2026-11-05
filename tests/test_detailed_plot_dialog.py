@@ -169,6 +169,7 @@ def test_live_scheme_switch_repaints_spectrum_label_boxes(qapp, spectrum):
         assert to_hex(widget.figure.get_facecolor()) == "#232529"
         apply_color_scheme(qapp, False)
         assert boxes() == {"#ffffff"}
+        assert to_hex(widget.figure.get_facecolor()) == to_hex(widget.ax.get_facecolor()) == "#ffffff"
     finally:
         apply_color_scheme(qapp, False)
         qapp.setStyleSheet("")

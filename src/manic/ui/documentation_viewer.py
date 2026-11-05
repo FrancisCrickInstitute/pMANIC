@@ -10,18 +10,26 @@ This implementation uses QWebEngineView for:
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QFont, QIcon, QKeySequence, QShortcut, QTransform
+from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import (
+    QDesktopServices,
+    QFont,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QShortcut,
+    QTransform,
+)
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidgetItem,
     QPushButton,
-    QStackedWidget,
     QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
@@ -42,6 +50,32 @@ except ImportError:
     HAS_MARKDOWN = False
 
 logger = logging.getLogger(__name__)
+
+# loadFinished comes before the first frame (until then the view shows a flat
+# fill or the previous page), so a page is shown once it has drawn its text.
+_PAINT_POLL_MS = 50
+_PAINT_TIMEOUT_MS = 10000
+# True two animation frames after the text was laid out: the frame that drew it
+# has gone to the compositor. A hidden page runs no frames.
+_PAINTED_JS = """(function () {
+  if (window.manicPainted === undefined) {
+    window.manicPainted = false;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        window.manicPainted = document.body.innerText.trim() !== "";
+      });
+    });
+  }
+  return window.manicPainted;
+})()"""
+
+
+def _is_flat(view: QWidget) -> bool:
+    """True while the view holds no drawn frame: one colour, or nothing at all."""
+    # Kept in a name: constBits() reads the image's memory and must not outlive it.
+    image = view.grab().toImage().convertToFormat(QImage.Format_RGB32)
+    data = image.constBits().tobytes()
+    return data == data[:4] * (len(data) // 4)
 
 
 def _documentation_title(path: Path) -> str:
@@ -169,6 +203,8 @@ class DocumentationViewer(QDialog):
         # Each load titles its page with a fresh token, so a finish from an
         # earlier request is never taken for the current one.
         self._request = 0
+        self._painted = 0
+        self._reloaded = 0
         self._pending_fragment = None
 
         self.setup_ui()
@@ -234,12 +270,15 @@ class DocumentationViewer(QDialog):
         self.web_view.setPage(custom_page)
         self.web_view.page().setBackgroundColor(theme.color("surface"))
         self.web_view.loadFinished.connect(self._on_load_finished)
+        # Any load, the context menu's Reload included, makes the page undrawn again.
+        self.web_view.loadStarted.connect(self._on_load_started)
         self.web_view.page().renderProcessTerminated.connect(
             lambda *_args: self._show_status("This page could not be displayed.", retry=True)
         )
 
         # Until the renderer has drawn a page, a quiet note instead of a blank pane.
         self.status_page = QWidget()
+        self.status_page.setObjectName("docsStatus")
         status_layout = QVBoxLayout(self.status_page)
         status_layout.addStretch()
         self.status_label = QLabel()
@@ -250,11 +289,14 @@ class DocumentationViewer(QDialog):
         self.retry_button.clicked.connect(self._retry)
         status_layout.addWidget(self.retry_button, 0, Qt.AlignCenter)
         status_layout.addStretch()
-        theme.style(self.status_page, "background: @surface;")
+        theme.style(self.status_page, "QWidget#docsStatus { background: @surface; }")
 
-        self.content = QStackedWidget()
-        self.content.addWidget(self.status_page)
-        self.content.addWidget(self.web_view)
+        # The note, added second, lies over the view, which must be shown for its page to paint.
+        self.content = QWidget()
+        stack = QGridLayout(self.content)
+        stack.setContentsMargins(0, 0, 0, 0)
+        stack.addWidget(self.web_view, 0, 0)
+        stack.addWidget(self.status_page, 0, 0)
         self._show_status("Loading…")
         article = QVBoxLayout()
         article.setSpacing(0)
@@ -352,10 +394,16 @@ class DocumentationViewer(QDialog):
             self.status_label, text_style("text_secondary" if retry else "text_tertiary", 13)
         )
         self.retry_button.setVisible(retry)
-        self.content.setCurrentWidget(self.status_page)
+        # A load that may overlap another starts with the view hidden: a load in a
+        # shown view while another ran crashed QtWebEngine.
+        self.web_view.hide()
+        self.status_page.show()
 
     def _request_title(self) -> str:
         return f"manic-docs-{self._request}"
+
+    def _on_load_started(self) -> None:
+        self._painted = 0
 
     def _on_load_finished(self, ok: bool) -> None:
         if not ok:
@@ -366,23 +414,57 @@ class DocumentationViewer(QDialog):
         if self._pending_fragment:
             self.web_view.page().runJavaScript(f"location.hash = '#{self._pending_fragment}';")
             self._pending_fragment = None
-        self.content.setCurrentWidget(self.web_view)
+        if not self.status_page.isHidden():
+            self._show_status("Loading…")  # a failure from a superseded load no longer applies
+        self.web_view.show()
+        self._check_painted(self._request)
+
+    def _check_painted(self, request: int) -> None:
+        if request == self._request and not self.web_view.isHidden():
+            self.web_view.page().runJavaScript(
+                _PAINTED_JS, 0, lambda painted: self._on_painted(request, painted)
+            )
+
+    def _on_painted(self, request: int, painted) -> None:
+        if painted is None:
+            return  # the page is being destroyed; its view must not be touched
+        if request != self._request or self.web_view.isHidden():
+            return
+        # The page's first frame can reach the view a moment after the page drew it.
+        if not painted or _is_flat(self.web_view):
+            QTimer.singleShot(_PAINT_POLL_MS, self, lambda: self._check_painted(request))
+            return
+        self._painted = request
+        self.status_page.hide()
         if self.find_bar.isVisible():
             self._find()  # the same search on the newly shown page
+
+    def _on_paint_timeout(self, request: int) -> None:
+        # Not when it drew, was replaced, or already says it failed.
+        if request != self._request or request == self._painted or not self.retry_button.isHidden():
+            return
+        if request == self._reloaded:
+            self._show_status("This page could not be displayed.", retry=True)
+            return
+        self._retry()
+        self._reloaded = self._request
 
     def _retry(self) -> None:
         if self.current_file is not None:
             self.load_markdown_file(self.current_file, self.current_fragment)
 
     def is_rendered(self) -> bool:
-        """True once the last page asked for has finished loading and is on screen."""
-        return self.content.currentWidget() is self.web_view
+        """True once the last page asked for has drawn its text and nothing covers it."""
+        return self._painted == self._request and self.status_page.isHidden()
 
     def _on_theme_changed(self, _remap: dict) -> None:
         self.web_view.page().setBackgroundColor(theme.color("surface"))
         if self.current_file is not None:
-            # The same page restyled: it stays in view until the new colours are drawn.
-            self.load_markdown_file(self.current_file, self.current_fragment, show_loading=False)
+            # A drawn page stays in view until the new colours are drawn; one still
+            # loading is hidden first.
+            self.load_markdown_file(
+                self.current_file, self.current_fragment, show_loading=not self.is_rendered()
+            )
 
     def open(self) -> None:
         if self.current_file is None and self.page_list.count():
@@ -555,6 +637,8 @@ class DocumentationViewer(QDialog):
             # This allows both relative .md links AND _assets/ to resolve correctly
             base_url = QUrl.fromLocalFile(str(self.docs_dir) + "/")
             self.web_view.setHtml(full_html, base_url)
+            request = self._request
+            QTimer.singleShot(_PAINT_TIMEOUT_MS, self, lambda: self._on_paint_timeout(request))
             
             logger.info(f"Successfully loaded: {file_path.name}")
             return True

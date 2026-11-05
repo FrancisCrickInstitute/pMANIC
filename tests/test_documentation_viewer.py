@@ -79,6 +79,24 @@ def _page_text(viewer) -> str:
     return result[0]
 
 
+def _shown_at_centre(viewer) -> str:
+    """What a user sees in the middle of the article area: the note or the page."""
+    widget = viewer.content.childAt(viewer.content.rect().center())
+    if widget is viewer.status_page or viewer.status_page.isAncestorOf(widget):
+        return "note"
+    return "page" if viewer.web_view.isAncestorOf(widget) else repr(widget)
+
+
+def _has_ink(view) -> bool:
+    image = view.grab().toImage()
+    background = image.pixel(0, 0)
+    return any(
+        image.pixel(x, y) != background
+        for y in range(0, image.height(), 4)
+        for x in range(0, image.width(), 4)
+    )
+
+
 def test_documentation_index_orders_groups_and_titles(tmp_path):
     _write_docs(tmp_path)
     index = documentation_index(tmp_path)
@@ -138,12 +156,37 @@ def test_documentation_sidebar_selection_changes_file(window, docs_dir):
     assert viewer.current_file == docs_dir / "Workflow_A.md"
 
 
-def test_documentation_shows_a_loading_note_then_the_page(viewer):
+def test_documentation_keeps_its_loading_note_over_the_page_until_the_page_has_drawn(viewer):
+    # Connected after the viewer's own handler, so it sees what that handler left on screen.
+    at_load_finished = []
+    viewer.web_view.loadFinished.connect(
+        lambda _ok: at_load_finished.append((_shown_at_centre(viewer), viewer.status_label.text()))
+    )
     viewer.open()
     assert viewer.status_label.text() == "Loading…"
     assert viewer.status_label.isVisible()
     assert not viewer.retry_button.isVisible() and not viewer.web_view.isVisible()
-    assert _wait(viewer.web_view.isVisible)
+    assert _wait(viewer.is_rendered)
+    # The load finished before the page reached the view, which was still blank then.
+    assert at_load_finished == [("note", "Loading…")]
+    assert _shown_at_centre(viewer) == "page" and _has_ink(viewer.web_view)
+    assert _page_text(viewer) == "Quick Start\n\nLoad a compound list."
+
+
+def test_a_page_that_never_draws_is_loaded_again_once_then_offers_a_retry(viewer, monkeypatch):
+    monkeypatch.setattr("manic.ui.documentation_viewer._PAINT_TIMEOUT_MS", 3000)
+    monkeypatch.setattr("manic.ui.documentation_viewer._PAINTED_JS", "false")
+    loads = []
+    viewer.web_view.loadFinished.connect(loads.append)
+    viewer.open()
+    assert _wait(lambda: len(loads) == 2)
+    assert viewer.status_label.text() == "Loading…" and _shown_at_centre(viewer) == "note"
+    assert _wait(viewer.retry_button.isVisible)
+    assert viewer.status_label.text() == "This page could not be displayed."
+    assert not viewer.web_view.isVisible() and loads == [True, True]
+    monkeypatch.undo()
+    viewer.retry_button.click()
+    assert _wait(viewer.is_rendered)
     assert _page_text(viewer) == "Quick Start\n\nLoad a compound list."
 
 
@@ -154,7 +197,7 @@ def test_a_failed_render_says_so_and_offers_a_retry(viewer):
     assert viewer.status_label.text() == "This page could not be displayed."
     assert viewer.retry_button.isVisible()
     viewer.retry_button.click()
-    assert _wait(viewer.web_view.isVisible)
+    assert _wait(viewer.is_rendered)
     assert _page_text(viewer) == "Quick Start\n\nLoad a compound list."
 
 

@@ -25,8 +25,9 @@ from manic.validation.unlabelled_identity import (
 TILE_GAP = 8
 TILE_ASPECT = 1.45
 
-# Tiles shrink to keep every sample on screen, down to this readable (width, height).
-MIN_TILE = (130, 95)
+# Tiles shrink to keep every sample on screen, down to this (width, height): after the
+# caption, ticks and badges it leaves about 120x70 of plot to judge a peak's shape.
+MIN_TILE = (165, 120)
 # Tiles at least this big get the larger text; a grid that must scroll uses this size.
 LARGE_TILE = (230, 165)
 

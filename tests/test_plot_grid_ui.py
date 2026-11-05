@@ -344,6 +344,15 @@ def test_tiles_fit_the_2560_screen_or_scroll_at_the_large_size(
     assert (grid._scroll.verticalScrollBar().maximum() > 0) == (samples == 200)
 
 
+def test_tiles_too_small_to_judge_a_peak_scroll_at_the_large_size_instead(grid, qapp):
+    # The grid viewport of a 1280x800 window with the Summary open; fitting all 30
+    # tiles would leave each 139x106.
+    _show_grid_with_viewport(grid, qapp, 30, 727, 676)
+    assert grid._grid_shape[1] >= LARGE_TILE[1]
+    assert _plots(grid)["S0"].parent().height() >= LARGE_TILE[1]
+    assert grid._scroll.verticalScrollBar().maximum() > 0
+
+
 def test_next_and_previous_flagged_tile_wrap_and_skip_reviewed_ones(grid):
     grid.plot_compound("Cmp", ["A", "B", "C", "D", "E"])
     assert grid.focus_flagged(1) is False

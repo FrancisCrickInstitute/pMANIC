@@ -6,13 +6,17 @@ two revisions compare one to one. Modal dialogs and menus are captured and
 dismissed instead of blocking. The app's own database is never touched.
 
 Run from the repository root:
-  uv run python scripts/ui_tour.py OUT_DIR [--size 1600x1000] [--scheme light|dark]
+  uv run python scripts/ui_tour.py OUT_DIR [--size 2560x1410] [--scheme light|dark] [--onscreen]
+
+By default it renders offscreen on a virtual 2560x1410 screen, so no window opens
+on the desktop; --onscreen draws real windows (CI uses it for native rendering).
 """
 
 from __future__ import annotations
 
 import argparse
 import atexit
+import os
 import shutil
 import sys
 import tempfile
@@ -569,11 +573,18 @@ def tour_steps(tour: Tour) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("out", type=Path)
-    parser.add_argument("--size", default="1600x1000")
+    parser.add_argument("--size", default="2560x1410")
     parser.add_argument(
         "--scheme", choices=("light", "dark"), help="force light or dark (default: follow the OS)"
     )
+    parser.add_argument(
+        "--onscreen", action="store_true", help="draw real windows instead of rendering offscreen"
+    )
     args = parser.parse_args()
+    if not args.onscreen:
+        os.environ.setdefault(
+            "QT_QPA_PLATFORM", f"offscreen:configfile={ROOT / 'scripts' / 'screen2560.json'}"
+        )
     args.out.mkdir(parents=True, exist_ok=True)
     width, height = (int(v) for v in args.size.split("x"))
 

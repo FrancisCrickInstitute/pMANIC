@@ -46,7 +46,7 @@ jobs:
 
       - name: Run the tour
         shell: bash
-        run: uv run python scripts/ui_tour.py ui-tour --scheme ${{ matrix.scheme }}
+        run: uv run python scripts/ui_tour.py ui-tour --scheme ${{ matrix.scheme }} --onscreen --size 1600x1000
 
       - uses: actions/upload-artifact@v4
         if: always()

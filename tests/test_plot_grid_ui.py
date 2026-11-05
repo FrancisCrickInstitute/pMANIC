@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QFontMetricsF, QTextDocumentFragment
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
@@ -233,12 +233,21 @@ def test_a_narrow_header_keeps_one_row_with_the_scale_toggles_in_a_menu(grid, qa
             if row.itemAt(i).widget() is not None and row.itemAt(i).widget().isVisible()
         }
         assert max(middles) - min(middles) <= 1
-    menu = grid.scale_menu_button.menu()
+    button = grid.scale_menu_button
+    assert (button.text(), button.isChecked()) == ("Scale", False)
+    menu = button.menu()
     menu.aboutToShow.emit()
     shared = next(action for action in menu.actions() if action.text() == "Shared Y")
     assert not shared.isChecked()
     shared.trigger()
     assert grid.shared_y_button.isChecked()
+    # The folded button names the scale in use, as the unfolded toggle would show it.
+    assert (button.text(), button.isChecked()) == ("Shared Y", True)
+    assert button.toolTip() == "Plot y-scale: Shared Y"
+    # Pressing it (as assistive tech does) only opens the menu.
+    QTimer.singleShot(50, button.menu().close)
+    button.click()
+    assert button.isChecked() and grid.shared_y_button.isChecked()
     menu.aboutToShow.emit()
     assert shared.isChecked()
 

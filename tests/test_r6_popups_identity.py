@@ -49,7 +49,7 @@ def _marks(chart):
 
 def test_compound_with_no_expected_ratios_says_so_instead_of_a_grey_grid(qapp):
     identity = _identity(UNSET, ["MM_01", "MM_02"])
-    note = "No expected ratios set for Glycine. Add them in Settings › Qualifier Ratios."
+    from manic.ui.identity_chart import MISSING_RATIO_STEP as note
     dialog = ChartPopupDialog.for_identity(identity)
     widget = TargetedQcWidget()
     try:
@@ -92,6 +92,9 @@ def test_sidebar_rows_keep_their_marks_and_names_and_scroll(qapp):
         widget.update_results(_identity(SET, names))
         widget.resize(260, 400)
         widget.show()
+        qapp.processEvents()
+        # The height cap depends on the settled width, so size it once more.
+        widget.resize(260, 400)
         qapp.processEvents()
         assert widget.chart_view.height() == 30 * SIDEBAR_ROW
         assert widget._scroll.height() == SIDEBAR_VISIBLE_ROWS * SIDEBAR_ROW

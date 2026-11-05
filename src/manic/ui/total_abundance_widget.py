@@ -19,13 +19,15 @@ from PySide6.QtWidgets import QFrame, QSizePolicy, QToolTip, QVBoxLayout, QWidge
 from manic.io.eic_reader import EIC
 from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
+from manic.ui.chart_popup_dialog import PinnedAxis, value_axis_ticks
 from manic.ui.chart_style import scale_text, set_nice_ticks, style_axis, style_chart
 from manic.ui.colors import abundance_colour
 from manic.ui.sidebar_widgets import (
     SUMMARY_CHART_HEIGHT,
     SummaryChartArea,
-    summary_chart_height,
+    fit_category_names,
 )
+
 from manic.ui.theme import color
 
 logger = logging.getLogger(__name__)
@@ -78,16 +80,18 @@ class TotalAbundanceWidget(QWidget):
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
         layout.addWidget(self.header)
-        # The value axis takes about 30 px below the bars.
-        self.chart_area = SummaryChartArea(self.chart_view, 30)
+        # The value axis stays above the rows while they scroll, as in the popup.
+        self.value_axis = PinnedAxis(self.chart_view)
+        layout.addWidget(self.value_axis)
+        self.chart_area = SummaryChartArea(self.chart_view, 4)
         layout.addWidget(self.chart_area)
+        self.chart.plotAreaChanged.connect(self._fit_names)
 
         # The grid's selected samples, drawn in the accent colour.
         self._highlighted: set[str] = set()
         theme.notifier.changed.connect(self._paint_highlight)
 
         # Responsive height to match isotopologue widget
-        self.setMinimumHeight(SUMMARY_CHART_HEIGHT[0])
         self.setMaximumHeight(SUMMARY_CHART_HEIGHT[1])
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
@@ -189,8 +193,6 @@ class TotalAbundanceWidget(QWidget):
 
         # Add series to chart
         self.chart.addSeries(bar_series)
-        # The header and axis take about 64 px around the bars.
-        self.setMinimumHeight(summary_chart_height(len(sample_names), 64))
         self.chart_area.set_rows(len(sample_names))
 
         # Setup axes
@@ -200,6 +202,11 @@ class TotalAbundanceWidget(QWidget):
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._paint_highlight()
+
+    def _fit_names(self, *_args) -> None:
+        axes = self.chart.axes(Qt.Vertical)
+        if self._current_sample_names and axes:
+            fit_category_names(axes[0], self._current_sample_names, self.chart_view.width())
 
     def set_highlighted(self, sample_names) -> None:
         """Mark the bars of the samples selected in the grid and scroll to them."""
@@ -265,6 +272,7 @@ class TotalAbundanceWidget(QWidget):
 
         style_axis(x_axis, grid=True)
         x_axis.setLineVisible(False)
+        x_axis.setLabelsVisible(False)
         self.header.set_has_data(True, scale_text(scale_exp))
 
         y_axis = QBarCategoryAxis()
@@ -273,8 +281,9 @@ class TotalAbundanceWidget(QWidget):
         y_axis.setLineVisible(False)
 
         # Add axes to chart
-        self.chart.addAxis(x_axis, Qt.AlignBottom)
+        self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
+        self.value_axis.set_axis("", value_axis_ticks(x_axis))
 
     def _clear_chart(self) -> None:
         """Clear the chart when no data is available."""
@@ -282,6 +291,7 @@ class TotalAbundanceWidget(QWidget):
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
         self.header.set_has_data(False)
+        self.value_axis.set_axis("", [])
         self.chart_area.set_rows(0)
 
         # Reset data

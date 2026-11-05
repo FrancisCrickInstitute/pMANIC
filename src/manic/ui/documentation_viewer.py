@@ -17,11 +17,17 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
+    QLabel,
     QListWidgetItem,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from manic.utils.paths import docs_path
 from manic.ui import theme
+from manic.ui.chart_style import text_style
 from manic.ui.dialog_kit import resize_to_screen, sidebar_item_size, sidebar_list, window_title
 from manic.ui.theme import COLORS
 from manic.ui.window_placement import show_over_parent
@@ -154,9 +160,13 @@ class DocumentationViewer(QDialog):
         layout.setSpacing(0)
 
         self.page_list = sidebar_list("documentationPageList", 300)
+        metrics = self.page_list.fontMetrics()
+        room = self.page_list.width() - 32
         for title, path in documentation_index(self.docs_dir):
             item = QListWidgetItem(title)
-            item.setToolTip(title)
+            # The whole title on hover only when the list cuts it short.
+            if metrics.horizontalAdvance(title) > room:
+                item.setToolTip(title)
             item.setSizeHint(sidebar_item_size())
             item.setData(Qt.UserRole, path)
             self.page_list.addItem(item)
@@ -167,8 +177,54 @@ class DocumentationViewer(QDialog):
         custom_page = DocumentationPage(self.web_view, self._handle_navigation)
         self.web_view.setPage(custom_page)
         self.web_view.page().setBackgroundColor(theme.color("surface"))
-        layout.addWidget(self.web_view, 1)
+        self.web_view.loadFinished.connect(self._on_load_finished)
+        self.web_view.page().renderProcessTerminated.connect(
+            lambda *_args: self._show_status("This page could not be displayed.", retry=True)
+        )
+
+        # Until the renderer has drawn a page, a quiet note instead of a blank pane.
+        self.status_page = QWidget()
+        status_layout = QVBoxLayout(self.status_page)
+        status_layout.addStretch()
+        self.status_label = QLabel()
+        self.status_label.setAlignment(Qt.AlignCenter)
+        theme.style(self.status_label, text_style("text_tertiary", 13))
+        status_layout.addWidget(self.status_label)
+        self.retry_button = QPushButton("Try Again")
+        self.retry_button.clicked.connect(self._retry)
+        status_layout.addWidget(self.retry_button, 0, Qt.AlignCenter)
+        status_layout.addStretch()
+        theme.style(self.status_page, "background: @surface;")
+
+        self.content = QStackedWidget()
+        self.content.addWidget(self.status_page)
+        self.content.addWidget(self.web_view)
+        self._show_status("Loading…")
+        layout.addWidget(self.content, 1)
         theme.notifier.changed.connect(self._on_theme_changed)
+
+    def _show_status(self, text: str, *, retry: bool = False) -> None:
+        self.status_label.setText(text)
+        theme.style(
+            self.status_label, text_style("text_secondary" if retry else "text_tertiary", 13)
+        )
+        self.retry_button.setVisible(retry)
+        self.content.setCurrentWidget(self.status_page)
+
+    def _on_load_finished(self, ok: bool) -> None:
+        if ok:
+            self.content.setCurrentWidget(self.web_view)
+        else:
+            self._show_status("This page could not be displayed.", retry=True)
+
+    def _retry(self) -> None:
+        self._show_status("Loading…")
+        if self.current_file is not None:
+            self.load_markdown_file(self.current_file, self.current_fragment)
+
+    def is_rendered(self) -> bool:
+        """True once a page has finished loading and is on screen."""
+        return self.content.currentWidget() is self.web_view
 
     def _on_theme_changed(self, _remap: dict) -> None:
         self.web_view.page().setBackgroundColor(theme.color("surface"))

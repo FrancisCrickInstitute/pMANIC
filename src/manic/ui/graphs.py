@@ -218,7 +218,8 @@ class GraphView(QWidget):
         theme.style(self.compound_title, text_style("text", FONT_SIZE_TITLE, 600))
         self.compound_title.hide()
         header.addWidget(self.compound_title)
-        # "tR 7.09 · 30 samples", or "· 3 of 30 selected" once plots are picked.
+        # "tR 7.09", plus "· 3 of 30 selected" once plots are picked; the Samples
+        # section already gives the total.
         self.selection_summary = QLabel()
         self.selection_summary.setMinimumWidth(1)
         theme.style(self.selection_summary, text_style("text_secondary", 12))
@@ -245,8 +246,7 @@ class GraphView(QWidget):
         self.qc_key.setFixedHeight(CHIP_HEIGHT)
         theme.style(self.qc_key, text_style("text_secondary", 11))
         self.qc_key.setToolTip(
-            "Qualifier ion traces are coloured by each sample's qualifier QC result.\n"
-            "Grey means no verdict: the qualifier is absent, not assessed, or unavailable."
+            "Grey: the qualifier is absent, not assessed, or unavailable."
         )
         self.qc_key.setText(
             "Qualifier colour = QC&nbsp;&nbsp;"
@@ -408,12 +408,7 @@ class GraphView(QWidget):
     def _update_selection_summary(self, *_args) -> None:
         total = len(self._current_plots)
         selected = len(self._selected_plots)
-        noun = "sample" if total == 1 else "samples"
-        count = (
-            "" if not total
-            else f"{selected} of {total} selected" if selected
-            else f"{total} {noun}"
-        )
+        count = f"{selected} of {total} selected" if total and selected else ""
         self.selection_summary.setText(" · ".join(p for p in (self._tr_text, count) if p))
 
     def eventFilter(self, obj, event):

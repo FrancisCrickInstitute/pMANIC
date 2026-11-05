@@ -70,7 +70,7 @@ def test_isotopologues_are_named_together_at_full_range_and_apart_when_zoomed(qa
         widget.deleteLater()
 
 
-def test_reset_hint_shows_and_double_click_resets_while_panning(qapp, monkeypatch):
+def test_reset_gesture_is_in_the_tooltip_and_double_click_resets_while_panning(qapp, monkeypatch):
     from manic.ui.detailed_plot_dialog import DetailedPlotDialog
 
     monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
@@ -78,8 +78,7 @@ def test_reset_hint_shows_and_double_click_resets_while_panning(qapp, monkeypatc
     try:
         dialog.show()
         qapp.processEvents()
-        assert dialog.nav_toolbar.reset_hint.text() == "Double-click a chart to reset it"
-        assert dialog.nav_toolbar.reset_hint.isVisible()
+        assert "Double-click a chart to reset only that chart" in dialog.nav_toolbar.home_btn.toolTip()
         for button in (dialog.nav_toolbar.pan_btn, dialog.nav_toolbar.zoom_btn):
             button.click()
             plot = dialog.tic_plot
@@ -90,6 +89,5 @@ def test_reset_hint_shows_and_double_click_resets_while_panning(qapp, monkeypatc
             MouseEvent("button_press_event", plot.canvas, x, y, button=1, dblclick=True)._process()
             MouseEvent("button_release_event", plot.canvas, x, y, button=1)._process()
             assert plot.ax.get_xlim()[0] < 0.0 and plot.ax.get_xlim()[1] > 10.0, button.text()
-            assert dialog.nav_toolbar.reset_hint.isVisible()
     finally:
         dialog.deleteLater()

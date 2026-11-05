@@ -65,7 +65,7 @@ def test_grid_header_names_the_compound_with_tr_and_count(plotted_grid):
     view.plot_compound("Pyruvate", ["S1", "S2", "S3"])
     assert not view.compound_title.isHidden()
     assert view.compound_title.text() == "Pyruvate"
-    assert view.selection_summary.text() == "tR 7.09 · 3 samples"
+    assert view.selection_summary.text() == "tR 7.09"
 
     view.select_samples(["S2"])
     assert view.selection_summary.text() == "tR 7.09 · 1 of 3 selected"
@@ -154,19 +154,16 @@ def test_chip_row_wraps_before_truncating_a_chip(qapp):
         host.deleteLater()
 
 
-def test_badges_move_below_a_caption_they_would_cut_off(qapp):
+def test_badges_sit_below_the_caption_at_every_width(qapp):
     tile = PlotTile(QWidget())
     tile.set_caption("Sample_05_rt_shift")
     tile.set_badges([PEAK_BADGES[PeakVerdict.FAIL]])
     try:
-        tile.resize(200, 150)
         tile.show()
-        qapp.processEvents()
-        assert not tile.badges_inline()
-        assert tile.caption.text() == "Sample_05_rt_shift"
-
-        tile.resize(600, 300)
-        qapp.processEvents()
-        assert tile.badges_inline()
+        for width in (200, 600):
+            tile.resize(width, 300)
+            qapp.processEvents()
+            assert tile.caption.text() == "Sample_05_rt_shift"
+            assert tile._badge_box.geometry().top() >= tile.caption.geometry().bottom()
     finally:
         tile.deleteLater()

@@ -26,7 +26,7 @@ def identity_key_chips(
     """Chips for the Identity view: every channel with its expectation, plus a
     dotted placeholder for each of the two qualifier slots the method left empty."""
     labels = [
-        f"{channel.label}   {_expectation(channel)}"
+        f"{channel.label}   {expectation_text(channel)}"
         if channel.role is IonRole.QUALIFIER
         else channel.label
         for channel in channels
@@ -40,9 +40,12 @@ def identity_key_chips(
     return labels, styles
 
 
-def _expectation(channel: IonChannel) -> str:
+def expectation_text(channel: IonChannel) -> str:
+    """'expected 0.400  ±25%', naming whichever of ratio or tolerance is missing."""
     if channel.expected_ratio is None:
         return "no expected ratio"
+    if channel.ratio_tolerance is None:
+        return qualifier_expectation(channel).replace("—", "no tolerance")
     return qualifier_expectation(channel)
 
 
@@ -57,7 +60,11 @@ class ChannelChip(QWidget):
         self._full = QSize(chrome + metrics.horizontalAdvance(label), CHIP_HEIGHT)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.setFixedHeight(CHIP_HEIGHT)
-        self.setToolTip(label)
+
+    def resizeEvent(self, event) -> None:
+        # The full label on hover only when the chip is too narrow to show it.
+        self.setToolTip(self.label if self.width() < self._full.width() else "")
+        super().resizeEvent(event)
 
     def sizeHint(self) -> QSize:
         return self._full

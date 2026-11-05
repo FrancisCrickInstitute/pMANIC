@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
 from manic.ui.dialog_kit import (
     MARGIN,
     button_box,
-    description_label,
     hint_label,
     style_dialog,
     title_label,
@@ -45,10 +44,6 @@ class RecoveryDialog(QDialog):
         layout.setSpacing(8)
         self.title = title_label(f"Recover deleted {noun}s")
         layout.addWidget(self.title)
-        self.description = description_label(
-            f"Restored {noun}s return to the {noun} list."
-        )
-        layout.addWidget(self.description)
 
         self.item_list = QListWidget()
         self.item_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
@@ -79,7 +74,7 @@ class RecoveryDialog(QDialog):
         else:
             # Nothing to restore: say so and offer only Close.
             self.title.setText(f"No deleted {self._noun}s")
-            for widget in (self.description, self.item_list, self.status_label):
+            for widget in (self.item_list, self.status_label):
                 widget.hide()
             self.restore_btn.hide()
             for button in self.buttons.buttons():

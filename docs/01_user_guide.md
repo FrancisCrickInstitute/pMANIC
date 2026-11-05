@@ -206,6 +206,16 @@ If you make a mistake or want to revert to the original library definitions:
 2.  Click the **Reset** button in the **Peak window** section.
 3.  This removes all session-specific overrides for those samples.
 
+### Fix a missing qualifier ratio
+In unlabelled mode, Identity QC checks a qualifier ion only when it has an expected ratio and a tolerance. Expected ratios come only from the compound list, in the `Qualifier 1 Ratio` and `Qualifier 2 Ratio` columns (qualifier area / Q area). A missing tolerance does not need a reload: set it in **Settings → Qualifier Ratios**.
+
+To add an expected ratio:
+1.  Fill the compound's `Qualifier 1 Ratio` or `Qualifier 2 Ratio` cell in the compound list file and save the file.
+2.  Choose **File → Clear Session** and confirm.
+3.  Load the compound list, then the raw data, again.
+
+Clear Session also removes the review work in the session: integration changes, peak reviews, curve-fit choices, tolerances set in Settings, the internal standard and compounds added with **Add Compound**. Add missing ratios before you review. Importing a session exported earlier restores the ratios saved in it, so export a new session after the reload.
+
 ---
 
 ## Step 4b: Managing Samples and Compounds

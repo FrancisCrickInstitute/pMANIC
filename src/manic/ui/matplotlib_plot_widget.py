@@ -1,15 +1,7 @@
-"""
-Matplotlib-based plot widget for enhanced data visualization.
-
-This module provides a high-performance plotting widget using matplotlib
-with optimized rendering and professional scientific notation support.
-Key features include custom zoom controls, responsive layouts, and
-efficient batch rendering for improved performance.
-"""
+"""Matplotlib plot widget for the detailed view, with a shared pan/zoom toolbar."""
 
 import logging
 
-# Configure matplotlib for Qt5 integration with performance optimizations
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -56,12 +48,9 @@ def _points(px: float) -> float:
 PLOT_TICK_FONTSIZE = _points(11)
 PLOT_LABEL_FONTSIZE = _points(12)
 PLOT_TITLE_FONTSIZE = _points(13)
-# Configure matplotlib rendering parameters for optimal performance
-matplotlib.rcParams["figure.dpi"] = PLOT_DPI  # Optimized DPI for responsive rendering
-matplotlib.rcParams["figure.autolayout"] = (
-    False  # Manual layout control for performance
-)
-matplotlib.rcParams["axes.unicode_minus"] = False  # Simplified minus sign rendering
+matplotlib.rcParams["figure.dpi"] = PLOT_DPI
+matplotlib.rcParams["figure.autolayout"] = False
+matplotlib.rcParams["axes.unicode_minus"] = False
 # Match the app's system font (macOS, Windows, then matplotlib's own fallback).
 matplotlib.rcParams.update(
     {
@@ -217,16 +206,7 @@ class CompactNavigationToolbar(QWidget):
 
 
 class MatplotlibPlotWidget(QWidget):
-    """
-    Advanced scientific plotting widget with matplotlib backend.
-
-    Provides professional-grade visualization capabilities including:
-    - Integrated navigation controls for interactive exploration
-    - Automatic scientific notation for large numerical ranges
-    - High-precision line and marker positioning
-    - Optimized batch rendering for performance
-    - Responsive layout adaptation
-    """
+    """One matplotlib axes with themed text, scientific-notation ticks and peak labels."""
 
     def __init__(
         self, title: str = "", x_label: str = "", y_label: str = "", parent=None
@@ -236,7 +216,6 @@ class MatplotlibPlotWidget(QWidget):
         self.x_label = x_label
         self.y_label = y_label
 
-        # Initialize data storage for plot management
         self.data_lines = []
         self._last_stem_data = None
 
@@ -251,7 +230,6 @@ class MatplotlibPlotWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Initialize matplotlib figure with performance-optimized parameters
         self.figure = Figure(
             figsize=(PLOT_FIGURE_WIDTH, PLOT_FIGURE_HEIGHT),
             dpi=PLOT_DPI,
@@ -261,7 +239,6 @@ class MatplotlibPlotWidget(QWidget):
         self.canvas = FigureCanvas(self.figure)
         theme.style(self.canvas, "background-color: @surface; border: none;")
 
-        # Configure subplot with optimized margin parameters
         self.ax = self.figure.add_subplot(111, facecolor=COLORS["surface"])
         self.figure.subplots_adjust(
             left=PLOT_MARGIN_LEFT,
@@ -270,18 +247,15 @@ class MatplotlibPlotWidget(QWidget):
             bottom=PLOT_MARGIN_BOTTOM,
         )
 
-        # Configure minimal axis styling for clean appearance
         self.ax.spines["top"].set_visible(False)
         self.ax.spines["right"].set_visible(False)
         self.ax.spines["left"].set_linewidth(PLOT_AXIS_SPINE_WIDTH)
         self.ax.spines["bottom"].set_linewidth(PLOT_AXIS_SPINE_WIDTH)
 
-        # Initialize plot labels and title
         self._set_axes_title(self.title)
         self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
 
-        # Apply subtle grid styling for reference
         self.ax.grid(
             True, color=COLORS["grid_line"], linestyle="-", linewidth=PLOT_GRID_LINEWIDTH
         )
@@ -302,7 +276,6 @@ class MatplotlibPlotWidget(QWidget):
 
         layout.addWidget(self.canvas)
 
-        # Define minimum widget dimensions
         self.setMinimumHeight(PLOT_MIN_HEIGHT)
 
     def clear_plot(self):
@@ -319,7 +292,6 @@ class MatplotlibPlotWidget(QWidget):
         )
         self.ax.tick_params(labelsize=PLOT_TICK_FONTSIZE)
 
-        # Restore axis styling configuration
         self.ax.spines["top"].set_visible(False)
         self.ax.spines["right"].set_visible(False)
         self.ax.spines["left"].set_linewidth(PLOT_AXIS_SPINE_WIDTH)
@@ -347,11 +319,9 @@ class MatplotlibPlotWidget(QWidget):
             style: Line style ('solid', 'dashed', 'dotted', 'dashdot')
         """
         try:
-            # Ensure data is in numpy array format
             x_data = np.asarray(x_data, dtype=np.float64)
             y_data = np.asarray(y_data, dtype=np.float64)
 
-            # Remove invalid data points
             mask = np.isfinite(x_data) & np.isfinite(y_data)
             x_data = x_data[mask]
             y_data = y_data[mask]
@@ -360,10 +330,8 @@ class MatplotlibPlotWidget(QWidget):
                 logger.warning(f"No valid data to plot for '{name}'")
                 return
 
-            # Store data for later reference
             self.data_lines.append((x_data, y_data))
 
-            # Parse RGBA color format if provided
             if color.startswith("rgba"):
                 import re
 
@@ -372,10 +340,8 @@ class MatplotlibPlotWidget(QWidget):
                     r, g, b, a = match.groups()
                     color = (int(r) / 255, int(g) / 255, int(b) / 255, float(a))
             elif color.startswith("#"):
-                # Convert hex to matplotlib format
                 pass  # matplotlib handles hex colors natively
 
-            # Plot the line
             self.ax.plot(
                 x_data,
                 y_data,
@@ -385,11 +351,9 @@ class MatplotlibPlotWidget(QWidget):
                 label=name if name else None,
             )[0]
 
-            # Update axes limits
             self.ax.relim()
             self.ax.autoscale_view()
 
-            # Use scientific notation for large numbers
             if np.max(np.abs(y_data)) > SCIENTIFIC_NOTATION_THRESHOLD:
                 self.ax.ticklabel_format(axis="y", style="scientific", scilimits=(0, 0))
                 self.ax.yaxis.get_offset_text().set_fontsize(PLOT_TICK_FONTSIZE)
@@ -416,11 +380,9 @@ class MatplotlibPlotWidget(QWidget):
             width: Line width
         """
         try:
-            # Ensure data is in numpy array format
             x_data = np.asarray(x_data, dtype=np.float64)
             y_data = np.asarray(y_data, dtype=np.float64)
 
-            # Filter out non-positive values
             mask = (y_data > 0) & np.isfinite(x_data) & np.isfinite(y_data)
             x_data = x_data[mask]
             y_data = y_data[mask]
@@ -430,13 +392,10 @@ class MatplotlibPlotWidget(QWidget):
                 self._last_stem_data = None
                 return
 
-            # Store stem data for robust reset behavior
             self._last_stem_data = (x_data, y_data)
 
-            # Use matplotlib stem plot
             markerline, stemlines, baseline = self.ax.stem(x_data, y_data, basefmt=" ")
 
-            # Set colors and widths
             markerline.set_color(color)
             markerline.set_markersize(0)  # Hide markers
             stemlines.set_color(color)
@@ -446,12 +405,10 @@ class MatplotlibPlotWidget(QWidget):
             y_max = float(np.max(y_data))
             self.ax.set_ylim(0, y_max * STEM_HEADROOM)
 
-            # Set X axis limits based on actual data range with small padding
             x_min, x_max = x_data.min(), x_data.max()
             x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 10
             self.ax.set_xlim(max(0, x_min - x_padding), x_max + x_padding)
 
-            # Use scientific notation for large numbers
             if y_max > SCIENTIFIC_NOTATION_THRESHOLD:
                 self.ax.ticklabel_format(axis="y", style="scientific", scilimits=(0, 0))
                 self.ax.yaxis.get_offset_text().set_fontsize(PLOT_TICK_FONTSIZE)
@@ -478,7 +435,6 @@ class MatplotlibPlotWidget(QWidget):
             style: Line style (solid, dashed, dotted)
         """
         try:
-            # Parse RGBA color format if provided
             if color.startswith("rgba"):
                 import re
 
@@ -487,7 +443,6 @@ class MatplotlibPlotWidget(QWidget):
                     r, g, b, a = match.groups()
                     color = (int(r) / 255, int(g) / 255, int(b) / 255, float(a))
 
-            # Convert style to matplotlib format
             linestyle = "-"
             if style == "dashed":
                 linestyle = "--"
@@ -496,7 +451,6 @@ class MatplotlibPlotWidget(QWidget):
             elif style == "dashdot":
                 linestyle = "-."
 
-            # Add vertical line
             self.ax.axvline(
                 x=x_position,
                 color=color,
@@ -520,13 +474,11 @@ class MatplotlibPlotWidget(QWidget):
         """
         try:
             handles, labels = self.ax.get_legend_handles_labels()
-            # Avoid creating an empty legend
             if not labels:
                 return
 
             kwargs.setdefault("frameon", True)
             legend = self.ax.legend(loc=loc, fontsize=PLOT_LABEL_FONTSIZE, **kwargs)
-            # Keep a reference if needed later (optional)
             self._legend = legend
 
         except Exception as e:
@@ -786,31 +738,25 @@ class MatplotlibPlotWidget(QWidget):
         self.ax.grid(True, color=COLORS["grid_line"], linestyle="-", linewidth=PLOT_GRID_LINEWIDTH)
         self._fit_margins()
 
-        # For time axis, format nicely
         if "time" in self.x_label.lower() or "min" in self.x_label.lower():
-            # Format x-axis to show clear decimal minutes
             from matplotlib.ticker import FormatStrFormatter
 
             self.ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
 
-        # Single draw call for all updates - much faster
         self.canvas.draw()
 
     def cleanup(self):
         """Properly cleanup matplotlib resources to prevent memory leaks."""
         try:
-            # Clear the axes
             if hasattr(self, "ax") and self.ax:
                 self.ax.clear()
                 self.ax = None
 
-            # Clear and close the figure
             if hasattr(self, "figure") and self.figure:
                 self.figure.clear()
                 plt.close(self.figure)
                 self.figure = None
 
-            # Clear canvas reference
             if hasattr(self, "canvas") and self.canvas:
                 self.canvas = None
 
@@ -818,7 +764,6 @@ class MatplotlibPlotWidget(QWidget):
                 self.nav = None
             self._reset_peak_labels()
 
-            # Clear data storage
             if hasattr(self, "data_lines"):
                 self.data_lines = []
 

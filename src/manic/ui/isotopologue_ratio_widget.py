@@ -72,7 +72,6 @@ class IsotopologueRatioWidget(QWidget):
 
         self.use_corrected = False
 
-        # Create chart and chart view
         self.chart = QChart()
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
@@ -80,7 +79,6 @@ class IsotopologueRatioWidget(QWidget):
         self.chart_view.setFrameShape(QFrame.NoFrame)
         self.chart_view.setStyleSheet("background: transparent; border: none;")
 
-        # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))
@@ -121,11 +119,9 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.plotAreaChanged.connect(self._paint_highlight)
         theme.notifier.changed.connect(self._paint_highlight)
 
-        # Responsive height for toolbar integration
         self.setMaximumHeight(SUMMARY_CHART_MAX_HEIGHT)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
-        # Data storage
         self._current_eics: Optional[List[EIC]] = None
         self._current_compound: str = ""
         self._last_total_abundances: Optional[np.ndarray] = None
@@ -134,13 +130,7 @@ class IsotopologueRatioWidget(QWidget):
         self._current_sample_names: Optional[List[str]] = None
 
     def update_ratios(self, compound_name: str, eics: List[EIC]) -> None:
-        """
-        Update the chart with new isotopologue ratios.
-
-        Args:
-            compound_name: Name of the compound
-            eics: List of EIC data for each sample
-        """
+        """Integrate ``eics`` and chart each sample's isotopologue ratios."""
         if not eics or not compound_name:
             self._clear_chart()
             return
@@ -148,18 +138,15 @@ class IsotopologueRatioWidget(QWidget):
         self._current_eics = eics
         self._current_compound = compound_name
 
-        # Calculate both ratios and total abundances using unified integration
         ratios, total_abundances = self._calculate_integrated_data(eics, compound_name)
 
         if ratios is None:
             self._clear_chart()
             return
 
-        # Store total abundances for sharing with total abundance widget
         self._last_total_abundances = total_abundances
         self._last_eics = eics
 
-        # Check if this compound has isotopologues
         if eics[0].intensity.ndim == 1:
             # Single trace - don't show isotopologue chart (it would just be 100%)
             self._clear_chart()
@@ -172,11 +159,9 @@ class IsotopologueRatioWidget(QWidget):
         ordered_eics = eics[::-1]
         ordered_ratios = np.flipud(ratios)
 
-        # Store current data for popup
         self._current_ratios = ordered_ratios
         self._current_sample_names = [eic.sample_name for eic in ordered_eics]
 
-        # Update chart
         self._update_chart(ordered_ratios, self._current_sample_names)
 
     def _calculate_integrated_data(
@@ -219,32 +204,21 @@ class IsotopologueRatioWidget(QWidget):
             return None, None
 
     def _update_chart(self, ratios: np.ndarray, sample_names: List[str]) -> None:
-        """
-        Update the horizontal stacked bar chart with new ratio data.
-
-        Args:
-            ratios: Array of shape (n_samples, n_isotopologues)
-            sample_names: List of sample names for y-axis labels
-        """
-        # Clear existing data
+        """One stacked bar per sample; ``ratios`` is (n_samples, n_isotopologues)."""
         self.chart.removeAllSeries()
 
-        # Create horizontal stacked bar series
         bar_series = QHorizontalStackedBarSeries()
 
-        # Make bars wider (taller in horizontal orientation)
         bar_series.setBarWidth(0.8)
 
         n_samples, n_isotopologues = ratios.shape
 
-        # Create one bar set per isotopologue (M+0, M+1, etc.)
         bar_sets = []
         for i in range(n_isotopologues):
             bar_set = QBarSet(f"M+{i}")
             bar_set.setColor(label_colors[i % len(label_colors)])
             bar_set.setBorderColor(color("surface"))
 
-            # Add ratio values for this isotopologue across all samples
             for j in range(n_samples):
                 bar_set.append(ratios[j, i])
             bar_set.hovered.connect(self._on_bar_hovered)
@@ -252,14 +226,11 @@ class IsotopologueRatioWidget(QWidget):
             bar_sets.append(bar_set)
             bar_series.append(bar_set)
 
-        # Add series to chart
         self.chart.addSeries(bar_series)
         self.chart_area.set_rows(len(sample_names))
 
-        # Setup axes
         self._setup_axes(sample_names)
 
-        # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._refresh_key()
@@ -389,11 +360,9 @@ class IsotopologueRatioWidget(QWidget):
 
     def _setup_axes(self, sample_names: List[str]) -> None:
         """Setup chart axes for horizontal layout."""
-        # Remove existing axes
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
 
-        # X-axis (horizontal): Ratio values (0 to 1)
         x_axis = QValueAxis()
         x_axis.setRange(0, 1)
         x_axis.setLabelFormat("%.1f")
@@ -408,7 +377,6 @@ class IsotopologueRatioWidget(QWidget):
         style_axis(y_axis)
         y_axis.setLineVisible(False)
 
-        # Add axes to chart
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
         self.value_axis.set_axis("", value_axis_ticks(x_axis))
@@ -423,7 +391,6 @@ class IsotopologueRatioWidget(QWidget):
         self.value_axis.set_axis("", [])
         self.chart_area.set_rows(0)
 
-        # Reset data
         self._current_eics = None
         self._current_compound = ""
         self._last_total_abundances = None

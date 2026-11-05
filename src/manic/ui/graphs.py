@@ -105,10 +105,8 @@ def tile_caption(sample_name: str, fit_type: str | None) -> str:
 class ClickableChartView(QChartView):
     """Custom QChartView that can be selected"""
 
-    clicked = Signal(object)  # Signal to emit when clicked
-    right_clicked = Signal(
-        object, object
-    )  # Signal to emit when right-clicked (view, position)
+    clicked = Signal(object)
+    right_clicked = Signal(object, object)  # view, global position
     double_clicked = Signal(object)
 
     def __init__(self, chart, sample_name, compound_name="", parent=None):
@@ -136,7 +134,6 @@ class ClickableChartView(QChartView):
         super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event):
-        """Handle mouse clicks"""
         if event.button() == Qt.LeftButton:
             self.m_pressPos = event.pos()
         elif event.button() == Qt.RightButton:
@@ -144,14 +141,11 @@ class ClickableChartView(QChartView):
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        """Handle mouse release to distinguish click from drag"""
         if event.button() == Qt.LeftButton and self._swallow_release:
             self._swallow_release = False
         elif event.button() == Qt.LeftButton and hasattr(self, "m_pressPos"):
-            # Calculate distance moved
             dist = (event.pos() - self.m_pressPos).manhattanLength()
             if dist < QApplication.startDragDistance():
-                # It's a click, not a drag
                 self.clicked.emit(self)
         super().mouseReleaseEvent(event)
 
@@ -1307,29 +1301,15 @@ class GraphView(QWidget):
         *,
         axis_scale: YAxisScale,
     ) -> QWidget:
-        """
-        Retrieve a complete plot container from the pool or create a new one.
+        """A pooled tile redrawn with ``eic``, or a new one when the pool is empty.
 
-        Container pooling improves performance by reusing complete plot widgets
-        (including chart view and caption) rather than creating new ones. This
-        maintains proper Qt parent-child relationships and avoids deletion issues.
-        Updates are applied before showing to prevent visual flashing.
-
-        Args:
-            eic: EIC object containing the data to display
-
-        Returns:
-            QWidget container with chart_view attribute configured with EIC data
-        """
+        Tiles are reused rather than deleted, which keeps Qt's parent-child
+        ownership intact; the grid layout decides when they show."""
         if self._available_containers:
-            # Reuse existing container from pool
             container = self._available_containers.pop()
-            # Update data atomically (container update handles visibility)
             self._update_container_data(container, eic, verdict, axis_scale=axis_scale)
-            # Container will be shown by _update_container_data after update is complete
             return container
         else:
-            # Pool exhausted, create new container and add to pool tracking
             container = self._create_plot_container(eic, verdict, axis_scale=axis_scale)
             self._container_pool.append(container)
             return container
@@ -1341,20 +1321,7 @@ class GraphView(QWidget):
         *,
         axis_scale: YAxisScale,
     ) -> QWidget:
-        """
-        Create a new plot container with chart view and caption.
-
-        This method creates the complete widget structure needed for a plot,
-        including the chart view and sample name caption, maintaining the
-        same structure as the original _build_plot_with_caption method.
-
-        Args:
-            eic: EIC object containing the data to display
-
-        Returns:
-            QWidget container with chart_view attribute
-        """
-        # Create the plot
+        """A new tile, connected and filtered once for its whole pooled life."""
         chart_view = self._build_plot(eic, axis_scale=axis_scale)
 
         container = PlotTile(chart_view)
@@ -1363,16 +1330,13 @@ class GraphView(QWidget):
         container.set_caption(self._tile_caption_for(eic))
         container.set_scale(axis_scale.scale_exp)
 
-        # Connect click signals for new container
         chart_view.clicked.connect(self._on_plot_clicked)
         chart_view.right_clicked.connect(self._on_plot_right_clicked)
         chart_view.double_clicked.connect(self.inspect_plot)
 
-        # Apply validation styling
         self._apply_validation_styling(container, verdict)
 
-        # Install event filter for rubberband selection on ALL interactive parts
-        # Note: QChartView/QGraphicsView events happen on the viewport widget!
+        # Rubber-band selection; a chart view's mouse events arrive on its viewport.
         container.installEventFilter(self)
         chart_view.installEventFilter(self)
         chart_view.viewport().installEventFilter(self)
@@ -1392,20 +1356,8 @@ class GraphView(QWidget):
         *,
         axis_scale: YAxisScale,
     ):
-        """
-        Update an existing container with new EIC data.
-
-        This method efficiently reuses container widgets by updating both
-        the chart view data and the caption text without recreating the
-        widget structure. Updates are performed atomically to prevent visual flashing.
-
-        Args:
-            container: Existing container widget to update
-            eic: New EIC data to display
-        """
-        # Immediately clear any stale content to prevent flashing
         chart_view = container.chart_view
-        chart_view.chart().removeAllSeries()  # Clear chart data
+        chart_view.chart().removeAllSeries()
         container.set_caption("")
 
         chart_view.set_selected(False)
@@ -1421,8 +1373,6 @@ class GraphView(QWidget):
 
         container.set_caption(self._tile_caption_for(eic))
         container.set_scale(axis_scale.scale_exp)
-
-        # Apply validation styling
         self._apply_validation_styling(container, verdict)
 
     def _update_chart_data(
@@ -1432,17 +1382,7 @@ class GraphView(QWidget):
         *,
         axis_scale: YAxisScale,
     ):
-        """
-        Update an existing chart with new EIC data without recreating Qt objects.
-
-        This method efficiently reuses chart components by clearing existing series
-        and repopulating with new data, preserving axes and other chart infrastructure.
-        Updates are performed atomically to prevent visual flashing during updates.
-
-        Args:
-            chart_view: Existing ClickableChartView to update
-            eic: New EIC data to display
-        """
+        """Redraw a reused chart's series on the axes it keeps."""
         chart = chart_view.chart()
         try:
             chart_view.sample_name = eic.sample_name
@@ -1457,31 +1397,18 @@ class GraphView(QWidget):
             logger.error(f"Error updating chart data: {e}")
 
     def _return_containers_to_pool(self):
-        """
-        Return all current plot containers to the available pool for reuse.
-
-        This method efficiently recycles complete plot containers by clearing their
-        selection state and properly cleaning up signals. Containers retain their
-        Qt structure for fast reuse in subsequent plot operations.
-        """
+        """Empty every current tile and return it to the pool for reuse."""
         for plot in self._current_plots:
-            # Clear selection state
             plot.set_selected(False)
-
-            # Clear the chart data completely
             plot.chart().removeAllSeries()
             plot.chart().setTitle("")
-
-            # Force the chart to update
             plot.update()
 
-            # Find the parent container for this chart view
             container = plot.parent()
             while container and not hasattr(container, "chart_view"):
                 container = container.parent()
 
             if container and container in self._container_pool:
-                # Clear the caption
                 if hasattr(container, "caption"):
                     container.caption.setText("")
                     container.caption.update()
@@ -2040,21 +1967,16 @@ class GraphView(QWidget):
             return
 
         if force_destroy:
-            # Complete destruction mode - used for deletion to prevent artifacts
-            # First, clear the current plots tracking
             self._current_plots.clear()
             self._selected_plots.clear()
 
-            # Remove and delete ALL widgets from layout completely
             while self._layout.count():
                 item = self._layout.takeAt(0)
                 widget = item.widget()
                 if widget is not None:
-                    # Completely delete the widget to ensure no visual artifacts
                     widget.setParent(None)
                     widget.deleteLater()
 
-            # Clear the container pool completely - we'll rebuild it as needed
             for container in self._container_pool:
                 if container and container.parent():
                     container.setParent(None)
@@ -2062,16 +1984,10 @@ class GraphView(QWidget):
 
             self._container_pool.clear()
             self._available_containers.clear()
-
-            # Reset tracked grid size on full teardown
             self._max_rows_seen = 0
             self._max_cols_seen = 0
         else:
-            # Normal clearing with pooling - fast for regular operations
-            # Return containers to pool for reuse
             self._return_containers_to_pool()
-
-            # Remove all widgets from layout
             while self._layout.count():
                 item = self._layout.takeAt(0)
                 widget = item.widget()
@@ -2095,6 +2011,5 @@ class GraphView(QWidget):
             self._layout.setRowStretch(i, 0)
             self._layout.setRowMinimumHeight(i, 0)
 
-        # Force repaint/update. Prefer update() over repaint() to avoid synchronous paints.
         self.updateGeometry()
         self.update()

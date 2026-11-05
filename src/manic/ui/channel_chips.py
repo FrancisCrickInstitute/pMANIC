@@ -62,7 +62,6 @@ class ChannelChip(QWidget):
         self.setFixedHeight(CHIP_HEIGHT)
 
     def resizeEvent(self, event) -> None:
-        # The full label on hover only when the chip is too narrow to show it.
         self.setToolTip(self.label if self.width() < self._full.width() else "")
         super().resizeEvent(event)
 

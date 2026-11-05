@@ -44,6 +44,7 @@ from manic.ui.dialog_kit import (
     title_label,
     window_title,
 )
+from manic.ui.sidebar_widgets import divider
 from manic.ui.theme import set_style_property
 
 
@@ -166,6 +167,21 @@ class AddCompoundDialog(QDialog):
         scroll.viewport().setAutoFillBackground(False)
         form.setAutoFillBackground(False)
         outer.addWidget(scroll, stretch=1)
+        # A rule over the buttons while fields scroll under them, so a row cut at the
+        # edge reads as more content below, not a broken layout.
+        scroll_edge = divider()
+        scroll_edge.setObjectName("addCompoundScrollEdge")
+        policy = scroll_edge.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        scroll_edge.setSizePolicy(policy)
+        outer.addWidget(scroll_edge)
+        bar = scroll.verticalScrollBar()
+
+        def show_edge(*_args) -> None:
+            scroll_edge.setVisible(bar.value() < bar.maximum())
+
+        bar.rangeChanged.connect(show_edge)
+        bar.valueChanged.connect(show_edge)
 
         self._general_error = error_label()
         outer.addWidget(self._general_error)

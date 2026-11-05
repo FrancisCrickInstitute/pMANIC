@@ -5,7 +5,7 @@ import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QFontMetricsF, QTextDocumentFragment
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from manic.io.compound_reader import Compound
 from manic.models.analysis import IonChannel, IonRole
@@ -16,7 +16,14 @@ from manic.ui.chart_popup_dialog import value_axis_ticks
 from manic.ui.channel_chips import ChannelChip, ChannelChipRow
 from manic.ui.colors import ChannelTraceStyle, label_colors, verdict_colours
 from manic.ui.graphs import ClickableChartView, GraphView
-from manic.ui.plot_tile import DENSITY_MIN_TILE, PEAK_BADGES, PlotTile, grid_columns, tile_badges
+from manic.ui.plot_tile import (
+    LARGE_TILE,
+    MIN_TILE,
+    PEAK_BADGES,
+    PlotTile,
+    grid_columns,
+    tile_badges,
+)
 from manic.validation.peak_verdict import PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -34,11 +41,11 @@ from manic.validation.unlabelled_identity import (
         (30, 1284, 900, (190, 135), 5),
         (0, 800, 600, (190, 135), 1),
         # The grid viewport of a 1512x949 window with the sidebar open.
-        (30, 1180, 790, DENSITY_MIN_TILE["compact"], 6),
+        (30, 1180, 790, MIN_TILE, 6),
         # 1280x800 at 150% leaves about 700x520 for the grid.
-        (11, 700, 520, DENSITY_MIN_TILE["compact"], 3),
+        (11, 700, 520, MIN_TILE, 3),
     ],
-    ids=["fits", "empty", "compact-laptop", "compact-small-laptop"],
+    ids=["fits", "empty", "laptop", "small-laptop"],
 )
 def test_grid_keeps_every_tile_on_screen_when_they_fit(count, width, height, min_size, columns):
     min_width, min_height = min_size
@@ -50,9 +57,9 @@ def test_grid_keeps_every_tile_on_screen_when_they_fit(count, width, height, min
     ("width", "height", "min_size", "shape"),
     [
         (970, 700, (190, 135), (4, 163)),
-        (1180, 790, DENSITY_MIN_TILE["comfortable"], (4, 199)),
+        (1180, 790, LARGE_TILE, (4, 199)),
     ],
-    ids=["scrolls", "comfortable-laptop"],
+    ids=["scrolls", "large-tiles"],
 )
 def test_grid_scrolls_with_readable_tiles_when_they_do_not_fit(width, height, min_size, shape):
     min_width, min_height = min_size
@@ -304,23 +311,32 @@ def test_a_retention_time_failure_is_badged_even_when_the_ratios_pass():
     assert (badge.text, badge.tone, badge.tooltip) == ("tR off", "danger", reason)
 
 
-def test_density_toggle_is_one_tab_stop_that_arrow_keys_switch(grid, qapp):
+def _show_grid_with_viewport(grid, qapp, samples: int, width: int, height: int) -> None:
+    grid.resize(width + 400, height + 300)
     grid.show()
+    grid.plot_compound("Cmp", [f"S{i}" for i in range(samples)])
     qapp.processEvents()
-    changed = []
-    grid.density_changed.connect(changed.append)
-    compact, comfortable = (grid.findChild(QToolButton, f"density_{key}") for key in ("compact", "comfortable"))
-    assert (compact.focusPolicy(), comfortable.focusPolicy()) == (Qt.NoFocus, Qt.TabFocus)
-    comfortable.setFocus()
-    QTest.keyClick(comfortable, Qt.Key_Left)
-    assert grid.density() == "compact" and changed == ["compact"]
-    assert compact.isChecked() and compact.hasFocus()
-    assert (compact.focusPolicy(), comfortable.focusPolicy()) == (Qt.TabFocus, Qt.NoFocus)
-    QTest.keyClick(compact, Qt.Key_Right)
-    assert grid.density() == "comfortable" and comfortable.hasFocus()
-    # The View menu sets it through the same method.
-    grid.set_density("compact")
-    assert compact.isChecked() and changed == ["compact", "comfortable", "compact"]
+    viewport_w, viewport_h = grid._grid_viewport()
+    grid.resize(grid.width() + width - viewport_w, grid.height() + height - viewport_h)
+    # The grid re-lays its tiles shortly after a resize, and again if a scroll bar shows.
+    QTest.qWait(400)
+
+
+@pytest.mark.parametrize(
+    ("samples", "shape", "text_size"),
+    [(30, (6, 0), (11, 13)), (96, (10, 0), (10, 12)), (200, (13, MIN_TILE[1]), (10, 12))],
+    ids=["30-large-tiles", "96-fit", "200-scroll"],
+)
+def test_tiles_fill_the_2560_screen_and_scroll_only_below_the_smallest(
+    grid, qapp, samples, shape, text_size
+):
+    # The grid viewport of a 2560x1410 window with both side panels open.
+    _show_grid_with_viewport(grid, qapp, samples, 1856, 1279)
+    tile = _plots(grid)["S0"].parent()
+    assert grid._grid_shape == shape
+    assert tile.text_size() == text_size
+    assert tile.width() >= MIN_TILE[0] and tile.height() >= MIN_TILE[1]
+    assert (grid._scroll.verticalScrollBar().maximum() > 0) == (samples == 200)
 
 
 def test_next_and_previous_flagged_tile_wrap_and_skip_reviewed_ones(grid):
@@ -504,19 +520,15 @@ def test_chip_tooltip_appears_only_when_the_label_is_cut(qapp):
         chip.deleteLater()
 
 
-@pytest.mark.parametrize("density", ["compact", "comfortable"])
-def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, density):
-    min_width = DENSITY_MIN_TILE[density][0]
-    grid.set_density(density)
-    grid.resize(1200, 600)
-    grid.show()
-    grid.plot_compound("Cmp", [f"S{i}" for i in range(30)])
-    qapp.processEvents()
-    # Four tiles at their narrowest fill the row.
-    grid.resize(1200 - grid._grid_viewport()[0] + 4 * min_width + 3 * 8, 600)
-    QTest.qWait(150)  # the grid re-lays its tiles shortly after a resize
+@pytest.mark.parametrize(
+    ("samples", "tile"), [(30, MIN_TILE), (4, LARGE_TILE)], ids=["small-text", "large-text"]
+)
+def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, samples, tile):
+    # Four tiles at the narrowest width for their text size fill the row.
+    _show_grid_with_viewport(grid, qapp, samples, 4 * tile[0] + 3 * 8, tile[1] + 4)
     plot = _plots(grid)["S0"]
-    assert plot.parent().width() <= min_width
+    assert plot.parent().width() <= tile[0]
+    assert plot.parent().text_size() == ((11, 13) if tile == LARGE_TILE else (10, 12))
     chart = plot.chart()
     axis = chart.axes(Qt.Horizontal)[0]
     metrics = QFontMetricsF(axis.labelsFont())

@@ -25,10 +25,18 @@ from manic.validation.unlabelled_identity import (
 TILE_GAP = 8
 TILE_ASPECT = 1.45
 
-# Minimum readable tile (width, height) per grid density.
-DENSITY_MIN_TILE = {"comfortable": (230, 165), "compact": (130, 95)}
-# (axis and scale text px, caption px) per grid density.
-DENSITY_TEXT = {"comfortable": (11, 13), "compact": (AXIS_LABEL_PX, 12)}
+# Tiles shrink to keep every sample on screen, down to this readable (width, height);
+# past that the grid scrolls at this size.
+MIN_TILE = (130, 95)
+# Tiles at least this big get the larger axis and caption text.
+LARGE_TILE = (230, 165)
+
+
+def tile_text_size(width: float, height: float) -> tuple[int, int]:
+    """(axis and scale text px, caption px) for a tile of this size."""
+    if width >= LARGE_TILE[0] and height >= LARGE_TILE[1]:
+        return 11, 13
+    return AXIS_LABEL_PX, 12
 
 # Tile colour means the peak verdict, as in the exported workbook: Below threshold
 # red, Accepted purple, Marked bad tan (colors.verdict_colours, a solid badge on a
@@ -147,7 +155,7 @@ class PlotTile(QWidget):
         self._focused = False
         self._badges: list[TileBadge] = []
         self._caption_selected: bool | None = None
-        self._text_size = DENSITY_TEXT["compact"]
+        self._text_size = tile_text_size(*MIN_TILE)
         self.setAttribute(Qt.WA_Hover)
 
         self.caption = ElidedLabel(hover=True)

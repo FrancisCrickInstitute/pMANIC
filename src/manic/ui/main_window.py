@@ -7,7 +7,6 @@ import numpy as np
 from PySide6.QtCore import QCoreApplication, QPoint, QSettings, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
-    QActionGroup,
     QDesktopServices,
     QIcon,
     QKeySequence,
@@ -495,20 +494,6 @@ class MainWindow(QMainWindow):
             "Show Summary", "Ctrl+Alt+R", self.graph_view.summary_button, SUMMARY_OPEN_SETTING
         )
         view_menu.addActions([self.show_sidebar_action, self.show_summary_action])
-        view_menu.addSeparator()
-        # The grid header's density switch, for the keyboard.
-        density = QActionGroup(view_menu)
-        for key, text in (("compact", "Compact"), ("comfortable", "Comfortable")):
-            action = density.addAction(text)
-            action.setCheckable(True)
-            action.setData(key)
-            action.triggered.connect(lambda _checked=False, k=key: self.graph_view.set_density(k))
-            view_menu.addAction(action)
-        view_menu.aboutToShow.connect(
-            lambda: next(
-                a for a in density.actions() if a.data() == self.graph_view.density()
-            ).setChecked(True)
-        )
         view_menu.addSeparator()
         shortcuts = {"Shared Y-Scale": "Ctrl+Shift+Y", "Scale to Selected Peak": "Ctrl+Shift+P"}
         buttons = {

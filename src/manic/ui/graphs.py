@@ -5,11 +5,10 @@ from typing import Dict, List, Optional, Sequence, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QEvent, QMargins, QRect, QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QMargins, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
-    QButtonGroup,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -63,12 +62,13 @@ from .colors import (
 )
 from .sidebar_widgets import ElidedLabel, shortcut_text
 from .plot_tile import (
-    DENSITY_MIN_TILE,
-    DENSITY_TEXT,
+    LARGE_TILE,
+    MIN_TILE,
     TILE_GAP,
     PlotTile,
     grid_columns,
     tile_badges,
+    tile_text_size,
 )
 from .theme import FONT_SIZE_TITLE, color
 from manic.ui import theme
@@ -206,8 +206,6 @@ class GraphView(QWidget):
     settings_requested = Signal()
     # A documentation link, "file.md#section".
     guide_requested = Signal(str)
-    # "compact" or "comfortable", whichever control set it.
-    density_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -252,12 +250,7 @@ class GraphView(QWidget):
             button.setCheckable(True)
             button.setFocusPolicy(Qt.TabFocus)
         # The plots' view controls; on a narrow grid they take a row of their own.
-        self._view_controls = QWidget()
-        controls = QHBoxLayout(self._view_controls)
-        controls.setContentsMargins(0, 0, 0, 0)
-        controls.setSpacing(8)
-        controls.addWidget(segmented(self.shared_y_button, self.peak_scale_button))
-        controls.addWidget(self._build_density_toggle())
+        self._view_controls = segmented(self.shared_y_button, self.peak_scale_button)
         header.addWidget(self._view_controls)
         self._header_row = header
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
@@ -322,13 +315,14 @@ class GraphView(QWidget):
         self._layout = QGridLayout(grid_host)
         self._layout.setSpacing(TILE_GAP)
         self._layout.setContentsMargins(TILE_GAP, 4, TILE_GAP, TILE_GAP)
-        # Two Comfortable columns at the least, whatever sits beside the grid.
+        # Two large tiles side by side at the least, whatever sits beside the grid.
         self.setMinimumWidth(
-            2 * DENSITY_MIN_TILE["comfortable"][0]
+            2 * LARGE_TILE[0]
             + 3 * TILE_GAP
             + self._scroll.verticalScrollBar().sizeHint().width()
         )
         self._grid_shape: tuple[int, int] = (1, 0)
+        self._text_size = tile_text_size(*MIN_TILE)
         self._focus_index: int | None = None
 
         # Track selected plots
@@ -385,60 +379,14 @@ class GraphView(QWidget):
         button.setFixedSize(28, 28)
         button.setFocusPolicy(Qt.NoFocus)
 
-    def _build_density_toggle(self) -> QWidget:
-        self._density_buttons = QButtonGroup(self)
-        self._density = str(QSettings().value("graph/density", "comfortable"))
-        if self._density not in DENSITY_MIN_TILE:
-            self._density = "comfortable"
-        for key, text, tip in (
-            ("compact", "Compact", "Smaller plots, more per screen"),
-            ("comfortable", "Comfortable", "Larger plots; scrolls when they don't fit"),
-        ):
-            button = QToolButton()
-            button.setText(text)
-            button.setToolTip(tip)
-            button.setCheckable(True)
-            button.setChecked(key == self._density)
-            # One tab stop, on the checked side; a click leaves focus on the grid.
-            button.setFocusPolicy(Qt.TabFocus if key == self._density else Qt.NoFocus)
-            button.setProperty("density", key)
-            button.setObjectName(f"density_{key}")
-            button.installEventFilter(self)
-            self._density_buttons.addButton(button)
-        self._density_buttons.buttonClicked.connect(
-            lambda button: self.set_density(button.property("density"))
-        )
-        return segmented(*self._density_buttons.buttons())
-
-    def set_density(self, density: str) -> None:
-        if density not in DENSITY_MIN_TILE or density == self._density:
-            return
-        self._density = density
-        QSettings().setValue("graph/density", density)
-        buttons = self._density_buttons.buttons()
-        had_focus = any(button.hasFocus() for button in buttons)
-        for button in buttons:
-            checked = button.property("density") == density
-            button.setChecked(checked)
-            button.setFocusPolicy(Qt.TabFocus if checked else Qt.NoFocus)
-            if checked and had_focus:
-                button.setFocus(Qt.TabFocusReason)
-        for tile in self._container_pool:
-            self._apply_density_text(tile)
-        self._place_tiles(force=True)
-        self.density_changed.emit(density)
-
-    def _apply_density_text(self, tile: PlotTile) -> None:
-        tick_px, caption_px = DENSITY_TEXT[self._density]
-        if tile.text_size() == (tick_px, caption_px):
+    def _apply_text_size(self, tile: PlotTile) -> None:
+        tick_px, caption_px = self._text_size
+        if tile.text_size() == self._text_size:
             return
         tile.set_text_size(tick_px, caption_px)
         for axis in tile.chart_view.chart().axes():
             axis.setLabelsFont(ui_font(tick_px))
         _fit_time_ticks(tile.chart_view.chart())
-
-    def density(self) -> str:
-        return self._density
 
     def _update_selection_summary(self, *_args) -> None:
         total = len(self._current_plots)
@@ -450,12 +398,6 @@ class GraphView(QWidget):
         """
         Event filter to handle rubberband selection across child widgets.
         """
-        if obj in self._density_buttons.buttons():
-            if event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Left, Qt.Key_Right):
-                # Left picks the left segment, Compact; Right picks Comfortable.
-                self.set_density(self._density_buttons.buttons()[event.key() == Qt.Key_Right].property("density"))
-                return True
-            return False
         if event.type() == QEvent.Resize and obj is self._scroll.viewport():
             self._resize_timer.start(60)
             return False
@@ -712,16 +654,26 @@ class GraphView(QWidget):
         )
 
     def _place_tiles(self, force: bool = False) -> None:
-        """Lay the current tiles out in as many readable columns as fit."""
+        """Lay the current tiles out as large as fits every one on screen, scrolling
+        only below the smallest readable tile, with text sized to the tiles."""
         tiles = [plot.parent() for plot in self._current_plots]
         width, height = self._grid_viewport()
-        min_w, min_h = DENSITY_MIN_TILE[self._density]
-        shape = grid_columns(len(tiles), width, height, min_width=min_w, min_height=min_h)
+        shape = grid_columns(
+            len(tiles), width, height, min_width=MIN_TILE[0], min_height=MIN_TILE[1]
+        )
+        cols, row_height = shape
+        rows = math.ceil(len(tiles) / cols) if tiles else 0
+        text_size = tile_text_size(
+            (width - TILE_GAP * (cols - 1)) / cols,
+            row_height or (height - TILE_GAP * (rows - 1)) / max(rows, 1),
+        )
+        if text_size != self._text_size:
+            self._text_size = text_size
+            for tile in self._container_pool:
+                self._apply_text_size(tile)
         if not force and shape == self._grid_shape:
             return
         self._grid_shape = shape
-        cols, row_height = shape
-        rows = math.ceil(len(tiles) / cols) if tiles else 0
         self._max_rows_seen = max(self._max_rows_seen, rows)
         self._max_cols_seen = max(self._max_cols_seen, cols)
         for tile in tiles:
@@ -1412,7 +1364,7 @@ class GraphView(QWidget):
         chart_view = self._build_plot(eic, axis_scale=axis_scale)
 
         container = PlotTile(chart_view)
-        self._apply_density_text(container)
+        self._apply_text_size(container)
         caption = container.caption
         container.set_caption(self._tile_caption_for(eic))
         container.set_scale(axis_scale.scale_exp)

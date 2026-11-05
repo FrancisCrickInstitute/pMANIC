@@ -11,7 +11,7 @@ from .isotopologue_ratio_widget import IsotopologueRatioWidget
 from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
 
-# Narrow enough to leave the grid two Comfortable columns in a 1024 px window.
+# Narrow enough to leave the grid two large tiles side by side in a 1024 px window.
 SUMMARY_MIN_WIDTH = 232
 
 

@@ -51,6 +51,7 @@ from .channel_chips import CHIP_HEIGHT, ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
 from .chart_style import set_nice_ticks, style_axis, style_chart, text_style, ui_font
 from .icon_button import icon_button
+from .identity_chart import qualifier_gap_note
 from .colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
@@ -195,6 +196,8 @@ class GraphView(QWidget):
     show_all_samples_requested = Signal()
     settings_requested = Signal()
     documentation_requested = Signal()
+    # A documentation link, "file.md#section".
+    guide_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -238,9 +241,6 @@ class GraphView(QWidget):
         self.qc_key.setTextFormat(Qt.RichText)
         self.qc_key.setFixedHeight(CHIP_HEIGHT)
         theme.style(self.qc_key, text_style("text_secondary", 11))
-        self.qc_key.setToolTip(
-            "Grey: the qualifier is absent, not assessed, or unavailable."
-        )
         self.qc_key.setText(
             "Qualifier colour = QC&nbsp;&nbsp;"
             + "&nbsp;&nbsp;".join(
@@ -248,7 +248,7 @@ class GraphView(QWidget):
                 for qcolor, name in (
                     (QUALIFIER_GREEN, "Validated"),
                     (QUALIFIER_RED, "Failed"),
-                    (QUALIFIER_GREY, "No verdict"),
+                    (QUALIFIER_GREY, "Not assessed"),
                 )
             )
         )
@@ -259,6 +259,14 @@ class GraphView(QWidget):
         legend_row.setContentsMargins(TILE_GAP + 2, 4, 6, 2)
         legend_row.addWidget(self.channel_legend)
         outer_layout.addLayout(legend_row)
+        self.qc_note = QLabel()
+        self.qc_note.setTextFormat(Qt.RichText)
+        self.qc_note.setWordWrap(True)
+        self.qc_note.setContentsMargins(TILE_GAP + 2, 0, 6, 2)
+        theme.style(self.qc_note, text_style("text_secondary", 11))
+        self.qc_note.linkActivated.connect(self.guide_requested)
+        self.qc_note.hide()
+        outer_layout.addWidget(self.qc_note)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -540,6 +548,9 @@ class GraphView(QWidget):
         if identity is not None and identity.compound_name != compound_name:
             identity = None
         self._identity = identity
+        note = qualifier_gap_note(identity) if identity is not None else None
+        self.qc_note.setText(note or "")
+        self.qc_note.setVisible(note is not None)
 
         # Re-plotting the same compound (a fit or scale change) keeps selection and focus.
         same_compound = compound_name == self._current_compound
@@ -717,6 +728,7 @@ class GraphView(QWidget):
     def _hide_legend(self) -> None:
         self.channel_legend.hide()
         self.qc_key.hide()
+        self.qc_note.hide()
 
     def _set_title(self, compound_name: str) -> None:
         self._tr_text = ""

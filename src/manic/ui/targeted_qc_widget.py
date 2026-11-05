@@ -20,7 +20,7 @@ from manic.ui.chart_popup_dialog import (
     PinnedAxis,
     category_rect,
     identity_key_html,
-    identity_key_tooltip,
+    IDENTITY_KEY_TOOLTIP,
 )
 from manic.ui.chart_style import style_chart, text_style
 from manic.ui.identity_chart import (
@@ -61,6 +61,8 @@ class _RowsScroll(QScrollArea):
 
 class TargetedQcWidget(QWidget):
     sample_activated = Signal(str)
+    # A documentation link from the note, "file.md#section".
+    guide_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -93,6 +95,8 @@ class TargetedQcWidget(QWidget):
 
         self.note = QLabel()
         self.note.setWordWrap(True)
+        self.note.setTextFormat(Qt.RichText)
+        self.note.linkActivated.connect(self.guide_requested)
         # In line with the header's title.
         self.note.setContentsMargins(8, 0, 4, 0)
         theme.style(self.note, text_style("text_secondary", 11))
@@ -153,7 +157,7 @@ class TargetedQcWidget(QWidget):
             True, f"{failed} sample{'s' if failed != 1 else ''} failed" if failed else ""
         )
         self.key.setText(identity_key_html(identity))
-        self.key.setToolTip(identity_key_tooltip(identity))
+        self.key.setToolTip(IDENTITY_KEY_TOOLTIP)
         self.key.setVisible(note is None)
         self._cap_height()
 
@@ -271,4 +275,5 @@ class TargetedQcWidget(QWidget):
             return
         dialog = ChartPopupDialog.for_identity(self._identity, parent=self)
         dialog.sample_activated.connect(self.sample_activated)
+        dialog.guide_requested.connect(self.guide_requested)
         dialog.exec()

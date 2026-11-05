@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt
@@ -75,7 +75,10 @@ def tile_badges(
     """
     badges = [PEAK_BADGES[verdict]] if verdict in PEAK_BADGES else []
     if identity is not None and identity.qc is not None:
-        outcome = qualifier_outcome(identity.qc)
+        # A qualifier with no verdict lacks its ratio or tolerance in the method, which
+        # holds for every sample: the grid header says so once, so it marks no tile.
+        checked = tuple(r for r in identity.qc.qualifier_ratios if r.passed is not None)
+        outcome = qualifier_outcome(replace(identity.qc, qualifier_ratios=checked))
         if outcome in _QC_BADGES:
             text, tone = _QC_BADGES[outcome]
             detail = "\n".join(identity.qc.reasons)

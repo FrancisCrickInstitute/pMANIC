@@ -204,7 +204,30 @@ class DocumentationViewer(QDialog):
             item.setData(Qt.UserRole, path)
             self.page_list.addItem(item)
         self.page_list.currentRowChanged.connect(self._on_page_selected)
-        layout.addWidget(self.page_list)
+        # Find on page under the page list, continuing its background and edge.
+        find_row = QWidget()
+        find_row.setObjectName("docsFindRow")
+        theme.style(
+            find_row,
+            "QWidget#docsFindRow { background: @surface_alt; border-right: 1px solid @border; }",
+        )
+        find_layout = QHBoxLayout(find_row)
+        find_layout.setContentsMargins(8, 4, 8, 12)
+        self.find_button = QPushButton("Find on page")
+        self.find_button.setProperty("variant", "ghost")
+        self.find_button.setAutoDefault(False)
+        self.find_button.setToolTip(
+            f"Find on page ({QKeySequence(QKeySequence.Find).toString(QKeySequence.NativeText)})"
+        )
+        self.find_button.clicked.connect(self.show_find)
+        find_layout.addWidget(self.find_button)
+        find_layout.addStretch()
+        sidebar = QVBoxLayout()
+        sidebar.setSpacing(0)
+        sidebar.addWidget(self.page_list, 1)
+        sidebar.addWidget(find_row)
+        find_row.setFixedWidth(self.page_list.width())
+        layout.addLayout(sidebar)
 
         self.web_view = QWebEngineView()
         custom_page = DocumentationPage(self.web_view, self._handle_navigation)

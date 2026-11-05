@@ -7,7 +7,7 @@ os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QToolButton
 
 from manic.ui.documentation_viewer import documentation_index
 
@@ -204,3 +204,9 @@ def test_find_steps_through_matches_and_esc_closes_only_the_find_bar(viewer, doc
     assert _wait(lambda: viewer.find_count.text() == "No matches")
     QTest.keyClick(viewer.find_field, Qt.Key_Escape)
     assert not viewer.find_bar.isVisible() and viewer.isVisible()
+    # The same bar opens from a visible button, and its icon buttons have names.
+    QTest.mouseClick(viewer.find_button, Qt.LeftButton)
+    assert viewer.find_bar.isVisible() and viewer.find_field.hasFocus()
+    assert [b.accessibleName() for b in viewer.find_bar.findChildren(QToolButton, options=Qt.FindDirectChildrenOnly)] == [
+        "Previous match", "Next match"
+    ]

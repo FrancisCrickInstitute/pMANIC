@@ -71,7 +71,7 @@ TRACE_KEY = {
     "component": ("Other fitted peak", "dotted", 0.6, 1.2),
     "baseline": ("Baseline", "dashed", 1.0, 1.2),
 }
-PLOT_TITLES = ("Extracted Ion Chromatogram", "Total Ion Chromatogram", "Mass Spectrum")
+PLOT_TITLES = ("Extracted ion chromatogram", "Total ion chromatogram", "Mass spectrum")
 # m/z either side of a labelled compound's isotopologues that the spectrum opens on.
 SPECTRUM_CLUSTER_MARGIN = 20
 
@@ -304,7 +304,7 @@ class DetailedPlotDialog(QDialog):
         self.tic_plot = MatplotlibPlotWidget(
             title=PLOT_TITLES[1],
             x_label="Time (min)",
-            y_label="Total Intensity",
+            y_label="Total intensity",
         )
         self.tic_plot.setMinimumHeight(140)
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -498,7 +498,7 @@ class DetailedPlotDialog(QDialog):
         """Plot the EIC data with integration boundaries."""
         if not self.eic_data or not self.compound_info:
             self.eic_plot.clear_plot()
-            self.eic_plot.set_title("Extracted Ion Chromatogram (no data)")
+            self.eic_plot.set_title("Extracted ion chromatogram (no data)")
             return
 
         self._eic_plot_error = None
@@ -566,7 +566,7 @@ class DetailedPlotDialog(QDialog):
             logger.error(f"Failed to plot EIC: {e}")
             self._eic_plot_error = str(e)
             self.eic_plot.set_title(
-                "Extracted Ion Chromatogram (plot failed)"
+                "Extracted ion chromatogram (plot failed)"
             )
 
     def _add_baseline_lines(self, left_bound: float, right_bound: float, prepared):
@@ -806,7 +806,7 @@ class DetailedPlotDialog(QDialog):
         """Plot the TIC data with retention time marker."""
         if not self.tic_data:
             self.tic_plot.clear_plot()
-            self.tic_plot.set_title("Total Ion Chromatogram (no data)")
+            self.tic_plot.set_title("Total ion chromatogram (no data)")
             return
 
         try:
@@ -819,7 +819,7 @@ class DetailedPlotDialog(QDialog):
                 self.tic_data.intensity,
                 color=COLORS["text_secondary"],
                 width=1.4,
-                name="Total Ion Chromatogram",
+                name="Total ion chromatogram",
             )
 
             # Display retention time indicator with transparency
@@ -834,13 +834,13 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot TIC: {e}")
-            self.tic_plot.set_title("Total Ion Chromatogram (plot failed)")
+            self.tic_plot.set_title("Total ion chromatogram (plot failed)")
 
     def _plot_ms(self):
         """Plot the mass spectrum data."""
         if not self.ms_data:
             self.ms_plot.clear_plot()
-            self.ms_plot.set_title("Mass Spectrum (no data)")
+            self.ms_plot.set_title("Mass spectrum (no data)")
             return
 
         try:
@@ -888,7 +888,7 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot MS: {e}")
-            self.ms_plot.set_title("Mass Spectrum (plot failed)")
+            self.ms_plot.set_title("Mass spectrum (plot failed)")
 
     def _update_info_label(self):
         """tR, the observed apex and the integration window: what the EIC is read against."""

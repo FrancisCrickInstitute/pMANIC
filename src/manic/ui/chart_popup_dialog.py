@@ -342,7 +342,8 @@ class ChartPopupDialog(QDialog):
         self.compound_title = QLabel(compound_name or title)
         theme.style(self.compound_title, text_style("text", FONT_SIZE_TITLE, 600))
         count = len(self.sample_names)
-        subtitle = title if compound_name else ""
+        # An abundance popup's axis title already names its quantity.
+        subtitle = title if compound_name and not self._quantity else ""
         subtitle = " · ".join(
             part for part in (subtitle, f"{count} sample{'s' if count != 1 else ''}") if part
         )

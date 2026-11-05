@@ -729,3 +729,24 @@ def test_short_sidebar_keeps_the_editor_whole_and_folds_the_rows_below_behind_th
             assert not heading.parentWidget().is_expanded()
     finally:
         toolbar.deleteLater()
+
+
+def test_clearing_a_filter_on_a_short_list_keeps_the_current_compound_in_view(qapp):
+    toolbar = Toolbar(AnalysisMode.LABELLED)
+    names = ["Pyruvate", "Lactate", "Alanine", "Oxalate", "Valine", "Urea", "Glycine", "Serine"]
+    try:
+        toolbar.update_compound_list(names, selected_name="Glycine")
+        compounds = toolbar.compound_list
+        compounds.setFixedHeight(compounds.sizeHintForRow(0) + 2 * compounds.frameWidth())
+        toolbar.show()
+        toolbar.compound_filter.setText("ine")
+        compounds.scrollToTop()
+
+        toolbar.compound_filter.setText("")
+        qapp.processEvents()
+
+        row = compounds.visualItemRect(compounds.currentItem())
+        assert compounds.currentItem().text() == "Glycine"
+        assert compounds.viewport().rect().contains(row)
+    finally:
+        toolbar.deleteLater()

@@ -241,6 +241,9 @@ class FilterField(QLineEdit):
             item = self._target.item(row)
             hidden = bool(needle) and needle not in item.text().casefold()
             self._target.setRowHidden(row, hidden)
+        current = self._target.currentItem()
+        if current is not None and not current.isHidden():
+            self._target.scrollToItem(current)
         self.filtered.emit()
 
     def visible_count(self) -> int:

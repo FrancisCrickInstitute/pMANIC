@@ -24,11 +24,11 @@ from manic.ui.chart_popup_dialog import (
 )
 from manic.ui.chart_style import style_chart, text_style
 from manic.ui.identity_chart import (
-    IDENTITY_COLUMN_HEADERS,
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
     identity_chart_height,
+    identity_column_headers,
     identity_unassessed_note,
     show_identity_tooltip,
 )
@@ -139,7 +139,7 @@ class TargetedQcWidget(QWidget):
         self.chart_view.setFixedHeight(height)
         self._scroll.setMinimumHeight(min(height, identity_chart_height(SIDEBAR_SHORT_ROWS, SIDEBAR_ROW)))
         self._scroll.setMaximumHeight(min(height, identity_chart_height(SIDEBAR_VISIBLE_ROWS, SIDEBAR_ROW)))
-        self.columns.set_axis("", IDENTITY_COLUMN_HEADERS)
+        self.columns.set_axis("", identity_column_headers(identity.channels, detail=False))
         note = identity_unassessed_note(identity)
         self.note.setText(note or "")
         self.note.setVisible(note is not None)

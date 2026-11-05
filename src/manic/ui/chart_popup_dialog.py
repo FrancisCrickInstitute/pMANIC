@@ -54,6 +54,7 @@ from manic.ui.identity_chart import (
     add_identity_grid,
     identity_cell_tooltip,
     identity_chart_height,
+    identity_cells,
     identity_column_headers,
     identity_unassessed_note,
     show_identity_tooltip,
@@ -74,7 +75,7 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
     """Qualifier cells per key entry: Validated, Failed, and everything else."""
     counts = {"Validated": 0, "Failed": 0, "Not assessed": 0}
     for sample in identity.samples:
-        for qualifier in sample.qualifiers:
+        for qualifier in identity_cells(sample):
             if qualifier.status is QualifierStatus.VALIDATED:
                 counts["Validated"] += 1
             elif qualifier.status is QualifierStatus.FAILED:
@@ -86,7 +87,7 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
 
 def identity_key_html(identity: IdentityAssessmentSet) -> str:
     counts = identity_status_counts(identity)
-    present = {q.status for sample in identity.samples for q in sample.qualifiers}
+    present = {q.status for sample in identity.samples for q in identity_cells(sample)}
     # Every grey cell's mark, so the key accounts for each mark in the grid.
     grey_marks = " ".join(
         mark for status, mark in STATUS_MARKS.items()

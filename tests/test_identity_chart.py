@@ -140,12 +140,12 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         widget.update_results(identity)
         _settle(widget)
         green, red = QUALIFIER_GREEN.name(), QUALIFIER_RED.name()
-        surface, outline = theme.color("surface").name(), theme.color("border_strong").name()
-        # Qualifier 2 is not in the method: an outlined empty slot, not a grey fill.
+        surface = theme.color("surface").name()
+        # Qualifier 2 is not in the method, so it has no column.
         expected = {
-            "S1": [("✓", green, surface), ("–", surface, outline)],
-            "S2": [("✕", red, surface), ("–", surface, outline)],
-            "S3": [("✕", red, surface), ("–", surface, outline)],
+            "S1": [("✓", green, surface)],
+            "S2": [("✕", red, surface)],
+            "S3": [("✕", red, surface)],
         }
         for chart in (dialog.chart, widget.chart):
             assert _rows(chart) == expected
@@ -159,12 +159,11 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         assert dialog.ion_legend.labels() == []
         assert [text for text, _x in dialog.pinned_axis.tick_positions()] == [
             "Qualifier 1\nm/z 147   expected 0.400  ±25%",
-            "Qualifier 2\nnot in the method",
         ]
-        assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1", "Qualifier 2"]
+        assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1"]
 
         assert widget.header.detail.text() == "2 samples failed"
-        key = "Qualifier cells  ■ ✓ Validated 1 ■ ✕ Failed 2 ■ – Not assessed 3"
+        key = "Qualifier cells  ■ ✓ Validated 1 ■ ✕ Failed 2 ■ Not assessed 0"
         assert _plain(widget.key) == _plain(dialog.status_legend) == key
 
         configured = ChartPopupDialog.for_identity(
@@ -191,7 +190,7 @@ def test_rebuilding_the_grid_replaces_its_marks(qapp):
         widget.update_results(_identity(["S1", "S2"], failed=("S2",)))
         assert widget.header.detail.text() == "1 sample failed"
         widget.update_results(_identity(["S1"]))
-        assert [text for text, _shown in _marks(widget.chart)] == ["–", "✓"]
+        assert [text for text, _shown in _marks(widget.chart)] == ["✓"]
         assert widget.header.detail.text() == ""
         widget.clear()
         assert _marks(widget.chart) == []
@@ -300,7 +299,7 @@ def test_sidebar_rows_keep_their_marks_and_names_and_scroll(qapp, host_height, r
         assert len(_rows_in_view(widget)) == rows_in_view
         assert widget.findChild(QScrollArea).verticalScrollBar().maximum() > 0
         assert all(shown for _mark, shown in _marks(widget.chart))
-        assert len(_marks(widget.chart)) == 60
+        assert len(_marks(widget.chart)) == 30
         axis = widget.chart.axes(Qt.Vertical)[0]
         assert axis.labelsVisible() and list(axis.categories())[::-1] == LONG
     finally:
@@ -342,9 +341,7 @@ def test_one_sample_leaves_no_band_below_it(qapp):
         assert dialog.chart_view.height() == 24 and dialog.chart_view.y() == 0
         # The column headers sit above the scrolled rows, not inside them.
         for header, owner in ((dialog.pinned_axis, dialog), (widget.columns, widget)):
-            assert [text.split("\n")[0] for text, _x in header.tick_positions()] == [
-                "Qualifier 1", "Qualifier 2"
-            ]
+            assert [text.split("\n")[0] for text, _x in header.tick_positions()] == ["Qualifier 1"]
             scroll = owner.findChild(QScrollArea)
             assert header.isVisible() and header.geometry().bottom() < scroll.geometry().top()
     finally:

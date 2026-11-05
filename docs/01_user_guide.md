@@ -134,10 +134,10 @@ Upon selecting a compound, MANIC displays a grid of mini-plots, one for each sam
 
 * **Grey solid line:** The expected retention time (`tR`).
 * **Blue dashed lines:** The integration boundaries (`tR - loffset` and `tR + roffset`).
-* **Badges:**
+* **Badges** (coloured like the exported workbook's cells):
     * **No badge:** Good peak (area is above threshold).
-    * **Below threshold** (amber badge and amber tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Minimum area ratio** in **Settings → General**.
-    * **Accepted** (green badge) or **Marked bad** (red badge): You reviewed a weak peak from the **Review** menu or the plot right-click menu.
+    * **Below threshold** (light red badge and tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Minimum area ratio** in **Settings → General**.
+    * **Accepted** (light purple) or **Marked bad** (tan): You reviewed a weak peak from the **Review** menu or the plot right-click menu.
 * **Blue outline:** The plot is selected for editing.
 
 Choose **View → Shared Y-Scale** to use one common intensity scale for all sample tiles. Choose it again to let each tile autoscale to its own tallest peak.
@@ -410,7 +410,7 @@ Settings has a **General** page and a **Deconvolution** page; unlabelled mode ad
 **Settings → General**, **Peak validation** section, **Minimum area ratio**
 
 * **Default:** `0.005` (0.5%)
-* **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area get an amber **Below threshold** badge.
+* **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area get a light red **Below threshold** badge.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
 
 ### Baseline Correction
@@ -525,4 +525,4 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 
 **nmol, Relative, Peak Area.** Units on the **Abundances** sheet. nmol when an internal standard and `amount_in_std_mix` are set. Relative when an internal standard is set but `amount_in_std_mix` is missing or 0. Peak Area when no internal standard is selected.
 
-**Below threshold.** The amber tile badge for a peak whose total area is below the peak-validation threshold (default 0.5% of the internal standard reference peak).
+**Below threshold.** The light red tile badge for a peak whose total area is below the peak-validation threshold (default 0.5% of the internal standard reference peak).

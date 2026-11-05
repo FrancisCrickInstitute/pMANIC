@@ -349,7 +349,7 @@ A tile carries a badge when identity QC needs attention: **QC partial** (amber),
 **QC fail** (red), **tR off** (red) when the Q-ion apex is outside the retention-time
 tolerance, or **Not detected** (grey) when the Q peak is missing. A clean pass has
 no badge. Hover the badge for the reasons; the Identity chart shows the
-per-qualifier detail. Peak-area validation against an internal standard (the amber
+per-qualifier detail. Peak-area validation against an internal standard (the light red
 **Below threshold** badge, when enabled) remains a separate check and uses
 **Q-ion area only**.
 

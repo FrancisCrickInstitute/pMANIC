@@ -5,7 +5,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDoubleSpinBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QScrollArea
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
@@ -239,6 +239,22 @@ def test_mass_tolerance_save_writes_literal_value(labelled_window):
     settings.save_button.click()
     assert labelled_window.mass_tolerance == 0.35
     assert not settings.save_button.isEnabled()
+
+
+def test_settings_is_as_tall_as_the_page_it_shows(labelled_window):
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    scroll = settings.findChild(QScrollArea, "settingsPageScroll")
+    heights = {}
+    for title in _page_titles(settings):
+        if title:
+            _select_page(settings, title)
+            QApplication.processEvents()
+            assert not scroll.verticalScrollBar().isVisible(), title
+            heights[title] = settings.height()
+    # Short pages are only as tall as the page list, not the tallest page.
+    assert heights["Appearance"] == heights["Extraction"] == settings.minimumHeight()
+    assert heights["Deconvolution"] > heights["Appearance"]
 
 
 def test_peak_validation_keeps_unsaved_edit_across_pages(labelled_window):

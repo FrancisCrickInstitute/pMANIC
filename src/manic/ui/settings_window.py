@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractScrollArea,
     QAbstractSpinBox,
     QApplication,
     QButtonGroup,
@@ -818,6 +819,19 @@ SETTINGS_PAGES: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] =
 )
 
 
+class _PageStack(QStackedWidget):
+    """As big as the page it shows, not its biggest page, so a short page never scrolls."""
+
+    def sizeHint(self) -> QSize:
+        return self.currentWidget().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        return self.currentWidget().minimumSizeHint()
+
+    def heightForWidth(self, width: int) -> int:
+        return self.currentWidget().heightForWidth(width)
+
+
 class SettingsWindow(QDialog):
     """Non-modal, shown with show(); a QDialog only so style.qss dialog rules apply.
 
@@ -832,7 +846,6 @@ class SettingsWindow(QDialog):
         # [*] lets setWindowModified() mark unsaved pages in the title bar.
         self.setWindowTitle(window_title("Settings[*]"))
         style_dialog(self)
-        self.setMinimumSize(640, 400)
 
         self._pages: list[SettingsPage] = [
             page_cls(host)
@@ -846,6 +859,7 @@ class SettingsWindow(QDialog):
 
         self.page_list = sidebar_list("settingsPageList", 200)
         self.page_list.setUniformItemSizes(False)
+        self.page_list.setSizeAdjustPolicy(QAbstractScrollArea.AdjustToContents)
         self._items: list[QListWidgetItem] = []
         for page in self._pages:
             if len(self._items) == 1:
@@ -864,7 +878,7 @@ class SettingsWindow(QDialog):
         right.setContentsMargins(24, 20, 24, 16)
         right.setSpacing(16)
 
-        self.stack = QStackedWidget()
+        self.stack = _PageStack()
         for page in self._pages:
             self.stack.addWidget(page)
             page.dirty_changed.connect(self._on_page_dirty_changed)
@@ -875,6 +889,7 @@ class SettingsWindow(QDialog):
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(self.stack)
+        self._scroll = scroll
         right.addWidget(scroll, stretch=1)
 
         self.pending_label = QLabel()
@@ -918,12 +933,10 @@ class SettingsWindow(QDialog):
         right.addLayout(footer)
         root.addLayout(right, stretch=1)
 
-        self._chrome_height = self.sizeHint().height() - scroll.sizeHint().height()
         for page in self._pages:
             page.refresh()
-        # Sized to the tallest loaded page so short pages do not sit above a void.
-        content = max(page.sizeHint().height() for page in self._pages)
-        resize_to_screen(self, 720, self._chrome_height + content)
+        self.setMinimumSize(640, self.page_list.sizeHint().height())
+        resize_to_screen(self, 720, self.minimumHeight())
 
         self.page_list.currentItemChanged.connect(self._on_page_changed)
         self.page_list.setCurrentItem(self._items[0])
@@ -944,13 +957,21 @@ class SettingsWindow(QDialog):
         if item not in self._items:
             return
         self.stack.setCurrentIndex(self._items.index(item))
-        self._grow_to_fit_page()
+        self.stack.updateGeometry()
+        self._fit_to_page()
         self._update_footer()
 
-    def _grow_to_fit_page(self) -> None:
-        """Grow, never shrink, so a page that gained rows needs no scrollbar."""
-        need = self._chrome_height + self._current_page().sizeHint().height()
-        if need > self.height():
+    def _fit_to_page(self, grow_only: bool = False) -> None:
+        """As tall as the page list and the current page need, so a short page does not sit
+        above a void; ``grow_only`` lets a page that gained rows grow without scrolling."""
+        self.layout().activate()
+        page = self._current_page()
+        width = self._scroll.viewport().width()
+        content = page.heightForWidth(width) if page.hasHeightForWidth() else -1
+        content = max(content, page.sizeHint().height())
+        chrome = self.height() - self._scroll.height()
+        need = max(self.minimumHeight(), chrome + content)
+        if need > self.height() or not grow_only:
             resize_to_screen(self, self.width(), need)
 
     def _on_page_dirty_changed(self, _dirty: bool) -> None:
@@ -1011,7 +1032,7 @@ class SettingsWindow(QDialog):
     def refresh(self) -> None:
         for page in self._pages:
             page.refresh()
-        self._grow_to_fit_page()
+        self._fit_to_page(grow_only=True)
         self._update_footer()
 
     def open(self) -> None:

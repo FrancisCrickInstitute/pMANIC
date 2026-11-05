@@ -82,6 +82,7 @@ from manic.models.sample_fit_type import set_sample_fit_type
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
+from manic.ui.plot_tile import LARGE_TILE, TILE_GAP
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
 from manic.ui.export_options_dialog import ExportOptionsDialog
@@ -117,7 +118,6 @@ SUMMARY_OPEN_SETTING = "view/summary_open"
 SUMMARY_WIDTH_SETTING = "view/summary_width"
 # Until the user opens or closes it, the Summary starts closed in a narrower window,
 # so the grid keeps its columns.
-SUMMARY_MIN_WINDOW_WIDTH = 1200
 DEFAULT_DECONVOLUTION = (
     DEFAULT_DECONVOLUTION_LEVEL, DEFAULT_DECONVOLUTION_FIT_TYPE, DEFAULT_NOISE_GATE
 )
@@ -274,6 +274,7 @@ class MainWindow(QMainWindow):
         self.summary.hide()
         # Decided when the grid first shows, from the window's width then.
         self._summary_settled = False
+        self._summary_roomy = False
 
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -752,10 +753,11 @@ class MainWindow(QMainWindow):
         if page is self.graph_view and not self._summary_settled:
             self._summary_settled = True
             settings = QSettings()
+            self._summary_roomy = self._summary_fits(columns=3)
             self.show_summary_action.setChecked(
                 settings.value(SUMMARY_OPEN_SETTING, type=bool) and self._summary_fits()
                 if settings.contains(SUMMARY_OPEN_SETTING)
-                else self.width() >= SUMMARY_MIN_WINDOW_WIDTH
+                else self._summary_roomy
             )
         self._apply_panels()
         # Loading selects the first compound without on_compound_selected, so name it here.
@@ -819,16 +821,33 @@ class MainWindow(QMainWindow):
         self.summary.setVisible(summary_shown)
         self.splitter.setSizes([sidebar, free - summary, summary])
 
-    def _summary_fits(self) -> bool:
-        """Room for the sidebar at its content width, two grid columns and the Summary."""
+    def _summary_fits(self, columns: int = 2) -> bool:
+        """Room for the sidebar at its content width, ``columns`` large grid columns and
+        the Summary."""
         handle = self.splitter.handleWidth()
         sidebar = (
             self.toolbar.minimumSizeHint().width() + handle
             if self.show_sidebar_action.isChecked()
             else 0
         )
-        need = sidebar + self.graph_view.minimumSizeHint().width() + SUMMARY_MIN_WIDTH + handle
-        return self.splitter.width() >= need
+        grid = self.graph_view.minimumSizeHint().width() + (columns - 2) * (
+            LARGE_TILE[0] + TILE_GAP
+        )
+        return self.splitter.width() >= sidebar + grid + SUMMARY_MIN_WIDTH + handle
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._summary_settled:
+            return
+        # Narrowed past room for three grid columns, the Summary closes (nothing is saved);
+        # widened back, it returns if the user's choice is open.
+        roomy = self._summary_fits(columns=3)
+        if roomy == self._summary_roomy:
+            return
+        self._summary_roomy = roomy
+        self.show_summary_action.setChecked(
+            roomy and QSettings().value(SUMMARY_OPEN_SETTING, True, type=bool)
+        )
 
     def _remember_panel_widths(self, *_args) -> None:
         sidebar, _grid, summary = self.splitter.sizes()

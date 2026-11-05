@@ -375,7 +375,7 @@ Use the **‹ ›** buttons in the header, or the left and right arrow keys, to 
 ### Summary Panel
 The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
 
-* **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. Until you open or close it once, a window narrower than 1200 px starts with the panel closed. When a window is too narrow for the sidebar, two columns of plots and the panel, the panel closes until you open it again.
+* **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. The panel opens on its own only in a window with room for three columns of plots beside it. Narrowing the window past that closes it, and widening it again brings it back. You can still open it in a narrower window, as long as two columns of plots fit.
 * **Enlarge:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
 * **Rows:** Both charts name every sample. When a run has more samples than the panel has room for, the chart scrolls; selecting plots in the grid scrolls it to their bars. Click a row to select that sample's plot.
 

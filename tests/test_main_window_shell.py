@@ -202,6 +202,23 @@ def test_a_narrow_window_starts_with_the_summary_closed_and_keeps_two_columns(qa
         again.close()
 
 
+def test_narrowing_past_three_grid_columns_closes_the_summary_until_there_is_room(
+    qapp, monkeypatch
+):
+    window = _grid_window(monkeypatch, 1400)
+    try:
+        assert window.summary.isVisible()
+        window.resize(1024, 800)
+        QApplication.processEvents()
+        assert window.summary.isHidden() and not window.show_summary_action.isChecked()
+        assert not QSettings().contains(SUMMARY_OPEN_SETTING)
+        window.resize(1400, 800)
+        QApplication.processEvents()
+        assert window.summary.isVisible()
+    finally:
+        window.close()
+
+
 def test_the_summary_closes_rather_than_cut_the_sidebar_or_widen_the_window(qapp, monkeypatch):
     window = _grid_window(monkeypatch, 1024)
     toolbar = window.toolbar

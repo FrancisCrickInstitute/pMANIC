@@ -4,6 +4,8 @@ The **Process External Data** feature allows you to re-process external results 
 
 It reads a **Raw Values** workbook, pairs it with a compound list, and writes five sheets: **Raw Values**, **Corrected Values**, **Isotope Ratio**, **% Label Incorporation**, and **Abundances**.
 
+It rebuilds labelled exports only, so the compound list needs **mass0** and **labelAtoms** columns. The start screen offers it in labelled sessions; **File → Process External Data...** offers it in both modes.
+
 ---
 
 ## When to use this
@@ -40,7 +42,7 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 ### Steps
 1.  Choose **File → Process External Data...**.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
-3.  Set **Raw Values workbook** with **Browse…**.
+3.  Set **Raw Values workbook** with **Browse…**. If a file cannot be used, the reason shows under its field and **Rebuild export…** stays off.
 4.  Optionally choose an **Internal standard**. The list fills in once a compound list is chosen.
 5.  Click **Rebuild export…**.
 6.  In **Save Rebuilt Export**, choose the output workbook and save.

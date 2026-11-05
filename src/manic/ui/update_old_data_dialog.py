@@ -15,6 +15,7 @@ from manic.ui.dialog_kit import (
     MARGIN,
     button_box,
     description_label,
+    error_label,
     form_layout,
     form_row,
     hint_label,
@@ -74,8 +75,8 @@ class UpdateOldDataDialog(QDialog):
         layout.addWidget(title_label("Process external data"))
         layout.addWidget(
             description_label(
-                "Rebuild a MANIC export from a Raw Values workbook and its compound "
-                "list when the original CDF files are not available."
+                "Rebuild a labelled MANIC export from its Raw Values workbook and "
+                "labelled compound list when the original CDF files are not available."
             )
         )
         layout.addSpacing(12)
@@ -83,8 +84,12 @@ class UpdateOldDataDialog(QDialog):
         form = form_layout()
         c_row, self.c_edit = _file_picker(self._browse_compounds)
         form_row(form, "Compounds file", c_row)
+        self._compounds_error = error_label()
+        form_row(form, "", self._compounds_error)
         r_row, self.r_edit = _file_picker(self._browse_raw)
         form_row(form, "Raw Values workbook", r_row)
+        self._raw_error = error_label()
+        form_row(form, "", self._raw_error)
 
         self.standard_picker = StandardPicker([], None, set())
         self.standard_picker.setEnabled(False)
@@ -92,6 +97,8 @@ class UpdateOldDataDialog(QDialog):
         self._standard_hint = hint_label("Lists the compounds once you choose a compounds file.")
         form_row(form, "", self._standard_hint)
         self._form = form
+        for label in (self._compounds_error, self._raw_error):
+            form.setRowVisible(label, False)
         layout.addLayout(form)
 
         layout.addSpacing(16)
@@ -105,44 +112,62 @@ class UpdateOldDataDialog(QDialog):
     def _browse_compounds(self):
         from PySide6.QtWidgets import QFileDialog
 
+        from manic.io.legacy_rebuild import _read_compounds_as_dicts
+
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Compounds File",
             "",
             "Excel/CSV (*.xlsx *.xls *.csv);;All files (*.*)",
         )
-        if path:
-            self.compounds_path = path
-            self.c_edit.setText(path)
-            try:
-                from manic.io.legacy_rebuild import _read_compounds_as_dicts
-
-                compounds = _read_compounds_as_dicts(path)
-            except Exception:
-                # The rebuild reports the unreadable file; the standard stays unset.
-                compounds = []
-            names = [c["compound_name"] for c in compounds]
-            # The rebuild is labelled: calibrating needs both amounts, as in the sidebar.
-            lacking = {
-                c["compound_name"]
-                for c in compounds
-                if not all((c[f] or 0) > 0 for f in ("int_std_amount", "amount_in_std_mix"))
-            }
-            self.standard_picker.set_names(names, lacking)
-            self.standard_picker.setEnabled(bool(names))
-            self._form.setRowVisible(self._standard_hint, not names)
-            self._update_ok()
+        if not path:
+            return
+        self.c_edit.setText(path)
+        try:
+            compounds = _read_compounds_as_dicts(path)
+            error = "" if compounds else "No compounds in this file."
+        except ValueError:
+            # The reader's only ValueError is missing columns; every compound list has the others.
+            compounds, error = [], "Needs a labelled compound list, with mass0 and labelAtoms columns."
+        except Exception:
+            compounds, error = [], "Could not read this file."
+        self.compounds_path = None if error else path
+        self._show_error(self._compounds_error, error)
+        names = [c["compound_name"] for c in compounds]
+        # The rebuild is labelled: calibrating needs both amounts, as in the sidebar.
+        lacking = {
+            c["compound_name"]
+            for c in compounds
+            if not all((c[f] or 0) > 0 for f in ("int_std_amount", "amount_in_std_mix"))
+        }
+        self.standard_picker.set_names(names, lacking)
+        self.standard_picker.setEnabled(bool(names))
+        self._form.setRowVisible(self._standard_hint, not names and not error)
+        self._update_ok()
 
     def _browse_raw(self):
         from PySide6.QtWidgets import QFileDialog
 
+        from manic.io.legacy_raw_values_reader import read_raw_values_workbook
+
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Raw Values Workbook", "", "Excel (*.xlsx);;All files (*.*)"
         )
-        if path:
-            self.raw_values_path = path
-            self.r_edit.setText(path)
-            self._update_ok()
+        if not path:
+            return
+        self.r_edit.setText(path)
+        try:
+            samples, _ = read_raw_values_workbook(path)
+        except Exception:
+            samples = []
+        error = "" if samples else "Needs a workbook with a MANIC Raw Values sheet."
+        self.raw_values_path = None if error else path
+        self._show_error(self._raw_error, error)
+        self._update_ok()
+
+    def _show_error(self, label, text: str) -> None:
+        label.setText(text)
+        self._form.setRowVisible(label, bool(text))
 
     def _update_ok(self):
         ok = bool(self.compounds_path) and bool(self.raw_values_path)

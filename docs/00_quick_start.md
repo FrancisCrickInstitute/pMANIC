@@ -37,7 +37,7 @@ Other shortcuts:
 | Ctrl+Alt+S | **View → Show Sidebar** |
 | Ctrl+Alt+R | **View → Show Summary** |
 
-No CDF files? **Rebuild an export without CDF files…** on the start screen (**File → Process External Data...**) rebuilds an export from an old Raw Values workbook.
+No CDF files? **Rebuild an export without CDF files…** on the labelled start screen (**File → Process External Data...**) rebuilds a labelled export from an old Raw Values workbook.
 
 For the labelled workflow, see [User Guide](01_user_guide.md).
 For targeted profiling, see [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md).

@@ -258,7 +258,7 @@ class MainWindow(QMainWindow):
 
         # The grid replaces the start panel once raw data is loaded.
         self.graph_view = GraphView()
-        self.start_panel = StartPanel()
+        self.start_panel = StartPanel(self.analysis_mode is AnalysisMode.LABELLED)
         self.workspace = QStackedWidget()
         self.workspace.setObjectName("workspace")
         self.no_samples_panel = self._build_no_samples_panel()

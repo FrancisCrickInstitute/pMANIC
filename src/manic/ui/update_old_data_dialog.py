@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from manic.ui.combo_box import ComboBox
 from manic.ui.dialog_kit import (
     MARGIN,
     button_box,
@@ -23,6 +22,7 @@ from manic.ui.dialog_kit import (
     title_label,
     window_title,
 )
+from manic.ui.post_load_checklist_dialog import StandardPicker
 
 
 class _PathEdit(QLineEdit):
@@ -67,7 +67,6 @@ class UpdateOldDataDialog(QDialog):
 
         self.compounds_path = None
         self.raw_values_path = None
-        self.internal_standard: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
@@ -87,11 +86,12 @@ class UpdateOldDataDialog(QDialog):
         r_row, self.r_edit = _file_picker(self._browse_raw)
         form_row(form, "Raw Values workbook", r_row)
 
-        self.is_combo = ComboBox()
-        self.is_combo.addItem("No internal standard", None)
-        self.is_combo.currentIndexChanged.connect(self._on_is_changed)
-        form_row(form, "Internal standard", self.is_combo)
-        form_row(form, "", hint_label("Lists the compounds once you choose a compounds file."))
+        self.standard_picker = StandardPicker([], None, set())
+        self.standard_picker.setEnabled(False)
+        form_row(form, "Internal standard", self.standard_picker)
+        self._standard_hint = hint_label("Lists the compounds once you choose a compounds file.")
+        form_row(form, "", self._standard_hint)
+        self._form = form
         layout.addLayout(form)
 
         layout.addSpacing(16)
@@ -114,18 +114,23 @@ class UpdateOldDataDialog(QDialog):
         if path:
             self.compounds_path = path
             self.c_edit.setText(path)
-            # Populate internal standard dropdown from compounds file
             try:
                 from manic.io.legacy_rebuild import _read_compounds_as_dicts
 
-                names = [c["compound_name"] for c in _read_compounds_as_dicts(path)]
+                compounds = _read_compounds_as_dicts(path)
             except Exception:
-                # Keep dropdown minimal if parsing fails
-                names = []
-            self.is_combo.clear()
-            self.is_combo.addItem("No internal standard", None)
-            for name in names:
-                self.is_combo.addItem(name, name)
+                # The rebuild reports the unreadable file; the standard stays unset.
+                compounds = []
+            names = [c["compound_name"] for c in compounds]
+            # The rebuild is labelled: calibrating needs both amounts, as in the sidebar.
+            lacking = {
+                c["compound_name"]
+                for c in compounds
+                if not all((c[f] or 0) > 0 for f in ("int_std_amount", "amount_in_std_mix"))
+            }
+            self.standard_picker.set_names(names, lacking)
+            self.standard_picker.setEnabled(bool(names))
+            self._form.setRowVisible(self._standard_hint, not names)
             self._update_ok()
 
     def _browse_raw(self):
@@ -146,8 +151,5 @@ class UpdateOldDataDialog(QDialog):
     def get_paths(self):
         return self.compounds_path, self.raw_values_path
 
-    def _on_is_changed(self, idx: int):
-        self.internal_standard = self.is_combo.currentData()
-
     def get_internal_standard(self) -> str | None:
-        return self.internal_standard
+        return self.standard_picker.standard()

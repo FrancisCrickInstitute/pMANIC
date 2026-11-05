@@ -4,9 +4,9 @@ from unittest import mock
 
 import pytest
 from PySide6.QtCore import QUrl, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QDialogButtonBox,
     QLabel,
     QPushButton,
@@ -18,6 +18,7 @@ from manic.models.analysis import AnalysisMode
 from manic.models.mm_file_check import MmFileStatus
 from manic.ui.main_window import MainWindow
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
+from manic.ui.standard_chooser import StandardChooser
 
 from conftest import _make_window
 
@@ -62,6 +63,13 @@ def _button(dialog: PostLoadChecklistDialog, text: str) -> QPushButton:
     return next(b for b in dialog.buttons.buttons() if b.text() == text)
 
 
+def _choose_standard(dialog: PostLoadChecklistDialog, typed: str) -> None:
+    dialog.standard_picker.showPopup()
+    chooser = dialog.standard_picker.findChildren(StandardChooser)[-1]
+    QTest.keyClicks(chooser.filter, typed)
+    QTest.keyClick(chooser.filter, Qt.Key_Return)
+
+
 def _standard_shown(window: MainWindow) -> str:
     return window.toolbar.standard.findChild(QLabel, "statusValue").text()
 
@@ -79,24 +87,27 @@ def test_dialog_preselects_current_internal_standard(qapp):
     dialog = PostLoadChecklistDialog(
         ["Alanine", "Norvaline"], "Norvaline", report, None
     )
-    combo = dialog.findChild(QComboBox, "internalStandardCombo")
-    assert combo.currentText() == "Norvaline"
+    assert dialog.standard_picker.currentText() == "Norvaline"
     assert dialog.selected_internal_standard() == "Norvaline"
     dialog.close()
 
 
 def test_unchanged_checklist_offers_one_continue(qapp):
     dialog = PostLoadChecklistDialog(["Alanine"], None, [], None)
-    combo = dialog.findChild(QComboBox, "internalStandardCombo")
-    assert combo.currentText() == "No internal standard"
+    assert dialog.standard_picker.currentText() == "No internal standard"
     assert dialog.findChild(QLabel, "internalStandardStatus") is None
     visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
     assert visible == ["Continue"]
-    combo.setCurrentText("Alanine")
+    _choose_standard(dialog, "ala")
+    assert dialog.standard_picker.currentText() == "Alanine"
     assert dialog.selected_internal_standard() == "Alanine"
     visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
     assert sorted(visible) == ["Apply", "Continue without changes"]
-    combo.setCurrentIndex(0)
+    dialog.standard_picker.showPopup()
+    chooser = dialog.standard_picker.findChildren(StandardChooser)[-1]
+    none_row = chooser.list.visualItemRect(chooser.list.item(0)).center()
+    QTest.mouseClick(chooser.list.viewport(), Qt.LeftButton, pos=none_row)
+    assert dialog.selected_internal_standard() is None
     visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
     assert visible == ["Continue"]
     dialog.close()
@@ -135,8 +146,7 @@ def test_apply_sets_internal_standard_on_toolbar(qapp, empty_db, monkeypatch):
         window.toolbar.update_compound_list(["Alanine", "Norvaline"])
         window.show_post_load_checklist()
         dialog = window.findChild(PostLoadChecklistDialog)
-        combo = dialog.findChild(QComboBox, "internalStandardCombo")
-        combo.setCurrentText("Norvaline")
+        _choose_standard(dialog, "norv")
         _button(dialog, "Apply").click()
         assert window.toolbar.get_internal_standard() == "Norvaline"
         assert _standard_shown(window) == "Norvaline"
@@ -153,8 +163,7 @@ def test_continue_without_changes_leaves_internal_standard_unchanged(qapp, empty
         window.toolbar.on_internal_standard_selected("Alanine")
         window.show_post_load_checklist()
         dialog = window.findChild(PostLoadChecklistDialog)
-        combo = dialog.findChild(QComboBox, "internalStandardCombo")
-        combo.setCurrentText("Norvaline")
+        _choose_standard(dialog, "norv")
         _button(dialog, "Continue without changes").click()
         assert window.toolbar.get_internal_standard() == "Alanine"
         assert _standard_shown(window) == "Alanine"
@@ -347,3 +356,25 @@ def test_check_setup_action_requires_loaded_data(qapp, empty_db, monkeypatch):
         assert window.check_setup_action.isEnabled() is True
     finally:
         _close_window(window)
+
+
+def test_mm_table_is_reachable_by_keyboard_and_stays_read_only(qapp, tmp_path):
+    dialog = _long_dialog(tmp_path)
+    try:
+        dialog.show()
+        dialog.activateWindow()
+        _settle()
+        dialog.standard_picker.setFocus()
+        QTest.keyClick(dialog.standard_picker, Qt.Key_Tab)
+        table = dialog.mm_file_table
+        assert table.hasFocus()
+        QTest.keyClick(table, Qt.Key_Down)
+        QTest.keyClick(table, Qt.Key_PageDown)
+        assert table.currentRow() > 1
+        assert table.selectionModel().selectedRows()[0].row() == table.currentRow()
+        QTest.keyClick(table, Qt.Key_F2)
+        assert table.state() != QTableWidget.EditingState
+        QTest.keyClick(table, Qt.Key_Tab)
+        assert not table.hasFocus()
+    finally:
+        dialog.close()

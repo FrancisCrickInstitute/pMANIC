@@ -85,6 +85,7 @@ from manic.ui.left_toolbar import Toolbar
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
 from manic.ui.export_options_dialog import ExportOptionsDialog
 from manic.ui.settings_window import SettingsWindow
+from manic.ui.standard_indicator_widget import lacking_amount
 from manic.ui.start_panel import StartPanel
 from manic.ui.theme import set_style_property
 from manic.ui.toast_notification import show_status_toast
@@ -2347,6 +2348,7 @@ class MainWindow(QMainWindow):
             report,
             self,
             compound_list_path=self.compound_list_path,
+            lacking=lacking_amount(compound_names, self.analysis_mode),
         )
         dialog.open_user_guide_requested.connect(self._open_checklist_guide)
         dialog.accepted.connect(self._apply_checklist)
@@ -2849,8 +2851,8 @@ class MainWindow(QMainWindow):
                     (
                         "Results will contain quantifier-ion peak areas."
                         if self.analysis_mode is AnalysisMode.UNLABELLED
-                        else "Abundance values will represent 'Peak Area' "
-                        "(sum of corrected isotopologues)."
+                        else "Abundances will be peak areas, summed over the "
+                        "corrected isotopologues."
                     ),
                     "Export",
                 ):

@@ -112,7 +112,7 @@ def divider() -> QFrame:
 
 
 def status_pixmap(state: str) -> QPixmap:
-    """Done: filled check. Optional/blocked: an empty ring."""
+    """Done: filled check. Warning: filled exclamation mark. Optional/blocked: an empty ring."""
     size = 14
     ratio = 2.0
     pixmap = QPixmap(int(size * ratio), int(size * ratio))
@@ -134,6 +134,15 @@ def status_pixmap(state: str) -> QPixmap:
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(tick)
+    elif state == "warning":
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color("warning"))
+        painter.drawEllipse(box)
+        pen = QPen(color("surface"), 1.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(size / 2, size * 0.30), QPointF(size / 2, size * 0.56))
+        painter.drawPoint(QPointF(size / 2, size * 0.72))
     else:
         pen = QPen(color("border_strong"), 1.4)
         if state == "optional":

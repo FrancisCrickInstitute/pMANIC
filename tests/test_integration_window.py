@@ -135,6 +135,35 @@ def test_an_unapplied_edit_comes_back_with_its_compound_and_says_so(qapp, monkey
         integration.deleteLater()
 
 
+def test_with_both_drafts_only_the_last_edited_apply_is_primary(qapp):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms) VALUES ('Alanine', 1.0, 0.1, 0.1, 217.0, 0)"
+        )
+    integration = IntegrationWindow(AnalysisMode.LABELLED)
+    left = integration.findChild(QLineEdit, "lo_input")
+
+    def primary() -> list[str]:
+        return [
+            b.text()
+            for b in (integration.apply_button, integration.regenerate_button)
+            if b.property("variant") == "primary"
+        ]
+
+    try:
+        integration.populate_fields_from_plots("Alanine", [], ["S1", "S2"])
+        integration.populate_tr_window_field("Alanine")
+        QTest.keyClicks(integration.tr_window_edit, "5")
+        assert primary() == ["Apply window"]
+        QTest.keyClicks(left, "5")
+        assert primary() == ["Apply"]
+        QTest.keyClicks(integration.tr_window_edit, "5")
+        assert primary() == ["Apply window"]
+    finally:
+        integration.deleteLater()
+
+
 def test_an_unapplied_tr_window_comes_back_with_its_compound_and_says_so(qapp, monkeypatch):
     with database.get_connection() as conn:
         for name in ("Alanine", "Glycine"):
@@ -158,7 +187,7 @@ def test_an_unapplied_tr_window_comes_back_with_its_compound_and_says_so(qapp, m
         show("Alanine")
         window.selectAll()
         QTest.keyClicks(window, "0.37")
-        assert _caption(integration.window_scope_label) == "Re-extracts all 2 shown samples · not applied"
+        assert _caption(integration.window_scope_label) == "All 2 shown · not applied"
         assert integration.regenerate_button.property("variant") == "primary"
 
         show("Glycine")
@@ -171,7 +200,7 @@ def test_an_unapplied_tr_window_comes_back_with_its_compound_and_says_so(qapp, m
         show("Alanine")
         assert (window.text(), _caption(integration.window_scope_label)) == (
             "0.37",
-            "Re-extracts all 2 shown samples · not applied",
+            "All 2 shown · not applied",
         )
     finally:
         integration.deleteLater()

@@ -486,6 +486,11 @@ QTableCornerButton::section {
     border: none;
 }
 
+/* Read-only but focusable, so focus shows on its frame. */
+QTableWidget#mmFileTable:focus {
+    border: 1px solid @accent;
+}
+
 /* ---------- Group boxes and tabs ---------- */
 
 QGroupBox {
@@ -831,7 +836,7 @@ QLabel#statusValue[state="blocked"] {
 }
 
 /* A chosen standard export cannot calibrate with. */
-QLabel#standardNote {
+QLabel#statusValue[state="warning"] {
     color: @warning;
 }
 

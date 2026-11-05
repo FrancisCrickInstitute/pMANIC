@@ -170,6 +170,12 @@ def _review_menu(window) -> dict:
 
 
 def test_internal_standard_row_is_optional_until_chosen(qapp):
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms, int_std_amount, amount_in_std_mix) "
+            "VALUES ('Norvaline', 1.0, 0.1, 0.1, 217.0, 0, 2.0, 1.0)"
+        )
     row = StandardIndicator()
     value = _value(row)
     assert row.internal_standard is None
@@ -217,12 +223,20 @@ def test_a_standard_without_an_amount_says_how_it_will_export(qapp, mode, needs_
         ]
         chooser.close()
         shown = {}
+        value = toolbar.standard.findChild(QLabel, "statusValue")
         for name in ("Palatinose", "Norvaline", "Scyllo"):
             _choose_standard(toolbar, name)
-            shown[name] = None if toolbar.standard.note.isHidden() else toolbar.standard.note.text()
-        assert shown == {"Palatinose": note, "Norvaline": note if needs_mix else None, "Scyllo": None}
+            tip = toolbar.standard.toolTip()
+            shown[name] = (value.text(), value.property("state"), tip.startswith(note))
+        warned, calibrated_row = ("warning", True), ("done", False)
+        assert shown == {
+            "Palatinose": ("Palatinose", *warned),
+            "Norvaline": ("Norvaline", *(warned if needs_mix else calibrated_row)),
+            "Scyllo": ("Scyllo", *calibrated_row),
+        }
         toolbar.on_internal_standard_cleared()
-        assert toolbar.standard.note.isHidden()
+        assert value.property("state") == "optional"
+        assert not toolbar.standard.toolTip().startswith(note)
     finally:
         toolbar.deleteLater()
 
@@ -728,16 +742,15 @@ def test_a_shrinking_compound_list_keeps_the_current_compound_in_view(qapp):
         toolbar.deleteLater()
 
 
-def test_a_caption_or_note_takes_its_line_from_the_lists_not_the_window(qapp):
+def test_a_caption_takes_its_line_from_the_lists_not_the_window(qapp):
     # Just tall enough for the lists' hard rows beside the folded Peak window.
     _add_compound("Compound 0")
     toolbar = _sidebar(560, samples_open=True)
     integration = toolbar.integration
     try:
         integration.populate_fields_from_plots("Compound 0", ["Bio_001"], ["Bio_001", "Bio_002"])
-        toolbar.on_internal_standard_selected("Compound 0")  # no amount: its note shows
         _settle(toolbar)
-        assert integration.scope_label.isVisible() and toolbar.standard.note.isVisible()
+        assert integration.scope_label.isVisible()
         assert toolbar.minimumSizeHint().height() <= 560
         assert _full_rows(toolbar.compound_list) >= 1 and _full_rows(toolbar.sample_list) >= 1
         assert _in_view(toolbar, integration.apply_button)

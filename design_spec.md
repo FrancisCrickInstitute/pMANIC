@@ -125,9 +125,9 @@ would put it there.
 
 - Climb toward 10, not just 8: beautiful, professional, unique, and above all
   functional. A broken or misleading path outranks any visual polish.
-- The user is very happy with how the graphs look. Do not restyle the plot
-  tiles, traces, colours or chart layout without a finding that names a real
-  problem; fix only what a review flags.
+- The user is very happy with how the graphs look. Changes that make them
+  better (such as larger Comfortable tiles) are welcome; do not regress their
+  look or swap their established colours and meaning.
 - No redundant code or tests. Every line and every test must earn its place.
   Prefer deleting dead code, one-caller wrappers and duplicated helpers. A new
   test must protect a behaviour a user would notice; do not add tests that

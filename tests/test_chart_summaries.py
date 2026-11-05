@@ -310,6 +310,24 @@ def test_a_sample_with_no_ratio_shows_a_dash_and_explains_on_hover(qapp, monkeyp
         widget.deleteLater()
 
 
+def _row_notes(widget) -> dict[str, str]:
+    """Each row note's sample and text."""
+    return {
+        _category(widget, item.pos() + item.boundingRect().center()): item.text()
+        for item in widget.chart.childItems()
+        if isinstance(item, QGraphicsSimpleTextItem) and item.isVisible()
+    }
+
+
+def test_a_peak_area_too_small_to_draw_reads_as_its_popup_value(qapp):
+    names = ["S1", "S2", "S3", "S4"]
+    widget = _shown(_abundance(names, [2e6, 0.0, float("nan"), 2e3]), 300)
+    try:
+        assert _row_notes(widget) == {"S2": "0", "S3": "—", "S4": "<0.01"}
+    finally:
+        widget.deleteLater()
+
+
 @pytest.mark.parametrize("make", [_ratios, _abundance])
 def test_a_summary_hover_tooltip_has_its_own_opaque_background(qapp, make):
     # The chart view's own transparent style must not leak into the tooltip it shows.

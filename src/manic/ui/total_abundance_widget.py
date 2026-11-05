@@ -14,16 +14,24 @@ from PySide6.QtCharts import (
 )
 from PySide6.QtCore import QMargins, Qt, Signal
 from PySide6.QtGui import QCursor, QMouseEvent, QPainter, QPen
-from PySide6.QtWidgets import QFrame, QSizePolicy, QToolTip, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QGraphicsSimpleTextItem,
+    QSizePolicy,
+    QToolTip,
+    QVBoxLayout,
+    QWidget,
+)
 
 from manic.io.compound_reader import read_compound
 from manic.io.eic_reader import EIC
 from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
-from manic.ui.chart_popup_dialog import PinnedAxis, value_axis_ticks
+from manic.ui.chart_popup_dialog import PinnedAxis, bar_value_text, value_axis_ticks
 from manic.ui.chart_style import (
     abundance_scale,
     fit_name_font,
+    place_row_notes,
     scale_text,
     set_nice_ticks,
     style_axis,
@@ -93,6 +101,10 @@ class TotalAbundanceWidget(QWidget):
         self.chart_area = SummaryChartArea(self.chart_view, 4)
         layout.addWidget(self.chart_area)
         self.chart.plotAreaChanged.connect(self._fit_names)
+        # A bar too short to see reads as the popup prints it: "0", "<0.01" or "—".
+        self._row_notes: list[QGraphicsSimpleTextItem] = []
+        self.chart.plotAreaChanged.connect(self._place_row_notes)
+        theme.notifier.changed.connect(self._place_row_notes)
 
         # The grid's selected samples, drawn in the accent colour.
         self._highlighted: set[str] = set()
@@ -160,6 +172,17 @@ class TotalAbundanceWidget(QWidget):
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._paint_highlight()
+        self._place_row_notes()
+
+    def _place_row_notes(self, *_args) -> None:
+        texts = {}
+        if self._has_data():
+            _top, scale_exp = abundance_scale(self._current_abundances)
+            for row, value in enumerate(self._current_abundances / 10**scale_exp):
+                text = bar_value_text(value)
+                if text in ("—", "0", "<0.01"):
+                    texts[row] = text
+        place_row_notes(self.chart, self._row_notes, texts)
 
     def _fit_names(self, *_args) -> None:
         axes = self.chart.axes(Qt.Vertical)
@@ -238,6 +261,7 @@ class TotalAbundanceWidget(QWidget):
         self._current_compound = ""
         self._current_abundances = None
         self._current_sample_names = None
+        self._place_row_notes()
 
     def _chart_view_double_click(self, event: QMouseEvent):
         """Handle double-click on chart view to show popup chart."""

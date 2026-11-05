@@ -92,17 +92,6 @@ def _in_view(toolbar: Toolbar, widget) -> bool:
     return True
 
 
-def _cut(toolbar: Toolbar, widget) -> bool:
-    """Partly shown: visible, not whole, and not wholly scrolled out of its viewport."""
-    if not widget.isVisible() or _in_view(toolbar, widget):
-        return False
-    area = toolbar.integration.more
-    if area.isAncestorOf(widget):
-        top = widget.mapTo(area.viewport(), QPoint(0, 0)).y()
-        return top < area.viewport().height() and top + widget.height() > 0
-    return True
-
-
 def _switch_button(toolbar: Toolbar, key: str) -> QAbstractButton:
     return toolbar.section_switcher.findChild(QAbstractButton, f"switch_{key}")
 
@@ -630,11 +619,14 @@ def test_switcher_leaves_once_there_is_room_and_sections_keep_their_state(qapp, 
         tall.deleteLater()
 
 
-@pytest.mark.parametrize("height, rows", [(LAPTOP_640, (2, 1)), (LAPTOP_720, (4, 3))])
-def test_no_peak_window_field_is_ever_cut_on_a_short_sidebar(qapp, height, rows):
+@pytest.mark.parametrize("height, folded", [(LAPTOP_640, True), (LAPTOP_720, False)])
+def test_short_sidebar_keeps_the_editor_whole_and_folds_the_rows_below_behind_their_names(
+    qapp, height, folded
+):
     _add_compound("Compound 0")
     toolbar = _sidebar(height, samples_open=True)
     integration = toolbar.integration
+    heading = integration.more.header
     editor = [
         integration.findChild(QLineEdit, name) for name in ("lo_input", "tr_input", "ro_input")
     ] + [integration.restore_button, integration.apply_button]
@@ -645,18 +637,25 @@ def test_no_peak_window_field_is_ever_cut_on_a_short_sidebar(qapp, height, rows)
             integration.populate_fields_from_plots("Compound 0", selected, shown)
             _settle(toolbar)
             assert integration.scope_label.isVisible() == bool(selected)
-            assert _full_rows(toolbar.compound_list) >= rows[0]
-            assert _full_rows(toolbar.sample_list) >= rows[1]
+            assert _full_rows(toolbar.compound_list) >= 2
+            assert _full_rows(toolbar.sample_list) >= 3
             assert all(_in_view(toolbar, widget) for widget in editor), selected
-            # Scrolled any way, the rows below show whole or not at all, and each can show.
-            bar = integration.more.verticalScrollBar()
-            if height == LAPTOP_640:
-                assert bar.maximum() > 0, "the rows below should page at this height"
-            seen = set()
-            for value in [*range(bar.maximum() + 1), *range(bar.maximum(), -1, -1)]:
-                bar.setValue(value)
-                assert not any(_cut(toolbar, widget) for widget in below), (selected, value)
-                seen.update(w for w in below if _in_view(toolbar, w))
-            assert seen == set(below), selected
+            assert heading.isVisible() == folded
+            if not folded:
+                assert all(_in_view(toolbar, widget) for widget in below), selected
+                continue
+            assert not any(widget.isVisible() for widget in below)
+            assert "Baseline, tR window" in [label.text() for label in heading.findChildren(QLabel)]
+
+            # Opened, every row shows whole in the same sidebar; the lists give up rows.
+            heading.click()
+            _settle(toolbar)
+            assert toolbar.height() == height
+            assert heading.isVisible()
+            assert all(_in_view(toolbar, widget) for widget in editor + below), selected
+            heading.click()
+            _settle(toolbar)
+            assert not any(widget.isVisible() for widget in below)
+            assert _full_rows(toolbar.sample_list) >= 3
     finally:
         toolbar.deleteLater()

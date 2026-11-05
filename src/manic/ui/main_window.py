@@ -101,6 +101,10 @@ from manic.utils.timer import measure_time
 
 logger = logging.getLogger("manic_logger")
 
+
+def _eics(count: int) -> str:
+    return f"{count} EIC" if count == 1 else f"{count} EICs"
+
 SIDEBAR_WIDTH = 296
 COMPOUND_LIST_SUFFIXES = {".csv", ".xls", ".xlsx"}
 
@@ -278,6 +282,8 @@ class MainWindow(QMainWindow):
         # Initiate the file menu
         file_menu = menu_bar.addMenu("File")
         self.file_menu = file_menu
+        # Windows draws menu tooltips only when asked; a disabled action's says what it needs.
+        file_menu.setToolTipsVisible(True)
 
         # Create the actions/logic for loading compound list data
         self.load_compound_action = QAction("Load Compounds/Parameter List", self)
@@ -573,6 +579,7 @@ class MainWindow(QMainWindow):
         self.baseline_action.setCheckable(True)
         self.baseline_action.setChecked(baseline.isChecked())
         self.baseline_action.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        self.baseline_action.setShortcutVisibleInContextMenu(True)
         self.baseline_action.triggered.connect(lambda checked: baseline.setChecked(checked))
         baseline.toggled.connect(self.baseline_action.setChecked)
         menu.addAction(self.baseline_action)
@@ -842,8 +849,10 @@ class MainWindow(QMainWindow):
         )
 
         # Import Session: enabled only if both compound and CDF data loaded
-        self.import_session_action.setEnabled(
-            self.compound_data_loaded and self.cdf_data_loaded
+        can_import = self.compound_data_loaded and self.cdf_data_loaded
+        self.import_session_action.setEnabled(can_import)
+        self.import_session_action.setToolTip(
+            "" if can_import else "Load the session's compound list and raw data first"
         )
 
         # Clear Session: enabled if any data loaded
@@ -1859,13 +1868,10 @@ class MainWindow(QMainWindow):
         # Re-enable UI
         self._re_enable_ui_actions()
 
-        # Show success message
-        msg = self._create_message_box(
-            "information",
-            "Regeneration Complete",
-            f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
+        show_status_toast(
+            self.statusBar(),
+            f"Regenerated {_eics(regenerated_count)} at {self.mass_tolerance} Da mass tolerance",
         )
-        msg.exec()
 
     def _mass_tolerance_reload_failed(self, error_msg: str):
         """Handle mass tolerance reload failure"""
@@ -1953,14 +1959,7 @@ class MainWindow(QMainWindow):
             else:
                 self.graph_view.refresh_plots_with_session_data()
 
-            msg_box = self._create_message_box(
-                "information",
-                "Regeneration Complete",
-                f"Data regeneration completed successfully!\n\n"
-                f"Regenerated {regenerated_count} EIC records.\n"
-                f"Plots have been refreshed with new data.",
-            )
-            msg_box.exec()
+            show_status_toast(self.statusBar(), f"Regenerated {_eics(regenerated_count)}")
 
         except Exception as e:
             self.toolbar.integration._pending_session_update = None
@@ -2029,7 +2028,7 @@ class MainWindow(QMainWindow):
                 stem = chosen.stem if chosen.suffix.lower() == ".json" else chosen.name
                 written = chosen.parent / "manic_session_export" / f"{stem}.json"
                 self._show_export_toast(
-                    f"Exported {written.name} to {written.parent.name}", written.parent
+                    f"Exported {written.name} to {written.parent.name}", written
                 )
                 logger.info(f"Session exported to {written}")
             else:
@@ -2105,7 +2104,7 @@ class MainWindow(QMainWindow):
                 msg_box.exec()
                 return
 
-            # Build info text based on what the session contains
+            # What the session holds and what importing it replaces.
             info_lines = ["Session contains:"]
             if has_overrides:
                 info_lines.append(f"• {method_info['session_override_count']} integration overrides")
@@ -2117,20 +2116,20 @@ class MainWindow(QMainWindow):
                     info_lines.append(f"• {deleted_sample_count} deleted sample(s)")
             info_lines.append("")
             if has_overrides:
-                info_lines.append("This will import session-specific integration boundaries.")
                 info_lines.append("Any existing session overrides will be replaced.")
             if has_deletion_data:
                 info_lines.append("Compound and sample deletion states will be synchronized.")
-            info_lines.append("")
-            info_lines.append("Continue with session import?")
-            info_text = "\n".join(info_lines)
-
-            # Confirm import
-            reply = self._show_question_dialog(
-                "Import Session Overrides", "Import session data?", info_text
+            confirm = self._create_message_box(
+                "question",
+                "Import Session Overrides",
+                f"Import {Path(file_path).name}?",
+                "\n".join(info_lines),
             )
-
-            if reply != QMessageBox.Yes:
+            confirm.setStandardButtons(QMessageBox.Cancel)
+            import_button = confirm.addButton("Import Overrides", QMessageBox.AcceptRole)
+            confirm.setDefaultButton(QMessageBox.Cancel)
+            confirm.exec()
+            if confirm.clickedButton() is not import_button:
                 return
 
             # Import the session overrides
@@ -2152,22 +2151,19 @@ class MainWindow(QMainWindow):
                     )
                     legacy_msg.exec()
 
-                import_text = (
-                    f"Session overrides imported successfully from:\n{file_path}\n\n"
-                    f"Integration boundaries have been updated for the affected samples."
-                )
                 standard_note = format_session_import_standard_note(
                     restore,
                     labelled=self.analysis_mode is AnalysisMode.LABELLED,
                 )
-                if standard_note:
-                    import_text = f"{import_text}\n\n{standard_note}"
-                msg_box = self._create_message_box(
-                    "information",
-                    "Session Import Successful",
-                    import_text,
-                )
-                msg_box.exec()
+                if restore.kind is InternalStandardRestoreKind.FAILED:
+                    self._create_message_box(
+                        "warning", "Internal Standard Not Restored", standard_note
+                    ).exec()
+                # Routine success: a toast, with the restored standard when there is one.
+                message = f"Imported {Path(file_path).name}"
+                if standard_note and restore.kind is not InternalStandardRestoreKind.FAILED:
+                    message = f"{message} · {standard_note.rstrip('.')}"
+                show_status_toast(self.statusBar(), message, hover=file_path)
                 logger.info(f"Session overrides imported from {file_path}")
                 self._refresh_after_session_import()
             else:
@@ -2650,6 +2646,8 @@ class MainWindow(QMainWindow):
         clear_button.setText("Clear Session")
         set_style_property(clear_button, "variant", "danger")
         confirm.button(QMessageBox.No).setText("Cancel")
+        # Return must not clear a session by accident.
+        confirm.setDefaultButton(QMessageBox.No)
         reply = confirm.exec()
 
         if reply == QMessageBox.Yes:
@@ -2920,14 +2918,15 @@ class MainWindow(QMainWindow):
             )
             msg_box.exec()
 
-    def _show_export_toast(self, message: str, folder: Path) -> None:
+    def _show_export_toast(self, message: str, written: Path) -> None:
         show_status_toast(
             self.statusBar(),
             message,
             action=(
                 "Show in Folder",
-                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))),
+                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(written.parent))),
             ),
+            hover=str(written),
         )
 
     def _clear_export_thread(self):
@@ -2942,7 +2941,7 @@ class MainWindow(QMainWindow):
         self._close_export_dialog()
         if success:
             path = Path(self._export_path)
-            self._show_export_toast(f"Exported {path.name}", path.parent)
+            self._show_export_toast(f"Exported {path.name}", path)
             logger.info(f"Data exported successfully to {path}")
         else:
             show_status_toast(self.statusBar(), "Export cancelled")

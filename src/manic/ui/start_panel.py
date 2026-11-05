@@ -76,11 +76,7 @@ class StartPanel(QWidget):
 
         zone.addWidget(column, 0, Qt.AlignmentFlag.AlignHCenter)
         zone.addStretch(3)
-        centred = QHBoxLayout()
-        centred.addStretch(1)
-        centred.addWidget(self._footer(), 1000)  # grows to its cap before the margins do
-        centred.addStretch(1)
-        zone.addLayout(centred)
+        zone.addWidget(self._footer(), 0, Qt.AlignmentFlag.AlignHCenter)
         self._compounds_next = True
         self.refresh(False, True, False, [], [])
 
@@ -89,21 +85,12 @@ class StartPanel(QWidget):
         row = QHBoxLayout(footer)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
-        switch = _footer_link("Change analysis mode", self.new_session_requested)
-        session = QLabel("Saved session: load its data, then File → Import Session")
-        session.setProperty("role", "hint")
         for widget in (
-            switch,
+            _footer_link("Change analysis mode", self.new_session_requested),
             _dot(),
             _footer_link("Quick start guide", self.documentation_requested),
-            _dot(),
         ):
             row.addWidget(widget)
-        row.addWidget(session, 1)
-        # One line when it fits; below that the hint wraps instead of widening the window.
-        footer.ensurePolished()
-        footer.setMaximumWidth(footer.sizeHint().width())
-        session.setWordWrap(True)
         return footer
 
     def refresh(

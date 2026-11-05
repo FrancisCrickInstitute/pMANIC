@@ -104,62 +104,6 @@ class SummaryChartArea(QScrollArea):
             self.ensureVisible(0, int(y), 0, NAME_ROW_PX)
 
 
-class WholeRowsArea(QScrollArea):
-    """Rows that are never cut through: all of them when they fit, else one whole row
-    at a time, scrolled a row at a time."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        body = QWidget()
-        self.rows = QVBoxLayout(body)
-        self.rows.setContentsMargins(0, 0, 0, 0)
-        self.rows.setSpacing(8)
-        self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setWidget(body)
-        self.viewport().setAutoFillBackground(False)
-        body.setAutoFillBackground(False)
-        self._step = 0
-        self._at = 0
-        self.verticalScrollBar().valueChanged.connect(self._snap)
-
-    def _heights(self) -> list[int]:
-        rows = (self.rows.itemAt(i).widget() for i in range(self.rows.count()))
-        return [row.sizeHint().height() for row in rows if row is not None and not row.isHidden()]
-
-    def full_height(self) -> int:
-        heights = self._heights()
-        return sum(heights) + self.rows.spacing() * max(len(heights) - 1, 0)
-
-    def sizeHint(self) -> QSize:
-        return QSize(super().sizeHint().width(), self.full_height())
-
-    def minimumSizeHint(self) -> QSize:
-        return QSize(super().minimumSizeHint().width(), max(self._heights(), default=0))
-
-    def fit(self, room: int) -> None:
-        """Show every row if ``room`` holds them, else one at a time, each as tall as the tallest."""
-        tallest = max(self._heights(), default=0)
-        paged = room < self.full_height()
-        for index in range(self.rows.count()):
-            row = self.rows.itemAt(index).widget()
-            if row is not None:
-                row.setMinimumHeight(tallest if paged else 0)
-        self._step = tallest + self.rows.spacing() if paged else 0
-        self.setMaximumHeight(tallest if paged else self.full_height())
-        self._snap(self.verticalScrollBar().value())
-
-    def _snap(self, value: int) -> None:
-        bar = self.verticalScrollBar()
-        if not self._step or value % self._step == 0 or value == bar.maximum():
-            self._at = value
-            return
-        # Any scroll moves a whole row in its direction.
-        step = self._step if value > self._at else -self._step
-        bar.setValue(max(bar.minimum(), min(self._at + step, bar.maximum())))
-
-
 def divider() -> QFrame:
     line = QFrame()
     line.setProperty("role", "divider")
@@ -344,6 +288,7 @@ class CollapsibleSection(QWidget):
         expanded: bool = False,
         parent=None,
         settings_key: str | None = None,
+        sub: bool = False,
     ):
         super().__init__(parent)
         self.body = body
@@ -352,7 +297,7 @@ class CollapsibleSection(QWidget):
             expanded = QSettings().value(settings_key, expanded, type=bool)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(4 if sub else 8)
 
         self.header = QPushButton()
         self.header.setProperty("role", "sectionToggle")
@@ -363,7 +308,10 @@ class CollapsibleSection(QWidget):
         self._chevron = QLabel()
         self._chevron.setProperty("role", "section")
         self._chevron.setFixedWidth(10)
-        self._title = section_heading(title)
+        # A sub-section inside another names its contents in sentence case, below the section level.
+        self._title = QLabel(title) if sub else section_heading(title)
+        if sub:
+            self._title.setProperty("role", "hint")
         self.summary = ElidedLabel()
         self.summary.setProperty("role", "hint")
         self.summary.setAlignment(
@@ -374,7 +322,7 @@ class CollapsibleSection(QWidget):
         row.addWidget(self._chevron)
         row.addWidget(self._title)
         row.addWidget(self.summary, 1)
-        self.header.setFixedHeight(24)
+        self.header.setFixedHeight(20 if sub else 24)
         self.header.clicked.connect(self._on_header_clicked)
 
         layout.addWidget(self.header)

@@ -1,6 +1,7 @@
+import pytest
 from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 
 from manic.io.compounds_import import CompoundRow, insert_compound
 from manic.models.analysis import AnalysisMode
@@ -194,5 +195,126 @@ def test_finished_data_export_reports_in_a_toast_not_a_dialog(qapp, monkeypatch,
         assert toast.findChild(QLabel, "toastLabel").text() == "Exported manic_data_export.xlsx"
         assert toast.action_button.text() == "Show in Folder"
         assert dialogs == []
+    finally:
+        window.close()
+
+
+def test_long_session_name_toast_stays_inside_the_window(qapp, monkeypatch, tmp_path):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    chosen = tmp_path / f"{'labelled-pyruvate-lactate-review-' * 3}final.json"
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getSaveFileName", lambda *a, **k: (str(chosen), "")
+    )
+    try:
+        window.resize(1008, 633)
+        window.show()
+        window.export_method()
+        QApplication.processEvents()
+        bar = window.statusBar()
+        toast = _toast(window)
+        assert bar.rect().contains(toast.geometry())
+        for button in (toast.action_button, toast.findChild(QPushButton, "toastCloseButton")):
+            assert button.isVisible() and toast.rect().contains(button.geometry())
+        label = toast.findChild(QLabel, "toastLabel")
+        written = tmp_path / "manic_session_export" / chosen.name
+        assert "…" in label.text() and label.text().endswith("manic_session_export")
+        assert label.toolTip() == str(written)
+    finally:
+        window.close()
+
+
+def test_destructive_confirmations_default_to_cancel(qapp, monkeypatch, tmp_path):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    session = tmp_path / "week3.json"
+    asked = []
+
+    def decline(box):
+        asked.append(
+            (
+                box.text(),
+                [button.text() for button in box.buttons()],
+                box.defaultButton().text(),
+                box.informativeText(),
+            )
+        )
+        return QMessageBox.Cancel
+
+    monkeypatch.setattr(QMessageBox, "exec", decline)
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getOpenFileName", lambda *a, **k: (str(session), "")
+    )
+    monkeypatch.setattr("manic.ui.main_window.validate_method_file", lambda *a, **k: (True, ""))
+    monkeypatch.setattr(
+        "manic.ui.main_window.get_method_info",
+        lambda _path: {"session_override_count": 4, "expected_sample_count": 30},
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.import_session_overrides",
+        lambda *a, **k: pytest.fail("imported after Cancel"),
+    )
+    try:
+        window.clear_session()
+        window.import_session()
+        (clear, clear_buttons, clear_default, _), (text, buttons, default, info) = asked
+        assert sorted(clear_buttons) == ["Cancel", "Clear Session"] and clear_default == "Cancel"
+        assert text == "Import week3.json?"
+        assert sorted(buttons) == ["Cancel", "Import Overrides"] and default == "Cancel"
+        assert "?" not in info
+    finally:
+        window.close()
+
+
+def test_import_session_says_what_it_needs_while_disabled(qapp, monkeypatch):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    try:
+        action = window.import_session_action
+        assert not action.isEnabled()
+        assert action.toolTip() == "Load the session's compound list and raw data first"
+        window.compound_data_loaded = window.cdf_data_loaded = True
+        window._update_menu_states()
+        # Cleared, a menu shows no tooltip (toolTip() then falls back to the action's text).
+        assert action.isEnabled() and action.toolTip() == "Import Session"
+    finally:
+        window.close()
+
+
+def test_successful_session_import_reports_in_a_toast(qapp, monkeypatch, tmp_path):
+    from manic.models.session_export import InternalStandardRestore, InternalStandardRestoreKind
+
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    session = tmp_path / "week3.json"
+    dialogs = []
+
+    def answer(box):
+        dialogs.append(box.text())
+        importing = [b for b in box.buttons() if b.text() == "Import Overrides"]
+        if importing:
+            importing[0].click()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", answer)
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getOpenFileName", lambda *a, **k: (str(session), "")
+    )
+    monkeypatch.setattr("manic.ui.main_window.validate_method_file", lambda *a, **k: (True, ""))
+    monkeypatch.setattr(
+        "manic.ui.main_window.get_method_info",
+        lambda _path: {"session_override_count": 4, "expected_sample_count": 30},
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.import_session_overrides", lambda *a, **k: (True, True)
+    )
+    monkeypatch.setattr(
+        window,
+        "_apply_imported_internal_standard",
+        lambda _path: InternalStandardRestore(InternalStandardRestoreKind.RESTORED, "Pyruvate", 1),
+    )
+    monkeypatch.setattr(window, "_refresh_after_session_import", lambda: None)
+    try:
+        window.show()
+        window.import_session()
+        assert dialogs == ["Import week3.json?"]
+        label = _toast(window).findChild(QLabel, "toastLabel")
+        assert label.full_text() == "Imported week3.json · Internal standard: Pyruvate (M+1)"
     finally:
         window.close()

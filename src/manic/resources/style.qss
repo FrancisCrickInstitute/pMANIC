@@ -835,6 +835,12 @@ QLabel#peakScope[state="selected"] {
     font-weight: 500;
 }
 
+/* Typed but not applied: attention, not a verdict. */
+QLabel#peakScope[state="edited"] {
+    color: @warning;
+    font-weight: 500;
+}
+
 /* ---------- Start panel ---------- */
 
 /* The empty canvas is the drop target: no outline at rest, lit only for a drop the window takes. */

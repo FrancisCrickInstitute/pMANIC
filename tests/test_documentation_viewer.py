@@ -133,23 +133,28 @@ def test_documentation_sidebar_selection_changes_file(window, docs_dir):
     assert viewer.current_file == docs_dir / "Workflow_A.md"
 
 
-def test_documentation_shows_a_loading_note_then_the_page(viewer):
+def test_documentation_shows_a_loading_note_until_the_page_has_painted(viewer):
+    # Connected after the viewer's own handler, so it sees the state that handler left.
+    at_load_finished = []
+    viewer.web_view.loadFinished.connect(lambda _ok: at_load_finished.append(viewer.is_rendered()))
     viewer.open()
     assert viewer.status_label.text() == "Loading…"
     assert viewer.status_label.isVisible()
-    assert not viewer.retry_button.isVisible() and not viewer.web_view.isVisible()
-    assert _wait(viewer.web_view.isVisible)
+    assert not viewer.retry_button.isVisible() and not viewer.is_rendered()
+    assert _wait(viewer.is_rendered)
+    # Finishing the load is not enough: the note stays until a frame can be drawn.
+    assert at_load_finished == [False]
     assert _page_text(viewer) == "Quick Start\n\nLoad a compound list."
 
 
 def test_a_failed_render_says_so_and_offers_a_retry(viewer):
     viewer.open()
     viewer.web_view.loadFinished.emit(False)
-    assert not viewer.web_view.isVisible()
+    assert not viewer.is_rendered()
     assert viewer.status_label.text() == "This page could not be displayed."
     assert viewer.retry_button.isVisible()
     viewer.retry_button.click()
-    assert _wait(viewer.web_view.isVisible)
+    assert _wait(viewer.is_rendered)
     assert _page_text(viewer) == "Quick Start\n\nLoad a compound list."
 
 

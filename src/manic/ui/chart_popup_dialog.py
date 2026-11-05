@@ -45,7 +45,6 @@ from manic.ui.colors import (
     QUALIFIER_GREY,
     QUALIFIER_RED,
     ChannelTraceStyle,
-    abundance_colour,
     label_colors,
 )
 from manic.ui.identity_chart import (
@@ -249,6 +248,7 @@ class ChartPopupDialog(QDialog):
         hover_notes: list[str] | None = None,
         identity: IdentityAssessmentSet | None = None,
         compound_name: str = "",
+        highlighted=(),
     ):
         super().__init__(parent)
         self.chart_type = chart_type
@@ -256,6 +256,8 @@ class ChartPopupDialog(QDialog):
         self.sample_names = sample_names
         self.hover_notes = hover_notes
         self._identity = identity
+        # The grid's selected samples, filled in the accent as in the sidebar.
+        self._highlighted = set(highlighted)
 
         self._hover_categories: list[str] | None = None
         self._hover_notes: list[str] | None = None
@@ -429,14 +431,18 @@ class ChartPopupDialog(QDialog):
         bar_series.setBarWidth(0.7)
 
         bar_set = QBarSet("Total Abundance")
-        bar_set.setColor(abundance_colour)
-        bar_set.setBorderColor(abundance_colour)
+        bar_set.setColor(color("text_tertiary"))
+        bar_set.setPen(QPen(Qt.NoPen))
 
         max_abundance, scale_exp = abundance_scale(self.data)
         scale_factor = 10**scale_exp
         scaled = [float(abundance) / scale_factor for abundance in self.data]
         for value in scaled:
             bar_set.append(value if np.isfinite(value) else 0.0)
+        bar_set.selectBars([i for i, name in enumerate(self.sample_names) if name in self._highlighted])
+        self._abundance_bars = bar_set
+        self._recolour_selection()
+        theme.notifier.changed.connect(self._recolour_selection)
 
         # The row under the pointer or picked with the arrow keys reads at three
         # significant figures (see _refresh_value_labels), so no tooltip.
@@ -450,6 +456,10 @@ class ChartPopupDialog(QDialog):
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._add_value_labels(bar_series, list(enumerate(scaled)))
+
+    def _recolour_selection(self, *_args) -> None:
+        # A scheme switch remaps bar colours, but not the selected colour.
+        self._abundance_bars.setSelectedColor(color("accent"))
 
     def _add_value_labels(
         self, series: QAbstractBarSeries, values: list[tuple[int, float]]

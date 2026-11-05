@@ -543,11 +543,48 @@ def tour_steps(tour: Tour) -> None:
         tour.pump(0.5)
 
     tour.run("sidebar_filter_and_samples", filter_and_samples)
-    tour.run(
-        "internal_standard_menu",
-        lambda: grab_popup(tour, tour.window.toolbar.show_internal_standard_menu),
-        grab_main=False,
-    )
+    def chooser_diagnostics():
+        # Temporary: why does the chooser close at once on Windows CI?
+        import traceback as tb
+
+        from PySide6.QtCore import QObject
+
+        from manic.ui.standard_chooser import StandardChooser
+
+        watched = {QEvent.Show, QEvent.Hide, QEvent.Close, QEvent.FocusIn, QEvent.FocusOut,
+                   QEvent.WindowActivate, QEvent.WindowDeactivate, QEvent.MouseButtonPress,
+                   QEvent.KeyPress, QEvent.ActivationChange}
+
+        class Spy(QObject):
+            def eventFilter(self, obj, event):
+                chooser = obj if isinstance(obj, StandardChooser) else None
+                widget = obj
+                while chooser is None and widget is not None and hasattr(widget, "parentWidget"):
+                    widget = widget.parentWidget()
+                    if isinstance(widget, StandardChooser):
+                        chooser = widget
+                if chooser is not None and event.type() in watched:
+                    print(f"  CHOOSER-DIAG {type(obj).__name__} {event.type().name}"
+                          f" active={QApplication.activeWindow()!r}"
+                          f" popup={QApplication.activePopupWidget()!r}", flush=True)
+                return False
+
+        spy = Spy()
+        QApplication.instance().installEventFilter(spy)
+        original_close = StandardChooser.close
+
+        def traced_close(self):
+            print("  CHOOSER-DIAG close() from:\n" + "".join(tb.format_stack(limit=8)), flush=True)
+            return original_close(self)
+
+        StandardChooser.close = traced_close
+        try:
+            grab_popup(tour, tour.window.toolbar.show_internal_standard_menu)
+        finally:
+            StandardChooser.close = original_close
+            QApplication.instance().removeEventFilter(spy)
+
+    tour.run("internal_standard_menu", chooser_diagnostics, grab_main=False)
     tour.run(
         "identity_popup",
         lambda: tour.window.toolbar.targeted_qc._show_popup_chart(),

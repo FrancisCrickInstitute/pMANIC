@@ -46,10 +46,14 @@ SIDEBAR_SHORT_ROWS = 2
 
 
 class _RowsScroll(QScrollArea):
-    """Asks for its minimum height; the sidebar's stretch grows it up to its maximum."""
+    """Asks for its minimum height; the sidebar's stretch grows it up to its maximum.
+
+    Never for the chart's width: a chart view's hint is its last scene width, so
+    asking for it would hold the summary wider than the sidebar.
+    """
 
     def sizeHint(self) -> QSize:
-        return QSize(super().sizeHint().width(), self.minimumHeight())
+        return QSize(super().minimumSizeHint().width(), self.minimumHeight())
 
     def minimumSizeHint(self) -> QSize:
         return self.sizeHint()

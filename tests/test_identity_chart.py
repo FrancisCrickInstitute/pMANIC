@@ -356,6 +356,24 @@ def test_one_sample_leaves_no_band_below_it(qapp):
         dialog.deleteLater()
 
 
+def test_summary_fits_the_inspector_when_data_arrives_after_it_painted(qapp):
+    inspector = QScrollArea()
+    inspector.setWidgetResizable(True)
+    inspector.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    widget = TargetedQcWidget()
+    inspector.setWidget(widget)
+    try:
+        # Painted empty first, as when the compound list loads before the raw data.
+        _settle(inspector, 296, 300)
+        inspector.grab()
+        widget.update_results(_identity(["MM_01", "MM_02"], qualifiers=(V1, V2)))
+        _settle(inspector, 296, 300)
+        assert widget.width() <= inspector.viewport().width()
+        assert all(x < widget.width() for _text, x in widget.columns.tick_positions())
+    finally:
+        inspector.deleteLater()
+
+
 def test_long_sidebar_names_shorten_to_fit_instead_of_running_off(qapp):
     names = ["MM_01", "Sample_04_ratio_fail", "Sample_05_rt_shift"]
     widget = TargetedQcWidget()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QStatusBar, QWidget
 
@@ -11,6 +13,7 @@ class ToastNotification(QWidget):
         parent: QWidget | None = None,
         *,
         timeout_ms: int = 6000,
+        action: tuple[str, Callable[[], None]] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("toastNotification")
@@ -30,6 +33,14 @@ class ToastNotification(QWidget):
         self._close_button.clicked.connect(self.close)
 
         layout.addWidget(self._label, 1)
+        if action is not None:
+            text, callback = action
+            self.action_button = QPushButton(text)
+            self.action_button.setObjectName("toastActionButton")
+            self.action_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.action_button.clicked.connect(callback)
+            self.action_button.clicked.connect(self.close)
+            layout.addWidget(self.action_button, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self._close_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
         if timeout_ms > 0:
@@ -56,12 +67,15 @@ def _centre(toast: ToastNotification, bar: QStatusBar) -> None:
 
 
 def show_status_toast(
-    bar: QStatusBar, message: str, timeout_ms: int = 7000
+    bar: QStatusBar,
+    message: str,
+    timeout_ms: int = 7000,
+    action: tuple[str, Callable[[], None]] | None = None,
 ) -> ToastNotification:
     """A short-lived message centred in the status bar, so it never covers a plot."""
     for old in bar.findChildren(ToastNotification):
         old.close()
-    toast = ToastNotification(message, parent=bar, timeout_ms=timeout_ms)
+    toast = ToastNotification(message, parent=bar, timeout_ms=timeout_ms, action=action)
     toast.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     _KeepCentred(toast, bar)
     _centre(toast, bar)

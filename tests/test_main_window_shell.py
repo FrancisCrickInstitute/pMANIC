@@ -1,6 +1,6 @@
 from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from manic.io.compounds_import import CompoundRow, insert_compound
 from manic.models.analysis import AnalysisMode
@@ -139,4 +139,41 @@ def test_deconvolution_status_opens_its_settings_page(qapp, monkeypatch):
     finally:
         if window.settings_window is not None:
             window.settings_window.close()
+        window.close()
+
+
+def _toast(window):
+    from manic.ui.toast_notification import ToastNotification
+
+    toasts = [t for t in window.statusBar().findChildren(ToastNotification) if t.isVisibleTo(window)]
+    assert len(toasts) == 1
+    return toasts[0]
+
+
+def test_session_export_names_the_file_it_wrote_and_opens_its_folder(
+    qapp, monkeypatch, tmp_path
+):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    chosen = tmp_path / "labelled-session.json"
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getSaveFileName", lambda *a, **k: (str(chosen), "")
+    )
+    opened, dialogs = [], []
+    monkeypatch.setattr(
+        "manic.ui.main_window.QDesktopServices.openUrl", lambda url: opened.append(url)
+    )
+    monkeypatch.setattr(QMessageBox, "exec", lambda box: dialogs.append(box.text()))
+    try:
+        window.show()
+        window.export_method()
+        assert dialogs == []
+        written = tmp_path / "manic_session_export" / "labelled-session.json"
+        assert written.is_file()
+        toast = _toast(window)
+        assert toast.findChild(QLabel, "toastLabel").text() == (
+            "Exported labelled-session.json to manic_session_export"
+        )
+        toast.action_button.click()
+        assert [url.toLocalFile() for url in opened] == [str(written.parent)]
+    finally:
         window.close()

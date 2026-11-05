@@ -743,6 +743,17 @@ QPushButton#toastCloseButton:hover {
     color: @surface;
 }
 
+QPushButton#toastActionButton {
+    background-color: transparent;
+    color: @surface;
+    border: none;
+    min-height: 16px;
+    padding: 0px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: underline;
+}
+
 /* ---------- Sidebar ---------- */
 
 QWidget#toolbar {

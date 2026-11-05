@@ -2065,29 +2065,14 @@ class MainWindow(QMainWindow):
             )
 
             if success:
-                # Show info about what was exported
-                # Extract base name to show directory structure
-                export_path = Path(file_path)
-                if export_path.suffix.lower() == ".json":
-                    base_name = export_path.stem
-                else:
-                    base_name = export_path.name
-                export_dir = export_path.parent / f"manic_export_{base_name}"
-
-                info_text = (
-                    f"Analytical session exported successfully!\n\n"
-                    f"Export Directory: {export_dir}\n\n"
-                    f"Files created:\n"
-                    f"• {base_name}.json - Machine-readable session data\n"
-                    f"• changelog.md - Human-readable summary\n\n"
-                    f"The export contains compound definitions and analysis parameters only. "
-                    f"To use this session, follow the 3-step import process described in the changelog."
+                # Where export_session_method writes, which is not where the user chose.
+                chosen = Path(file_path)
+                stem = chosen.stem if chosen.suffix.lower() == ".json" else chosen.name
+                written = chosen.parent / "manic_session_export" / f"{stem}.json"
+                self._show_export_toast(
+                    f"Exported {written.name} to {written.parent.name}", written.parent
                 )
-                msg_box = self._create_message_box(
-                    "information", "Session Export Successful", info_text
-                )
-                msg_box.exec()
-                logger.info(f"Session exported to {export_dir}")
+                logger.info(f"Session exported to {written}")
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -2986,6 +2971,16 @@ class MainWindow(QMainWindow):
                 f"An error occurred during data export:\n{str(e)}",
             )
             msg_box.exec()
+
+    def _show_export_toast(self, message: str, folder: Path) -> None:
+        show_status_toast(
+            self.statusBar(),
+            message,
+            action=(
+                "Show in Folder",
+                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))),
+            ),
+        )
 
     def _clear_export_thread(self):
         self._export_thread = None

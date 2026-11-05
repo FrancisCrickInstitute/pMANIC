@@ -121,7 +121,7 @@ class ClickableChartView(QChartView):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setFocusPolicy(Qt.NoFocus)
         self.setFrameShape(QFrame.NoFrame)
-        # Transparent so the card's QC tint shows through.
+        # Transparent so the card's verdict tint shows through.
         self.setBackgroundBrush(Qt.NoBrush)
         self.viewport().setAutoFillBackground(False)
         self.setCursor(Qt.PointingHandCursor)
@@ -1495,7 +1495,7 @@ class GraphView(QWidget):
         """Create a ClickableChartView with EIC data and guide lines."""
         chart = QChart()
         style_chart(chart, QMargins(2, 2, 4, 0))
-        # The card's fill, tinted for a QC problem, runs under the traces too.
+        # The card's fill, tinted for a peak verdict, runs under the traces too.
         chart.setPlotAreaBackgroundVisible(False)
 
         x_axis = QValueAxis()

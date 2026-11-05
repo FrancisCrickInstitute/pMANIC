@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QColor, QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -12,7 +12,7 @@ from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import set_sample_fit_type
 from manic.ui import theme
 from manic.ui.graphs import ClickableChartView, GraphView
-from manic.validation.peak_verdict import PeakReview, PeakVerdict
+from manic.validation.peak_verdict import PEAK_VERDICT_FILL, PeakReview, PeakVerdict
 
 from conftest import _make_window
 
@@ -104,19 +104,26 @@ def _badge_labels(tile) -> list[QLabel]:
     ]
 
 
-def test_apply_peak_verdicts_styles_tiles(scheme, grid):
-    _plot(grid, VERDICTS)
-    for sample, texts, tint in (
-        ("A", ["Below threshold"], "warning_soft"),
-        ("B", ["Marked bad"], "danger_soft"),
-        ("C", [], None),
+def test_tile_colours_match_the_workbook_verdict_fills(scheme, grid):
+    verdicts = {"A": FAIL, "B": REJECTED, "C": PASS, "D": PeakVerdict.ACCEPTED}
+    _plot(grid, verdicts)
+    for sample, texts in (
+        ("A", ["Below threshold"]), ("B", ["Marked bad"]), ("C", []), ("D", ["Accepted"])
     ):
         tile = _plots(grid)[sample].parent()
         badges = _badge_labels(tile)
         assert [badge.text() for badge in badges] == texts
-        assert tile.tint() == tint
         # A point on the card's own fill, above the caption.
         card = tile.grab().toImage().pixelColor(16, 3)
+        fill = PEAK_VERDICT_FILL[verdicts[sample]]
+        if fill is None:
+            assert card == theme.color("surface")
+        elif theme.is_dark():
+            # A dim card of the workbook hue; the badge carries the fill itself.
+            assert abs(card.hslHue() - QColor(fill).hslHue()) <= 2
+            assert card.lightness() < 80
+        else:
+            assert card.name() == fill.lower()
         for badge in badges:
             pill = badge.grab().toImage().pixelColor(2, badge.height() // 2)
             assert pill != card

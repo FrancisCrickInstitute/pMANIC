@@ -10,6 +10,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+from manic.ui.colors import verdict_colours
 from manic.ui.chart_style import AXIS_LABEL_PX, scale_text, text_style
 from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.theme import RADIUS, color
@@ -29,34 +30,32 @@ DENSITY_MIN_TILE = {"comfortable": (230, 165), "compact": (130, 95)}
 # (axis and scale text px, caption px) per grid density.
 DENSITY_TEXT = {"comfortable": (11, 13), "compact": (AXIS_LABEL_PX, 12)}
 
-# (text colour, fill) per badge tone. A tinted card's badge is a surface pill,
-# since a fill matching the tint would leave bare text.
-_TONES = {
-    "danger": ("danger", "surface"),
-    "warning": ("warning", "surface"),
-    "success": ("success", "success_soft"),
-    # A grey pill on the grey card tint, so the badge reads as one.
+# Tile colour means the peak verdict, as in the exported workbook: Below threshold
+# red, Accepted purple, Marked bad tan (colors.verdict_colours, a solid badge on a
+# tinted card). Qualifier QC never tints the card; its badges are soft pills of
+# (text, fill) per tone, so they never read as a verdict.
+_QC_TONES = {
+    "danger": ("danger", "danger_soft"),
+    "warning": ("warning", "warning_soft"),
     "neutral": ("text", "border_strong"),
 }
-# Card fill per tone, most serious first.
-_TINTS = {"danger": "danger_soft", "warning": "warning_soft", "neutral": "surface_hover"}
 
 
 @dataclass(frozen=True, slots=True)
 class TileBadge:
     text: str
-    tone: str
+    tone: str  # a PeakVerdict, or a _QC_TONES key
     tooltip: str
 
 
 PEAK_BADGES = {
     PeakVerdict.FAIL: TileBadge(
-        "Below threshold", "warning", "Right-click to accept it or mark it as bad."
+        "Below threshold", PeakVerdict.FAIL, "Right-click to accept it or mark it as bad."
     ),
     PeakVerdict.ACCEPTED: TileBadge(
-        "Accepted", "success", "Below threshold, accepted on review."
+        "Accepted", PeakVerdict.ACCEPTED, "Below threshold, accepted on review."
     ),
-    PeakVerdict.REJECTED: TileBadge("Marked bad", "danger", ""),
+    PeakVerdict.REJECTED: TileBadge("Marked bad", PeakVerdict.REJECTED, ""),
 }
 
 _QC_BADGES = {
@@ -89,12 +88,6 @@ def tile_badges(
     return badges
 
 
-def tile_tint(badges: list[TileBadge]) -> str | None:
-    """Soft card fill token for the most serious badge, so problems stand out."""
-    tones = {badge.tone for badge in badges}
-    return next((tint for tone, tint in _TINTS.items() if tone in tones), None)
-
-
 def grid_columns(
     count: int, width: int, height: int, *, min_width: int, min_height: int
 ) -> tuple[int, int]:
@@ -122,18 +115,26 @@ def grid_columns(
     return max_cols, max(min_height, int(tile_w / TILE_ASPECT))
 
 
-def _badge_label(badge: TileBadge) -> QLabel:
-    fg, bg = _TONES[badge.tone]
-    label = QLabel(badge.text)
-    if badge.tooltip:
-        label.setToolTip(badge.tooltip)
-    label.setFixedHeight(16)
-    theme.style(
-        label,
-        f"color: @{fg}; background: @{bg}; font-size: 10px;"
-        " font-weight: 600; border: none; border-radius: 4px; padding: 0px 5px;"
-    )
-    return label
+class _BadgeLabel(QLabel):
+    def __init__(self, badge: TileBadge):
+        super().__init__(badge.text)
+        self._tone = badge.tone
+        if badge.tooltip:
+            self.setToolTip(badge.tooltip)
+        self.setFixedHeight(16)
+        self._restyle()
+        theme.notifier.changed.connect(self._restyle)
+
+    def _restyle(self, _remap=None) -> None:
+        if self._tone in _QC_TONES:
+            fg, bg = (theme.COLORS[name] for name in _QC_TONES[self._tone])
+        else:
+            verdict = verdict_colours(PeakVerdict(self._tone))
+            fg, bg = verdict.text.name(), verdict.pill.name()
+        self.setStyleSheet(
+            f"color: {fg}; background: {bg}; font-size: 10px; font-weight: 600;"
+            " border: none; border-radius: 4px; padding: 0px 5px;"
+        )
 
 
 class PlotTile(QWidget):
@@ -143,7 +144,6 @@ class PlotTile(QWidget):
         super().__init__(parent)
         self.chart_view = chart_view
         self.verdict = PeakVerdict.PASS
-        self._tint: str | None = None
         self._focused = False
         self._badges: list[TileBadge] = []
         self._caption_selected: bool | None = None
@@ -210,16 +210,12 @@ class PlotTile(QWidget):
             widget.hide()
             widget.deleteLater()
         for index, badge in enumerate(badges):
-            self._badge_row.insertWidget(index, _badge_label(badge))
+            self._badge_row.insertWidget(index, _BadgeLabel(badge))
         self._badge_box.setVisible(bool(badges))
-        self._tint = tile_tint(badges)
         self.update()
 
     def badges(self) -> list[TileBadge]:
         return list(self._badges)
-
-    def tint(self) -> str | None:
-        return self._tint
 
     def set_focused(self, focused: bool) -> None:
         if focused != self._focused:
@@ -244,7 +240,8 @@ class PlotTile(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        painter.setBrush(color(self._tint or "surface"))
+        verdict = verdict_colours(self.verdict)
+        painter.setBrush(verdict.tint if verdict else color("surface"))
         if self.is_selected:
             painter.setPen(QPen(color("accent"), 2))
         elif self.underMouse():

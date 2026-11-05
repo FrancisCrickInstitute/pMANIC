@@ -9,7 +9,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
 from manic.models.analysis import IonRole
+from manic.ui import theme
 from manic.ui.theme import contrast
+from manic.validation.peak_verdict import PEAK_VERDICT_FILL, PeakVerdict
 from manic.validation.unlabelled_identity import (
     QUALIFIER_OUTCOME_FILL,
     IdentitySampleAssessment,
@@ -73,6 +75,45 @@ def set_dark(dark: bool, plot_area: QColor) -> dict[str, str]:
         remap[qcolor.name()] = new.name()
         qcolor.setRgb(new.rgb())
     return remap
+
+
+@dataclass(frozen=True, slots=True)
+class VerdictColours:
+    tint: QColor  # card fill
+    pill: QColor  # badge fill
+    text: QColor  # badge text
+
+
+def _verdict_scheme(fill: str) -> tuple[VerdictColours, VerdictColours]:
+    """(light, dark) colours for a workbook verdict fill, keeping its hue.
+
+    Light cards take the workbook fill itself, so the grid and the exported sheet
+    agree; the badge is that hue darkened to 4.5:1 against it, with white text.
+    Dark cards take a dim shade of the hue, and the badge is the workbook fill
+    with the darkened hue as its text.
+    """
+    light = QColor(fill)
+    hue, sat, lightness, _ = light.getHslF()
+    deep = light
+    while contrast(deep, light) < 4.5:
+        lightness -= 0.01
+        deep = QColor.fromHslF(hue, sat * 0.7, lightness).toRgb()
+    dim = QColor.fromHslF(hue, min(sat * 0.4, 0.25), 0.22).toRgb()
+    return (
+        VerdictColours(light, deep, QColor(theme.LIGHT["on_accent"])),
+        VerdictColours(dim, light, deep),
+    )
+
+
+_VERDICT_COLOURS = {
+    verdict: _verdict_scheme(fill) for verdict, fill in PEAK_VERDICT_FILL.items() if fill
+}
+
+
+def verdict_colours(verdict: PeakVerdict) -> VerdictColours | None:
+    """Tile colours for a peak verdict in the active scheme; None for a clean pass."""
+    pair = _VERDICT_COLOURS.get(verdict)
+    return pair[theme.is_dark()] if pair else None
 
 
 QUALIFIER_STATUS_COLORS: Mapping[QualifierStatus, QColor] = {

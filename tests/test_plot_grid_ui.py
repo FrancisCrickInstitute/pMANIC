@@ -13,7 +13,7 @@ from manic.processors.tile_y_scale import YScalePolicy
 from manic.ui import theme
 from manic.ui.chart_popup_dialog import value_axis_ticks
 from manic.ui.channel_chips import ChannelChip, ChannelChipRow
-from manic.ui.colors import ChannelTraceStyle, label_colors
+from manic.ui.colors import ChannelTraceStyle, label_colors, verdict_colours
 from manic.ui.graphs import ClickableChartView, GraphView
 from manic.ui.plot_tile import DENSITY_MIN_TILE, PEAK_BADGES, PlotTile, grid_columns, tile_badges
 from manic.validation.peak_verdict import PeakVerdict
@@ -236,7 +236,7 @@ def test_badges_sit_below_the_caption_at_every_width(qapp):
         tile.deleteLater()
 
 
-def test_not_detected_tile_is_tinted_throughout_and_its_traces_faded(scheme, grid):
+def test_qc_badges_never_tint_the_card_so_only_peak_verdicts_do(scheme, grid):
     quantifier = IonChannel(217.0, IonRole.QUANTIFIER)
     qualifier = IonChannel(
         147.0, IonRole.QUALIFIER, ordinal=1, expected_ratio=0.4, ratio_tolerance=0.25
@@ -263,12 +263,13 @@ def test_not_detected_tile_is_tinted_throughout_and_its_traces_faded(scheme, gri
     tiles = {name: plot.parent() for name, plot in _plots(grid).items()}
     [badge] = _badge_labels(tiles["Missing"])
     assert badge.text() == "Not detected"
-    assert tiles["Missing"].tint() == "surface_hover"
-    # A point on each card's own fill, above the caption.
-    found_card, missing_card = (tiles[n].grab().toImage().pixelColor(16, 3) for n in tiles)
+
+    def card(name):  # a point on the card's own fill, above the caption
+        return tiles[name].grab().toImage().pixelColor(16, 3)
+
     pill = badge.grab().toImage().pixelColor(2, badge.height() // 2)
     assert theme.contrast(badge.palette().color(badge.foregroundRole()), pill) >= 4.5
-    assert pill != missing_card and missing_card != found_card
+    assert pill != card("Missing") and card("Missing") == card("Found") == theme.color("surface")
     for name, opacity in (("Found", 1.0), ("Missing", 0.4)):
         chart = tiles[name].chart_view.chart()
         assert not chart.isPlotAreaBackgroundVisible()
@@ -278,7 +279,7 @@ def test_not_detected_tile_is_tinted_throughout_and_its_traces_faded(scheme, gri
     assert [label.text() for label in _badge_labels(tiles["Missing"])] == [
         "Marked bad", "Not detected"
     ]
-    assert tiles["Missing"].tint() == "danger_soft"
+    assert card("Missing").name() == verdict_colours(PeakVerdict.REJECTED).tint.name()
 
 
 def test_a_retention_time_failure_is_badged_even_when_the_ratios_pass():
@@ -371,9 +372,6 @@ def test_a_qualifier_the_method_cannot_check_is_one_header_note_not_a_badge_per_
     tiles = {name: plot.parent() for name, plot in _plots(grid).items()}
     assert {name: [b.text() for b in _badge_labels(t)] for name, t in tiles.items()} == {
         "Sample_01": [], "Sample_04_ratio_fail": ["QC fail"], "Sample_05": [],
-    }
-    assert {name: t.tint() for name, t in tiles.items()} == {
-        "Sample_01": None, "Sample_04_ratio_fail": "danger_soft", "Sample_05": None,
     }
     assert grid.qc_note.isVisibleTo(grid)
     assert QTextDocumentFragment.fromHtml(grid.qc_note.text()).toPlainText().replace("\xa0", " ") == (

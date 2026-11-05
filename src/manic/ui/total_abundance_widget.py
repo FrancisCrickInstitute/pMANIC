@@ -116,14 +116,9 @@ class TotalAbundanceWidget(QWidget):
 
         self._current_compound = compound_name
 
-        # Order to match graph window layout
-        ordered_eics, ordered_abundances = self._order_like_graph_window(
-            eics, abundances
-        )
-
         # Reverse order so top graph corresponds to top bar
-        ordered_eics = ordered_eics[::-1]
-        ordered_abundances = np.flip(ordered_abundances)  # Flip array
+        ordered_eics = eics[::-1]
+        ordered_abundances = np.flip(abundances)
         
         # Store current data for popup
         self._current_abundances = ordered_abundances
@@ -133,26 +128,6 @@ class TotalAbundanceWidget(QWidget):
         self._update_chart(
             ordered_abundances, self._current_sample_names
         )
-
-    def _order_like_graph_window(
-        self, eics: List[EIC], abundances: np.ndarray
-    ) -> tuple[List[EIC], np.ndarray]:
-        """
-        Order EICs and abundances to match the graph window's grid layout.
-        Same logic as isotopologue widget.
-        """
-        import math
-
-        num = len(eics)
-        if num == 0:
-            return eics, abundances
-
-        # Same grid calculation as graph window
-        cols = math.ceil(math.sqrt(num))
-        math.ceil(num / cols)
-
-        # Graph processes EICs in database order, so no reordering needed
-        return eics, abundances
 
     def _update_chart(self, abundances: np.ndarray, sample_names: List[str]) -> None:
         """

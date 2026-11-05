@@ -148,7 +148,7 @@ def error_label() -> QLabel:
     return label
 
 
-def form_layout(label_width: int = FORM_LABEL_WIDTH) -> QFormLayout:
+def form_layout() -> QFormLayout:
     """Left-aligned label column of fixed width, so stacked forms line up."""
     form = QFormLayout()
     form.setContentsMargins(0, 0, 0, 0)
@@ -158,13 +158,12 @@ def form_layout(label_width: int = FORM_LABEL_WIDTH) -> QFormLayout:
     form.setRowWrapPolicy(QFormLayout.DontWrapRows)
     form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
-    form.setProperty("labelWidth", label_width)
     return form
 
 
 def form_row(form: QFormLayout, text: str, field: QWidget | object) -> QLabel:
     label = QLabel(text)
-    label.setMinimumWidth(int(form.property("labelWidth") or FORM_LABEL_WIDTH))
+    label.setMinimumWidth(FORM_LABEL_WIDTH)
     label.setBuddy(field if isinstance(field, QWidget) else None)
     form.addRow(label, field)
     return label

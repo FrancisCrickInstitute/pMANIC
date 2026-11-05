@@ -166,15 +166,11 @@ class IsotopologueRatioWidget(QWidget):
             # But we still have the abundance data stored for the total abundance widget
             return
 
-        # Order EICs to match graph window layout (left-to-right, top-to-bottom in grid)
-        # But reverse for horizontal bars (QtCharts displays from bottom-to-top)
-        ordered_eics, ordered_ratios = self._order_like_graph_window(eics, ratios)
-
-        # Reverse order so top graph corresponds to top bar
-        # A reversed copy: the caller still holds this list and the abundances
-        # shared with the abundance chart follow its original order.
-        ordered_eics = ordered_eics[::-1]
-        ordered_ratios = np.flipud(ordered_ratios)  # Flip array upside down
+        # Reversed for horizontal bars, which QtCharts draws bottom to top. A reversed
+        # copy: the caller still holds this list and the abundances shared with the
+        # abundance chart follow its original order.
+        ordered_eics = eics[::-1]
+        ordered_ratios = np.flipud(ratios)
 
         # Store current data for popup
         self._current_ratios = ordered_ratios
@@ -221,39 +217,6 @@ class IsotopologueRatioWidget(QWidget):
             return np.array(ratios), np.array(total_abundances)
         else:
             return None, None
-
-    def _order_like_graph_window(
-        self, eics: List[EIC], ratios: np.ndarray
-    ) -> tuple[List[EIC], np.ndarray]:
-        """
-        Order EICs and ratios to match the graph window's grid layout.
-
-        Graph window uses: row = i // cols, col = i % cols
-        This creates a left-to-right, top-to-bottom ordering.
-
-        Args:
-            eics: Original EIC list
-            ratios: Original ratios array
-
-        Returns:
-            Tuple of (ordered_eics, ordered_ratios) matching graph layout
-        """
-        import math
-
-        num = len(eics)
-        if num == 0:
-            return eics, ratios
-
-        # Same grid calculation as graph window
-        cols = math.ceil(math.sqrt(num))
-        math.ceil(num / cols)
-
-        # Create ordering that matches graph window grid positions
-        # Graph adds widgets as: row = i // cols, col = i % cols
-        # So we maintain the same order - no reordering needed!
-        # The graph window processes EICs in the same order they come from the database
-
-        return eics, ratios
 
     def _update_chart(self, ratios: np.ndarray, sample_names: List[str]) -> None:
         """

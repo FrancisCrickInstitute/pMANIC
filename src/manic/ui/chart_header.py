@@ -12,8 +12,9 @@ from manic.ui.icon_button import ThemedToolButton
 from manic.ui.theme import color
 
 
-def expand_icon(size: int = 16) -> QIcon:
+def expand_icon() -> QIcon:
     """Two arrows pointing out to opposite corners."""
+    size = 16
     pixmap = QPixmap(size * 2, size * 2)
     pixmap.setDevicePixelRatio(2)
     pixmap.fill(Qt.transparent)

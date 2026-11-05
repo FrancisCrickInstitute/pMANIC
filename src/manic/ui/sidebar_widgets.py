@@ -111,8 +111,9 @@ def divider() -> QFrame:
     return line
 
 
-def status_pixmap(state: str, size: int = 14) -> QPixmap:
+def status_pixmap(state: str) -> QPixmap:
     """Done: filled check. Optional/blocked: an empty ring."""
+    size = 14
     ratio = 2.0
     pixmap = QPixmap(int(size * ratio), int(size * ratio))
     pixmap.setDevicePixelRatio(ratio)

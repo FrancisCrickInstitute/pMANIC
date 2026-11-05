@@ -81,7 +81,7 @@ class UpdateOldDataDialog(QDialog):
         )
         layout.addSpacing(12)
 
-        form = form_layout(150)
+        form = form_layout()
         c_row, self.c_edit = _file_picker(self._browse_compounds)
         form_row(form, "Compounds file", c_row)
         r_row, self.r_edit = _file_picker(self._browse_raw)

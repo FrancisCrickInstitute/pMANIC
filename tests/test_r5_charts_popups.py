@@ -78,17 +78,3 @@ def test_arrow_keys_and_enter_activate_a_row(qapp):
     finally:
         _abundance.deleteLater()
         ratios.deleteLater()
-
-
-def test_rows_stay_inert_when_nothing_listens(qapp):
-    abundance, _ratios = _popups()
-    try:
-        abundance.show()
-        qapp.processEvents()
-        QTest.mouseClick(abundance.chart_view.viewport(), Qt.LeftButton, pos=_row_centre(abundance, 0))
-        assert abundance.isVisible()
-        assert "Click" not in abundance._hint.text()
-    finally:
-        abundance.close()
-        abundance.deleteLater()
-        _ratios.deleteLater()

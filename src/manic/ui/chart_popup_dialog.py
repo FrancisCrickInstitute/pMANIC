@@ -11,7 +11,7 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QEvent, QMargins, QMetaMethod, QPoint, QPointF, QRect, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QMargins, QPoint, QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QCursor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -97,9 +97,9 @@ def _grey_counts(identity: IdentityAssessmentSet) -> dict[QualifierStatus, int]:
     return grey
 
 
-def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
-    counts = identity_status_counts(identity) if identity is not None else None
-    grey_counts = _grey_counts(identity) if identity is not None else {}
+def identity_key_html(identity: IdentityAssessmentSet) -> str:
+    counts = identity_status_counts(identity)
+    grey_counts = _grey_counts(identity)
     grey_kinds = [status for status, n in grey_counts.items() if n]
     # One grey kind is named once, as itself, not as "No verdict" plus its only subtype.
     grey_entry = (
@@ -112,7 +112,7 @@ def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
         (QUALIFIER_RED, (STATUS_MARKS[QualifierStatus.FAILED], "Failed"), "Failed"),
         (QUALIFIER_GREY, grey_entry, "No verdict"),
     ):
-        count = "" if counts is None else f"&nbsp;<b>{counts[key]}</b>"
+        count = f"&nbsp;<b>{counts[key]}</b>"
         mark = f"{mark}&nbsp;" if mark else ""
         parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{mark}{name}{count}')
     if len(grey_kinds) > 1:
@@ -123,10 +123,10 @@ def identity_key_html(identity: IdentityAssessmentSet | None = None) -> str:
         )
         parts[-1] += f" ({grey})"
     # Counts are cells, not samples; the unit leads so it is read first.
-    unit = "" if counts is None else "Qualifier cells&nbsp;"
+    unit = "Qualifier cells&nbsp;"
     # Each entry stays whole, so a narrow key wraps between entries.
     return " ".join(
-        f'<span style="white-space:nowrap">{part}</span>' for part in (unit, *parts) if part
+        f'<span style="white-space:nowrap">{part}</span>' for part in (unit, *parts)
     )
 
 
@@ -709,14 +709,9 @@ class ChartPopupDialog(QDialog):
         )
         return list(reversed(axis.categories())) if axis is not None else []
 
-    def _rows_active(self) -> bool:
-        return bool(self.row_names()) and self.isSignalConnected(
-            QMetaMethod.fromSignal(self.sample_activated)
-        )
-
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        if self._rows_active():
+        if self.row_names():
             self._hint.setText(
                 " · ".join(
                     p for p in (self._hover_hint, "Click a sample, or ↑↓ and Return, to show its plot")
@@ -768,7 +763,7 @@ class ChartPopupDialog(QDialog):
 
     def activate_row(self, row: int) -> None:
         names = self.row_names()
-        if not self._rows_active() or not 0 <= row < len(names):
+        if not 0 <= row < len(names):
             return
         self.sample_activated.emit(names[row])
         self.accept()
@@ -778,7 +773,7 @@ class ChartPopupDialog(QDialog):
             return self._row_key(event.key())
         if obj is self.chart_view.viewport() and event.type() == QEvent.MouseMove:
             self._show_row_note(event.position().toPoint())
-        if obj is self.chart_view.viewport() and self._rows_active():
+        if obj is self.chart_view.viewport() and self.row_names():
             if event.type() == QEvent.MouseMove:
                 row = self._row_at(event.position().toPoint())
                 if row is not None and row != self._current_row:
@@ -796,7 +791,7 @@ class ChartPopupDialog(QDialog):
     def _row_key(self, key: int) -> bool:
         """Move or activate the current row; False for a key rows do not use."""
         rows = len(self.row_names())
-        if not (self._rows_active() and rows):
+        if not rows:
             return False
         current = self._current_row
         if key in (Qt.Key_Down, Qt.Key_Up):

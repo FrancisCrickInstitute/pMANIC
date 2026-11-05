@@ -1,6 +1,5 @@
 import logging
 import math
-import warnings
 from collections.abc import Iterable
 from typing import Dict, List, Optional, Sequence, Set
 
@@ -614,7 +613,7 @@ class GraphView(QWidget):
             # Build all plots with captions using chart pooling for performance
             # Pass validation data to determine background color
             plot_containers = [
-                self._build_plot_with_caption(
+                self._get_container_from_pool(
                     eic,
                     verdict=validation_data.get(eic.sample_name, PeakVerdict.PASS)
                     if validation_data
@@ -1409,63 +1408,22 @@ class GraphView(QWidget):
         chart_view.chart().removeAllSeries()  # Clear chart data
         container.set_caption("")
 
-        try:
-            # Ensure the chart view is properly reset and not selected
-            chart_view.set_selected(False)
+        chart_view.set_selected(False)
 
-            # Reset container sizing to clear any cached geometry from previous use
-            # This is critical when widgets are moved to a different row/col
-            container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            container.setMinimumSize(0, 0)
-            chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            chart_view.setMinimumSize(0, 0)
-            # Disconnect existing signals to avoid multiple connections
-            # Suppress RuntimeWarnings about failed disconnections
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore", category=RuntimeWarning, message="Failed to disconnect.*"
-                )
-                try:
-                    chart_view.clicked.disconnect(self._on_plot_clicked)
-                    chart_view.right_clicked.disconnect(self._on_plot_right_clicked)
-                    chart_view.double_clicked.disconnect(self.inspect_plot)
-                except Exception:
-                    pass  # Signals weren't connected
+        # Reset container sizing to clear any cached geometry from previous use
+        # This is critical when widgets are moved to a different row/col
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        container.setMinimumSize(0, 0)
+        chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        chart_view.setMinimumSize(0, 0)
 
-            # Mark that we'll connect signals (for future disconnections)
-            chart_view._signal_connected = True
+        self._update_chart_data(chart_view, eic, axis_scale=axis_scale)
 
-            # Update the chart with new data (chart will handle its own visibility)
-            self._update_chart_data(chart_view, eic, axis_scale=axis_scale)
+        container.set_caption(self._tile_caption_for(eic))
+        container.set_scale(axis_scale.scale_exp)
 
-            container.set_caption(self._tile_caption_for(eic))
-            container.set_scale(axis_scale.scale_exp)
-
-            # Apply validation styling
-            self._apply_validation_styling(container, verdict)
-
-            # Reconnect signals for this specific usage
-            chart_view.clicked.connect(self._on_plot_clicked)
-            chart_view.right_clicked.connect(self._on_plot_right_clicked)
-            chart_view.double_clicked.connect(self.inspect_plot)
-
-            # Ensure event filter is installed on all parts (idempotent)
-            # Must include viewport for charts!
-            container.removeEventFilter(self)
-            container.installEventFilter(self)
-
-            chart_view.removeEventFilter(self)
-            chart_view.installEventFilter(self)
-
-            chart_view.viewport().removeEventFilter(self)
-            chart_view.viewport().installEventFilter(self)
-
-            container.caption.removeEventFilter(self)
-            container.caption.installEventFilter(self)
-
-        finally:
-            # Container visibility is managed at the layout level for smoother updates
-            pass
+        # Apply validation styling
+        self._apply_validation_styling(container, verdict)
 
     def _update_chart_data(
         self,
@@ -1528,32 +1486,10 @@ class GraphView(QWidget):
                     container.caption.setText("")
                     container.caption.update()
 
-                # Disconnect signals to prevent stale connections
-                if hasattr(plot, "_signal_connected"):
-                    try:
-                        plot.clicked.disconnect(self._on_plot_clicked)
-                        plot.right_clicked.disconnect(self._on_plot_right_clicked)
-                        plot.double_clicked.disconnect(self.inspect_plot)
-                        plot._signal_connected = False  # Mark as disconnected
-                    except (TypeError, RuntimeError):
-                        pass  # Signals weren't connected to these specific slots
-
                 self._available_containers.append(container)
 
         self._current_plots.clear()
         self._selected_plots.clear()
-
-    #  internal functions
-    def _build_plot_with_caption(
-        self,
-        eic,
-        verdict: PeakVerdict = PeakVerdict.PASS,
-        *,
-        axis_scale: YAxisScale,
-    ) -> QWidget:
-        """Create a widget containing a plot with sample name caption below."""
-        # Create the plot container using pooling for performance
-        return self._get_container_from_pool(eic, verdict, axis_scale=axis_scale)
 
     def _build_plot(
         self, eic, axis_scale: YAxisScale

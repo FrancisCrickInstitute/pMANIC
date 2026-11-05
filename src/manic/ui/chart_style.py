@@ -19,6 +19,8 @@ from PySide6.QtWidgets import QApplication
 from manic.ui.theme import color, remap_color
 
 AXIS_LABEL_PX = 10
+# A large plot tile's sample caption.
+CAPTION_PX = 13
 
 _SUPERSCRIPT = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
 
@@ -124,6 +126,16 @@ def style_axis(axis: QAbstractAxis, *, grid: bool = False) -> None:
     # Tick labels are short; QtCharts otherwise shows "…" when a reused chart
     # changes label width before its layout catches up.
     axis.setTruncateLabels(False)
+
+
+def fit_name_font(chart: QChart, axis: QAbstractAxis) -> None:
+    """Sample names grow with roomy summary rows, from the axis size up to the caption size."""
+    rows = axis.count()
+    if not rows:
+        return
+    px = min(max(int(chart.plotArea().height() / rows / 2), AXIS_LABEL_PX), CAPTION_PX)
+    if axis.labelsFont().pixelSize() != px:
+        axis.setLabelsFont(ui_font(px))
 
 
 def style_chart(chart: QChart, margins: QMargins = QMargins(0, 0, 0, 0)) -> None:

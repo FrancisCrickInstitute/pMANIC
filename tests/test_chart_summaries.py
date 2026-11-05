@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from manic.models.analysis import AnalysisMode
 from manic.ui import theme
+from manic.ui.chart_style import AXIS_LABEL_PX, CAPTION_PX
 from manic.ui.isotopologue_ratio_widget import IsotopologueRatioWidget
 from manic.ui.summary_panel import SummaryPanel
 from manic.ui.total_abundance_widget import TotalAbundanceWidget
@@ -198,6 +199,9 @@ def test_thirty_samples_are_named_on_readable_rows_that_scroll(qapp, make, count
         row = widget.chart.plotArea().height() / count
         assert row >= QFontMetrics(axis.labelsFont()).height()
         assert (widget.chart_area.verticalScrollBar().maximum() > 0) is scrolls
+        # Roomy rows carry larger names, up to the plot caption size.
+        px = axis.labelsFont().pixelSize()
+        assert px == AXIS_LABEL_PX if scrolls else AXIS_LABEL_PX < px <= CAPTION_PX
     finally:
         widget.deleteLater()
 

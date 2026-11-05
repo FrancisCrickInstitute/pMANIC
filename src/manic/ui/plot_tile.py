@@ -11,7 +11,7 @@ from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from manic.ui.colors import verdict_colours
-from manic.ui.chart_style import AXIS_LABEL_PX, scale_text, text_style
+from manic.ui.chart_style import AXIS_LABEL_PX, CAPTION_PX, scale_text, text_style
 from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.theme import RADIUS, color
 from manic.ui import theme
@@ -35,7 +35,7 @@ LARGE_TILE = (230, 165)
 def tile_text_size(width: float, height: float) -> tuple[int, int]:
     """(axis and scale text px, caption px) for a tile of this size."""
     if width >= LARGE_TILE[0] and height >= LARGE_TILE[1]:
-        return 11, 13
+        return 11, CAPTION_PX
     return AXIS_LABEL_PX, 12
 
 # Tile colour means the peak verdict, as in the exported workbook: Below threshold

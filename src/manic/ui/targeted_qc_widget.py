@@ -22,7 +22,7 @@ from manic.ui.chart_popup_dialog import (
     identity_key_html,
     IDENTITY_KEY_TOOLTIP,
 )
-from manic.ui.chart_style import style_chart, text_style
+from manic.ui.chart_style import fit_name_font, style_chart, text_style
 from manic.ui.identity_chart import (
     IdentityGridBinding,
     add_identity_grid,
@@ -191,6 +191,7 @@ class TargetedQcWidget(QWidget):
     def _fit_names(self, *_args) -> None:
         axes = self.chart.axes(Qt.Vertical)
         if self._identity is not None and axes:
+            fit_name_font(self.chart, axes[0])
             fit_category_names(
                 axes[0],
                 [sample.sample_name for sample in reversed(self._identity.samples)],

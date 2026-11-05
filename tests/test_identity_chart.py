@@ -164,8 +164,9 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1"]
 
         assert widget.header.detail.text() == "2 samples failed"
-        # The grid's QC key names the colours beside the Summary; the popup has its own.
-        assert _plain(widget.key) == "Qualifier cells   ✓ Validated 1   ✕ Failed 2   Not assessed 0"
+        # The grid's QC key names the states beside the Summary, which only tallies them;
+        # the popup has its own key.
+        assert _plain(widget.key) == "Qualifier cells   ✓ 1   ✕ 2"
         assert _plain(dialog.status_legend) == (
             "Qualifier cells  ■ ✓ Validated 1 ■ ✕ Failed 2 ■ Not assessed 0"
         )

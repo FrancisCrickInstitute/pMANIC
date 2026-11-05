@@ -88,8 +88,11 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
 
 
 def identity_key_html(identity: IdentityAssessmentSet, *, swatches: bool = True) -> str:
-    """Each state's cell mark, name and count. ``swatches`` adds its colour, for a chart
-    with no QC key of its own nearby (the grid's key names the colours beside the Summary)."""
+    """Each state's colour, cell mark, name and count, for a chart with no QC key nearby.
+
+    Without ``swatches`` it is a tally beside the grid's QC key, which already names the
+    states: each mark that occurs and its count ("✓ 16  ✕ 2  ? 4").
+    """
     counts = identity_status_counts(identity)
     present = {q.status for sample in identity.samples for q in identity_cells(sample)}
     # Every grey cell's mark, so the key accounts for each mark in the grid.
@@ -105,8 +108,11 @@ def identity_key_html(identity: IdentityAssessmentSet, *, swatches: bool = True)
         (QUALIFIER_GREY, grey_marks, "Not assessed"),
     ):
         mark = f"{mark.replace(' ', '&nbsp;')}&nbsp;" if mark else ""
-        swatch = f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;' if swatches else ""
-        parts.append(f"{swatch}{mark}{name}&nbsp;<b>{counts[name]}</b>")
+        if swatches:
+            swatch = f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;'
+            parts.append(f"{swatch}{mark}{name}&nbsp;<b>{counts[name]}</b>")
+        elif counts[name]:
+            parts.append(f"{mark}<b>{counts[name]}</b>")
     # Counts are cells, not samples; the unit leads so it is read first.
     unit, gap = ("Qualifier cells&nbsp;", " ") if swatches else ("Qualifier cells", "&nbsp;&nbsp; ")
     # Each entry stays whole, so a narrow key wraps between entries.

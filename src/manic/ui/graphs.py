@@ -42,6 +42,7 @@ from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentitySampleAssessment,
+    QualifierStatus,
 )
 
 from .channel_chips import CHIP_HEIGHT, ChannelChipRow
@@ -49,7 +50,7 @@ from .channel_labels import channel_legend_label, has_defined_channel
 from .chart_header import HeaderName
 from .chart_style import set_nice_ticks, style_axis, style_chart, text_style, ui_font
 from .icon_button import icon_button, segmented
-from .identity_chart import qualifier_gap_note
+from .identity_chart import identity_cells, identity_unassessed_note, qualifier_gap_note
 from .colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
@@ -100,6 +101,27 @@ def tile_caption(sample_name: str, fit_type: str | None) -> str:
     if not fit_type:
         return sample_name
     return f"{sample_name}  ·  {FIT_TYPE_LABELS.get(fit_type, fit_type)}"
+
+
+def qc_key_html(identity: IdentityAssessmentSet | None) -> str:
+    """'Qualifier QC: ● Validated ● Not assessed' for the trace colours this compound's samples
+    show; empty when no qualifier can be checked, where the gap note explains the grey traces."""
+    if identity is None or identity_unassessed_note(identity) is not None:
+        return ""
+    shown = {q.status for sample in identity.samples for q in identity_cells(sample)}
+    checked = {QualifierStatus.VALIDATED, QualifierStatus.FAILED}
+    entries = [
+        (qcolor, name)
+        for qcolor, name, present in (
+            (QUALIFIER_GREEN, "Validated", QualifierStatus.VALIDATED in shown),
+            (QUALIFIER_RED, "Failed", QualifierStatus.FAILED in shown),
+            (QUALIFIER_GREY, "Not assessed", bool(shown - checked)),
+        )
+        if present
+    ]
+    return "Qualifier QC:&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(
+        f'<span style="color:{qcolor.name()};">●</span>&nbsp;{name}' for qcolor, name in entries
+    )
 
 
 class ClickableChartView(QChartView):
@@ -292,19 +314,9 @@ class GraphView(QWidget):
         self.qc_key.setTextFormat(Qt.RichText)
         self.qc_key.setFixedHeight(CHIP_HEIGHT)
         theme.style(self.qc_key, text_style("text_secondary", 11))
-        self.qc_key.setText(
-            "Qualifier QC:&nbsp;&nbsp;"
-            + "&nbsp;&nbsp;".join(
-                f'<span style="color:{qcolor.name()};">●</span>&nbsp;{name}'
-                for qcolor, name in (
-                    (QUALIFIER_GREEN, "Validated"),
-                    (QUALIFIER_RED, "Failed"),
-                    (QUALIFIER_GREY, "Not assessed"),
-                )
-            )
-        )
         self.qc_key.hide()
         self._qc_key_wanted = False
+        theme.notifier.changed.connect(self._recolour_qc_key)
         # The key stays beside the traces it colours; the Summary's Identity panel carries
         # the qualifier note while it is open.
         self.summary_button.toggled.connect(self._show_qc_text)
@@ -756,6 +768,10 @@ class GraphView(QWidget):
         self.qc_note.clear()
         self._show_qc_text()
 
+    def _recolour_qc_key(self, *_args) -> None:
+        if self._qc_key_wanted:
+            self.qc_key.setText(qc_key_html(self._identity))
+
     def _show_qc_text(self, *_args) -> None:
         self.qc_key.setVisible(self._qc_key_wanted)
         self.qc_note.setVisible(bool(self.qc_note.text()) and not self.summary_button.isChecked())
@@ -787,7 +803,9 @@ class GraphView(QWidget):
                     channels, unlabelled=unlabelled, multi_trace=multi_trace
                 ),
             )
-            self._qc_key_wanted = unlabelled and multi_trace and len(channels) > 1
+            key = qc_key_html(self._identity) if unlabelled and multi_trace else ""
+            self.qc_key.setText(key)
+            self._qc_key_wanted = bool(key)
             self._show_qc_text()
         except LookupError:
             self._hide_legend()

@@ -718,10 +718,34 @@ def test_channel_legend_unlabelled_chips_show_line_style_not_status_colour(
         assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
         assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
         assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DashDotLine)
-        # The QC key stays beside the traces it colours while the Summary is open.
-        assert not view.qc_key.isHidden()
+        # With no QC assessed the traces are not QC-coloured, so there is no key.
+        assert view.qc_key.isHidden()
+    finally:
+        view.deleteLater()
+
+
+def test_qc_key_names_only_the_qualifier_states_the_compound_shows(qapp, monkeypatch):
+    from PySide6.QtGui import QTextDocumentFragment
+
+    channels = (_qion(), _v1(), _v2(expected=None))
+    compound = SimpleNamespace(is_unlabelled_target=True, analysis_channels=channels)
+    monkeypatch.setattr("manic.ui.graphs.read_compound_with_session", lambda *_args: compound)
+    view = GraphView()
+    try:
+        view._identity = _identity_snapshot(channels, ("S1", _supported_qc(channels, True), None))
+        view._update_channel_legend("Target", _multi_trace_eics(3))
+        key = QTextDocumentFragment.fromHtml(view.qc_key.text()).toPlainText()
+        assert key.replace("\xa0", " ") == "Qualifier QC:  ● Validated  ● Not assessed"
+        # It stays beside the traces it colours while the Summary is open.
         view.summary_button.setChecked(True)
         assert not view.qc_key.isHidden()
+
+        # No qualifier can be checked: every trace is grey and the gap note says why.
+        unchecked = (_qion(), _v1(expected=None), _v2(expected=None))
+        compound.analysis_channels = unchecked
+        view._identity = _identity_snapshot(unchecked, ("S1", _supported_qc(unchecked), None))
+        view._update_channel_legend("Target", _multi_trace_eics(3))
+        assert view.qc_key.isHidden()
     finally:
         view.deleteLater()
 

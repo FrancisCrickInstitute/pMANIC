@@ -29,7 +29,7 @@ WIDTH = 280
 
 
 def _check_icon() -> QIcon:
-    """The app's checkmark in the text colour; macOS draws its own jagged."""
+    """The app's checkmark, in the text colour, for the current choice."""
     colour = theme.color("text").name()
     path = Path(tempfile.gettempdir()) / f"manic-menu-check-{colour[1:]}.svg"
     if not path.exists():
@@ -57,7 +57,6 @@ class StandardChooser(QMenu):
         layout.setSpacing(4)
         self.list = QListWidget()
         self.list.setAccessibleName("Internal standard")
-        self.list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.filter = FilterField(self.list, "Filter compounds")
         self.filter.setVisible(bool(names))
         self.filter.installEventFilter(self)

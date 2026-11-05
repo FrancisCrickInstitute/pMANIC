@@ -135,7 +135,7 @@ two scientific models.
 
 To switch modes later:
 
-1. **File → New Analysis Session…**
+1. **File → New Analysis Session...**
 2. Confirm that the current session will be cleared
 3. Choose the new mode
 
@@ -241,7 +241,7 @@ analyst.
 
 ### Step A. Start an unlabelled session
 
-Launch MANIC (or use **File → New Analysis Session…**) and choose
+Launch MANIC (or use **File → New Analysis Session...**) and choose
 **Unlabelled**.
 
 ### Step B. Load the compound list
@@ -325,36 +325,25 @@ For each sample × compound, MANIC assesses:
 
 These layers use different words. Do not mix them.
 
-**Sample Identity Status** (SUPPORTED, REVIEW_REQUIRED, NOT_DETECTED, NOT_ASSESSED). There is no sample-level Unavailable.
+**Identity chart** (one cell per qualifier the method has):
 
-| Status | Meaning |
+| Cell | Meaning |
 | :--- | :--- |
-| **Supported** | Q detected. Every configured RT and ratio check passed. |
-| **Review required** | Q detected. At least one configured check failed. |
-| **Not detected** | Q-ion area at or below the assessment floor. |
-| **Not assessed** | Q detected. Identity references are incomplete (for example a missing expected ratio), so MANIC reports signal without confirmation. |
+| **Validated** (✓) | That qualifier's ratio check passed. |
+| **Failed** (✕) | That qualifier's ratio check failed. |
+| **Not assessed** (?) | Q was not detected, or the expected ratio or tolerance is missing. |
+| **Unavailable** (n/a) | Identity could not be computed for that qualifier (missing EIC or compound data). |
 
-**Identity chart** (one cell per qualifier). Statuses are Validated, Failed, Absent, Not assessed, and Unavailable.
-
-| Chart | Meaning |
-| :--- | :--- |
-| **Validated** | That qualifier's ratio check passed. |
-| **Failed** | That qualifier's ratio check failed. |
-| **Absent** | That qualifier is not in the method. |
-| **Not assessed** | Q was not detected, or the expected ratio or tolerance is missing. |
-| **Unavailable** | Identity could not be computed for that qualifier (missing EIC or compound data). |
-
-The enlarged chart legend uses **Validated**, **Failed**, and **No verdict**. Grey cells (Absent, Not assessed, Unavailable) share **No verdict**.
+The enlarged chart's legend groups the grey cells under **Not assessed**.
 
 **Qualifier QC Outcome** on the Excel sheet uses **Pass**, **Partial**, **Fail**, **Not detected**, and **No qualifiers**. Those words are not Identity chart statuses.
 
-The Identity chart encodes **qualifier/Q only**. Export **Identity Status** also includes
-tR and whether Q was found.
+The Identity chart encodes **qualifier/Q only**. Check the Q peak against the tR
+line on its tile.
 
-Hover a bar for expected ratio, tolerance, and observed ratio. Click a bar to
+Hover a cell for expected ratio, tolerance, and observed ratio. Click a cell to
 highlight that sample's plot. Click the expand button (↗) or double-click to
-enlarge the chart. A green bar
-does not excuse a tR failure; that still lands in **Identity Reasons**.
+enlarge the chart.
 
 A tile carries a badge when qualifier QC needs attention: **QC partial** (amber),
 **QC fail** (red), or **Not detected** (grey) when the Q peak is missing. A clean
@@ -450,20 +439,18 @@ Right-click a tile for the detail view:
 
 ## 10. Practical review checklist
 
-1. **Validated** / **Supported**. Spot-check a few. Confirm the Q peak sits on tR
-   and qualifier traces share the same apex shape. A green bar with a tR miss is still
-   **Review required** in the export.
-2. **Failed** / **Review required**. Hover the bar, then read Identity
-   Reasons. RT failures often need a shifted tR so the window covers the peak.
+1. **Validated**. Spot-check a few. Confirm the Q peak sits on the tR line
+   and qualifier traces share the same apex shape. The Identity chart does not
+   check tR.
+2. **Failed**, or a **QC fail** or **QC partial** badge. Hover the badge for the
+   reasons. RT failures often need a shifted tR so the window covers the peak.
    Ratio failures often indicate co-elution, wrong qualifier ion, or an outdated
    expected ratio.
-3. **Absent** / **Not detected**. Confirm absence vs. window missed the peak vs.
+3. **Not detected**. Confirm absence vs. window missed the peak vs.
    wrong Q *m/z*.
-4. **Not assessed**. Add expected ratios and tolerances for every
-   qualifier ion (and a sensible `tR Window`) if you want automated confirmation.
 5. Before trusting amounts, confirm the internal standard, `MM Files`
-   patterns, and whether Result Type says *semi-quantitative* or
-   *uncalibrated*.
+   patterns, and the **Units** row of the Abundances sheet (nmol, Relative or
+   Peak Area).
 
 ---
 

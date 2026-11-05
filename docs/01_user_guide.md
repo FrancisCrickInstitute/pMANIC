@@ -163,7 +163,7 @@ Choose **View → Shared Y-Scale** to use one common intensity scale for all sam
 #### 1. Visual Inspection
 Scan the grid of plots. Look for:
 
-* **Peak Centering:** Is the peak centered on the black line? If retention times have shifted, you may need to adjust the `tR`.
+* **Peak Centering:** Is the peak centered on the grey line? If retention times have shifted, you may need to adjust the `tR`.
 * **Peak Coverage:** Do the blue dashed lines fully bracket the peak without cutting off "tails" or including neighboring noise?
 * **Validation:** Pay attention to plots with a **Below threshold** badge. These indicate potential issues (low signal or missed peaks) that require manual review. Right-click the plot, or open the **Review** menu, and choose **Accept Peak (Below Threshold)** or **Mark Peak as Bad** to record your decision. With several plots selected, both commands act on the whole selection and name the count, for example **Mark 3 Peaks as Bad**. Choose the same command again to clear the decision.
 
@@ -207,7 +207,7 @@ On a short window, such as a laptop screen, the sidebar cannot show the Peak win
 
 #### 5. Applying Changes
 1.  Enter your new values in the text fields.
-2.  Click **Apply to N samples** (or press Enter). The button names how many samples the change reaches.
+2.  Click **Apply**, or press Enter in a field. With plots selected, the line above the fields names them; with none selected, **Apply** changes every shown sample.
 3.  The plots will refresh immediately to show the new boundaries.
 
 > **Auto-Regeneration Feature:** If you widen the boundaries beyond the data MANIC originally extracted from the CDF file, the software will automatically re-read the raw file to fetch the missing data. A progress bar will appear during this process.
@@ -348,7 +348,7 @@ The Excel file contains five worksheets by default. A sixth sheet is optional.
 
 ### Clear Session vs New Analysis Session
 
-**File → Clear Session** removes compound data, raw data, and session settings. The window stays in the current analysis mode. Confirm **Clear Session**. When it finishes, **Session Cleared** appears.
+**File → Clear Session** removes compound data, raw data, and session settings. The window stays in the current analysis mode. Confirm **Clear Session**. When it finishes, **Session cleared** appears.
 
 **File → New Analysis Session...** opens **Choose Analysis Mode**. Click **Labelled** or **Unlabelled**. If you pick the mode you are already in, MANIC tells you to use **Clear Session** instead. If you pick the other mode and data is loaded, confirm **New Analysis Session**. MANIC then clears the database and opens a new window.
 

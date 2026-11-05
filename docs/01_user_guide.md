@@ -140,7 +140,7 @@ Upon selecting a compound, MANIC displays a grid of mini-plots, one for each sam
     * **Accepted** (light purple) or **Marked bad** (tan): You reviewed a weak peak from the **Review** menu or the plot right-click menu.
 * **Blue outline:** The plot is selected for editing.
 
-Choose **View → Shared Y-Scale** to use one common intensity scale for all sample tiles. Choose it again to let each tile autoscale to its own tallest peak.
+Click **Shared Y** in the grid header, or choose **View → Shared Y-Scale**, to use one common intensity scale for all sample tiles. Choose it again to let each tile autoscale to its own tallest peak.
 
 **Procedure**
 
@@ -182,7 +182,7 @@ Click a plot so the grid has keyboard focus. Move the focus between plots with t
 #### 4. Adjusting Boundaries (Peak window)
 Locate the **Peak window** section of the sidebar, below the compound list.
 
-On a short window, such as a laptop screen, the sidebar cannot show the Peak window and **Summary** together. It then shows two buttons, **Peak window** and **Summary**, in place of the section headings. Click one to show that section. The buttons go away when the window is tall enough for both sections.
+On a short window, such as a laptop screen with **Samples** open, the rows under **Apply** fold behind a **Baseline, tR window** heading. Click it to open those rows beside the sidebar.
 
 * **Left offset / Right offset:** Controls the width of the window. Increase these to capture wider peaks; decrease to exclude adjacent peaks.
 * **tR:** Shifts the center of the window. Use this to align the window with shifted peaks.
@@ -376,11 +376,14 @@ Right-click any plot in the main grid and select **Inspect *sample*...**, or dou
 
 Use the **‹ ›** buttons in the header, or the left and right arrow keys, to move to the previous or next sample in grid order without closing the window.
 
-### Expanded Summary Plots
-The **Summary** section of the sidebar contains two charts: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
+### Summary Panel
+The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
 
-* **Action:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
-* **Feature:** Both views name every sample on its axis. When a run has more samples than the sidebar chart has room for, the chart scrolls; selecting plots in the grid scrolls it to their bars.
+* **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. Until you open or close it once, a window narrower than 1200 px starts with the panel closed.
+* **Enlarge:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
+* **Rows:** Both charts name every sample. When a run has more samples than the panel has room for, the chart scrolls; selecting plots in the grid scrolls it to their bars. Click a row to select that sample's plot.
+
+The button at the top left of the grid, or **View → Show Sidebar** (Ctrl+Alt+S, ⌥⌘S on macOS), hides the sidebar so the grid takes its width. **Find Compound** and **View → Sample List** show it again.
 
 ---
 
@@ -424,10 +427,10 @@ The **Baseline correction** checkbox is in the **Peak window** section of the si
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Y-axis scale
-Two commands in the **View** menu set how sample tiles scale. MANIC remembers the last choice.
+Two toggles beside **Compact** and **Comfortable** in the grid header, **Shared Y** and **Scale to peak**, set how sample tiles scale. The **View** menu has the same commands. MANIC remembers the last choice.
 
-* **Shared Y-Scale** (Ctrl+Shift+Y, ⌘⇧Y on macOS): one intensity scale for every sample tile.
-* **Scale to Selected Peak** (Ctrl+Shift+P, ⌘⇧P on macOS): each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. Labelled mode only.
+* **Shared Y** / **View → Shared Y-Scale** (Ctrl+Shift+Y, ⌘⇧Y on macOS): one intensity scale for every sample tile.
+* **Scale to peak** / **View → Scale to Selected Peak** (Ctrl+Shift+P, ⌘⇧P on macOS): each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. Labelled mode only.
 * Only one can be on. Both off is the default. Each tile then autoscales to the tallest intensity in its extract.
 
 ### Chromatographic Peak Deconvolution
@@ -471,7 +474,7 @@ Two commands in the **View** menu set how sample tiles scale. MANIC remembers th
 
 ## 9. Special Workflow: Process External Data
 
-**File → Process External Data...**
+**File → Process External Data...**, or **Rebuild an export without CDF files…** on the start screen
 
 Rebuild an export from the "Raw Values" (integrated peak areas) of an old experiment, from the legacy MANIC tool (v3.3.0) or a previous MANIC export, when you **do not** have the original raw CDF files (or do not wish to re-integrate them). The rebuild uses the current natural abundance correction and MRRF algorithms.
 
@@ -482,7 +485,7 @@ Rebuild an export from the "Raw Values" (integrated peak areas) of an old experi
 
 **Procedure**
 
-1.  Choose **File → Process External Data...**.
+1.  Choose **File → Process External Data...**, or click **Rebuild an export without CDF files…** on the start screen.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**.
 4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen.

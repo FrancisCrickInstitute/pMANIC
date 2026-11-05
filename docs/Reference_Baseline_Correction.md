@@ -53,7 +53,7 @@ The baseline line uses the same color as its corresponding isotopologue trace, m
 
 ## Turning It On or Off
 
-The **Baseline correction** checkbox is in the sidebar's **Peak window**, above the **tR window** field. On a short screen, click **Baseline, tR window** to reach it. **Review → Baseline Correction** toggles it too.
+The **Baseline correction** checkbox is in the sidebar's **Peak window**, above the **tR window** field. On a short window, click **Baseline, tR window** to reach it. **Review → Baseline Correction** toggles it too.
 
 1. **Select a Compound** from the compound list.
 2. **Toggle the Checkbox** labeled "Baseline correction".

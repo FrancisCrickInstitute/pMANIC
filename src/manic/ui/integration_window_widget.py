@@ -324,7 +324,6 @@ class IntegrationWindow(QWidget):
 
         self.apply_button = QPushButton("Apply")
         self.apply_button.setObjectName("ApplyButton")
-        self.apply_button.setProperty("variant", "primary")
         self.apply_button.clicked.connect(self._on_apply_clicked)
         apply_key = QKeySequence("Ctrl+Return")
         self._apply_key_text = apply_key.toString(QKeySequence.SequenceFormat.NativeText)
@@ -730,6 +729,8 @@ class IntegrationWindow(QWidget):
         if edited:
             scope = f"{scope} · not applied" if scope else "Not applied"
         self.scope_label.setText(scope)
+        # Primary only while there is an edit to apply; still enabled to re-apply a mixed selection.
+        set_style_property(self.apply_button, "variant", "primary" if edited else None)
         self.scope_label.setVisible(bool(scope))
         set_style_property(
             self.scope_label,

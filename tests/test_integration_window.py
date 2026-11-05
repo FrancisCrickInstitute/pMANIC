@@ -86,9 +86,11 @@ def test_an_unapplied_edit_comes_back_with_its_compound_and_says_so(qapp, monkey
     shown = ["S1", "S2"]
     try:
         integration.populate_fields_from_plots("Alanine", ["S2"], shown)
+        assert integration.apply_button.property("variant") is None
         left.selectAll()
         QTest.keyClicks(left, "0.05")
         assert integration.scope_label.text() == "Applies to S2 · not applied"
+        assert integration.apply_button.property("variant") == "primary"
 
         integration.populate_fields_from_plots("Glycine", ["S2"], shown)
         assert (left.text(), integration.scope_label.text()) == ("0.2", "Applies to S2")

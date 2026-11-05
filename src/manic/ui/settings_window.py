@@ -149,7 +149,7 @@ class MassToleranceSection(SettingsPage):
         self.setLayout(form)
         self.spin = QDoubleSpinBox()
         self.spin.setObjectName("massToleranceSpin")
-        self.spin.setMaximumWidth(_NUMBER_FIELD_WIDTH)
+        self.spin.setFixedWidth(_NUMBER_FIELD_WIDTH)
         self.spin.setRange(0.01, 1.0)
         self.spin.setSingleStep(0.01)
         self.spin.setDecimals(3)
@@ -183,7 +183,7 @@ class PeakValidationSection(SettingsPage):
         self.setLayout(form)
         self.spin = QDoubleSpinBox()
         self.spin.setObjectName("minPeakAreaSpin")
-        self.spin.setMaximumWidth(_NUMBER_FIELD_WIDTH)
+        self.spin.setFixedWidth(_NUMBER_FIELD_WIDTH)
         self.spin.setRange(0.0, 1.0)
         self.spin.setSingleStep(0.001)
         self.spin.setDecimals(3)
@@ -236,8 +236,8 @@ class QualifierRatioPage(SettingsPage):
         layout.addWidget(
             with_help(
                 description,
-                "An unset tolerance leaves that qualifier unassessed in Identity QC "
-                "and the Qualifier QC sheet.",
+                "A qualifier with no tolerance is not assessed in Identity QC "
+                "or the Qualifier QC sheet.",
             )
         )
 
@@ -408,7 +408,7 @@ class InternalStandardSection(SettingsPage):
 
         self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
-        self.combo.setMaximumWidth(_NUMBER_FIELD_WIDTH)
+        self.combo.setFixedWidth(_NUMBER_FIELD_WIDTH)
         self.combo.currentIndexChanged.connect(self._mark_dirty)
         self._inputs.append(self.combo)
         form_row(
@@ -422,6 +422,7 @@ class InternalStandardSection(SettingsPage):
         )
         self.reference_hint = hint_label("")
         form_row(form, "", self.reference_hint)
+        self._form = form
 
     def editable(self) -> tuple[bool, str]:
         return bool(self.host.internal_standard_name()), ""
@@ -447,7 +448,7 @@ class InternalStandardSection(SettingsPage):
         else:
             hint = ""
         self.reference_hint.setText(hint)
-        self.reference_hint.setVisible(bool(hint))
+        self._form.setRowVisible(self.reference_hint, bool(hint))
         self._clear_dirty()
 
     def is_dirty(self) -> bool:
@@ -531,9 +532,8 @@ class DeconvolutionPage(SettingsPage):
         self.apply_all = QCheckBox("Apply to all compounds")
         self.apply_all.setObjectName("deconvolutionApplyAllCheck")
         self.apply_all.setToolTip(
-            "Overwrite the deconvolution settings of every compound with the "
-            "values chosen above (e.g. tick this with 'Off' to disable "
-            "deconvolution globally)."
+            "Give every compound these settings. With Resolution Off, this turns "
+            "deconvolution off everywhere."
         )
         self.apply_all.toggled.connect(self._mark_dirty)
         self._inputs.append(self.apply_all)

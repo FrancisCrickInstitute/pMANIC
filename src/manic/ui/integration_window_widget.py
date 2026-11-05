@@ -4,8 +4,8 @@ import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QValidator
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut, QValidator
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -295,6 +295,12 @@ class IntegrationWindow(QWidget):
         self.apply_button.setObjectName("ApplyButton")
         self.apply_button.setProperty("variant", "primary")
         self.apply_button.clicked.connect(self._on_apply_clicked)
+        apply_key = QKeySequence("Ctrl+Return")
+        self.apply_button.setToolTip(apply_key.toString(QKeySequence.SequenceFormat.NativeText))
+        for key in (apply_key, QKeySequence("Ctrl+Enter")):
+            QShortcut(
+                key, self, self.apply_button.click, Qt.ShortcutContext.WidgetWithChildrenShortcut
+            )
         button_row.addWidget(self.apply_button, 2)
         layout.addWidget(self.action_row)
 

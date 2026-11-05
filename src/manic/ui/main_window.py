@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, Qt, QThread, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QDesktopServices,
@@ -532,6 +532,15 @@ class MainWindow(QMainWindow):
             # The grid handles these keys itself; the menu only names them.
             action.setShortcut(QKeySequence(sequence))
             action.setShortcutContext(Qt.WidgetShortcut)
+            # macOS hides shortcuts in a menu it opens outside the menu bar.
+            action.setShortcutVisibleInContextMenu(True)
+
+        def verdict_key(action: QAction, key) -> None:
+            # A bare letter, so it acts only while the grid has focus, never in a text field.
+            action.setShortcut(QKeySequence(key))
+            action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            action.setShortcutVisibleInContextMenu(True)
+            self.graph_view.addAction(action)
 
         self.inspect_action = QAction("Inspect Sample...", self)
         grid_key(self.inspect_action, Qt.Key_Return)
@@ -563,6 +572,7 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.ACCEPTED)
             )
         )
+        verdict_key(self.accept_peak_action, Qt.Key_A)
         menu.addAction(self.accept_peak_action)
         self.reject_peak_action = QAction("Mark Peak as Bad", self)
         self.reject_peak_action.triggered.connect(
@@ -570,6 +580,7 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.REJECTED)
             )
         )
+        verdict_key(self.reject_peak_action, Qt.Key_B)
         menu.addAction(self.reject_peak_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
         menu.addSeparator()
@@ -581,6 +592,9 @@ class MainWindow(QMainWindow):
 
         menu.aboutToShow.connect(self._sync_review_menu)
         self.graph_view.selection_changed.connect(self._sync_review_menu)
+        # Arrow keys move the review lead without a selection change; the verdict
+        # keys check eligibility from the actions' enabled state.
+        self.graph_view.installEventFilter(self)
         self._sync_review_menu()
 
     def _sync_review_menu(self, *_args) -> None:
@@ -596,6 +610,11 @@ class MainWindow(QMainWindow):
             reject=self.reject_peak_action,
             fit_menu=self.review_fit_menu,
         )
+
+    def eventFilter(self, watched, event):
+        if watched is self.graph_view and event.type() == QEvent.Type.KeyPress:
+            QTimer.singleShot(0, self._sync_review_menu)
+        return super().eventFilter(watched, event)
 
     def _with_review_lead(self, command) -> None:
         lead = self.graph_view.review_lead()
@@ -1647,7 +1666,6 @@ class MainWindow(QMainWindow):
 
             # After refreshing plots, update the integration window to show the new values
             # Add a small delay to ensure the plot refresh is fully complete
-            from PySide6.QtCore import QTimer
 
             def update_integration_window():
                 current_selected = self.graph_view.get_selected_samples()
@@ -1686,7 +1704,6 @@ class MainWindow(QMainWindow):
             self.graph_view.refresh_plots_with_session_data(identity=identity)
 
             # After refreshing plots, update the integration window to show the default values
-            from PySide6.QtCore import QTimer
 
             def update_integration_window():
                 current_selected = self.graph_view.get_selected_samples()
@@ -1734,7 +1751,6 @@ class MainWindow(QMainWindow):
                 validation_data, identity=identity
             )
 
-            from PySide6.QtCore import QTimer
 
             def update_charts():
                 self._refresh_mode_charts(compound_name)

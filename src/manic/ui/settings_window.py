@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QListWidgetItem,
     QMenu,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
+from manic.ui.chart_header import HeaderName
 from manic.ui.combo_box import ComboBox
 from manic.ui.dialog_kit import (
     BUTTON_GAP,
@@ -57,6 +59,8 @@ _ALL_MODES = frozenset(AnalysisMode)
 _NUMBER_FIELD_WIDTH = 120
 # One width for the Deconvolution choices so their help buttons line up.
 _CHOICE_FIELD_WIDTH = 180
+# A compound name keeps this many characters however long it is.
+_NAME_MIN_CHARS = 16
 
 
 def _target_moved_hint(loaded: str | None, selected: str | None) -> str:
@@ -86,6 +90,12 @@ _DECONVOLUTION_GATE_OPTIONS = [
     ("Aggressive", "aggressive"),
     ("Off", "off"),
 ]
+
+
+def _compound_heading() -> HeaderName:
+    label = HeaderName("Compound: none selected", min_chars=_NAME_MIN_CHARS)
+    label.setProperty("role", "section")
+    return label
 
 
 def _fill_combo(combo: QComboBox, options: list[tuple[str, str]], current: str) -> None:
@@ -273,7 +283,7 @@ class QualifierRatioPage(SettingsPage):
             )
         )
 
-        self.compound_label = section_label("Compound: none selected")
+        self.compound_label = _compound_heading()
         layout.addWidget(self.compound_label)
 
         form = form_layout()
@@ -434,7 +444,7 @@ class InternalStandardPage(SettingsPage):
         self.setLayout(form)
         # Shown here because the reference peak below belongs to it. Choose opens the
         # sidebar's own chooser, so there is only one.
-        self.standard_label = QLabel()
+        self.standard_label = HeaderName(min_chars=_NAME_MIN_CHARS)
         self.standard_label.setObjectName("internalStandardName")
         self.choose_button = QPushButton("Choose…")
         self.choose_button.setObjectName("internalStandardChoose")
@@ -521,7 +531,7 @@ class DeconvolutionPage(SettingsPage):
 
         layout.addSpacing(4)
         # Heads the compound's own settings, as "Per-sample curve fit" heads the table.
-        self.compound_label = section_label("Compound: none selected")
+        self.compound_label = _compound_heading()
         layout.addWidget(self.compound_label)
 
         form = form_layout()
@@ -602,7 +612,11 @@ class DeconvolutionPage(SettingsPage):
         self.sample_fit_table.setObjectName("sampleFitTable")
         self.sample_fit_table.setHorizontalHeaderLabels(["Sample", "Fit type"])
         self.sample_fit_table.verticalHeader().setVisible(False)
-        self.sample_fit_table.horizontalHeader().setStretchLastSection(True)
+        # Fit type keeps its editors' width; a long sample name gives up its middle instead.
+        self.sample_fit_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.sample_fit_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.sample_fit_table.setTextElideMode(Qt.ElideMiddle)
+        self.sample_fit_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.sample_fit_table.horizontalHeader().setHighlightSections(False)
         self.sample_fit_table.horizontalHeader().setDefaultAlignment(
             Qt.AlignLeft | Qt.AlignVCenter
@@ -737,6 +751,7 @@ class DeconvolutionPage(SettingsPage):
             table.setRowCount(len(samples))
             for row, sample in enumerate(samples):
                 item = QTableWidgetItem(sample)
+                item.setToolTip(sample)
                 item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 table.setItem(row, 0, item)
                 combo = ComboBox()
@@ -748,8 +763,10 @@ class DeconvolutionPage(SettingsPage):
                         table.model().index(row, 0),
                         QItemSelectionModel.Select | QItemSelectionModel.Rows,
                     )
-        table.resizeColumnToContents(0)
         empty = not samples
+        if not empty:
+            # The cell's padding in style.qss (4 px a side, and a pixel) insets its editor.
+            table.setColumnWidth(1, table.cellWidget(0, 1).sizeHint().width() + 9)
         table.setVisible(not empty)
         self.empty_overrides_label.setVisible(empty)
         self._fit_override_table_height()

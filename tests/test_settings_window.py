@@ -73,6 +73,11 @@ def _row_values(page) -> dict[str, str | None]:
     }
 
 
+def _shown(label) -> str:
+    QApplication.processEvents()  # a new name is cut to the label's width once laid out
+    return label.text()
+
+
 def _bulk_fit(page, label: str) -> None:
     menu = page.bulk_fit_button.menu()
     next(action for action in menu.actions() if action.text() == label).trigger()
@@ -571,13 +576,13 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     labelled_window.open_settings_page("Internal standard")
     settings = labelled_window.settings_window
     page = settings.findChild(InternalStandardPage)
-    assert page.standard_label.text() == "None"
+    assert _shown(page.standard_label) == "None"
     # An unsaved edit on another page must not freeze the standard's name.
     settings.findChild(ExtractionPage).spin.setValue(0.35)
     assert not page.combo.isEnabled()
 
     labelled_window.toolbar.on_internal_standard_selected("Norvaline")
-    assert page.standard_label.text() == "Norvaline"
+    assert _shown(page.standard_label) == "Norvaline"
     assert [page.combo.itemText(i) for i in range(page.combo.count())] == [
         "M+0",
         "M+1",
@@ -586,14 +591,14 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     assert settings.hint_label.text() == ""
 
     labelled_window.toolbar.on_internal_standard_selected("Alanine")
-    assert page.standard_label.text() == "Alanine"
+    assert _shown(page.standard_label) == "Alanine"
     assert not page.combo.isEnabled()
     assert page.reference_hint.text() == (
         "Alanine has no label atoms, so only M+0 can be the reference peak."
     )
 
     labelled_window.toolbar.on_internal_standard_cleared()
-    assert page.standard_label.text() == "None"
+    assert _shown(page.standard_label) == "None"
     assert settings.findChild(ExtractionPage).spin.value() == 0.35
 
 
@@ -611,7 +616,7 @@ def test_choose_opens_the_sidebar_standard_chooser_under_the_button(labelled_win
     assert chooser.pos() == button.mapToGlobal(button.rect().bottomLeft())
     QTest.keyClicks(chooser.filter, "norv")
     QTest.keyClick(chooser.filter, Qt.Key_Return)
-    assert page.standard_label.text() == "Norvaline"
+    assert _shown(page.standard_label) == "Norvaline"
     assert page.combo.isEnabled()
 
 
@@ -719,3 +724,35 @@ def test_settings_grows_to_show_override_rows_without_scrolling(
         if window.settings_window is not None:
             window.settings_window.close()
         window.close()
+
+
+def test_long_names_never_push_settings_controls_out_of_view(labelled_window, monkeypatch, qapp):
+    name = "N-acetyl-L-aspartyl-L-glutamic acid bis-tert-butyldimethylsilyl derivative (quantifier 174)"
+    samples = [
+        f"2026-10-28_GCMS_StableIsotope_Experiment_17_Batch04_Replicate_00{i}_Rerun_02"
+        for i in (1, 2, 3, 4)
+    ]
+    _insert_compound(name)
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list([name], selected_name=name)
+    labelled_window.toolbar.on_internal_standard_selected(name)
+    monkeypatch.setattr(labelled_window.graph_view, "get_selected_samples", lambda: samples)
+    labelled_window.open_settings_page("Internal standard")
+    settings = labelled_window.settings_window
+    viewport = settings.findChild(QScrollArea, "settingsPageScroll").viewport()
+    qapp.processEvents()
+
+    page = settings.page_named("Internal standard")
+    choose = page.choose_button
+    assert choose.mapTo(viewport, choose.rect().topRight()).x() < viewport.width()
+    assert page.standard_label.toolTip() == name
+
+    _select_page(settings, "Deconvolution")
+    qapp.processEvents()
+    page = settings.page_named("Deconvolution")
+    assert page.compound_label.toolTip() == f"Compound: {name}"
+    table = page.sample_fit_table
+    last = table.visualRect(table.model().index(3, 0))
+    assert table.cellWidget(3, 1).geometry().right() < table.viewport().width()
+    assert last.bottom() < table.viewport().height()
+    assert [table.item(row, 0).toolTip() for row in range(4)] == samples

@@ -61,11 +61,11 @@ from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
 
 logger = logging.getLogger(__name__)
-# Secondary legend entries, in key order: (label, line style, alpha), keyed by treatment.
+# Secondary legend entries, in key order: (label, line style, alpha, width as drawn), by treatment.
 TRACE_KEY = {
-    "raw": ("Raw signal", "solid", 0.4),
-    "component": ("Other fitted peak", "dotted", 0.6),
-    "baseline": ("Baseline", "dashed", 1.0),
+    "raw": ("Raw signal", "solid", 0.4, 1.0),
+    "component": ("Other fitted peak", "dotted", 0.6, 1.2),
+    "baseline": ("Baseline", "dashed", 1.0, 1.2),
 }
 # m/z either side of a labelled compound's isotopologues that the spectrum opens on.
 SPECTRUM_CLUSTER_MARGIN = 20
@@ -499,9 +499,9 @@ class DetailedPlotDialog(QDialog):
                 logger.error(f"Failed to draw baseline lines: {baseline_error}")
 
             # After the channels, so the faint, dotted and dashed lines are named too.
-            for treatment, (label, style, alpha) in TRACE_KEY.items():
+            for treatment, (label, style, alpha, width) in TRACE_KEY.items():
                 if treatment in self._treatments:
-                    self.eic_plot.add_key_entry(label, style=style, alpha=alpha)
+                    self.eic_plot.add_key_entry(label, style=style, alpha=alpha, width=width)
             # Above the plot, under its title, so it never covers a trace.
             self.eic_plot.show_legend()
 

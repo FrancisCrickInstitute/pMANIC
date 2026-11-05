@@ -529,11 +529,11 @@ class MatplotlibPlotWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to add vertical line: {e}")
 
-    def add_key_entry(self, label: str, *, style: str, alpha: float = 1.0) -> None:
+    def add_key_entry(self, label: str, *, style: str, alpha: float, width: float) -> None:
         """A legend entry, in the neutral ink, for a way of drawing traces rather than a trace."""
         self.ax.plot(
             [], [], color=COLORS["text_secondary"], linestyle=style, alpha=alpha,
-            linewidth=PLOT_LINE_WIDTH, label=label,
+            linewidth=width, label=label,
         )
 
     def show_legend(self) -> None:

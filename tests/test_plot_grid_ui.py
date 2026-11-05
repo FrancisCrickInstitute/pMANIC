@@ -271,10 +271,11 @@ def test_qc_badges_never_tint_the_card_so_only_peak_verdicts_do(scheme, grid):
     pill = badge.grab().toImage().pixelColor(2, badge.height() // 2)
     assert theme.contrast(badge.palette().color(badge.foregroundRole()), pill) >= 4.5
     assert pill != card("Missing") and card("Missing") == card("Found") == theme.color("surface")
-    for name, opacity in (("Found", 1.0), ("Missing", 0.4)):
+    for name in ("Found", "Missing"):
         chart = tiles[name].chart_view.chart()
         assert not chart.isPlotAreaBackgroundVisible()
-        assert {round(series.opacity(), 2) for series in chart.series()} == {opacity}
+        # A Not detected tile's traces are the evidence to inspect, never faded.
+        assert {series.opacity() for series in chart.series()} == {1.0}
 
     grid.apply_peak_verdicts({"Missing": PeakVerdict.REJECTED})
     assert [label.text() for label in _badge_labels(tiles["Missing"])] == [

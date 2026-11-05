@@ -43,8 +43,6 @@ from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentitySampleAssessment,
-    QualifierOutcome,
-    qualifier_outcome,
 )
 
 from .channel_chips import CHIP_HEIGHT, ChannelChipRow
@@ -1898,6 +1896,10 @@ class GraphView(QWidget):
         unfitted_indices: list[int] = []
         for channel in bundle.channels:
             model = channel.result.model
+            raw_is_evidence=all(
+                channel.result.model is None and channel.result.empty
+                for channel in bundle.channels
+            ),
             if model is None:
                 if not channel.result.empty:
                     unfitted_indices.append(channel.index)
@@ -1961,6 +1963,7 @@ class GraphView(QWidget):
         channel_indices: tuple[int, ...] | None = None,
     ):
         matrix = eic_intensity if eic_intensity.ndim > 1 else eic_intensity.reshape(1, -1)
+        raw_is_evidence: bool = False,
         mask_matrix = None
         if selected_mask is not None:
             mask_matrix = (
@@ -1981,7 +1984,11 @@ class GraphView(QWidget):
                 qcolor = dark_red_colour
                 line_style = Qt.SolidLine
             pen_color = QColor(qcolor)
-            if raw_context:
+            if raw_is_evidence:
+                # Nothing was fitted, so the raw trace is what the reviewer inspects.
+                pen_color.setAlpha(190)
+                width = 1.5
+            elif raw_context:
                 pen_color.setAlpha(75)
                 width = 1.0
             else:
@@ -2075,15 +2082,6 @@ class GraphView(QWidget):
         sample_name = getattr(container.chart_view, "sample_name", "")
         identity = self._sample_identity(sample_name)
         container.set_badges(tile_badges(verdict, identity))
-        # Nothing was detected, so the traces are noise: fade them under the badge.
-        faded = (
-            identity is not None
-            and identity.qc is not None
-            and qualifier_outcome(identity.qc) is QualifierOutcome.NOT_DETECTED
-        )
-        if isinstance(container.chart_view, ClickableChartView):
-            for series in container.chart_view.chart().series():
-                series.setOpacity(0.4 if faded else 1.0)
 
     def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:

@@ -493,6 +493,24 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     assert page.standard_label.text() == "None"
 
 
+def test_changing_the_standard_drops_an_unsaved_reference_peak(labelled_window):
+    _insert_compound("Norvaline", label_atoms=2)
+    _insert_compound("Leucine", label_atoms=2)
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Norvaline", "Leucine"])
+    labelled_window.toolbar.on_internal_standard_selected("Norvaline")
+    labelled_window.open_settings_page("Internal Standard")
+    settings = labelled_window.settings_window
+    page = settings.page_named("Internal Standard")
+    page.combo.setCurrentIndex(2)
+
+    labelled_window.toolbar.on_internal_standard_selected("Leucine")
+    settings.save_button.click()
+
+    assert page.combo.currentText() == "M+0"
+    assert labelled_window.internal_standard_reference_isotope == 0
+
+
 def test_deconvolution_without_overrides_or_selection_shows_empty_state(labelled_window):
     _insert_compound("Alanine")
     labelled_window.compound_data_loaded = True

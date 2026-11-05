@@ -472,6 +472,10 @@ class InternalStandardPage(SettingsPage):
         self.reference_hint.setVisible(no_labels)
         self._clear_dirty()
 
+    def is_dirty(self) -> bool:
+        # A reference peak picked for a standard the user has since replaced means nothing.
+        return self._dirty and self.host.internal_standard_name() == self._standard
+
     def save(self) -> None:
         self.host.apply_internal_standard_reference_isotope(self.combo.currentData() or 0)
 

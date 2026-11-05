@@ -778,21 +778,19 @@ QWidget#sidebarHeader {
     border-bottom: 1px solid @border;
 }
 
+QWidget#sidebarInspector {
+    border-top: 1px solid @border;
+}
+
+QWidget#summaryPanel {
+    background-color: @surface;
+    border-left: 1px solid @border;
+}
+
 QWidget#toolbar QListWidget {
     background-color: transparent;
     border: none;
     padding: 0px;
-}
-
-/* A 5px grab area drawn as a 1px line. */
-QWidget#toolbar QSplitter::handle {
-    background-color: @surface;
-    border-bottom: 1px solid @border;
-}
-
-QWidget#toolbar QSplitter::handle:hover {
-    background-color: @accent_soft;
-    border-bottom: 1px solid @accent;
 }
 
 QPushButton[role="statusRow"] {
@@ -933,35 +931,4 @@ QFrame#lowerPopover,
 QFrame#standardChooser {
     background-color: @surface;
     border: 1px solid @border_strong;
-}
-
-/* The inspector's section switcher on a short sidebar: same shape as the grid's density switch. */
-QWidget#inspectorSwitcher QToolButton {
-    font-size: 11px;
-    color: @text_secondary;
-    background-color: @surface;
-    border: 1px solid @border_strong;
-    padding: 2px 6px;
-    min-height: 18px;
-}
-
-QWidget#inspectorSwitcher QToolButton:hover {
-    background-color: @surface_hover;
-}
-
-QWidget#inspectorSwitcher QToolButton:checked {
-    color: @text;
-    background-color: @surface_alt;
-    font-weight: 600;
-}
-
-QWidget#inspectorSwitcher QToolButton#switch_peak {
-    border-top-left-radius: 6px;
-    border-bottom-left-radius: 6px;
-    border-right: none;
-}
-
-QWidget#inspectorSwitcher QToolButton#switch_summary {
-    border-top-right-radius: 6px;
-    border-bottom-right-radius: 6px;
 }

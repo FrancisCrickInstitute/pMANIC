@@ -65,7 +65,7 @@ from manic.validation.unlabelled_identity import IdentityAssessmentSet, Qualifie
 
 # Every sample gets this much height so its name is never elided.
 ROW_HEIGHT = 26
-# Sample names, bar-end values and the value axis: a step above the sidebar's 10 px.
+# Sample names, bar-end values and the value axis: a step above the summary panel's 10 px.
 VALUE_PX = 12
 # The chart margins above and below the rows; the axis text is pinned outside.
 _AXIS_SPACE = 16
@@ -237,7 +237,7 @@ class _BackedText(QGraphicsSimpleTextItem):
 class ChartPopupDialog(QDialog):
     """Modal dialog showing an enlarged version of toolbar charts with sample names visible.
 
-    ``data`` and ``sample_names`` run bottom to top, as the sidebar charts
+    ``data`` and ``sample_names`` run bottom to top, as the summary panel's charts
     draw them, so every popup reads top-down in grid order. Clicking a sample
     row, or Enter on the row picked with the arrow keys, emits
     ``sample_activated`` and closes the popup, once something listens.
@@ -269,7 +269,7 @@ class ChartPopupDialog(QDialog):
         self._identity = identity
         # What the abundance bars measure, such as "Q-ion peak area".
         self._quantity = quantity
-        # The grid's selected samples, filled in the accent as in the sidebar.
+        # The grid's selected samples, filled in the accent as in the summary panel.
         self._highlighted = set(highlighted)
 
         # The ion key's (labels, styles); with a current row it reads that row's shares.

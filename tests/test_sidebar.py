@@ -1,14 +1,14 @@
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QSettings, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtGui import QAccessible, QAccessibleActionInterface, QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
-from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QLineEdit, QMenu, QWidget
+from PySide6.QtGui import QAccessible, QAccessibleActionInterface, QContextMenuEvent, QKeyEvent, QKeySequence
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QMenu, QWidget
 
 from manic.models import database
 from manic.models.analysis import AnalysisMode
-from manic.ui.left_toolbar import SPLIT_SETTING, Toolbar
+from manic.ui.left_toolbar import Toolbar
 from manic.ui.loaded_data_widget import LoadedDataWidget
 from manic.ui.standard_chooser import StandardChooser
 from manic.ui.standard_indicator_widget import StandardIndicator
@@ -93,31 +93,6 @@ def _in_view(toolbar: Toolbar, widget) -> bool:
         if not child.rect().contains(rect):
             return False
     return True
-
-
-def _switch_button(toolbar: Toolbar, key: str) -> QAbstractButton:
-    return toolbar.section_switcher.findChild(QAbstractButton, f"switch_{key}")
-
-
-def _drag_split(toolbar: Toolbar, browse: int) -> None:
-    """Drag the splitter handle so the lists get `browse` pixels."""
-    handle = toolbar.splitter.handle(1)
-    start = handle.rect().center()
-    end = start + QPoint(0, browse - toolbar.splitter.sizes()[0])
-    for kind, at, buttons in (
-        (QEvent.Type.MouseButtonPress, start, Qt.LeftButton),
-        (QEvent.Type.MouseMove, end, Qt.LeftButton),
-        (QEvent.Type.MouseButtonRelease, end, Qt.NoButton),
-    ):
-        event = QMouseEvent(
-            kind,
-            QPointF(at),
-            QPointF(handle.mapToGlobal(at)),
-            Qt.LeftButton,
-            buttons,
-            Qt.NoModifier,
-        )
-        QApplication.sendEvent(handle, event)
 
 
 class FakePlot(QWidget):
@@ -547,7 +522,6 @@ def test_sections_collapse_and_remember(qapp, stub_compound):
     try:
         assert toolbar.peak_section.body.isAncestorOf(toolbar.baseline_checkbox)
         assert toolbar.peak_section.is_expanded()
-        assert toolbar.summary_section.is_expanded()
 
         peak = toolbar.peak_section
         # A section's summary shows only while the section is closed.
@@ -559,47 +533,18 @@ def test_sections_collapse_and_remember(qapp, stub_compound):
         assert not peak.summary.isVisible()
 
         # A screen reader hears the heading as open or closed, and can press it.
-        heading = QAccessible.queryAccessibleInterface(toolbar.summary_section.header)
+        heading = QAccessible.queryAccessibleInterface(peak.header)
         state = heading.state()
         assert (state.checkable, state.checked) == (True, True)
         heading.actionInterface().doAction(QAccessibleActionInterface.toggleAction())
-        assert not toolbar.summary_section.is_expanded()
+        assert not peak.is_expanded()
         assert not heading.state().checked
     finally:
         toolbar.deleteLater()
 
     again = _sidebar(1400)
     try:
-        assert not again.summary_section.is_expanded()
-        assert again.peak_section.is_expanded()
-    finally:
-        again.deleteLater()
-
-
-def test_dragged_split_is_remembered(qapp):
-    toolbar = _sidebar(700)
-    try:
-        total = sum(toolbar.splitter.sizes())
-        # Dragged so far the Peak window would not fit: the layout stays safe,
-        # but the user's share is what is saved.
-        _drag_split(toolbar, total - 60)
-        dragged = toolbar.splitter.sizes()[0] / total
-        _settle(toolbar)
-        assert _in_view(toolbar, toolbar.integration.apply_button)
-        assert QSettings().value(SPLIT_SETTING, type=float) == pytest.approx(dragged)
-
-        _drag_split(toolbar, 200)
-        _settle(toolbar)
-        assert toolbar.splitter.sizes()[0] == 200
-        share = 200 / total
-        assert QSettings().value(SPLIT_SETTING, type=float) == pytest.approx(share)
-    finally:
-        toolbar.deleteLater()
-
-    again = _sidebar(700)
-    try:
-        browse, inspector = again.splitter.sizes()
-        assert browse / (browse + inspector) == pytest.approx(share, abs=0.02)
+        assert not again.peak_section.is_expanded()
     finally:
         again.deleteLater()
 
@@ -615,7 +560,6 @@ def test_laptop_lists_keep_four_compounds_and_three_samples_with_samples_open(
     try:
         assert _full_rows(toolbar.compound_list) >= compound_rows
         assert _full_rows(toolbar.sample_list) >= sample_rows
-        assert toolbar.section_switcher.isVisible()
     finally:
         toolbar.deleteLater()
 
@@ -650,13 +594,14 @@ def test_peak_window_stays_whole_at_1024x768(qapp, height):
 def test_closing_samples_gives_its_room_back_without_a_resize(qapp):
     toolbar = _sidebar(700)
     try:
-        closed = toolbar.splitter.sizes()
+        closed = toolbar.compound_list.height()
         toolbar.samples_section.set_expanded(True)
         _settle(toolbar)
         assert _full_rows(toolbar.sample_list) >= 3
+        assert toolbar.compound_list.height() < closed
         toolbar.samples_section.set_expanded(False)
         _settle(toolbar)
-        assert toolbar.splitter.sizes() == closed
+        assert toolbar.compound_list.height() == closed
     finally:
         toolbar.deleteLater()
 
@@ -672,65 +617,6 @@ def test_a_short_filtered_list_leaves_its_room_to_samples(qapp):
         assert toolbar.sample_list.height() > before
     finally:
         toolbar.deleteLater()
-
-
-def test_switcher_shows_the_peak_window_or_one_summary_chart_at_full_height(qapp):
-    toolbar = _sidebar(LAPTOP_720)
-    ratios, abundance = toolbar._charts
-    try:
-        assert [
-            b.text() for b in toolbar.section_switcher.findChildren(QAbstractButton)
-        ] == ["Peak window", "Summary"]
-        assert _switch_button(toolbar, "peak").isChecked()
-        assert not toolbar.peak_section.header.isVisible()
-
-        _switch_button(toolbar, "summary").click()
-        _settle(toolbar)
-        assert not toolbar.integration.isVisible()
-        # One chart takes the pane; the other folds to its title, which opens it.
-        assert _in_view(toolbar, toolbar.isotopologue_ratios)
-        assert not toolbar.total_abundance.isVisible()
-        assert _in_view(toolbar, abundance.header)
-        pane = toolbar._inspector_pane.height()
-        assert toolbar.isotopologue_ratios.height() > pane // 2
-
-        abundance.header.click()
-        _settle(toolbar)
-        assert _in_view(toolbar, toolbar.total_abundance)
-        assert not toolbar.isotopologue_ratios.isVisible()
-        assert _in_view(toolbar, ratios.header)
-
-        _switch_button(toolbar, "peak").click()
-        assert _in_view(toolbar, toolbar.integration.apply_button)
-    finally:
-        toolbar.deleteLater()
-
-
-@pytest.mark.parametrize("samples_open", [False, True])
-def test_switcher_leaves_once_there_is_room_and_sections_keep_their_state(qapp, samples_open):
-    toolbar = _sidebar(LAPTOP_720, samples_open)
-    try:
-        _switch_button(toolbar, "summary").click()
-        toolbar.resize(296, 1400)
-        _settle(toolbar)
-        assert not toolbar.section_switcher.isVisible()
-        assert toolbar.integration.isVisible()
-        assert toolbar.isotopologue_ratios.isVisible() and toolbar.total_abundance.isVisible()
-    finally:
-        toolbar.deleteLater()
-    tall = _sidebar(1400, samples_open)
-    try:
-        assert not tall.section_switcher.isVisible()
-        for widget in (
-            tall.peak_section.header,
-            tall.integration.regenerate_button,
-            tall.summary_section.header,
-            tall.isotopologue_ratios,
-            tall.total_abundance,
-        ):
-            assert _in_view(tall, widget)
-    finally:
-        tall.deleteLater()
 
 
 def test_a_shrinking_compound_list_keeps_the_current_compound_in_view(qapp):

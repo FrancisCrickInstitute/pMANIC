@@ -471,12 +471,12 @@ def tour_steps(tour: Tour) -> None:
     tour.run("another_compound", next_compound)
     tour.run(
         "abundance_popup",
-        lambda: tour.window.toolbar.total_abundance._show_popup_chart(),
+        lambda: tour.window.summary.total_abundance._show_popup_chart(),
         grab_main=False,
     )
     tour.run(
         "label_popup",
-        lambda: tour.window.toolbar.isotopologue_ratios._show_popup_chart(),
+        lambda: tour.window.summary.isotopologue_ratios._show_popup_chart(),
         grab_main=False,
     )
     tour.run("checklist", lambda: checklist(tour), grab_main=False)
@@ -562,7 +562,7 @@ def tour_steps(tour: Tour) -> None:
     )
     tour.run(
         "identity_popup",
-        lambda: tour.window.toolbar.targeted_qc._show_popup_chart(),
+        lambda: tour.window.summary.targeted_qc._show_popup_chart(),
         grab_main=False,
     )
     tour.run("detailed_scheme_switch", lambda: detailed_scheme_switch(tour), grab_main=False)

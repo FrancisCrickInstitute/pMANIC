@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, QPoint, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QPoint, QSettings, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -90,6 +90,7 @@ from manic.ui.start_panel import StartPanel
 from manic.ui.theme import set_style_property
 from manic.ui.toast_notification import show_status_toast
 from manic.ui.window_placement import show_over_parent
+from manic.ui.summary_panel import SUMMARY_MIN_WIDTH, SUMMARY_WIDTH, SummaryPanel
 from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.utils.paths import docs_path, resource_path
 from manic.utils.recent_files import RecentFiles
@@ -109,6 +110,11 @@ def _eics(count: int) -> str:
     return f"{count} EIC" if count == 1 else f"{count} EICs"
 
 SIDEBAR_WIDTH = 296
+SUMMARY_OPEN_SETTING = "view/summary_open"
+SUMMARY_WIDTH_SETTING = "view/summary_width"
+# Until the user opens or closes it, the Summary starts closed in a narrower window,
+# so the grid keeps its columns.
+SUMMARY_MIN_WINDOW_WIDTH = 1200
 COMPOUND_LIST_SUFFIXES = {".csv", ".xls", ".xlsx"}
 
 
@@ -186,7 +192,7 @@ class MainWindow(QMainWindow):
         self.graph_view.settings_requested.connect(self.open_settings_window)
         self.graph_view.documentation_requested.connect(self.open_documentation_window)
         self.graph_view.guide_requested.connect(self.open_documentation_link)
-        self.toolbar.targeted_qc.guide_requested.connect(self.open_documentation_link)
+        self.summary.targeted_qc.guide_requested.connect(self.open_documentation_link)
         self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
         self.toolbar.compounds_restored.connect(self.on_compounds_restored)
         self.toolbar.add_compound_requested.connect(self.show_add_compound_dialog)
@@ -258,11 +264,20 @@ class MainWindow(QMainWindow):
         self.workspace.addWidget(self.graph_view)
         self.workspace.addWidget(self.no_samples_panel)
         splitter.addWidget(self.workspace)
+        self.summary = SummaryPanel(self.analysis_mode)
+        splitter.addWidget(self.summary)
+        self.summary.hide()
+        # Decided when the grid first shows, from the window's width then.
+        self._summary_settled = False
 
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setCollapsible(0, False)
-        splitter.setSizes([SIDEBAR_WIDTH, 10_000])
+        splitter.setStretchFactor(2, 0)
+        for index in range(3):
+            splitter.setCollapsible(index, False)
+        splitter.setSizes([SIDEBAR_WIDTH, 10_000, 0])
+        splitter.splitterMoved.connect(self._remember_summary_width)
+        self.splitter = splitter
         main_layout.addWidget(splitter)
 
         central_widget = QWidget()
@@ -403,7 +418,7 @@ class MainWindow(QMainWindow):
 
         # Initialize natural abundance correction state
         if self.analysis_mode is AnalysisMode.LABELLED:
-            self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
+            self.summary.isotopologue_ratios.set_use_corrected(False)  # Off by default
         self.update_deconvolution_indicator(None)
 
         # Connect the toolbar's custom signals to handler methods
@@ -439,9 +454,9 @@ class MainWindow(QMainWindow):
 
         # Clicking an Identity bar, or a row in a summary popup, highlights that sample's plot.
         for chart in (
-            self.toolbar.targeted_qc,
-            self.toolbar.total_abundance,
-            self.toolbar.isotopologue_ratios,
+            self.summary.targeted_qc,
+            self.summary.total_abundance,
+            self.summary.isotopologue_ratios,
         ):
             chart.sample_activated.connect(self._on_qc_sample_activated)
 
@@ -515,6 +530,15 @@ class MainWindow(QMainWindow):
             self.show_samples_action.setChecked
         )
         view_menu.addAction(self.show_samples_action)
+
+        self.show_summary_action = QAction("Show Summary", self)
+        self.show_summary_action.setCheckable(True)
+        button = self.graph_view.summary_button
+        self.show_summary_action.toggled.connect(button.setChecked)
+        self.show_summary_action.toggled.connect(self._apply_summary)
+        self.show_summary_action.triggered.connect(self._remember_summary_open)
+        button.clicked.connect(self.show_summary_action.trigger)
+        view_menu.addAction(self.show_summary_action)
 
         self.show_all_samples_action = QAction("Show All Samples", self)
         self.show_all_samples_action.triggered.connect(self.show_all_samples)  # listed in Review
@@ -713,10 +737,47 @@ class MainWindow(QMainWindow):
         else:
             page = self.graph_view
         self.workspace.setCurrentWidget(page)
+        if page is self.graph_view and not self._summary_settled:
+            self._summary_settled = True
+            settings = QSettings()
+            self.show_summary_action.setChecked(
+                settings.value(SUMMARY_OPEN_SETTING, type=bool)
+                if settings.contains(SUMMARY_OPEN_SETTING)
+                else self.width() >= SUMMARY_MIN_WINDOW_WIDTH
+            )
+        self._apply_summary()
         # Loading selects the first compound without on_compound_selected, so name it here.
         self.update_deconvolution_indicator(
             self.selected_compound_name() if self.compound_data_loaded else None
         )
+
+    def _apply_summary(self, *_args) -> None:
+        """Show the Summary beside the grid while it is open, at the width last dragged to."""
+        shown = (
+            self.workspace.currentWidget() is self.graph_view
+            and self.show_summary_action.isChecked()
+        )
+        if shown != self.summary.isHidden():
+            return
+        if not shown:
+            self.summary.hide()
+            return
+        sidebar = self.splitter.sizes()[0]
+        # The grid's and the panel's share once both show, with a handle each.
+        free = self.splitter.width() - sidebar - 2 * self.splitter.handleWidth()
+        saved = QSettings().value(SUMMARY_WIDTH_SETTING, SUMMARY_WIDTH, type=int)
+        # Taken from the grid down to its two columns, never from the sidebar.
+        width = max(min(saved, free - self.workspace.minimumSizeHint().width()), SUMMARY_MIN_WIDTH)
+        self.summary.show()
+        self.splitter.setSizes([sidebar, free - width, width])
+
+    def _remember_summary_open(self, shown: bool) -> None:
+        self._summary_settled = True
+        QSettings().setValue(SUMMARY_OPEN_SETTING, shown)
+
+    def _remember_summary_width(self, *_args) -> None:
+        if not self.summary.isHidden():
+            QSettings().setValue(SUMMARY_WIDTH_SETTING, self.splitter.sizes()[2])
 
     def dragEnterEvent(self, event):
         if self._dropped_path(event) is not None:
@@ -1303,9 +1364,9 @@ class MainWindow(QMainWindow):
         self.graph_view.clear_all_plots()
         self.toolbar.integration.populate_fields_from_plots(compound_name, [], [])
         self.toolbar.integration.populate_tr_window_field(compound_name)
-        self.toolbar.isotopologue_ratios._clear_chart()
-        self.toolbar.total_abundance._clear_chart()
-        self.toolbar.targeted_qc.clear()
+        self.summary.isotopologue_ratios._clear_chart()
+        self.summary.total_abundance._clear_chart()
+        self.summary.targeted_qc.clear()
         self._refresh_shell()
 
     def _get_current_eics(self):
@@ -1404,11 +1465,11 @@ class MainWindow(QMainWindow):
     ) -> None:
         current_eics = self._get_current_eics()
         if self.analysis_mode is AnalysisMode.LABELLED:
-            self.toolbar.isotopologue_ratios.update_ratios(
+            self.summary.isotopologue_ratios.update_ratios(
                 compound_name, current_eics
             )
             abundances, eics = (
-                self.toolbar.isotopologue_ratios.get_last_total_abundances()
+                self.summary.isotopologue_ratios.get_last_total_abundances()
             )
             if abundances is None:
                 abundances = self._calculate_total_abundances_fallback(
@@ -1426,23 +1487,23 @@ class MainWindow(QMainWindow):
             )
 
         if abundances is None:
-            self.toolbar.total_abundance._clear_chart()
+            self.summary.total_abundance._clear_chart()
             return
-        self.toolbar.total_abundance.update_abundance_from_data(
+        self.summary.total_abundance.update_abundance_from_data(
             compound_name, eics, abundances
         )
         selected = self.graph_view.get_selected_samples()
-        self.toolbar.total_abundance.set_highlighted(selected)
-        self.toolbar.isotopologue_ratios.set_highlighted(selected)
-        self.toolbar.targeted_qc.set_highlighted(selected)
+        self.summary.total_abundance.set_highlighted(selected)
+        self.summary.isotopologue_ratios.set_highlighted(selected)
+        self.summary.targeted_qc.set_highlighted(selected)
 
     def _update_targeted_qc(self, identity) -> None:
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
             return
         if identity is None:
-            self.toolbar.targeted_qc.clear()
+            self.summary.targeted_qc.clear()
             return
-        self.toolbar.targeted_qc.update_results(identity)
+        self.summary.targeted_qc.update_results(identity)
 
     def _on_qc_sample_activated(self, sample_name: str) -> None:
         """Highlight the plot for a sample clicked on the Identity chart."""
@@ -2506,7 +2567,7 @@ class MainWindow(QMainWindow):
         logger.info(
             f"Natural abundance correction visualization toggled: {'ON' if enabled else 'OFF'}"
         )
-        self.toolbar.isotopologue_ratios.set_use_corrected(enabled)
+        self.summary.isotopologue_ratios.set_use_corrected(enabled)
         self.graph_view.set_use_corrected(enabled)
         self._replot_current_selection()
 
@@ -2705,9 +2766,9 @@ class MainWindow(QMainWindow):
 
                 # Clear visual elements immediately
                 self.graph_view.clear_all_plots()
-                self.toolbar.isotopologue_ratios._clear_chart()
-                self.toolbar.total_abundance._clear_chart()
-                self.toolbar.targeted_qc.clear()
+                self.summary.isotopologue_ratios._clear_chart()
+                self.summary.total_abundance._clear_chart()
+                self.summary.targeted_qc.clear()
 
                 # Force UI update to show cleared graphs
                 self.graph_view.repaint()

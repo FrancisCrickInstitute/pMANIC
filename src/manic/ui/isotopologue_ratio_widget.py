@@ -35,7 +35,6 @@ from .chart_popup_dialog import PinnedAxis, missing_ratio_note, value_axis_ticks
 from .chart_style import AXIS_LABEL_PX, style_axis, style_chart, ui_font
 from .colors import label_colors
 from .sidebar_widgets import (
-    SUMMARY_CHART_MAX_HEIGHT,
     SummaryChartArea,
     fit_category_names,
 )
@@ -119,7 +118,8 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.plotAreaChanged.connect(self._paint_highlight)
         theme.notifier.changed.connect(self._paint_highlight)
 
-        self.setMaximumHeight(SUMMARY_CHART_MAX_HEIGHT)
+        # No taller than its rows, so the panel stacks the next chart right under it.
+        layout.setSizeConstraint(QVBoxLayout.SetMinAndMaxSize)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self._current_eics: Optional[List[EIC]] = None

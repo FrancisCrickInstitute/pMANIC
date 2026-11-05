@@ -49,13 +49,14 @@ def section_heading(text: str) -> QLabel:
 # A bar row needs this many pixels before the sample axis can name it without
 # QtCharts dropping labels that would touch.
 NAME_ROW_PX = 16
-SUMMARY_CHART_MAX_HEIGHT = 330
-# Rows a summary keeps when the sidebar is short; the rest scroll under the pinned axis.
+# A bar row grows to this with room to spare, so a few samples never draw slabs.
+ROOMY_ROW_PX = 28
+# Rows a summary keeps when the window is short; the rest scroll under the pinned axis.
 SUMMARY_SHORT_ROWS = 2
 
 
 def fit_category_names(axis, names: list[str], view_width: int) -> None:
-    """Shorten names in the middle to fit a sidebar chart's name column.
+    """Shorten names in the middle to fit a summary chart's name column.
 
     QtCharts gives the name axis at most 40% of the chart and lets a longer name
     run off its edge (or, truncating, leaves only "…"). Hover gives the full name.
@@ -71,8 +72,8 @@ def fit_category_names(axis, names: list[str], view_width: int) -> None:
 class SummaryChartArea(QScrollArea):
     """A summary chart tall enough to name every bar; rows past the widget's height scroll.
 
-    It asks for only a few rows, so a short sidebar fits every summary without
-    scrolling around them; the sidebar's stretch gives it more when there is room.
+    It asks for only a few rows, so a short window fits both summaries, and grows
+    with the room it is given until every row is roomy.
     """
 
     def __init__(self, chart_view: QWidget, axis_px: int, parent=None):
@@ -89,6 +90,7 @@ class SummaryChartArea(QScrollArea):
     def set_rows(self, count: int) -> None:
         self._view.setMinimumHeight(self._axis_px + count * NAME_ROW_PX)
         self._short = self._axis_px + min(max(count, 1), SUMMARY_SHORT_ROWS) * NAME_ROW_PX
+        self.setMaximumHeight(self._axis_px + max(count, 1) * ROOMY_ROW_PX)
         self.updateGeometry()
 
     def minimumSizeHint(self) -> QSize:
@@ -372,7 +374,7 @@ class CollapsibleSection(QWidget):
         self.toggled.emit(expanded)
 
     def set_headless(self, headless: bool) -> None:
-        """Hide the heading and always show the body, while a switcher stands in for it."""
+        """Hide the heading and always show the body, as plain rows."""
         self._headless = headless
         self.header.setVisible(not headless)
         self.body.setVisible(headless or self._expanded)

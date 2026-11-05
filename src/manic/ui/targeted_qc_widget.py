@@ -33,23 +33,19 @@ from manic.ui.identity_chart import (
     show_identity_tooltip,
 )
 from manic.ui import theme
-from manic.ui.sidebar_widgets import fit_category_names
+from manic.ui.sidebar_widgets import SUMMARY_SHORT_ROWS, fit_category_names
 from manic.ui.theme import color
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
 # Tall enough for each row's state mark and sample name.
-SIDEBAR_ROW = 18
-# Rows in view before the grid scrolls inside the sidebar.
-SIDEBAR_VISIBLE_ROWS = 8
-# Rows kept when the sidebar is short, so the summary fits without a second scroll.
-SIDEBAR_SHORT_ROWS = 2
+IDENTITY_ROW = 18
 
 
 class _RowsScroll(QScrollArea):
-    """Asks for its minimum height; the sidebar's stretch grows it up to its maximum.
+    """Asks for its minimum height; the panel's stretch grows it up to its maximum.
 
     Never for the chart's width: a chart view's hint is its last scene width, so
-    asking for it would hold the summary wider than the sidebar.
+    asking for it would hold the summary wider than the panel.
     """
 
     def sizeHint(self) -> QSize:
@@ -117,7 +113,7 @@ class TargetedQcWidget(QWidget):
         layout.addWidget(self._scroll)
         layout.addWidget(self.note)
         layout.addWidget(self.key)
-        # Grows with the sidebar, but never past its rows (see _cap_height).
+        # Grows with the panel, but never past its rows (see _cap_height).
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self._identity: IdentityAssessmentSet | None = None
@@ -135,10 +131,11 @@ class TargetedQcWidget(QWidget):
 
         self._identity = identity
         self._binding = add_identity_grid(self.chart, identity.samples)
-        height = identity_chart_height(len(identity.samples), SIDEBAR_ROW)
+        height = identity_chart_height(len(identity.samples), IDENTITY_ROW)
         self.chart_view.setFixedHeight(height)
-        self._scroll.setMinimumHeight(min(height, identity_chart_height(SIDEBAR_SHORT_ROWS, SIDEBAR_ROW)))
-        self._scroll.setMaximumHeight(min(height, identity_chart_height(SIDEBAR_VISIBLE_ROWS, SIDEBAR_ROW)))
+        short = identity_chart_height(SUMMARY_SHORT_ROWS, IDENTITY_ROW)
+        self._scroll.setMinimumHeight(min(height, short))
+        self._scroll.setMaximumHeight(height)
         self.columns.set_axis("", identity_column_headers(identity.channels, detail=False))
         note = identity_unassessed_note(identity)
         self.note.setText(note or "")

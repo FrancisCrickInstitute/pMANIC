@@ -63,7 +63,7 @@ from .colors import (
     legend_trace_styles,
     steel_blue_colour,
 )
-from .sidebar_widgets import shortcut_text
+from .sidebar_widgets import ElidedLabel, shortcut_text
 from .plot_tile import (
     DENSITY_MIN_TILE,
     DENSITY_TEXT,
@@ -229,8 +229,7 @@ class GraphView(QWidget):
         header.addWidget(self.compound_title)
         # "tR 7.09", plus "· 3 of 30 selected" once plots are picked; the Samples
         # section already gives the total.
-        self.selection_summary = QLabel()
-        self.selection_summary.setMinimumWidth(1)
+        self.selection_summary = ElidedLabel()
         theme.style(self.selection_summary, text_style("text_secondary", 12))
         self.selection_summary.setToolTip(
             f"Click a plot to select it. {shortcut_text('Ctrl+A')} selects all, Esc clears, "
@@ -242,7 +241,10 @@ class GraphView(QWidget):
         self.docs_button.clicked.connect(self.documentation_requested.emit)
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
         self.settings_button.clicked.connect(self.settings_requested.emit)
-        for button in (self.docs_button, self.settings_button):
+        # Beside the panel it opens; the window wires it to View > Show Summary.
+        self.summary_button = icon_button("summaryButton", "summary_panel.svg", "Summary")
+        self.summary_button.setCheckable(True)
+        for button in (self.docs_button, self.settings_button, self.summary_button):
             button.setAccessibleName(button.toolTip())
             button.setProperty("variant", "ghost")
             button.setIconSize(button.iconSize() * 0.9)
@@ -299,6 +301,12 @@ class GraphView(QWidget):
         self._layout = QGridLayout(grid_host)
         self._layout.setSpacing(TILE_GAP)
         self._layout.setContentsMargins(TILE_GAP, 4, TILE_GAP, TILE_GAP)
+        # Two Comfortable columns at the least, whatever sits beside the grid.
+        self.setMinimumWidth(
+            2 * DENSITY_MIN_TILE["comfortable"][0]
+            + 3 * TILE_GAP
+            + self._scroll.verticalScrollBar().sizeHint().width()
+        )
         self._grid_shape: tuple[int, int] = (1, 0)
         self._focus_index: int | None = None
 

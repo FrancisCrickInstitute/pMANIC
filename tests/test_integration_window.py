@@ -1,6 +1,6 @@
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QAccessible, QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLineEdit
 
@@ -40,6 +40,20 @@ def test_apply_window_states_that_it_re_extracts_every_shown_sample(qapp, monkey
         integration.tr_window_edit.setText("0.5")
         integration.regenerate_button.click()
         assert requests == [("Alanine", 0.5, ["S1", "S2", "S3"], 1.0)]
+    finally:
+        integration.deleteLater()
+
+
+def test_a_screen_reader_names_each_field_by_its_label(qapp):
+    integration = IntegrationWindow(AnalysisMode.LABELLED)
+    try:
+        names = [
+            QAccessible.queryAccessibleInterface(integration.findChild(QLineEdit, name)).text(
+                QAccessible.Text.Name
+            )
+            for name in ("lo_input", "tr_input", "ro_input", "tr_window_input")
+        ]
+        assert names == ["Left offset", "tR", "Right offset", "tR window"]
     finally:
         integration.deleteLater()
 

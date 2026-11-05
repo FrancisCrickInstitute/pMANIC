@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtGui import QAccessible, QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
+from PySide6.QtGui import QAccessible, QAccessibleActionInterface, QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QLineEdit, QMenu, QWidget
 
 from manic.models import database
@@ -536,8 +536,14 @@ def test_sections_collapse_and_remember(qapp, stub_compound):
         peak.header.click()
         assert not peak.summary.isVisible()
 
-        toolbar.summary_section.header.click()
+        # A screen reader hears the heading as open or closed, and can press it.
+        heading = QAccessible.queryAccessibleInterface(toolbar.summary_section.header)
+        state = heading.state()
+        assert (state.expandable, state.expanded, state.collapsed) == (True, True, False)
+        heading.actionInterface().doAction(QAccessibleActionInterface.pressAction())
         assert not toolbar.summary_section.is_expanded()
+        state = heading.state()
+        assert (state.expanded, state.collapsed) == (False, True)
     finally:
         toolbar.deleteLater()
 

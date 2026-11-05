@@ -309,6 +309,7 @@ class IntegrationWindow(QWidget):
             # Enable Enter key to trigger apply (same as clicking Apply button)
             edt.returnPressed.connect(self._on_apply_clicked)
             edt.textEdited.connect(self._update_apply_button_state)
+            lbl.setBuddy(edt)  # names the field for a screen reader
             fields.addWidget(lbl, row, 0)
             fields.addWidget(edt, row, 1)
         editor_layout.addLayout(fields)
@@ -344,6 +345,7 @@ class IntegrationWindow(QWidget):
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
         self.tr_window_edit.setToolTip(tr_window_lbl.toolTip())
+        tr_window_lbl.setBuddy(self.tr_window_edit)
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
         # Enable Enter key to trigger regeneration (same as clicking Apply window)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)

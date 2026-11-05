@@ -4,18 +4,16 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import List, NamedTuple
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QActionGroup
+from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QMenu,
-    QScrollArea,
     QSizePolicy,
     QSplitter,
     QToolButton,
@@ -30,7 +28,6 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.processors.tile_y_scale import YScalePolicy, available_y_scale_policies
 from manic.ui import theme
-from manic.ui.theme import set_style_property
 from manic.utils.paths import resource_path
 
 from .compound_list_widget import CompoundListWidget
@@ -39,6 +36,7 @@ from .isotopologue_ratio_widget import IsotopologueRatioWidget
 from .loaded_data_widget import LoadedDataWidget
 from .sample_list_widget import SampleListWidget
 from .sidebar_widgets import (
+    SUMMARY_CHART_MAX_HEIGHT,
     CollapsibleSection,
     FilterField,
     divider,
@@ -51,75 +49,29 @@ from .total_abundance_widget import TotalAbundanceWidget
 
 logger = logging.getLogger(__name__)
 
-# The lists always keep this many rows each (compounds, samples), even if the Peak
-# window must scroll. Then the Peak window stays whole, then the lists grow to
-# BROWSE_MIN_ROWS and together this share of the sidebar.
+# The lists give rows to the Peak window down to BROWSE_HARD_ROWS each (compounds,
+# samples) for its editor, and down to BROWSE_KEEP_ROWS for the rest of it. Then they
+# grow to BROWSE_MIN_ROWS and together this share of the sidebar.
+BROWSE_HARD_ROWS = (2, 1)
 BROWSE_KEEP_ROWS = (4, 3)
 BROWSE_MIN_ROWS = (6, 4)
 BROWSE_MIN_SHARE = 0.45
 # Room past each list's floor goes compounds:samples in this ratio, up to each one's rows.
 BROWSE_WEIGHTS = (3, 2)
-LIST_MIN_HEIGHT = 72
-# Summary opens by itself only when its first chart gets at least this much height.
-SUMMARY_MIN_CHART = 100
+# The summaries share the inspector with the Peak window only when each chart gets this much.
+SUMMARY_MIN_CHART = 140
 SPLIT_SETTING = "sidebar/browse_share"
 SUMMARY_SETTING = "sidebar/summary_expanded"
+Y_SCALE_SETTING = "view/y_scale_policy"
 
 
 class _BrowseList(NamedTuple):
     widget: QListWidget
-    keep: int  # height of the rows it never gives up
+    hard: int  # height of the rows it keeps even beside the Peak window editor
+    keep: int  # height of the rows it never gives up to the rest of the Peak window
     floor: int  # height of the rows it keeps while the Peak window fits
     full: int  # height of every row the filter leaves
     weight: int
-
-
-class _PinnedRow(QObject):
-    """Keeps a row of a scroll area's content whole: in its place while that is in view,
-    else pinned across the bottom of the viewport, never half shown."""
-
-    PAD = 8
-
-    def __init__(self, row: QWidget, area: QScrollArea):
-        super().__init__(row)
-        self._row = row
-        self._area = area
-        self._slot = QWidget()
-        self._slot.setFixedHeight(row.sizeHint().height())
-        row.parentWidget().layout().replaceWidget(row, self._slot)
-        row.setParent(area.viewport())
-        row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self._slot.installEventFilter(self)
-        area.viewport().installEventFilter(self)
-        area.verticalScrollBar().valueChanged.connect(self.place)
-
-    def eventFilter(self, watched, event):
-        if event.type() in (
-            QEvent.Type.Move,
-            QEvent.Type.Resize,
-            QEvent.Type.Show,
-            QEvent.Type.Hide,
-        ):
-            self.place()
-        return False
-
-    def place(self, *_args) -> None:
-        viewport, row, slot = self._area.viewport(), self._row, self._slot
-        row.setVisible(slot.isVisibleTo(viewport))
-        if row.isHidden():
-            return
-        at = slot.mapTo(viewport, QPoint(0, 0))
-        pinned = at.y() + slot.height() > viewport.height()
-        if pinned:
-            right = viewport.width() - at.x() - slot.width()
-            row.layout().setContentsMargins(at.x(), self.PAD, right, self.PAD)
-            height = slot.height() + 2 * self.PAD
-            row.setGeometry(0, viewport.height() - height, viewport.width(), height)
-        else:
-            row.layout().setContentsMargins(0, 0, 0, 0)
-            row.setGeometry(QRect(at, slot.size()))
-        set_style_property(row, "pinned", "true" if pinned else None)
-        row.raise_()
 
 
 def _menu_check_image() -> str:
@@ -178,7 +130,7 @@ class Toolbar(QWidget):
         super().__init__()
         self.analysis_mode = AnalysisMode.coerce(analysis_mode)
         self.setObjectName("toolbar")  # Required for CSS targeting
-        self._y_scale_policy = YScalePolicy.PER_TILE_EXTRACT
+        self.y_scale_policy = YScalePolicy.PER_TILE_EXTRACT
         self._available_y_scale_policies = available_y_scale_policies(
             self.analysis_mode
         )
@@ -229,6 +181,9 @@ class Toolbar(QWidget):
         browse_layout.addWidget(divider())
 
         self.sample_list = SampleListWidget()
+        for lst in (self.compound_list, self.sample_list):
+            # fit_inspector sets each list's floor; Qt's default must not hold the window open.
+            lst.setMinimumHeight(1)
         samples_body = QWidget()
         samples_body_layout = QVBoxLayout(samples_body)
         samples_body_layout.setContentsMargins(0, 0, 0, 0)
@@ -244,7 +199,8 @@ class Toolbar(QWidget):
         # Takes what is left once each list is as tall as its rows.
         browse_layout.addStretch(0)
 
-        # Inspector: peak window, display options and summaries scroll together.
+        # Inspector: the Peak window over the summaries. Nothing here scrolls as a whole;
+        # fit_inspector gives it the height its parts need.
         inspector_content = QWidget()
         inspector_content.setObjectName("sidebarInspector")
         inspector_layout = QVBoxLayout(inspector_content)
@@ -254,13 +210,7 @@ class Toolbar(QWidget):
         # menus through toggled without committing anything.
         self._syncing_checkboxes = False
 
-        peak_body = QWidget()
-        peak_layout = QVBoxLayout(peak_body)
-        peak_layout.setContentsMargins(0, 0, 0, 0)
-        peak_layout.setSpacing(8)
         self.integration = IntegrationWindow(self.analysis_mode)
-        peak_layout.addWidget(self.integration)
-
         self.baseline_checkbox = QCheckBox("Baseline correction")
         self.baseline_checkbox.setObjectName("baseline_correction_checkbox")
         self.baseline_checkbox.setToolTip(
@@ -269,11 +219,11 @@ class Toolbar(QWidget):
             "and subtracts the area under this baseline from the peak area."
         )
         self.baseline_checkbox.stateChanged.connect(self._on_baseline_checkbox_toggled)
-        peak_layout.addWidget(self.baseline_checkbox)
+        self.integration.more.rows.insertWidget(0, self.baseline_checkbox)
 
         self.peak_section = CollapsibleSection(
             "Peak window",
-            peak_body,
+            self.integration,
             expanded=True,
             settings_key="sidebar/peak_window_expanded",
         )
@@ -283,54 +233,11 @@ class Toolbar(QWidget):
         )
         self._refresh_peak_summary()
         inspector_layout.addWidget(self.peak_section)
-        self._inspector_dividers = [divider(), divider()]
-        inspector_layout.addWidget(self._inspector_dividers[0])
-
-        display_body = QWidget()
-        display_layout = QVBoxLayout(display_body)
-        display_layout.setContentsMargins(16, 0, 0, 0)
-        display_layout.setSpacing(6)
-
-        self.shared_yscale_checkbox = QCheckBox("Shared y-scale")
-        self.shared_yscale_checkbox.setObjectName("shared_yscale_checkbox")
-        self.shared_yscale_checkbox.setToolTip(
-            "Use one common intensity scale for all sample plots.\n"
-            "Off: each plot autoscales to its own tallest peak."
-        )
-        self.shared_yscale_checkbox.stateChanged.connect(
-            self._on_shared_yscale_toggled
-        )
-        display_layout.addWidget(self.shared_yscale_checkbox)
-
-        self.selected_peak_yscale_checkbox = None
-        if YScalePolicy.PER_TILE_SELECTED_PEAK in self._available_y_scale_policies:
-            self.selected_peak_yscale_checkbox = QCheckBox("Scale to selected peak")
-            self.selected_peak_yscale_checkbox.setObjectName(
-                "scale_selected_peak_checkbox"
-            )
-            self.selected_peak_yscale_checkbox.setToolTip(
-                "Scale each sample to its selected peak (component nearest tR).\n"
-                "Needs deconvolution on for this compound (Settings > Deconvolution).\n"
-                "Other peaks in the extract may clip.\n"
-                "Off: each plot autoscales to its extract."
-            )
-            self.selected_peak_yscale_checkbox.stateChanged.connect(
-                self._on_selected_peak_yscale_toggled
-            )
-            display_layout.addWidget(self.selected_peak_yscale_checkbox)
-
-        self.display_section = CollapsibleSection(
-            "Display", display_body, settings_key="sidebar/display_expanded"
-        )
-        for checkbox in self.display_checkboxes():
-            checkbox.toggled.connect(self._refresh_display_summary)
-        self._refresh_display_summary()
-        inspector_layout.addWidget(self.display_section)
-        # An open section's own controls show its state, so the heading summary is for closed ones.
-        for section in (self.peak_section, self.display_section):
-            section.toggled.connect(section.summary.setHidden)
-            section.summary.setHidden(section.is_expanded())
-        inspector_layout.addWidget(self._inspector_dividers[1])
+        # An open section's own controls show its state, so the heading summary is for a closed one.
+        self.peak_section.toggled.connect(self.peak_section.summary.setHidden)
+        self.peak_section.summary.setHidden(self.peak_section.is_expanded())
+        self._inspector_divider = divider()
+        inspector_layout.addWidget(self._inspector_divider)
 
         summary = QWidget()
         summary_layout = QVBoxLayout(summary)
@@ -339,31 +246,36 @@ class Toolbar(QWidget):
         self.isotopologue_ratios = IsotopologueRatioWidget()
         self.targeted_qc = TargetedQcWidget()
         self.total_abundance = TotalAbundanceWidget()
-        for chart in (self.isotopologue_ratios, self.targeted_qc, self.total_abundance):
-            summary_layout.addWidget(chart, 1)
+        first = (
+            self.targeted_qc
+            if self.analysis_mode is AnalysisMode.UNLABELLED
+            else self.isotopologue_ratios
+        )
+        # Each chart folds to its title when the switcher shows one at a time.
+        self._charts: list[CollapsibleSection] = []
+        for chart in (first, self.total_abundance):
+            section = CollapsibleSection(chart.header.title.text(), chart, expanded=True)
+            section.set_headless(True)
+            section.header.clicked.connect(lambda _c=False, s=section: self._choose_chart(s))
+            summary_layout.addWidget(section, 1)
+            self._charts.append(section)
+        self._chart = self._charts[0]
+        other = ({self.isotopologue_ratios, self.targeted_qc} - {first}).pop()
+        other.setParent(summary)
+        other.hide()
         self.summary_section = CollapsibleSection(
             "Summary", summary, expanded=True, settings_key=SUMMARY_SETTING
         )
         inspector_layout.addWidget(self.summary_section)
         inspector_layout.addStretch(0)
+        self.inspector = inspector_content
 
-        if self.analysis_mode is AnalysisMode.UNLABELLED:
-            self.isotopologue_ratios.hide()
-        else:
-            self.targeted_qc.hide()
-
-        self.inspector = QScrollArea()
-        self.inspector.setWidgetResizable(True)
-        self.inspector.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.inspector.setFrameShape(QFrame.NoFrame)
-        self.inspector.setWidget(inspector_content)
-        # On a short sidebar Reset and Apply stay under the scrolling fields, never cut through.
-        self._pinned_actions = _PinnedRow(self.integration.action_row, self.inspector)
         QWidget.setTabOrder(
             self.integration.findChild(QLineEdit, "ro_input"), self.integration.restore_button
         )
         QWidget.setTabOrder(self.integration.restore_button, self.integration.apply_button)
-        QWidget.setTabOrder(self.integration.apply_button, self.integration.tr_window_edit)
+        QWidget.setTabOrder(self.integration.apply_button, self.baseline_checkbox)
+        QWidget.setTabOrder(self.baseline_checkbox, self.integration.tr_window_edit)
 
         # On a short sidebar this stands in for the section headings: one section at a time.
         self._compact = False
@@ -376,7 +288,6 @@ class Toolbar(QWidget):
         self._switch_buttons = QButtonGroup(self.section_switcher)
         for key, text, section in (
             ("peak", "Peak window", self.peak_section),
-            ("display", "Display", self.display_section),
             ("summary", "Summary", self.summary_section),
         ):
             button = QToolButton()
@@ -409,18 +320,15 @@ class Toolbar(QWidget):
         saved = QSettings().value(SPLIT_SETTING)
         self._browse_share = float(saved) if saved is not None else None
         self.splitter.splitterMoved.connect(self._on_splitter_moved)
-        self._summary_started = False
         self._fit_timer = QTimer(self)
         self._fit_timer.setSingleShot(True)
         self._fit_timer.timeout.connect(self.fit_inspector)
         inspector_content.installEventFilter(self)
-        for section in (
-            self.samples_section,
-            self.peak_section,
-            self.display_section,
-            self.summary_section,
-        ):
+        for section in (self.samples_section, self.peak_section, self.summary_section):
             section.toggled.connect(self._fit_timer.start)
+
+        self._build_scale_actions()
+        self._hold_inspector_floor()
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -433,24 +341,46 @@ class Toolbar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._refresh_data_state()
 
-    def display_checkboxes(self) -> list[QCheckBox]:
-        """The Display section's toggles, which the View menu mirrors."""
-        boxes = [self.shared_yscale_checkbox]
-        if self.selected_peak_yscale_checkbox is not None:
-            boxes.append(self.selected_peak_yscale_checkbox)
-        return boxes
+    def _build_scale_actions(self) -> None:
+        """The plots' y-scale choices, which the View menu lists; the last choice is remembered."""
+        self.shared_yscale_action = QAction("Shared Y-Scale", self)
+        self.shared_yscale_action.setCheckable(True)
+        self.shared_yscale_action.setToolTip(
+            "Use one common intensity scale for all sample plots.\n"
+            "Off: each plot autoscales to its own tallest peak."
+        )
+        self.shared_yscale_action.triggered.connect(
+            lambda on: self._choose_y_scale(
+                YScalePolicy.SHARED_EXTRACT if on else YScalePolicy.PER_TILE_EXTRACT
+            )
+        )
+        self.selected_peak_yscale_action = None
+        if YScalePolicy.PER_TILE_SELECTED_PEAK in self._available_y_scale_policies:
+            self.selected_peak_yscale_action = QAction("Scale to Selected Peak", self)
+            self.selected_peak_yscale_action.setCheckable(True)
+            self.selected_peak_yscale_action.setToolTip(
+                "Scale each sample to its selected peak (component nearest tR).\n"
+                "Needs deconvolution on for this compound (Settings > Deconvolution).\n"
+                "Other peaks in the extract may clip.\n"
+                "Off: each plot autoscales to its extract."
+            )
+            self.selected_peak_yscale_action.triggered.connect(
+                lambda on: self._choose_y_scale(
+                    YScalePolicy.PER_TILE_SELECTED_PEAK if on else YScalePolicy.PER_TILE_EXTRACT
+                )
+            )
+        try:
+            saved = YScalePolicy(QSettings().value(Y_SCALE_SETTING, ""))
+        except ValueError:
+            saved = YScalePolicy.PER_TILE_EXTRACT
+        self._commit_y_scale_policy(saved)
 
-    def _refresh_display_summary(self, *_args) -> None:
-        if self.shared_yscale_checkbox.isChecked():
-            scale = "Shared scale"
-        elif (
-            self.selected_peak_yscale_checkbox is not None
-            and self.selected_peak_yscale_checkbox.isChecked()
-        ):
-            scale = "Peak scale"
-        else:
-            scale = "Own scale"
-        self.display_section.summary.setText(scale)
+    def scale_actions(self) -> list[QAction]:
+        return [
+            action
+            for action in (self.shared_yscale_action, self.selected_peak_yscale_action)
+            if action is not None
+        ]
 
     def _refresh_peak_summary(self, *_args) -> None:
         baseline = "Baseline on" if self.baseline_checkbox.isChecked() else "No baseline"
@@ -500,7 +430,6 @@ class Toolbar(QWidget):
             summary = f"{shown} of {samples} shown"
         self.samples_section.summary.setText(summary)
 
-        self.inspector.setVisible(self._raw_loaded)
         self._inspector_pane.setVisible(self._raw_loaded)
         self._fit_timer.start()
 
@@ -532,22 +461,28 @@ class Toolbar(QWidget):
         return [
             _BrowseList(
                 lst,
+                self._rows_height(lst, hard),
                 self._rows_height(lst, keep),
                 self._rows_height(lst, floor),
                 self._rows_height(lst),
                 weight,
             )
-            for lst, keep, floor, weight in zip(
-                lists, BROWSE_KEEP_ROWS, BROWSE_MIN_ROWS, BROWSE_WEIGHTS
+            for lst, hard, keep, floor, weight in zip(
+                lists, BROWSE_HARD_ROWS, BROWSE_KEEP_ROWS, BROWSE_MIN_ROWS, BROWSE_WEIGHTS
             )
             if lst.isVisibleTo(self)
         ]
 
     @staticmethod
     def _share_lists(space: int, lists: list[_BrowseList]) -> list[int]:
-        """Kept rows, then floors (each shared in proportion if short), then by weight up to every row."""
+        """Hard rows, kept rows, then floors (each shared in proportion if short), then by
+        weight up to every row."""
         heights = [0] * len(lists)
-        for target in ([item.keep for item in lists], [item.floor for item in lists]):
+        for target in (
+            [item.hard for item in lists],
+            [item.keep for item in lists],
+            [item.floor for item in lists],
+        ):
             need = [max(goal - height, 0) for goal, height in zip(target, heights)]
             rest = space - sum(heights)
             if rest <= sum(need):
@@ -571,53 +506,64 @@ class Toolbar(QWidget):
         self.splitter.widget(0).layout().setStretchFactor(
             self.samples_section, int(self.samples_section.is_expanded())
         )
-        self.inspector.widget().layout().setStretchFactor(
+        self.inspector.layout().setStretchFactor(
             self.summary_section,
             int(self.summary_section.is_expanded() or self._compact),
         )
         for item, height in zip(lists, self._share_lists(browse - chrome, lists)):
-            item.widget.setMinimumHeight(min(LIST_MIN_HEIGHT, height))
+            # Whole rows only; what is left stays blank under the lists.
+            row, frame = max(item.widget.sizeHintForRow(0), 1), 2 * item.widget.frameWidth()
+            height = max(height - frame, 0) // row * row + frame
+            item.widget.setMinimumHeight(min(item.hard, height) or 1)
             item.widget.setMaximumHeight(height)
 
-    def _inspector_width(self) -> int:
-        margins = self.inspector.widget().layout().contentsMargins()
-        return self.inspector.viewport().width() - margins.left() - margins.right()
-
-    @staticmethod
-    def _section_height(section: CollapsibleSection, width: int, body: int | None = None) -> int:
-        """Heading plus, if open, the body (or ``body`` px of it), whether or not the switcher shows."""
-        height = section.header.sizeHint().height()
-        if section.is_expanded():
-            if body is None:
-                body = section.body.heightForWidth(width)
-                if body < 0:
-                    body = section.body.sizeHint().height()
-            height += section.layout().spacing() + body
-        return height
-
-    def _peak_height(self, compact: bool | None = None) -> int:
-        """Inspector height that shows the whole Peak window without scrolling."""
-        margins = self.inspector.widget().layout().contentsMargins()
-        peak = self._section_height(self.peak_section, self._inspector_width())
-        if compact is None:
-            compact = self._compact
+    def _peak_height(self, compact: bool, whole: bool) -> int:
+        """Inspector height for the Peak window: its editor and first row below, or all of it."""
+        margins = self.inspector.layout().contentsMargins()
+        height = margins.top() + margins.bottom()
+        section = self.peak_section
         if compact:
-            peak += self.section_switcher.sizeHint().height() - (
-                self.peak_section.header.sizeHint().height()
-                + self.peak_section.layout().spacing()
-            )
-        return margins.top() + peak + margins.bottom()
+            height += self.section_switcher.sizeHint().height()
+        else:
+            height += section.header.sizeHint().height()
+            if not section.is_expanded():
+                return height
+            height += section.layout().spacing()
+        more = self.integration.more
+        return (
+            height
+            + self.integration.editor_height()
+            + self.integration.layout().spacing()
+            + (more.full_height() if whole else more.minimumSizeHint().height())
+        )
 
     def _full_inspector_height(self) -> int:
-        """Height for the whole Peak window, then Display and Summary as the user left them."""
-        layout = self.inspector.widget().layout()
-        width = self._inspector_width()
-        dividers = len(self._inspector_dividers) * (2 * layout.spacing() + 1)
+        """Height for the whole Peak window and every summary chart, with no switcher."""
+        spacing = self.inspector.layout().spacing()
+        section = self.summary_section
+        height = (
+            self._peak_height(compact=False, whole=True)
+            + 2 * spacing
+            + self._inspector_divider.height()
+            + section.header.sizeHint().height()
+        )
+        if section.is_expanded():
+            charts = len(self._charts)
+            height += section.layout().spacing() + charts * SUMMARY_MIN_CHART
+            height += (charts - 1) * section.body.layout().spacing()
+        return height
+
+    def _summary_pane_height(self) -> int:
+        """Inspector height for the switcher's Summary: the open chart at its tallest,
+        the others folded to their titles."""
+        margins = self.inspector.layout().contentsMargins()
+        folded = self.summary_section.body.layout().spacing() + self._chart.header.sizeHint().height()
         return (
-            self._peak_height(compact=False)
-            + dividers
-            + self._section_height(self.display_section, width)
-            + self._section_height(self.summary_section, width, SUMMARY_MIN_CHART)
+            self.section_switcher.sizeHint().height()
+            + margins.top()
+            + margins.bottom()
+            + (len(self._charts) - 1) * folded
+            + SUMMARY_CHART_MAX_HEIGHT
         )
 
     def _set_compact(self, compact: bool) -> None:
@@ -626,66 +572,70 @@ class Toolbar(QWidget):
             return
         self._compact = compact
         self.section_switcher.setVisible(compact)
-        for line in self._inspector_dividers:
-            line.setVisible(not compact)
+        self._inspector_divider.setVisible(not compact)
         self.show_pane(self._pane)
+        self._choose_chart(self._chart)
 
     def show_pane(self, section: CollapsibleSection) -> None:
         """Pick the section the switcher shows; it shows every section again once there is room."""
         self._pane = section
         for button, candidate in zip(
-            self._switch_buttons.buttons(),
-            (self.peak_section, self.display_section, self.summary_section),
+            self._switch_buttons.buttons(), (self.peak_section, self.summary_section)
         ):
             button.setChecked(candidate is section)
             candidate.set_headless(self._compact)
             candidate.setVisible(not self._compact or candidate is section)
-        self.inspector.verticalScrollBar().setValue(0)
 
-    def _start_summary(self, inspector: int) -> None:
-        """Summary starts open only if its first chart fits, unless the user already chose."""
-        self._summary_started = True
-        if QSettings().contains(SUMMARY_SETTING):
-            return
-        header = self.summary_section.header
-        chart_top = self.summary_section.y() + header.height() + 8
-        self.summary_section.set_expanded(inspector >= chart_top + SUMMARY_MIN_CHART)
+    def _choose_chart(self, chart: CollapsibleSection) -> None:
+        """With the switcher, one summary chart takes the height and the others fold to a title."""
+        self._chart = chart
+        layout = self.summary_section.body.layout()
+        for candidate in self._charts:
+            whole = not self._compact or candidate is chart
+            candidate.set_expanded(whole)
+            candidate.set_headless(whole)
+            layout.setStretchFactor(candidate, int(whole))
+
+    def _hold_inspector_floor(self) -> None:
+        # Below the stacked sections' own minimum the switcher takes over, so that minimum
+        # must never hold the window open.
+        integration = self.integration
+        reserved = integration.editor_height() - integration.editor.sizeHint().height()
+        self._inspector_pane.setMinimumHeight(
+            self._peak_height(compact=True, whole=False) - reserved
+        )
 
     def fit_inspector(self) -> None:
-        """The Peak window stays whole, the lists keep their floor, the inspector takes the rest."""
+        """The lists keep their hard rows, the Peak window editor stays whole, the lists keep
+        their kept rows, the rest of the Peak window fits, then the summaries take the rest."""
         total = sum(self.splitter.sizes())
-        if self.inspector.isHidden() or total <= 0:
+        if self._inspector_pane.isHidden() or total <= 0:
             return
+        self._hold_inspector_floor()
         lists = self._browse_lists()
         chrome = self.splitter.widget(0).minimumSizeHint().height() - sum(
             item.widget.minimumHeight() for item in lists
         )
-        full = chrome + sum(item.full for item in lists)
-        floor = chrome + sum(item.floor for item in lists)
-        keep = chrome + sum(item.keep for item in lists)
 
-        def browse_for(peak: int) -> tuple[int, int]:
-            # The lists never take more than their rows, nor room the Peak window
-            # needs once they have their kept rows.
-            cap = min(full, max(total - peak, keep))
+        def rows(field: str) -> int:
+            return chrome + sum(getattr(item, field) for item in lists)
+
+        def browse_for(compact: bool) -> tuple[int, int]:
+            least = total - self._peak_height(compact, whole=False)
+            most = total - self._peak_height(compact, whole=True)
+            cap = min(rows("full"), max(most, min(rows("keep"), least), rows("hard")))
             if self._browse_share is not None:
                 return min(int(total * self._browse_share), cap), cap
-            return min(max(floor, int(total * BROWSE_MIN_SHARE)), cap), cap
+            return min(max(rows("floor"), int(total * BROWSE_MIN_SHARE)), cap), cap
 
-        # Judged before the lists grow into spare room, and without the switcher's own
-        # height, so the answer does not depend on which layout shows now.
-        inspector = total - browse_for(self._peak_height(compact=False))[0]
-        if not self._summary_started:
-            self._start_summary(inspector)
+        # Judged without the switcher's own height, so the answer does not depend on
+        # which layout shows now.
+        inspector = total - browse_for(compact=False)[0]
         self._set_compact(inspector < self._full_inspector_height())
-        browse, cap = browse_for(self._peak_height())
-        if self._browse_share is None:
-            if self._compact:
-                # One section shows at a time, so the lists take what the Peak window leaves.
-                browse = cap
-            else:
-                wanted = self.inspector.widget().minimumSizeHint().height()
-                browse = min(max(browse, total - wanted), cap)
+        browse, cap = browse_for(self._compact)
+        if self._compact and self._browse_share is None:
+            # The lists take what the switcher's tallest pane, Summary, cannot use.
+            browse = min(max(browse, total - self._summary_pane_height()), cap)
         self._set_list_heights(browse, chrome, lists)
         if self.splitter.sizes()[0] != browse:
             self.splitter.setSizes([browse, total - browse])
@@ -776,8 +726,7 @@ class Toolbar(QWidget):
             self.compound_selected.emit(selected_text)
             # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
-            self.sync_selected_peak_checkbox(selected_text)
-            self.inspector.verticalScrollBar().setValue(0)
+            self.sync_selected_peak_scale(selected_text)
         else:
             self.compound_selected.emit("")
 
@@ -849,47 +798,30 @@ class Toolbar(QWidget):
             enabled = False
         self._set_checked_quietly(self.baseline_checkbox, enabled)
 
-    def sync_selected_peak_checkbox(self, compound_name: str):
-        checkbox = self.selected_peak_yscale_checkbox
-        if checkbox is None:
+    def sync_selected_peak_scale(self, compound_name: str):
+        action = self.selected_peak_yscale_action
+        if action is None:
             return
-        checkbox.setEnabled(_deconvolution_on(compound_name))
-        if not checkbox.isEnabled() and checkbox.isChecked():
+        action.setEnabled(_deconvolution_on(compound_name))
+        if not action.isEnabled() and action.isChecked():
             self._commit_y_scale_policy(YScalePolicy.PER_TILE_EXTRACT)
 
-    def _on_shared_yscale_toggled(self, state: int):
-        if self._syncing_checkboxes:
-            return
-        self._commit_y_scale_policy(
-            YScalePolicy.SHARED_EXTRACT
-            if state != 0
-            else YScalePolicy.PER_TILE_EXTRACT
-        )
-
-    def _on_selected_peak_yscale_toggled(self, state: int):
-        if self._syncing_checkboxes:
-            return
-        self._commit_y_scale_policy(
-            YScalePolicy.PER_TILE_SELECTED_PEAK
-            if state != 0
-            else YScalePolicy.PER_TILE_EXTRACT
-        )
+    def _choose_y_scale(self, policy: YScalePolicy) -> None:
+        self._commit_y_scale_policy(policy)
+        QSettings().setValue(Y_SCALE_SETTING, self.y_scale_policy.value)
 
     def _commit_y_scale_policy(self, policy: YScalePolicy) -> None:
         if policy not in self._available_y_scale_policies:
             policy = YScalePolicy.PER_TILE_EXTRACT
-        changed = policy is not self._y_scale_policy
-        self._y_scale_policy = policy
-        self._set_checked_quietly(
-            self.shared_yscale_checkbox, policy is YScalePolicy.SHARED_EXTRACT
-        )
-        if self.selected_peak_yscale_checkbox is not None:
-            self._set_checked_quietly(
-                self.selected_peak_yscale_checkbox,
-                policy is YScalePolicy.PER_TILE_SELECTED_PEAK,
+        changed = policy is not self.y_scale_policy
+        self.y_scale_policy = policy
+        self.shared_yscale_action.setChecked(policy is YScalePolicy.SHARED_EXTRACT)
+        if self.selected_peak_yscale_action is not None:
+            self.selected_peak_yscale_action.setChecked(
+                policy is YScalePolicy.PER_TILE_SELECTED_PEAK
             )
         if changed:
-            self.y_scale_policy_changed.emit(self._y_scale_policy)
+            self.y_scale_policy_changed.emit(self.y_scale_policy)
 
     def _on_baseline_checkbox_toggled(self, state: int):
         """Handle baseline correction checkbox toggle - update DB and emit signal."""

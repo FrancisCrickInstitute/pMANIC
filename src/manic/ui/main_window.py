@@ -13,7 +13,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -430,6 +429,7 @@ class MainWindow(QMainWindow):
         self.toolbar.y_scale_policy_changed.connect(
             self.graph_view.set_y_scale_policy
         )
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy)
 
         # Clicking an Identity bar, or a row in a summary popup, highlights that sample's plot.
         for chart in (
@@ -456,19 +456,13 @@ class MainWindow(QMainWindow):
         self.start_panel.primary_button.setFocus()
 
     def _build_view_menu(self, menu_bar: QMenuBar) -> None:
-        """Display toggles mirror the sidebar checkboxes, which stay the source of truth."""
         view_menu = menu_bar.addMenu("View")
         self.view_menu = view_menu
-        self.display_actions: list[tuple[QAction, QCheckBox]] = []
-        menu_entries = {
-            "shared_yscale_checkbox": ("Shared Y-Scale", "Ctrl+Shift+Y"),
-            "scale_selected_peak_checkbox": ("Scale to Selected Peak", "Ctrl+Shift+P"),
-        }
-        for checkbox in self.toolbar.display_checkboxes():
-            view_menu.addAction(
-                self._mirror_checkbox(checkbox, *menu_entries[checkbox.objectName()])
-            )
-        view_menu.aboutToShow.connect(self._sync_display_actions)
+        view_menu.setToolTipsVisible(True)
+        shortcuts = {"Shared Y-Scale": "Ctrl+Shift+Y", "Scale to Selected Peak": "Ctrl+Shift+P"}
+        for action in self.toolbar.scale_actions():
+            action.setShortcut(QKeySequence(shortcuts[action.text()]))
+            view_menu.addAction(action)
 
         view_menu.addSeparator()
         self.find_compound_action = QAction("Find Compound", self)
@@ -504,20 +498,6 @@ class MainWindow(QMainWindow):
 
         self.show_all_samples_action = QAction("Show All Samples", self)
         self.show_all_samples_action.triggered.connect(self.show_all_samples)  # listed in Review
-
-    def _mirror_checkbox(self, checkbox: QCheckBox, text: str, shortcut: str) -> QAction:
-        """A menu action that toggles a sidebar checkbox and follows it."""
-        action = QAction(text, self)
-        action.setCheckable(True)
-        action.setChecked(checkbox.isChecked())
-        action.setShortcut(QKeySequence(shortcut))
-        action.setToolTip(checkbox.toolTip())
-        action.triggered.connect(
-            lambda checked: self._toggle_display(action, checkbox, checked)
-        )
-        checkbox.toggled.connect(action.setChecked)
-        self.display_actions.append((action, checkbox))
-        return action
 
     def _build_review_menu(self, menu_bar: QMenuBar) -> None:
         """The plot context menu's review commands, on the menu bar.
@@ -584,10 +564,14 @@ class MainWindow(QMainWindow):
         menu.addAction(self.reject_peak_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
         menu.addSeparator()
-        # The Peak window section's own toggle, so it sits with the peak commands.
-        self.baseline_action = self._mirror_checkbox(
-            self.toolbar.baseline_checkbox, "Baseline Correction", "Ctrl+Shift+B"
-        )
+        # The Peak window's baseline toggle, so it sits with the peak commands.
+        baseline = self.toolbar.baseline_checkbox
+        self.baseline_action = QAction("Baseline Correction", self)
+        self.baseline_action.setCheckable(True)
+        self.baseline_action.setChecked(baseline.isChecked())
+        self.baseline_action.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        self.baseline_action.triggered.connect(lambda checked: baseline.setChecked(checked))
+        baseline.toggled.connect(self.baseline_action.setChecked)
         menu.addAction(self.baseline_action)
 
         menu.aboutToShow.connect(self._sync_review_menu)
@@ -598,7 +582,6 @@ class MainWindow(QMainWindow):
         self._sync_review_menu()
 
     def _sync_review_menu(self, *_args) -> None:
-        self._sync_display_actions()
         view = self.graph_view
         self.select_all_plots_action.setEnabled(view.has_plots())
         self.deselect_plots_action.setEnabled(bool(view.get_selected_samples()))
@@ -621,16 +604,6 @@ class MainWindow(QMainWindow):
         if lead is not None:
             command(lead)
         self._sync_review_menu()
-
-    def _toggle_display(self, action: QAction, checkbox: QCheckBox, checked: bool):
-        if checkbox.isEnabled():
-            checkbox.setChecked(checked)
-        action.setChecked(checkbox.isChecked())
-
-    def _sync_display_actions(self) -> None:
-        for action, checkbox in self.display_actions:
-            action.setEnabled(checkbox.isEnabled())
-            action.setChecked(checkbox.isChecked())
 
     def _setup_status_bar(self) -> None:
         bar = self.statusBar()
@@ -2593,7 +2566,7 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
-        self.toolbar.sync_selected_peak_checkbox(self.toolbar.get_selected_compound())
+        self.toolbar.sync_selected_peak_scale(self.toolbar.get_selected_compound())
         if replot:
             self._replot_current_selection()
 

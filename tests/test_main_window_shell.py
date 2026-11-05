@@ -1,9 +1,10 @@
 from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
-from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
+from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from manic.io.compounds_import import CompoundRow, insert_compound
 from manic.models.analysis import AnalysisMode
+from manic.processors.tile_y_scale import YScalePolicy
 from manic.ui.settings_window import DeconvolutionPage
 
 from conftest import _make_window
@@ -26,25 +27,28 @@ def test_title_start_panel_and_quiet_status_bar_before_data(qapp, monkeypatch):
         window.close()
 
 
-def test_view_menu_mirrors_display_checkboxes(qapp, monkeypatch):
+def test_view_menu_scale_choice_is_exclusive_and_remembered(qapp, monkeypatch):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
         actions = {a.text(): a for a in window.view_menu.actions()}
-        shared = actions["Shared Y-Scale"]
-        checkbox = window.toolbar.shared_yscale_checkbox
+        shared, peak = actions["Shared Y-Scale"], actions["Scale to Selected Peak"]
+        assert shared.shortcut() == QKeySequence("Ctrl+Shift+Y")
+        assert peak.shortcut() == QKeySequence("Ctrl+Shift+P")
 
+        peak.trigger()
         shared.trigger()
-        assert checkbox.isChecked() and shared.isChecked()
-        checkbox.setChecked(False)
-        assert not shared.isChecked()
-
-        peak_box = window.toolbar.selected_peak_yscale_checkbox
-        peak_box.setEnabled(False)
-        actions["Scale to Selected Peak"].trigger()
-        assert not peak_box.isChecked()
-        assert not actions["Scale to Selected Peak"].isChecked()
+        assert shared.isChecked() and not peak.isChecked()
+        assert window.graph_view._y_scale_policy is YScalePolicy.SHARED_EXTRACT
     finally:
         window.close()
+
+    again = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    try:
+        actions = {a.text(): a for a in again.view_menu.actions()}
+        assert actions["Shared Y-Scale"].isChecked()
+        assert again.graph_view._y_scale_policy is YScalePolicy.SHARED_EXTRACT
+    finally:
+        again.close()
 
 
 def test_drop_zone_lights_only_for_a_drop_the_window_takes(qapp, monkeypatch, tmp_path):

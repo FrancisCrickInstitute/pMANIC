@@ -13,7 +13,7 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
+from PySide6.QtWidgets import QLabel, QLineEdit
 import numpy as np
 from types import SimpleNamespace
 
@@ -69,9 +69,9 @@ def test_unlabelled_toolbar_shows_abundance_under_identity(qapp):
         assert toolbar.isotopologue_ratios.isHidden()
         assert not toolbar.total_abundance.isHidden()
         assert not toolbar.targeted_qc.isHidden()
-        layout = toolbar.targeted_qc.parentWidget().layout()
-        identity_index = layout.indexOf(toolbar.targeted_qc)
-        abundance_index = layout.indexOf(toolbar.total_abundance)
+        layout = toolbar.summary_section.body.layout()
+        identity_index = layout.indexOf(toolbar.targeted_qc.parentWidget())
+        abundance_index = layout.indexOf(toolbar.total_abundance.parentWidget())
         assert 0 <= identity_index < abundance_index
         assert toolbar.integration.findChild(QLabel, "reference_rt_note") is None
     finally:
@@ -84,30 +84,31 @@ def test_labelled_toolbar_keeps_abundance_under_ratios(qapp):
         assert not toolbar.isotopologue_ratios.isHidden()
         assert not toolbar.total_abundance.isHidden()
         assert toolbar.targeted_qc.isHidden()
-        layout = toolbar.total_abundance.parentWidget().layout()
-        ratio_index = layout.indexOf(toolbar.isotopologue_ratios)
-        abundance_index = layout.indexOf(toolbar.total_abundance)
+        layout = toolbar.summary_section.body.layout()
+        ratio_index = layout.indexOf(toolbar.isotopologue_ratios.parentWidget())
+        abundance_index = layout.indexOf(toolbar.total_abundance.parentWidget())
         assert 0 <= ratio_index < abundance_index
     finally:
         toolbar.deleteLater()
 
 
-def test_y_scale_checkboxes_labelled_only_and_exclusive(qapp):
+def test_y_scale_options_labelled_only_and_exclusive(qapp):
     labelled = Toolbar(AnalysisMode.LABELLED)
     unlabelled = Toolbar(AnalysisMode.UNLABELLED)
     try:
-        selected = labelled.findChild(QCheckBox, "scale_selected_peak_checkbox")
+        selected = labelled.selected_peak_yscale_action
+        shared = labelled.shared_yscale_action
         assert selected is not None
-        assert unlabelled.findChild(QCheckBox, "scale_selected_peak_checkbox") is None
+        assert unlabelled.selected_peak_yscale_action is None
 
-        selected.setChecked(True)
+        selected.trigger()
         assert selected.isChecked()
-        assert not labelled.shared_yscale_checkbox.isChecked()
-        labelled.shared_yscale_checkbox.setChecked(True)
-        assert labelled.shared_yscale_checkbox.isChecked()
+        assert not shared.isChecked()
+        shared.trigger()
+        assert shared.isChecked()
         assert not selected.isChecked()
-        labelled.shared_yscale_checkbox.setChecked(False)
-        assert not labelled.shared_yscale_checkbox.isChecked()
+        shared.trigger()
+        assert not shared.isChecked()
         assert not selected.isChecked()
     finally:
         labelled.deleteLater()
@@ -129,11 +130,11 @@ def test_set_y_scale_policy_replots_only_on_change(qapp, monkeypatch):
 
 def test_selected_peak_yscale_follows_compound_deconvolution(qapp, monkeypatch):
     toolbar = Toolbar(AnalysisMode.LABELLED)
-    checkbox = toolbar.selected_peak_yscale_checkbox
+    checkbox = toolbar.selected_peak_yscale_action
     emitted = []
     toolbar.y_scale_policy_changed.connect(emitted.append)
     try:
-        checkbox.setChecked(True)
+        checkbox.trigger()
         assert checkbox.isChecked()
         emitted.clear()
 

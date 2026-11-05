@@ -71,7 +71,6 @@ DARK: dict[str, str] = {
 # The active set, updated in place so ``from theme import COLORS`` stays live.
 COLORS: dict[str, str] = dict(LIGHT)
 
-RADIUS_SMALL = 6
 RADIUS = 8
 FONT_SIZE = 13
 FONT_SIZE_SMALL = 11

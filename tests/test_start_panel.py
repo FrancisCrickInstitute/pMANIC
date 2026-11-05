@@ -1,19 +1,10 @@
-import pytest
-from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from manic.models.analysis import AnalysisMode
 from manic.ui.start_panel import StartPanel
+from manic.utils.recent_files import RecentFiles
 
 from conftest import _make_window
-
-
-@pytest.fixture(autouse=True)
-def scratch_settings(tmp_path):
-    QSettings.setDefaultFormat(QSettings.IniFormat)
-    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path / "settings"))
-    QSettings().clear()
-    yield
 
 
 def _recent_names(panel: StartPanel) -> list[str]:
@@ -24,23 +15,26 @@ def _recent_names(panel: StartPanel) -> list[str]:
     ]
 
 
+def _shown_labels(panel: StartPanel) -> list[QLabel]:
+    return [label for label in panel.findChildren(QLabel) if label.isVisibleTo(panel)]
+
+
 def test_clear_recent_empties_the_start_panel_at_once(qapp, monkeypatch, tmp_path):
     compounds = tmp_path / "compounds.xlsx"
     compounds.write_text("x")
+    RecentFiles("compound_lists").add(str(compounds))
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
-        window._recent_compounds.add(str(compounds))
-        window._refresh_shell()
         window.show()
         QApplication.processEvents()
         assert _recent_names(window.start_panel) == ["compounds.xlsx"]
+        assert "Recent" in [label.text() for label in _shown_labels(window.start_panel)]
 
-        window._rebuild_open_recent_menu()
         clear = next(a for a in window.open_recent_menu.actions() if a.text() == "Clear Recent")
         clear.trigger()
         QApplication.processEvents()
         assert _recent_names(window.start_panel) == []
-        assert not window.start_panel._recent_heading.isVisibleTo(window.start_panel)
+        assert "Recent" not in [label.text() for label in _shown_labels(window.start_panel)]
     finally:
         window.close()
 
@@ -70,7 +64,6 @@ def test_long_recent_folder_elides_in_the_middle_and_explains_on_hover(qapp, tmp
         short = "/Volumes/list.xlsx"
         panel.refresh(False, True, False, [short], [])
         QApplication.processEvents()
-        tips = [label.toolTip() for label in panel.findChildren(QLabel) if label.isVisibleTo(panel)]
-        assert short not in tips
+        assert short not in [label.toolTip() for label in _shown_labels(panel)]
     finally:
         panel.deleteLater()

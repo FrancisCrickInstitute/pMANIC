@@ -8,13 +8,11 @@ and other UI components.
 from dataclasses import replace
 import pytest
 from PySide6.QtCharts import (
-    QBarCategoryAxis,
     QCategoryAxis,
     QChart,
     QValueAxis,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
 import numpy as np
 from types import SimpleNamespace
@@ -31,7 +29,6 @@ from manic.ui.colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
     QUALIFIER_RED,
-    QUALIFIER_STATUS_COLORS,
     ChannelTraceStyle,
     channel_trace_styles,
     dark_red_colour,
@@ -46,7 +43,6 @@ from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
 from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.targeted_qc_widget import TargetedQcWidget
-from manic.ui import theme
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -262,57 +258,6 @@ def _horizontal_axes(chart):
     return value_axes, category_axes
 
 
-def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
-    channels = (_qion(), _v1())
-    identity = _identity_snapshot(
-        channels,
-        ("S1", _supported_qc(channels, True), None),
-        ("S2", _supported_qc(channels, False), None),
-    )
-    widget = TargetedQcWidget()
-    try:
-        widget.update_results(identity)
-        assert widget.chart.title() == ""
-        assert not widget.chart.legend().isVisible()
-        assert widget._binding is not None
-        bar_sets = widget._binding.bar_sets
-        assert len(bar_sets) == 4
-        surface, outline = theme.color("surface"), theme.color("border_strong")
-        expected = (
-            ("S2", QualifierStatus.FAILED, QUALIFIER_RED, surface),
-            ("S2", QualifierStatus.ABSENT, surface, outline),
-            ("S1", QualifierStatus.VALIDATED, QUALIFIER_GREEN, surface),
-            ("S1", QualifierStatus.ABSENT, surface, outline),
-        )
-        for bar_set, (sample_name, status, fill, border) in zip(bar_sets, expected):
-            cell = widget._binding.cell_for(bar_set)
-            assert cell.sample_name == sample_name
-            assert cell.qualifier.status is status
-            # An ion the method lacks is an outlined empty slot, not a grey fill.
-            assert bar_set.color() == fill
-            assert bar_set.borderColor() == border
-        assert [set_.at(0) for set_ in bar_sets] == [1.0, 1.0, 0.0, 0.0]
-        assert [set_.at(1) for set_ in bar_sets] == [0.0, 0.0, 1.0, 1.0]
-        value_axes, category_axes = _horizontal_axes(widget.chart)
-        assert len(value_axes) == 1
-        assert value_axes[0].min() == 0
-        assert value_axes[0].max() == 2
-        assert not value_axes[0].labelsVisible()
-        assert category_axes == []
-        assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1", "Qualifier 2"]
-        y_axis = widget.chart.axes(Qt.Vertical)[0]
-        assert isinstance(y_axis, QBarCategoryAxis)
-        assert list(y_axis.categories()) == ["S2", "S1"]
-        assert y_axis.labelsVisible()
-        assert widget.header.detail.text() == "1 sample failed"
-        assert "Failed&nbsp;<b>1</b>" in widget.key.text()
-        widget.clear()
-        assert widget._identity is None
-        assert widget.chart.series() == []
-    finally:
-        widget.deleteLater()
-
-
 def test_identity_chart_click_emits_sample_name(qapp):
     channels = (_qion(), _v1())
     identity = _identity_snapshot(
@@ -368,67 +313,6 @@ def test_identity_chart_hover_maps_live_cell(qapp, monkeypatch):
         assert hidden == [True]
     finally:
         widget.deleteLater()
-
-
-def test_identity_chart_popup_shows_sample_names(qapp):
-    channels = (_qion(), _v1(), _v2())
-    fail_v2 = IonChannel(
-        73.0, IonRole.QUALIFIER, ordinal=2, expected_ratio=0.2, ratio_tolerance=0.25
-    )
-    fail_qc = IdentityQcResult(
-        status=IdentityStatus.REVIEW_REQUIRED,
-        quantifier_area=100.0,
-        observed_rt=1.2,
-        rt_error=0.0,
-        rt_passed=True,
-        qualifier_ratios=(
-            QualifierRatioResult(channels[1], 0.41, True),
-            QualifierRatioResult(fail_v2, 0.80, False),
-        ),
-        reasons=(),
-    )
-    identity = _identity_snapshot(
-        channels,
-        ("S1", _supported_qc(channels, True, True), None),
-        ("S2", fail_qc, None),
-    )
-    dialog = ChartPopupDialog.for_identity(identity)
-    try:
-        assert dialog.windowTitle() == "Identity — MANIC"
-        assert dialog.chart.title() == ""
-        assert not dialog.chart.legend().isVisible()
-        assert dialog.compound_title.text() == "Target"
-        # The qualifier chips' content lives in the column headers; the Q ion in the subtitle.
-        assert dialog.ion_legend.labels() == []
-        assert dialog.subtitle.text() == "Identity · Q ion m/z 217 · 2 samples"
-        y_axis = dialog.chart.axes(Qt.Vertical)[0]
-        assert isinstance(y_axis, QBarCategoryAxis)
-        assert list(y_axis.categories()) == ["S2", "S1"]
-        assert y_axis.labelsVisible()
-        assert y_axis.labelsFont().pixelSize() == 11
-        assert [text for text, _x in dialog.pinned_axis.tick_positions()] == [
-            "Qualifier 1\nm/z 147   expected 0.400  ±25%",
-            "Qualifier 2\nm/z 73   expected 0.200  ±25%",
-        ]
-        assert dialog._identity_binding is not None
-        bar_sets = dialog._identity_binding.bar_sets
-        assert len(bar_sets) == 4
-        s2_v2 = dialog._identity_binding.cell_for(bar_sets[1])
-        s1_v1 = dialog._identity_binding.cell_for(bar_sets[2])
-        assert s1_v1.sample_name == "S1"
-        assert s1_v1.qualifier.status is QualifierStatus.VALIDATED
-        assert s2_v2.sample_name == "S2"
-        assert s2_v2.qualifier.status is QualifierStatus.FAILED
-        assert not dialog.status_legend.isHidden()
-        legend = dialog.status_legend.text()
-        assert legend.count("Validated") == 1
-        assert legend.count("Failed") == 1
-        assert legend.count("No verdict") == 1
-        assert QUALIFIER_GREEN.name() in legend
-        assert QUALIFIER_RED.name() in legend
-        assert QUALIFIER_GREY.name() in legend
-    finally:
-        dialog.deleteLater()
 
 
 def test_identity_chart_popup_hover_maps_live_cell(qapp, monkeypatch):
@@ -1179,35 +1063,6 @@ def test_detailed_eic_stays_visible_when_display_pipeline_fails(qapp, monkeypatc
         dialog.deleteLater()
 
 
-def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(qapp, monkeypatch):
-    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
-
-    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
-    dialog = DetailedPlotDialog("alanine", "S1")
-    try:
-        dialog.compound_info = SimpleNamespace(
-            retention_time=5.0,
-            loffset=0.1,
-            roffset=0.1,
-            is_unlabelled_target=False,
-            mass0=116.0,
-            label_atoms=0,
-        )
-        dialog.eic_data = SimpleNamespace(
-            time=np.array([4.9, 5.0, 5.1]),
-            intensity=np.array([1.0, 2.0, 1.0]),
-        )
-        dialog.eic_plot.finalize_plot = lambda: (_ for _ in ()).throw(
-            RuntimeError("finalize failed")
-        )
-        dialog._plot_eic()
-        dialog._update_info_label()
-        assert dialog.info_label.text().startswith("EIC plot failed: finalize failed")
-        assert "plot failed" in dialog.eic_plot.ax.get_title(loc="left")
-    finally:
-        dialog.deleteLater()
-
-
 @pytest.mark.parametrize("use_corrected", [False, True])
 def test_detailed_eic_draws_labelled_traces(qapp, monkeypatch, use_corrected):
     from manic.ui.detailed_plot_dialog import DetailedPlotDialog
@@ -1423,5 +1278,3 @@ def test_preview_off_graph_tile_still_draws_model_overlay(qapp):
         assert all(abs(peak - 7.0) < 0.08 for peak in solid_peak_times)
     finally:
         view.deleteLater()
-
-

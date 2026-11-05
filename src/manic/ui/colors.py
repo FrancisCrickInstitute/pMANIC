@@ -10,7 +10,6 @@ from PySide6.QtGui import QColor
 
 from manic.models.analysis import IonRole
 from manic.ui.theme import contrast
-from manic.validation.peak_verdict import PEAK_VERDICT_FILL, PeakVerdict
 from manic.validation.unlabelled_identity import (
     QUALIFIER_OUTCOME_FILL,
     IdentitySampleAssessment,
@@ -78,12 +77,6 @@ def set_dark(dark: bool, plot_area: QColor) -> dict[str, str]:
         qcolor.setRgb(new.rgb())
     return remap
 
-
-def peak_verdict_qcolor(verdict: PeakVerdict) -> QColor | None:
-    fill = PEAK_VERDICT_FILL[verdict]
-    if fill is None:
-        return None
-    return QColor(fill)
 
 QUALIFIER_STATUS_COLORS: Mapping[QualifierStatus, QColor] = {
     QualifierStatus.ABSENT: QUALIFIER_GREY,

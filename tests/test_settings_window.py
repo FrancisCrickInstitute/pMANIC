@@ -1,11 +1,12 @@
 from unittest import mock
 
 import pytest
+from PySide6.QtWidgets import QDoubleSpinBox
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
 from manic.models.analysis import AnalysisContext, AnalysisMode
-from manic.models.sample_fit_type import get_sample_fit_types
+from manic.models.sample_fit_type import get_sample_fit_types, set_sample_fit_type
 import manic.ui.main_window as main_window_module
 from manic.ui.dialog_kit import MARKED_ROLE
 from manic.ui.main_window import MainWindow
@@ -44,6 +45,29 @@ def _select_page(settings_window, title: str) -> None:
     raise KeyError(title)
 
 
+def _insert_compound(name: str, label_atoms: int = 3) -> None:
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
+            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
+            "VALUES (?, 5.0, 0.6, 0.6, 100.0, ?, 10.0, 1.0, 'S1')",
+            (name, label_atoms),
+        )
+
+
+def _row_values(page) -> dict[str, str | None]:
+    table = page.sample_fit_table
+    return {
+        table.item(row, 0).text(): table.cellWidget(row, 1).currentData()
+        for row in range(table.rowCount())
+    }
+
+
+def _bulk_fit(page, label: str) -> None:
+    menu = page.bulk_fit_button.menu()
+    next(action for action in menu.actions() if action.text() == label).trigger()
+
+
 def _override_row_combo(page, sample: str):
     table = page.sample_fit_table
     for row in range(table.rowCount()):
@@ -80,6 +104,7 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     assert isinstance(internal, InternalStandardPage)
     assert not internal.combo.isEnabled()
     assert not internal.standard_combo.isEnabled()
+    assert internal.standard_combo.currentText() == "No internal standard"
     assert (
         settings.hint_label.text()
         == "Load a compound list to choose an internal standard."
@@ -136,11 +161,9 @@ def test_qualifier_ratios_not_editable_without_a_selected_compound(
         _select_page(settings, "Qualifier Ratios")
         page = settings.page_named("Qualifier Ratios")
         assert isinstance(page, QualifierRatioPage)
-        assert page.editable() == (
-            False,
-            "Load compounds and select one in the Compounds list to change this.",
-        )
-        assert not page._spins[1].isEnabled()
+        for ordinal in (1, 2):
+            spin = page.findChild(QDoubleSpinBox, f"qualifier{ordinal}ToleranceSpin")
+            assert not spin.isEnabled()
         assert settings.hint_label.text() == (
             "Load compounds and select one in the Compounds list to change this."
         )
@@ -228,6 +251,9 @@ def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
     settings.page_named("Mass Tolerance").spin.setValue(0.35)
+    assert settings.save_button.isEnabled()
+    assert settings.hint_label.text() == ""
+    assert not settings.pending_label.isVisible()
     settings.page_named("Peak Validation").spin.setValue(0.123)
     _select_page(settings, "Integration")
 
@@ -248,7 +274,7 @@ def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
     assert "Peak Validation" in settings.pending_label.text()
     settings.save_button.click()
     assert labelled_window.mass_tolerance == 0.35
-    assert labelled_window.min_peak_height_ratio == DEFAULT_MIN_PEAK_HEIGHT_RATIO
+    assert labelled_window.min_peak_height_ratio == 0.005
     assert not settings.page_list.item(0).data(MARKED_ROLE)
     assert settings.page_list.item(1).data(MARKED_ROLE)
 
@@ -327,27 +353,6 @@ def test_deconvolution_page_unlocks_for_selected_compound_and_saves(labelled_win
     assert settings.save_button.isEnabled() is False
 
 
-def test_internal_standard_without_label_atoms_disables_combo(labelled_window):
-    with database.get_connection() as conn:
-        conn.execute(
-            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
-            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
-            "VALUES ('Norvaline', 5.0, 0.6, 0.6, 100.0, 0, 10.0, 1.0, 'S1')"
-        )
-    labelled_window.compound_data_loaded = True
-    labelled_window.toolbar.update_compound_list(["Norvaline"])
-    labelled_window.toolbar.on_internal_standard_selected("Norvaline")
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    _select_page(settings, "Internal Standard")
-    page = settings.page_named("Internal Standard")
-    assert not page.combo.isEnabled()
-    assert page.standard_combo.isEnabled()
-    assert page.reference_hint.text() == (
-        "Norvaline has no label atoms, so only M+0 can be the reference peak."
-    )
-
-
 def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window):
     with database.get_connection() as conn:
         conn.execute(
@@ -369,15 +374,16 @@ def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window
     assert labelled_window.internal_standard_reference_isotope == 2
 
 
-def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window, monkeypatch):
+@pytest.mark.parametrize("existing", [None, "emg"])
+def test_deconvolution_page_saves_per_sample_override_and_clear(
+    labelled_window, monkeypatch, existing
+):
+    _insert_compound("Alanine")
     with database.get_connection() as conn:
-        conn.execute(
-            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
-            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
-            "VALUES ('Alanine', 5.0, 0.6, 0.6, 100.0, 3, 10.0, 1.0, 'S1')"
-        )
         conn.execute("INSERT INTO samples (sample_name) VALUES ('S1')")
         conn.execute("INSERT INTO samples (sample_name) VALUES ('S2')")
+    if existing:
+        set_sample_fit_type("Alanine", ["S1"], existing)
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
     monkeypatch.setattr(
@@ -394,11 +400,13 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     settings = labelled_window.settings_window
     _select_page(settings, "Deconvolution")
     page = settings.page_named("Deconvolution")
-    assert [page.sample_fit_table.item(r, 0).text() for r in range(2)] == ["S1", "S2"]
-    assert page._selected_rows() == [0, 1]
+    table = page.sample_fit_table
+    assert _row_values(page) == {"S1": existing, "S2": None}
+    assert [index.row() for index in table.selectionModel().selectedRows()] == [0, 1]
     assert page.bulk_fit_button.text() == "Set fit for 2 selected ▾"
     assert not page.empty_overrides_label.isVisible()
-    page.set_fit_for_selected_rows("gaussian")
+    _bulk_fit(page, "Gaussian")
+    assert _row_values(page) == {"S1": "gaussian", "S2": "gaussian"}
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {
         ("Alanine", "S1"): "gaussian",
@@ -408,12 +416,12 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     assert page.remove_all_button.isVisible()
 
     s1_combo = _override_row_combo(page, "S1")
-    s1_combo.setCurrentIndex(s1_combo.findData("emg"))
+    s1_combo.setCurrentIndex(s1_combo.findData("bi_gaussian"))
     s2_combo = _override_row_combo(page, "S2")
     s2_combo.setCurrentIndex(s2_combo.findData(None))
     assert not page.remove_all_button.isVisible()
     settings.save_button.click()
-    assert get_sample_fit_types("Alanine") == {("Alanine", "S1"): "emg"}
+    assert get_sample_fit_types("Alanine") == {("Alanine", "S1"): "bi_gaussian"}
     assert replots == [1, 1]
 
     _override_row_combo(page, "S2").setCurrentIndex(
@@ -424,21 +432,77 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     assert get_sample_fit_types("Alanine") == {}
     assert replots == [1, 1, 1]
 
-    page.set_fit_for_selected_rows("emg")
-    page.set_fit_for_selected_rows(None)
-    assert page.is_dirty()
+    _bulk_fit(page, "EMG")
+    _bulk_fit(page, "Use compound setting")
+    assert settings.save_button.isEnabled()
     settings.save_button.click()
     assert get_sample_fit_types("Alanine") == {}
     assert replots == [1, 1, 1]
 
 
+def test_bulk_fit_follows_the_rows_the_user_selects(labelled_window, monkeypatch):
+    _insert_compound("Alanine")
+    set_sample_fit_type("Alanine", ["S1", "S2", "S3"], "gaussian")
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
+    monkeypatch.setattr(labelled_window.graph_view, "get_selected_samples", lambda: [])
+
+    labelled_window.open_settings_page("Deconvolution")
+    settings = labelled_window.settings_window
+    page = settings.page_named("Deconvolution")
+    assert page.bulk_fit_button.text() == "Set fit for selected ▾"
+    assert not page.bulk_fit_button.isEnabled()
+    page.sample_fit_table.selectRow(2)
+    assert page.bulk_fit_button.text() == "Set fit for 1 selected ▾"
+    _bulk_fit(page, "Use compound setting")
+    settings.save_button.click()
+
+    assert get_sample_fit_types("Alanine") == {
+        ("Alanine", "S1"): "gaussian",
+        ("Alanine", "S2"): "gaussian",
+    }
+
+
+def test_internal_standard_page_chooses_the_standard_and_its_reference_peak(labelled_window):
+    _insert_compound("Alanine", label_atoms=0)
+    _insert_compound("Norvaline", label_atoms=2)
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Alanine", "Norvaline"])
+    labelled_window.open_settings_page("Internal Standard")
+    settings = labelled_window.settings_window
+    page = settings.page_named("Internal Standard")
+    assert page.standard_combo.currentText() == "No internal standard"
+    assert not page.combo.isEnabled()
+
+    page.standard_combo.setCurrentIndex(page.standard_combo.findData("Norvaline"))
+    assert [page.combo.itemText(i) for i in range(page.combo.count())] == [
+        "M+0",
+        "M+1",
+        "M+2",
+    ]
+    page.combo.setCurrentIndex(2)
+    settings.save_button.click()
+
+    assert labelled_window.toolbar.get_internal_standard() == "Norvaline"
+    assert labelled_window.internal_standard_reference_isotope == 2
+    assert not settings.save_button.isEnabled()
+
+    page.standard_combo.setCurrentIndex(page.standard_combo.findData("Alanine"))
+    settings.save_button.click()
+    assert labelled_window.toolbar.get_internal_standard() == "Alanine"
+    assert page.standard_combo.isEnabled()
+    assert not page.combo.isEnabled()
+    assert page.reference_hint.text() == (
+        "Alanine has no label atoms, so only M+0 can be the reference peak."
+    )
+
+    page.standard_combo.setCurrentIndex(0)
+    settings.save_button.click()
+    assert labelled_window.toolbar.get_internal_standard() is None
+
+
 def test_deconvolution_without_overrides_or_selection_shows_empty_state(labelled_window):
-    with database.get_connection() as conn:
-        conn.execute(
-            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, "
-            "label_atoms, int_std_amount, amount_in_std_mix, mm_files) "
-            "VALUES ('Alanine', 5.0, 0.6, 0.6, 100.0, 3, 10.0, 1.0, 'S1')"
-        )
+    _insert_compound("Alanine")
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
     labelled_window.open_settings_window()

@@ -620,9 +620,6 @@ class Toolbar(QWidget):
             + self._section_height(self.summary_section, width, SUMMARY_MIN_CHART)
         )
 
-    def is_compact(self) -> bool:
-        return self._compact
-
     def _set_compact(self, compact: bool) -> None:
         """Too short for every section: the switcher shows one at a time, in place of their headings."""
         if compact == self._compact:
@@ -777,8 +774,6 @@ class Toolbar(QWidget):
         if selected_items:
             selected_text = selected_items[0].text()
             self.compound_selected.emit(selected_text)
-            # Initial fill - will be updated by plot selection logic after plotting
-            self.fill_integration_window(selected_text)
             # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
             self.sync_selected_peak_checkbox(selected_text)
@@ -844,16 +839,6 @@ class Toolbar(QWidget):
         Returns the compound name or None if no standard is selected.
         """
         return self.standard.internal_standard
-
-    def fill_integration_window(self, compound_name: str):
-        """
-        Legacy method - no longer used.
-
-        Integration window fields are now populated by populate_fields_from_plots()
-        which properly handles session data overrides. This method previously
-        populated fields with base compound data, overwriting session values.
-        """
-        pass
 
     def _set_baseline_checkbox_from_compound(self, compound_name: str):
         """Set baseline correction checkbox state from compound data."""

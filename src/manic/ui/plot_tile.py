@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from manic.ui.chart_style import AXIS_LABEL_PX, scale_text, text_style
+from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.theme import RADIUS, color
 from manic.ui import theme
 from manic.validation.peak_verdict import PeakVerdict
@@ -117,30 +118,6 @@ def grid_columns(
     return max_cols, max(min_height, int(tile_w / TILE_ASPECT))
 
 
-class ElidingLabel(QLabel):
-    def __init__(self, text: str = "", parent: Optional[QWidget] = None):
-        super().__init__(text, parent)
-        self._full_text = text
-
-    def setText(self, text: str) -> None:
-        self._full_text = text
-        self._elide()
-
-    def fullText(self) -> str:
-        return self._full_text
-
-    def _elide(self) -> None:
-        fm = QFontMetrics(self.font())
-        shown = fm.elidedText(self._full_text, Qt.ElideRight, self.width())
-        super().setText(shown)
-        # The whole name on hover only when it is cut short.
-        self.setToolTip(self._full_text if shown != self._full_text else "")
-
-    def resizeEvent(self, event):
-        self._elide()
-        super().resizeEvent(event)
-
-
 def _badge_label(badge: TileBadge) -> QLabel:
     fg, bg = _TONES[badge.tone]
     label = QLabel(badge.text)
@@ -169,7 +146,7 @@ class PlotTile(QWidget):
         self._text_size = DENSITY_TEXT["compact"]
         self.setAttribute(Qt.WA_Hover)
 
-        self.caption = ElidingLabel()
+        self.caption = ElidedLabel(hover=True)
         self.caption.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.caption.setMinimumWidth(24)
 

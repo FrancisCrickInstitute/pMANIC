@@ -23,7 +23,7 @@ from manic.ui.chart_popup_dialog import PinnedAxis, value_axis_ticks
 from manic.ui.chart_style import scale_text, set_nice_ticks, style_axis, style_chart
 from manic.ui.colors import abundance_colour
 from manic.ui.sidebar_widgets import (
-    SUMMARY_CHART_HEIGHT,
+    SUMMARY_CHART_MAX_HEIGHT,
     SummaryChartArea,
     fit_category_names,
 )
@@ -60,7 +60,6 @@ class TotalAbundanceWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("totalAbundanceWidget")
 
-        # Create chart and chart view
         self.chart = QChart()
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
@@ -68,7 +67,6 @@ class TotalAbundanceWidget(QWidget):
         self.chart_view.setFrameShape(QFrame.NoFrame)
         self.chart_view.setStyleSheet("background: transparent; border: none;")
 
-        # Enable double-click on chart view
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))
@@ -91,14 +89,11 @@ class TotalAbundanceWidget(QWidget):
         self._highlighted: set[str] = set()
         theme.notifier.changed.connect(self._paint_highlight)
 
-        # Responsive height to match isotopologue widget
-        self.setMaximumHeight(SUMMARY_CHART_HEIGHT[1])
+        self.setMaximumHeight(SUMMARY_CHART_MAX_HEIGHT)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self.bar_color = abundance_colour
 
-        # Data storage
-        self._current_eics: Optional[List[EIC]] = None
         self._current_compound: str = ""
         self._current_abundances: Optional[np.ndarray] = None
         self._current_sample_names: Optional[List[str]] = None
@@ -115,65 +110,28 @@ class TotalAbundanceWidget(QWidget):
             self._clear_chart()
             return
 
-        self._current_eics = eics
         self._current_compound = compound_name
 
-        # Order to match graph window layout
-        ordered_eics, ordered_abundances = self._order_like_graph_window(
-            eics, abundances
-        )
-
         # Reverse order so top graph corresponds to top bar
-        ordered_eics = ordered_eics[::-1]
-        ordered_abundances = np.flip(ordered_abundances)  # Flip array
+        ordered_eics = eics[::-1]
+        ordered_abundances = np.flip(abundances)
         
-        # Store current data for popup
         self._current_abundances = ordered_abundances
         self._current_sample_names = [eic.sample_name for eic in ordered_eics]
 
-        # Update chart
         self._update_chart(
             ordered_abundances, self._current_sample_names
         )
 
-    def _order_like_graph_window(
-        self, eics: List[EIC], abundances: np.ndarray
-    ) -> tuple[List[EIC], np.ndarray]:
-        """
-        Order EICs and abundances to match the graph window's grid layout.
-        Same logic as isotopologue widget.
-        """
-        import math
-
-        num = len(eics)
-        if num == 0:
-            return eics, abundances
-
-        # Same grid calculation as graph window
-        cols = math.ceil(math.sqrt(num))
-        math.ceil(num / cols)
-
-        # Graph processes EICs in database order, so no reordering needed
-        return eics, abundances
-
     def _update_chart(self, abundances: np.ndarray, sample_names: List[str]) -> None:
-        """
-        Update the horizontal bar chart with new abundance data.
-
-        Args:
-            abundances: Array of total abundance values
-            sample_names: List of sample names for y-axis labels
-        """
-        # Clear existing data
+        """One horizontal bar per sample, labelled with ``sample_names``."""
         self.chart.removeAllSeries()
 
-        # Create horizontal bar series (not stacked)
         bar_series = QHorizontalBarSeries()
 
         # Make bars same width as isotopologue chart
         bar_series.setBarWidth(0.8)
 
-        # Create single bar set with all abundance values
         bar_set = QBarSet("Total Abundance")
         bar_set.setColor(self.bar_color)
         bar_set.setBorderColor(self.bar_color)
@@ -183,7 +141,6 @@ class TotalAbundanceWidget(QWidget):
         scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
         scale_factor = 10**scale_exp if scale_exp != 0 else 1
 
-        # Add scaled abundance values
         for abundance in abundances:
             scaled_abundance = abundance / scale_factor
             bar_set.append(scaled_abundance)
@@ -191,14 +148,11 @@ class TotalAbundanceWidget(QWidget):
 
         bar_series.append(bar_set)
 
-        # Add series to chart
         self.chart.addSeries(bar_series)
         self.chart_area.set_rows(len(sample_names))
 
-        # Setup axes
         self._setup_axes(sample_names, abundances)
 
-        # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._paint_highlight()
@@ -216,12 +170,6 @@ class TotalAbundanceWidget(QWidget):
         self.chart_area.show_rows(
             self.chart, [i for i, name in enumerate(names) if name in self._highlighted]
         )
-
-    def highlighted_bars(self) -> list[str]:
-        if not self.chart.series():
-            return []
-        bar_set = self.chart.series()[0].barSets()[0]
-        return [self._current_sample_names[i] for i in sorted(bar_set.selectedBars())]
 
     def _paint_highlight(self, *_args) -> None:
         if not self.chart.series() or not self._has_data():
@@ -249,11 +197,9 @@ class TotalAbundanceWidget(QWidget):
 
     def _setup_axes(self, sample_names: List[str], abundances: np.ndarray) -> None:
         """Setup chart axes for horizontal layout."""
-        # Remove existing axes
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
 
-        # X-axis (horizontal): Abundance values with EIC-style scaling
         x_axis = QValueAxis()
         max_abundance = float(np.max(abundances)) if len(abundances) > 0 else 1.0
 
@@ -261,14 +207,9 @@ class TotalAbundanceWidget(QWidget):
         scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
         scale_factor = 10**scale_exp if scale_exp != 0 else 1
 
-        # Scale the range and data
         scaled_max = max_abundance / scale_factor
         x_axis.setRange(0, scaled_max * 1.05)  # Add 5% padding
         set_nice_ticks(x_axis, 0, scaled_max * 1.05, max_ticks=2)
-
-        # Store scale info for later use
-        self._scale_exp = scale_exp
-        self._scale_factor = scale_factor
 
         style_axis(x_axis, grid=True)
         x_axis.setLineVisible(False)
@@ -280,7 +221,6 @@ class TotalAbundanceWidget(QWidget):
         style_axis(y_axis)
         y_axis.setLineVisible(False)
 
-        # Add axes to chart
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
         self.value_axis.set_axis("", value_axis_ticks(x_axis))
@@ -294,8 +234,6 @@ class TotalAbundanceWidget(QWidget):
         self.value_axis.set_axis("", [])
         self.chart_area.set_rows(0)
 
-        # Reset data
-        self._current_eics = None
         self._current_compound = ""
         self._current_abundances = None
         self._current_sample_names = None

@@ -62,6 +62,7 @@ QListWidget {
 }
 QListWidget::item {
     color: @text;
+    min-height: 28px;
     padding: 0px 10px;
     border: none;
     border-radius: 6px;
@@ -147,7 +148,7 @@ def error_label() -> QLabel:
     return label
 
 
-def form_layout(label_width: int = FORM_LABEL_WIDTH) -> QFormLayout:
+def form_layout() -> QFormLayout:
     """Left-aligned label column of fixed width, so stacked forms line up."""
     form = QFormLayout()
     form.setContentsMargins(0, 0, 0, 0)
@@ -157,30 +158,15 @@ def form_layout(label_width: int = FORM_LABEL_WIDTH) -> QFormLayout:
     form.setRowWrapPolicy(QFormLayout.DontWrapRows)
     form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
-    form.setProperty("labelWidth", label_width)
     return form
 
 
 def form_row(form: QFormLayout, text: str, field: QWidget | object) -> QLabel:
     label = QLabel(text)
-    label.setMinimumWidth(int(form.property("labelWidth") or FORM_LABEL_WIDTH))
+    label.setMinimumWidth(FORM_LABEL_WIDTH)
     label.setBuddy(field if isinstance(field, QWidget) else None)
     form.addRow(label, field)
     return label
-
-
-def set_invalid(widget: QWidget, invalid: bool) -> None:
-    if bool(widget.property("invalid")) == invalid:
-        return
-    widget.setProperty("invalid", invalid)
-    widget.style().unpolish(widget)
-    widget.style().polish(widget)
-
-
-def set_variant(button: QPushButton, variant: str) -> None:
-    button.setProperty("variant", variant)
-    button.style().unpolish(button)
-    button.style().polish(button)
 
 
 def button_box(
@@ -190,7 +176,7 @@ def button_box(
     box = QDialogButtonBox()
     primary_button = box.addButton(primary, QDialogButtonBox.AcceptRole)
     primary_button.setDefault(True)
-    set_variant(primary_button, "primary")
+    theme.set_style_property(primary_button, "variant", "primary")
     if secondary is not None:
         box.addButton(secondary, QDialogButtonBox.RejectRole).setAutoDefault(False)
     return box, primary_button

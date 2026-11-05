@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+from itertools import combinations
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from PySide6.QtCore import QPoint, QRect
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+)
 
 from manic.io.compound_reader import read_compound
 from manic.io.compounds_import import (
@@ -263,18 +273,103 @@ def test_blank_optional_numeric_maps_to_none(qapp):
     assert record.int_std_amount is None
 
 
-def test_invalid_ok_keeps_dialog_open_and_flags_the_field(qapp):
+_DUPLICATE_ALANINE = (
+    "A compound named 'Alanine' already exists. "
+    "Soft-deleted compounds also occupy that name; "
+    "recover deleted compounds or choose a different name."
+)
+
+
+def _add_button(dialog: AddCompoundDialog) -> QPushButton:
+    return next(b for b in dialog.findChildren(QPushButton) if b.text() == "Add compound")
+
+
+def _shown_errors(dialog: AddCompoundDialog) -> list[str]:
+    """Every visible inline error line, in form order."""
+    return [
+        line
+        for label in dialog.findChildren(QLabel)
+        if label.property("role") == "error" and label.isVisibleTo(dialog)
+        for line in label.text().splitlines()
+    ]
+
+
+def _flagged(dialog: AddCompoundDialog) -> set[str]:
+    names = (
+        "compound_name",
+        "retention_time",
+        "mass0",
+        "quantifier_mz",
+        "qualifier1_mz",
+        "loffset",
+    )
+    return {
+        name
+        for name in names
+        if hasattr(dialog, name) and getattr(dialog, name).property("invalid") is True
+    }
+
+
+def test_empty_labelled_submit_flags_every_required_field(qapp):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
     dialog.show()
-    dialog._on_ok()
+    _add_button(dialog).click()
     assert dialog.isVisible()
     assert dialog.record is None
-    assert dialog.validation_message.splitlines()[0] == "Enter a compound name."
+    assert _shown_errors(dialog) == [
+        "Enter a compound name.",
+        "Enter tR.",
+        "Enter Mass0.",
+    ]
+    assert _flagged(dialog) == {"compound_name", "retention_time", "mass0"}
     assert dialog.focusWidget() is dialog.compound_name
-    assert dialog.compound_name.property("invalid") is True
-    dialog.compound_name.setText("Alanine")
-    assert "Enter a compound name." not in dialog.validation_message
-    assert dialog.compound_name.property("invalid") is False
+    dialog.close()
+
+
+def test_empty_unlabelled_submit_flags_every_required_field(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
+    dialog.show()
+    _add_button(dialog).click()
+    assert dialog.record is None
+    assert _shown_errors(dialog) == [
+        "Enter a compound name.",
+        "Enter tR.",
+        "Enter the quantifier ion m/z.",
+        "Enter the qualifier ion 1 m/z.",
+    ]
+    assert _flagged(dialog) == {
+        "compound_name",
+        "retention_time",
+        "quantifier_mz",
+        "qualifier1_mz",
+    }
+    dialog.close()
+
+
+def test_editing_one_field_clears_only_its_own_error(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
+    dialog.show()
+    name = dialog.compound_name
+    quantifier = dialog.quantifier_mz.lineEdit()
+    assert name.placeholderText() == "Required, e.g. Pyruvate"
+    _add_button(dialog).click()
+    assert name.placeholderText() == ""
+    assert quantifier.placeholderText() == ""
+
+    QTest.keyClicks(dialog.quantifier_mz, "273")
+    assert _shown_errors(dialog) == [
+        "Enter a compound name.",
+        "Enter tR.",
+        "Enter the qualifier ion 1 m/z.",
+    ]
+    assert _flagged(dialog) == {"compound_name", "retention_time", "qualifier1_mz"}
+    assert name.placeholderText() == ""
+
+    QTest.keyClicks(name, "Pyruvate")
+    assert _shown_errors(dialog) == ["Enter tR.", "Enter the qualifier ion 1 m/z."]
+    assert _flagged(dialog) == {"retention_time", "qualifier1_mz"}
+    assert name.placeholderText() == "Required, e.g. Pyruvate"
+    assert dialog.isVisible()
     dialog.close()
 
 
@@ -284,43 +379,109 @@ def test_required_spin_boxes_ask_for_a_blank_value_and_reject_a_typed_zero(qapp)
     dialog.retention_time.lineEdit().setText("")
     dialog.retention_time.interpretText()
     assert dialog.retention_time.value() == 0.0
-    dialog._on_ok()
+    _add_button(dialog).click()
     assert dialog.record is None
-    assert dialog.validation_message == "Enter tR."
+    assert _shown_errors(dialog) == ["Enter tR."]
     dialog.retention_time.lineEdit().setText("0")
     dialog.retention_time.interpretText()
-    dialog._on_ok()
+    _add_button(dialog).click()
     assert dialog.record is None
-    assert dialog.validation_message == "tR (minutes) must be greater than 0."
-
-
-def test_duplicate_name_keeps_dialog_open(qapp):
-    dialog = AddCompoundDialog(
-        analysis_mode=AnalysisMode.LABELLED, taken_names={"Alanine"}
-    )
-    _fill_labelled(dialog)
-    dialog._on_ok()
-    assert dialog.record is None
-    assert "already exists" in dialog.validation_message
-    assert dialog.compound_name.text() == "Alanine"
-
-
-def test_zero_retention_time_rejected(qapp):
-    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
-    _fill_labelled(dialog)
-    dialog.retention_time.setValue(0.0)
-    dialog._on_ok()
-    assert dialog.record is None
-    assert "tR" in dialog.validation_message
+    assert _shown_errors(dialog) == ["tR (minutes) must be greater than 0."]
 
 
 def test_zero_mass0_rejected(qapp):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
     _fill_labelled(dialog)
     dialog.mass0.setValue(0.0)
-    dialog._on_ok()
+    _add_button(dialog).click()
     assert dialog.record is None
-    assert "Mass0" in dialog.validation_message
+    assert _shown_errors(dialog) == ["Mass0 (m/z) must be greater than 0."]
+
+
+def test_duplicate_name_is_reported_with_missing_fields(qapp):
+    dialog = AddCompoundDialog(
+        analysis_mode=AnalysisMode.LABELLED, taken_names={"Alanine"}
+    )
+    dialog.show()
+    dialog.compound_name.setText("Alanine")
+    _add_button(dialog).click()
+    assert _shown_errors(dialog) == [_DUPLICATE_ALANINE, "Enter tR.", "Enter Mass0."]
+
+    _fill_labelled(dialog)
+    _add_button(dialog).click()
+    assert dialog.isVisible()
+    assert dialog.record is None
+    assert _shown_errors(dialog) == [_DUPLICATE_ALANINE]
+    assert dialog.compound_name.text() == "Alanine"
+    dialog.close()
+
+
+def test_cross_field_ion_error_flags_the_ions_and_clears_on_edit(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
+    dialog.compound_name.setText("Citrate")
+    dialog.retention_time.setValue(12.4)
+    dialog.quantifier_mz.setValue(147.0)
+    dialog.qualifier1_mz.setValue(147.0)
+    _add_button(dialog).click()
+    assert dialog.record is None
+    assert _shown_errors(dialog) == [
+        "Quantifier and qualifier m/z values must be distinct"
+    ]
+    assert {"quantifier_mz", "qualifier1_mz"} <= _flagged(dialog)
+    dialog.quantifier_mz.setValue(273.0)
+    assert _shown_errors(dialog) == []
+    assert _flagged(dialog) == set()
+
+
+def test_offsets_and_counts_start_blank_and_build_as_zero(qapp):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
+    for field in (
+        dialog.loffset,
+        dialog.roffset,
+        dialog.label_atoms,
+        dialog.tbdms,
+        dialog.meox,
+        dialog.me,
+    ):
+        assert field.text() == ""
+        assert field.lineEdit().placeholderText() == "0"
+    dialog.compound_name.setText("Alanine")
+    dialog.retention_time.setValue(3.2)
+    dialog.mass0.setValue(116.0)
+    _add_button(dialog).click()
+    record = dialog.record
+    assert (record.loffset, record.roffset) == (0.0, 0.0)
+    assert (record.label_atoms, record.tbdms, record.meox, record.me) == (0, 0, 0, 0)
+
+
+def _overlapping_fields(form) -> list[tuple[str, str]]:
+    rects: list[tuple[str, QRect]] = []
+    for widget in form.findChildren(QLabel) + form.findChildren(QLineEdit):
+        if not widget.isVisible() or isinstance(widget.parent(), QAbstractSpinBox):
+            continue
+        rects.append((widget.text(), QRect(widget.mapTo(form, QPoint()), widget.size())))
+    for spin in form.findChildren(QAbstractSpinBox):
+        rects.append(("spin box", QRect(spin.mapTo(form, QPoint()), spin.size())))
+    return [(a, b) for (a, ra), (b, rb) in combinations(rects, 2) if ra.intersects(rb)]
+
+
+@pytest.mark.parametrize("mode", list(AnalysisMode))
+def test_form_never_overlaps_and_scrolls_on_a_short_screen(qapp, mode):
+    dialog = AddCompoundDialog(analysis_mode=mode)
+    dialog.show()
+    add = _add_button(dialog)
+    add.click()
+    qapp.processEvents()
+    form = dialog.findChild(QScrollArea).widget()
+    assert _overlapping_fields(form) == []
+
+    dialog.resize(640, 420)
+    qapp.processEvents()
+    assert _overlapping_fields(form) == []
+    assert dialog.findChild(QScrollArea).verticalScrollBar().maximum() > 0
+    assert dialog.rect().contains(QRect(add.mapTo(dialog, QPoint()), add.size()))
+    assert not form.isAncestorOf(add)
+    dialog.close()
 
 
 def test_taken_compound_names_includes_soft_deleted(empty_db):

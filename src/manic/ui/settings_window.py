@@ -40,13 +40,13 @@ from manic.ui.dialog_kit import (
     hint_label,
     resize_to_screen,
     section_label,
-    set_variant,
     sidebar_item_size,
     sidebar_list,
     style_dialog,
     window_title,
     with_help,
 )
+from manic.ui.theme import set_style_property
 from manic.ui.window_placement import show_over_parent
 
 _ALL_MODES = frozenset(AnalysisMode)
@@ -634,7 +634,7 @@ class DeconvolutionPage(SettingsPage):
         self.remove_all_button.setObjectName("removeAllOverridesButton")
         self.remove_all_button.setAutoDefault(False)
         self.remove_all_button.setDefault(False)
-        set_variant(self.remove_all_button, "danger")
+        set_style_property(self.remove_all_button, "variant", "danger")
         self.remove_all_button.clicked.connect(self._stage_remove_all_overrides)
         actions.addWidget(self.remove_all_button)
         layout.addLayout(actions)
@@ -885,7 +885,7 @@ class SettingsWindow(QDialog):
         self.save_button.setObjectName("settingsSaveButton")
         self.save_button.setDefault(True)
         self.save_button.setAutoDefault(True)
-        set_variant(self.save_button, "primary")
+        set_style_property(self.save_button, "variant", "primary")
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(self._save_current)
         buttons = QDialogButtonBox()

@@ -49,7 +49,7 @@ def section_heading(text: str) -> QLabel:
 # A bar row needs this many pixels before the sample axis can name it without
 # QtCharts dropping labels that would touch.
 NAME_ROW_PX = 16
-SUMMARY_CHART_HEIGHT = (200, 330)
+SUMMARY_CHART_MAX_HEIGHT = 330
 # Rows a summary keeps when the sidebar is short; the rest scroll under the pinned axis.
 SUMMARY_SHORT_ROWS = 2
 
@@ -111,8 +111,9 @@ def divider() -> QFrame:
     return line
 
 
-def status_pixmap(state: str, size: int = 14) -> QPixmap:
-    """Done: filled check. Todo/optional/blocked: an empty ring."""
+def status_pixmap(state: str) -> QPixmap:
+    """Done: filled check. Optional/blocked: an empty ring."""
+    size = 14
     ratio = 2.0
     pixmap = QPixmap(int(size * ratio), int(size * ratio))
     pixmap.setDevicePixelRatio(ratio)
@@ -134,8 +135,7 @@ def status_pixmap(state: str, size: int = 14) -> QPixmap:
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(tick)
     else:
-        ring = "accent" if state == "todo" else "border_strong"
-        pen = QPen(color(ring), 1.4)
+        pen = QPen(color("border_strong"), 1.4)
         if state == "optional":
             pen.setDashPattern([2, 2])
         painter.setPen(pen)
@@ -145,11 +145,22 @@ def status_pixmap(state: str, size: int = 14) -> QPixmap:
 
 
 class ElidedLabel(QLabel):
-    """A one-line label that elides instead of widening its parent."""
+    """A one-line label that elides instead of widening its parent.
 
-    def __init__(self, text: str = "", parent=None):
+    ``hover`` is shown as the tooltip only while the text is cut; True shows the full text."""
+
+    def __init__(
+        self,
+        text: str = "",
+        parent=None,
+        *,
+        mode: Qt.TextElideMode = Qt.TextElideMode.ElideRight,
+        hover: str | bool = False,
+    ):
         super().__init__(parent)
         self._full = text
+        self._mode = mode
+        self._hover = hover
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.setText(text)
 
@@ -167,8 +178,11 @@ class ElidedLabel(QLabel):
     def _elide(self) -> None:
         metrics = QFontMetrics(self.font())
         width = max(self.width(), 0)
-        shown = metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, width)
-        super().setText(shown if width else self._full)
+        shown = metrics.elidedText(self._full, self._mode, width) if width else self._full
+        super().setText(shown)
+        if self._hover:
+            hover = self._full if self._hover is True else self._hover
+            self.setToolTip(hover if shown != self._full else "")
 
 
 class StatusRow(QPushButton):
@@ -201,22 +215,11 @@ class StatusRow(QPushButton):
     def _on_theme_changed(self, _remap: dict) -> None:
         self._icon.setPixmap(status_pixmap(self._state))
 
-    def set_compact(self, compact: bool) -> None:
-        """Compact rows drop the title and show only the icon and value."""
-        self._title.setVisible(not compact)
-        self._value.setAlignment(
-            (Qt.AlignmentFlag.AlignLeft if compact else Qt.AlignmentFlag.AlignRight)
-            | Qt.AlignmentFlag.AlignVCenter
-        )
-
     def set_state(self, state: str, value: str) -> None:
         self._state = state
         self._icon.setPixmap(status_pixmap(state))
         self._value.setText(value)
         set_style_property(self._value, "state", state)
-
-    def value_text(self) -> str:
-        return self._value.full_text()
 
 
 class FilterField(QLineEdit):
@@ -269,24 +272,6 @@ class FilterField(QLineEdit):
             self.clear()
             return
         super().keyPressEvent(event)
-
-
-class NoMatchHint(QWidget):
-    """'No matching compounds' with a button that clears the filter."""
-
-    def __init__(self, text: str, field: FilterField, parent=None):
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        label = QLabel(text)
-        label.setProperty("role", "hint")
-        self.clear_button = QPushButton("Clear filter")
-        self.clear_button.setProperty("variant", "ghost")
-        self.clear_button.clicked.connect(field.clear)
-        layout.addWidget(label)
-        layout.addStretch(1)
-        layout.addWidget(self.clear_button)
 
 
 class CollapsibleSection(QWidget):

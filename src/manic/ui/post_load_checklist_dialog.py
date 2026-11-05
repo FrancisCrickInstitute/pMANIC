@@ -31,12 +31,12 @@ from manic.ui.dialog_kit import (
     hint_label,
     resize_to_screen,
     section_label,
-    set_variant,
     status_icon,
     style_dialog,
     title_label,
     window_title,
 )
+from manic.ui.theme import set_style_property
 
 _STATE_ORDER = {"unset": 0, "no_match": 1, "matched": 2}
 
@@ -170,7 +170,7 @@ class PostLoadChecklistDialog(QDialog):
         self.change_pattern_toggle = QPushButton()
         self.change_pattern_toggle.setObjectName("changePatternToggle")
         self.change_pattern_toggle.setCheckable(True)
-        set_variant(self.change_pattern_toggle, "link")
+        set_style_property(self.change_pattern_toggle, "variant", "link")
         self.change_pattern_toggle.setCursor(Qt.PointingHandCursor)
         self.change_pattern_toggle.setAutoDefault(False)
         self.change_pattern_toggle.toggled.connect(self._show_change_pattern_steps)
@@ -214,7 +214,7 @@ class PostLoadChecklistDialog(QDialog):
         self.buttons = QDialogButtonBox()
         self.primary_button = self.buttons.addButton("Continue", QDialogButtonBox.AcceptRole)
         self.primary_button.setDefault(True)
-        set_variant(self.primary_button, "primary")
+        set_style_property(self.primary_button, "variant", "primary")
         self.discard_button = self.buttons.addButton(
             "Continue without changes", QDialogButtonBox.RejectRole
         )
@@ -261,7 +261,7 @@ class PostLoadChecklistDialog(QDialog):
             ):
                 button = QPushButton(text)
                 button.setObjectName(name)
-                set_variant(button, "link")
+                set_style_property(button, "variant", "link")
                 button.setCursor(Qt.PointingHandCursor)
                 button.setAutoDefault(False)
                 button.clicked.connect(

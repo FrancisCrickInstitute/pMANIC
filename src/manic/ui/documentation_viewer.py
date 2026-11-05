@@ -121,25 +121,10 @@ class DocumentationPage(QWebEnginePage):
 
 
 class DocumentationViewer(QDialog):
-    """
-    Dialog for viewing markdown documentation files with perfect GitHub rendering.
-    
-    Features:
-    - Full GitHub Flavored Markdown support (tables, code blocks, task lists, etc.)
-    - MathJax rendering for LaTeX equations ($...$ and $$...$$)
-    - Internal link navigation between .md files
-    - Anchor link support (#section)
-    - External link handling (opens in system browser)
-    - GitHub-identical CSS styling
-    """
+    """The bundled Markdown documentation, with LaTeX, links between pages, and
+    external links opened in the browser."""
 
     def __init__(self, parent=None):
-        """
-        Initialize the documentation viewer dialog.
-        
-        Args:
-            parent: Parent widget (usually MainWindow)
-        """
         super().__init__(parent)
         self.setObjectName("documentationWindow")
         self.setWindowTitle(window_title("Documentation"))

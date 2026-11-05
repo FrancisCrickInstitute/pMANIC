@@ -7,7 +7,7 @@ import numpy as np
 from PySide6.QtCore import QCoreApplication, Qt, QThread, QUrl
 from PySide6.QtGui import (
     QAction,
-    QDesktopServices,  # Add this for opening URLs
+    QDesktopServices,
     QIcon,
     QKeySequence,
 )
@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -24,7 +23,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QProgressDialog,
-    QRadioButton,
     QPushButton,
     QSplitter,
     QStackedWidget,
@@ -1458,10 +1456,6 @@ class MainWindow(QMainWindow):
         self.graph_view.select_sample(sample_name)
 
     def on_compound_selected(self, compound_selected):
-        """
-        This method will be called whenever a different compound is selected in the toolbar.
-        'selected_text' is the text of the selected item (passed from the signal).
-        """
         samples = self.toolbar.get_selected_samples()
         self.update_deconvolution_indicator(compound_selected)
         self.on_plot_button(compound_selected, samples)

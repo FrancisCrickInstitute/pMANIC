@@ -8,13 +8,13 @@ from manic.ui import theme
 from manic.utils.paths import resource_path
 
 
-def svg_icon(svg: str, token: str = "text_secondary", size: int = 20) -> QIcon:
-    """A resource SVG recoloured to a theme token."""
-    pixmap = QIcon(resource_path("resources", svg)).pixmap(QSize(size * 2, size * 2))
+def svg_icon(svg: str) -> QIcon:
+    """A resource SVG recoloured to the secondary text colour."""
+    pixmap = QIcon(resource_path("resources", svg)).pixmap(QSize(40, 40))
     pixmap.setDevicePixelRatio(2)
     painter = QPainter(pixmap)
     painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-    painter.fillRect(pixmap.rect(), theme.color(token))
+    painter.fillRect(pixmap.rect(), theme.color("text_secondary"))
     painter.end()
     return QIcon(pixmap)
 

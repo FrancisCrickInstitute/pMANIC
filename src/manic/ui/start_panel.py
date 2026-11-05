@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -185,30 +184,14 @@ def _recent_row(path: str, enabled: bool, signal) -> QWidget:
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     button.setEnabled(enabled)
     button.clicked.connect(lambda: signal.emit(path))
-    where = _FolderLabel(_home_relative(Path(path).parent), path)
+    # Middle elision keeps the home and the nearest folders.
+    where = ElidedLabel(
+        _home_relative(Path(path).parent), mode=Qt.TextElideMode.ElideMiddle, hover=path
+    )
     where.setProperty("role", "hint")
     layout.addWidget(button)
     layout.addWidget(where, 1)
     return row
-
-
-class _FolderLabel(ElidedLabel):
-    """Elides in the middle, keeping the home and the nearest folders; the full path shows on hover only then."""
-
-    def __init__(self, text: str, path: str):
-        self._path = path
-        super().__init__(text)
-
-    def _elide(self) -> None:
-        width = max(self.width(), 0)
-        full = self.full_text()
-        shown = (
-            QFontMetrics(self.font()).elidedText(full, Qt.TextElideMode.ElideMiddle, width)
-            if width
-            else full
-        )
-        QLabel.setText(self, shown)
-        self.setToolTip(self._path if shown != full else "")
 
 
 def _home_relative(folder: Path) -> str:

@@ -62,7 +62,6 @@ class ChannelChip(QWidget):
         self.setFixedHeight(CHIP_HEIGHT)
 
     def resizeEvent(self, event) -> None:
-        # The full label on hover only when the chip is too narrow to show it.
         self.setToolTip(self.label if self.width() < self._full.width() else "")
         super().resizeEvent(event)
 
@@ -174,7 +173,6 @@ class ChannelChipRow(QWidget):
         super().__init__(parent)
         self._layout = FlowLayout(self)
         self._chips: list[ChannelChip] = []
-        self.trailing = trailing
         if trailing is not None:
             self._layout.addWidget(trailing)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)

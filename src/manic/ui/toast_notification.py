@@ -35,9 +35,6 @@ class ToastNotification(QWidget):
         if timeout_ms > 0:
             QTimer.singleShot(timeout_ms, self.close)
 
-    def set_message(self, message: str) -> None:
-        self._label.setText(message)
-
 
 class _KeepCentred(QObject):
     def __init__(self, toast: ToastNotification, bar: QStatusBar):

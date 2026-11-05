@@ -75,7 +75,7 @@ class TestAbundanceCalculations:
 
     def test_internal_standard_uses_amount_in_std_mix(self):
         """
-        Test for Issue #55: Internal standard should use amount_in_std_mix, not int_std_amount.
+        Internal standard should use amount_in_std_mix, not int_std_amount.
 
         Bug: When the internal standard compound (e.g., scyllo-Ins) has:
           - int_std_amount = 1.0 (normalization factor for other metabolites)

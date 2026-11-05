@@ -158,7 +158,8 @@ class PlotTile(QWidget):
         self._text_size = tile_text_size(*MIN_TILE)
         self.setAttribute(Qt.WA_Hover)
 
-        self.caption = ElidedLabel(hover=True)
+        # Cut in the middle: sample names differ in their suffix, as in the Summary.
+        self.caption = ElidedLabel(mode=Qt.TextElideMode.ElideMiddle, hover=True)
         self.caption.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.caption.setMinimumWidth(24)
 

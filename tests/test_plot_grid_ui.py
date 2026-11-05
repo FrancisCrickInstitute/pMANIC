@@ -206,6 +206,18 @@ def test_grid_header_names_the_compound_with_tr_and_count(grid, rts):
     assert grid.selection_summary.text() == ""
 
 
+def test_a_long_compound_name_is_cut_in_the_middle_and_keeps_the_tr_in_view(grid, qapp, rts):
+    name = "2-Hydroxyglutarate-di-tert-butyldimethylsilyl-derivative (Pyruvate)"
+    grid.plot_compound(name, ["S1", "S2"])
+    grid.resize(560, 400)
+    grid.show()
+    qapp.processEvents()
+    title = grid.compound_title.text()
+    assert "…" in title and title.startswith("2-Hydroxy") and title.endswith("(Pyruvate)")
+    assert grid.compound_title.toolTip() == name
+    assert grid.selection_summary.text() == "tR 7.09"
+
+
 def test_chip_row_wraps_before_truncating_a_chip(qapp):
     host = QWidget()
     layout = QVBoxLayout(host)

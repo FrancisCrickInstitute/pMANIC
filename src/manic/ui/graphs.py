@@ -46,6 +46,7 @@ from manic.validation.unlabelled_identity import (
 
 from .channel_chips import CHIP_HEIGHT, ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
+from .chart_header import HeaderName
 from .chart_style import set_nice_ticks, style_axis, style_chart, text_style, ui_font
 from .icon_button import icon_button, segmented
 from .identity_chart import qualifier_gap_note
@@ -226,7 +227,7 @@ class GraphView(QWidget):
             button.setCheckable(True)
         self._header_button(self.sidebar_button)
         header.addWidget(self.sidebar_button)
-        self.compound_title = QLabel()
+        self.compound_title = HeaderName(min_chars=10)
         theme.style(self.compound_title, text_style("text", FONT_SIZE_TITLE, 600))
         self.compound_title.hide()
         header.addWidget(self.compound_title)
@@ -393,6 +394,10 @@ class GraphView(QWidget):
         selected = len(self._selected_plots)
         count = f"{selected} of {total} selected" if total and selected else ""
         self.selection_summary.setText(" · ".join(p for p in (self._tr_text, count) if p))
+        # A long compound name elides before it hides the tR.
+        self.selection_summary.setMinimumWidth(
+            self.selection_summary.fontMetrics().horizontalAdvance(self._tr_text)
+        )
 
     def eventFilter(self, obj, event):
         """

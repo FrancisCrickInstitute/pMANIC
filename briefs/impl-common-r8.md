@@ -29,7 +29,7 @@ Your brief names your files and findings.
   own, say so in your report with the exact hook; do not edit it.
 
 ## Running the app (macOS, real display)
-- Tests: `uv run python -m pytest -q -p no:cacheprovider` (686 pass at start, about a minute).
+- Tests: `uv run python -m pytest -q -p no:cacheprovider` (note the count at your base; about a minute).
 - Tour: `uv run python scripts/ui_tour.py /Users/couttsj/Documents/_code/uiux-scratch/r8-<group>/<name> --scheme light|dark`
   must print `errors: 0`. `QT_SCALE_FACTOR=1.5` with `--size 1280x800` is the
   small-laptop check (the screen becomes 1008x633 logical).

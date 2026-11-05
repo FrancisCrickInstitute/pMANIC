@@ -12,7 +12,8 @@ Instead of requiring you to manually inspect every chromatogram for noise, the s
 A peak is considered **Invalid/Weak** (and flagged **Below threshold**) if its total integrated area is too small compared to the Internal Standard in that same sample.  
 
 > **⚠️ Requirement: Internal Standard**
-> Automated validation requires an Internal Standard to be selected. If no standard is selected, all peaks are treated as "Valid" (white) by default.
+>
+> Automated validation requires an Internal Standard to be selected. If no standard is selected, no peak gets a **Below threshold** badge.
 
 ### Formula
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
@@ -38,14 +39,17 @@ $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 The validation status is communicated in two places:
 
 ### 1. In the Application (Step 4)
-When reviewing integration, look at the badge in the top-right corner of each mini-plot:
+When reviewing integration, look under each plot's sample name:
+
 * **No badge:** The peak is healthy.
 * **Below threshold** (amber badge, amber tile): The peak is weak. Right-click the plot, or open the **Review** menu, and choose **Accept Peak (Below Threshold)** or **Mark Peak as Bad** to record a decision. The badge then reads **Accepted** (green) or **Marked bad** (red).
 
 ### 2. In the Exported Excel File (Step 5)
-In the final results workbook (specifically the **Abundances** sheet):
-* **Normal Cells:** Valid data.
-* **Red Cells:** The value was calculated, but the underlying peak failed validation. Treat these quantitative results with caution. This highlighting is disabled if no internal standard was used for the export.
+Every sheet of the results workbook fills a peak's cells by its status:
+
+* **No fill:** Valid data.
+* **Light red:** The value was calculated, but the underlying peak failed validation. Treat these quantitative results with caution. Without an internal standard no peak fails, so no cell is light red.
+* **Light purple** or **tan:** You accepted the peak or marked it as bad.
 
 ---
 
@@ -55,12 +59,12 @@ You can adjust the strictness of this check in the settings.
 
 **Settings → General**, **Peak validation** section, **Minimum area ratio**
 
-Optionally, if your internal standard is labelled, you can choose which isotopologue peak is used as the reference peak:
-
-**Settings → General**, **Internal standard** section, **Reference peak**
-
 * **Default:** `0.005` (0.5%)
 * **Range:** `0` to `1.0`. `0` turns the check off.
 * **Usage:**
     * Increase this value (e.g., to `0.05`) to be stricter and flag more peaks.
     * Decrease this value (e.g., to `0.001`) to accept weaker signals.
+
+If your internal standard is labelled, you can choose which isotopologue peak is the reference peak:
+
+**Settings → General**, **Internal standard** section, **Reference peak**

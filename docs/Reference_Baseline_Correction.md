@@ -41,6 +41,7 @@ If the baseline subtraction results in a negative area (which can occur when the
 ## Visual Representation
 
 When baseline correction is enabled, MANIC displays the fitted baseline as a **dashed line** on both:
+
 - The main chromatogram grid plots
 - The detailed EIC view (right-click a plot → **Inspect *sample*...**)
 
@@ -92,6 +93,7 @@ This ensures consistent quantification throughout the entire analysis pipeline.
 ### Compatibility with Integration Methods
 
 Baseline correction works with both integration methods:
+
 - **Time-Based Integration (Default):** Baseline area calculated using actual time units.
 - **Legacy Integration:** Baseline area calculated using unit-spacing.
 

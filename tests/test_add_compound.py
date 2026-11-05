@@ -9,6 +9,7 @@ from PySide6.QtCore import QPoint, QRect
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
+    QFrame,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -498,6 +499,12 @@ def test_form_never_overlaps_and_scrolls_on_a_short_screen(qapp, mode):
     assert dialog.findChild(QScrollArea).verticalScrollBar().maximum() > 0
     assert dialog.rect().contains(QRect(add.mapTo(dialog, QPoint()), add.size()))
     assert not form.isAncestorOf(add)
+    # A rule over the buttons marks the cut while fields run on below it.
+    edge = dialog.findChild(QFrame, "addCompoundScrollEdge")
+    assert edge.isVisible()
+    bar = dialog.findChild(QScrollArea).verticalScrollBar()
+    bar.setValue(bar.maximum())
+    assert not edge.isVisible()
     dialog.close()
 
 

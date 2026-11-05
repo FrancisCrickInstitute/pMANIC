@@ -16,6 +16,7 @@ MANIC models the relationship between the **Measured Raw Signal ($b$)** and the 
 $$A \cdot x = b$$
 
 Where:
+
 * **$b$ (Vector):** The raw intensities measured by the instrument at M+0, M+1, M+2, etc.
 * **$x$ (Vector):** The unknown "true" amounts of unlabelled (M+0), 1-labelled (M+1), etc.
 * **$A$ (Matrix):** The **Correction Matrix**. Each column $j$ represents the theoretical isotopic distribution of a compound with exactly $j$ labels.
@@ -28,6 +29,7 @@ $$x = A^{-1} \cdot b$$
 This is a single solve of $A x = b$. There is no later scaling by the diagonal of $A$.
 
 > **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by less than half a percentage point.**
+>
 > Versions up to 4.x performed the solve and then divided each isotopologue by
 > the matching diagonal element of $A$, an extra step inherited from the legacy
 > MATLAB flow. That step has no basis in $A x = b$ and inflated every channel by
@@ -57,9 +59,11 @@ MANIC treats the tracer as 99% isotopically pure. One percent of labelled positi
 
 ### Why this matters
 Unlike simpler "subtraction" methods, this approach correctly handles **overlapping distributions**. For example, the M+2 bin contains signal from:
+
 1.  True 2-labelled compound.
 2.  Natural isotope tail of the 1-labelled compound.
 3.  Natural isotope tail of the unlabelled compound.
+
 The matrix solver disentangles all these contributions simultaneously.
 
 ---
@@ -70,6 +74,7 @@ The matrix $A$ is built dynamically for each compound based on its **Molecular F
 
 ### Inputs
 The algorithm requires the following metadata from your Compound List:
+
 1.  **Formula:** (e.g., `C6H12O6`)
 2.  **Derivatization Counts:** (TBDMS, MeOX, Me)
 3.  **Label Element:** (e.g., `C`)
@@ -79,7 +84,9 @@ The algorithm requires the following metadata from your Compound List:
 Before building the matrix, MANIC adjusts the molecular formula to include the atoms added by chemical derivatization.   
 
 > **⚠️ Critical Assumption for TBDMS**
+>
 > For TBDMS derivatization, MANIC assumes the standard **[M-57]+ fragment** (loss of the t-butyl group) for the first derivatization group, but assumes any **additional** groups remain intact.
+>
 > * **First Group:** Loss of reactive hydrogen (-1 H), addition of TBDMS (+15 H), and loss of t-butyl fragment (-9 H).
 > * **Additional Groups:** Standard replacement of Hydrogen with TBDMS.
 
@@ -115,6 +122,7 @@ The values in the **Corrected Values** sheet represent the **Calculated Abundanc
 
 ### Example: Unlabeled Compound
 If you analyze a purely unlabeled standard:
+
 * **Raw Signal ($b$):** You see 100 counts at M+0.
 * **Natural Physics:** We know M+0 is only ~92% of the total pool for this molecule (due to natural ¹³C).
 * **Corrected Value ($x$):** MANIC calculates the "True Unlabeled Amount" as $100 / 0.92 \approx 109$.
@@ -132,6 +140,7 @@ In addition to the theoretical matrix correction described above, MANIC applies 
 
 ### Why is this needed?
 Even after theoretical correction, unlabelled MM files (standard mixture) often show a small residual amount of labelled signal due to:
+
 * Impurities in the standard.
 * Imperfections in the theoretical natural abundance constants.
 * Instrument noise or baseline integration errors.

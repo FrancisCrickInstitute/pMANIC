@@ -92,8 +92,10 @@ Choose the internal standard itself from the sidebar **Internal standard** row. 
 
 ### Dynamic Amount Switching
 MANIC is "context-aware" regarding the Internal Standard amount:
+
 1.  **For Biological Samples:** It uses `int_std_amount`.
 2.  **For Standard Mixture (MM) Files:** It uses `amount_in_std_mix`.
+
 This ensures that if you verify your standard files in the "Abundances" sheet, they are quantified correctly using their own specific concentration, even if it differs from the biological samples.
 
 

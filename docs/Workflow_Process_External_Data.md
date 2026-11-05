@@ -9,6 +9,7 @@ It reads a **Raw Values** workbook, pairs it with a compound list, and writes fi
 
 ## When to use this
 Use this workflow **only** if:
+
 1.  You have a correctly formatted compound list and an excel file with a sheet comparable to the "Raw Values" output from MANIC.
 2.  You want to apply the MRRF calibration or Correction calculations.
 3.  **You do not have the original .CDF files.** If you do have the CDFs, use **File → Load Raw Data (CDF)** instead. That path is more accurate.
@@ -25,6 +26,7 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 | **2. Integrate** ("Clean" peak area) | **2. Correct Totals** (Apply matrix algebra to the single sum) |
 
 > **Impact:**
+>
 > * For clean, high-intensity peaks, the results are nearly identical (< 0.1% difference).
 > * For messy or low-intensity peaks, this method is slightly less accurate because it cannot distinguish between baseline noise and true signal overlap.
 
@@ -46,6 +48,7 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 
 ### Result
 MANIC writes five sheets.
+
 * **Raw Values:** Copied from your input workbook.
 * **Corrected Values:** Recalculated using Approximate Mode.
 * **Isotope Ratio:** Normalized corrected values that sum to 1.0.

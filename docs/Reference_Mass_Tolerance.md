@@ -43,7 +43,7 @@ For a detected mass $m$ and a tolerance offset $\tau$:
 
 ## Configuration
 
-**Settings → Mass Tolerance**   
+**Settings → General**, **Extraction** section, **Mass tolerance (Da)**   
 
 * **Default:** `0.20 Da`
 * **Range:** `0.01` to `1.00` Da

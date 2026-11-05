@@ -252,6 +252,7 @@ class ChartPopupDialog(QDialog):
         identity: IdentityAssessmentSet | None = None,
         compound_name: str = "",
         highlighted=(),
+        quantity: str = "",
     ):
         super().__init__(parent)
         self.chart_type = chart_type
@@ -259,6 +260,8 @@ class ChartPopupDialog(QDialog):
         self.sample_names = sample_names
         self.hover_notes = hover_notes
         self._identity = identity
+        # What the abundance bars measure, such as "Q-ion peak area".
+        self._quantity = quantity
         # The grid's selected samples, filled in the accent as in the sidebar.
         self._highlighted = set(highlighted)
 
@@ -669,8 +672,11 @@ class ChartPopupDialog(QDialog):
 
         self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
-        # The subtitle names the metric; the axis carries only its multiplier.
-        self._pin_value_axis(x_axis, scale_text(scale_exp))
+        scale = scale_text(scale_exp)
+        title = scale
+        if self._quantity:
+            title = f"{self._quantity} ({scale})" if scale else self._quantity
+        self._pin_value_axis(x_axis, title)
 
         self._hover_categories = list(self.sample_names)
 

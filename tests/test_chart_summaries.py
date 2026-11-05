@@ -159,8 +159,13 @@ def test_abundance_marks_the_selected_samples_and_ticks_on_round_numbers(qapp, v
 
 
 def test_the_enlarged_abundance_chart_keeps_the_grid_selection(qapp, monkeypatch):
+    from manic.io.compounds_import import CompoundRow, insert_compound
     from manic.ui.chart_popup_dialog import ChartPopupDialog
 
+    insert_compound(CompoundRow(
+        compound_name="Alanine", retention_time=6.1, mass0=116.0, loffset=0.1, roffset=0.1,
+        label_atoms=2, formula="C3H7NO2", label_type="C", tbdms=1, meox=0, me=0,
+    ))
     opened = []
     monkeypatch.setattr(ChartPopupDialog, "exec", lambda dialog: opened.append(dialog))
     widget = _shown(_abundance(["S1", "S2", "S3"]))

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
@@ -12,8 +14,16 @@ from PySide6.QtWidgets import (
     QToolTip,
 )
 
+from manic.io.compounds_import import (
+    CompoundRow,
+    UnlabelledCompoundRecord,
+    insert_compound,
+    insert_unlabelled_compound,
+)
+from manic.models.analysis import IonChannel, IonRole
 from manic.ui import theme
 from manic.ui.chart_popup_dialog import ChartPopupDialog
+from manic.ui.total_abundance_widget import TotalAbundanceWidget
 
 # The sidebar charts hand popups their samples bottom to top.
 SIDEBAR_ORDER = ["Std_MM_02", "Bio_002", "Bio_001"]
@@ -286,3 +296,27 @@ def test_ratio_rows_with_no_ratio_show_a_dash_and_say_why(qapp, monkeypatch):
         np.testing.assert_array_equal(data, original)
     finally:
         dialog.deleteLater()
+
+
+def test_the_abundance_popup_names_the_peak_area_it_plots(qapp, monkeypatch):
+    insert_compound(CompoundRow(
+        compound_name="Pyruvate", retention_time=6.37, mass0=174.0, loffset=0.1, roffset=0.15,
+        label_atoms=3, formula="C3H4O3", label_type="C", tbdms=1, meox=0, me=0,
+    ))
+    insert_unlabelled_compound(UnlabelledCompoundRecord(
+        compound_name="Citrate 4TMS", retention_time=12.4, loffset=0.15, roffset=0.2,
+        rt_window=0.25, amount_in_std_mix=None, int_std_amount=None, mm_files=None, channels=(
+            IonChannel(mz=273.0, role=IonRole.QUANTIFIER, ordinal=0),
+            IonChannel(mz=147.0, role=IonRole.QUALIFIER, ordinal=1),
+        ),
+    ))
+    titles = []
+    monkeypatch.setattr(ChartPopupDialog, "exec", lambda dialog: titles.append(dialog.pinned_axis.title()))
+    widget = TotalAbundanceWidget()
+    eics = [SimpleNamespace(sample_name=name) for name in ("A", "B")]
+    for compound in ("Pyruvate", "Citrate 4TMS"):
+        widget.update_abundance_from_data(compound, eics, np.array([9100.0, 11300.0]))
+        widget._show_popup_chart()
+    assert titles == ["Peak area, sum of isotopologues (×10⁴)", "Q-ion peak area (×10⁴)"]
+    widget.deleteLater()
+

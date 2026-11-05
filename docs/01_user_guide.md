@@ -392,6 +392,8 @@ On Windows, **Settings...** is in the **File** menu, and **Documentation**, **Ch
 
 Settings has a **General** page and a **Deconvolution** page; unlabelled mode adds **Qualifier Ratios**. On **General**, the **Internal standard** and **Natural abundance** sections are labelled-only. **Save** writes the page's changed values and **Revert** discards them. A dot in the page list marks a page with unsaved changes.
 
+**Appearance** at the top of **General** sets the **Theme**: **System** (default) follows the OS light or dark mode, **Light** and **Dark** override it. It applies as soon as you choose it, without Save, and MANIC remembers it.
+
 ### Mass Tolerance
 **Settings → General**, **Extraction** section, **Mass tolerance (Da)**
 

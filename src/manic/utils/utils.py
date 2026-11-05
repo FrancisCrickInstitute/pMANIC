@@ -1,5 +1,5 @@
 from PySide6.QtCharts import QChartView
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication
 
@@ -23,12 +23,44 @@ def apply_app_stylesheet(app: QApplication) -> None:
     font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
     font.setPixelSize(FONT_SIZE)
     app.setFont(font)
-    apply_color_scheme(app, app.styleHints().colorScheme() == Qt.ColorScheme.Dark)
+    hints = app.styleHints()
+    # Before the first window exists, so nothing paints in the wrong scheme.
+    hints.setColorScheme(APPEARANCES[appearance()])
+    apply_color_scheme(app, _wants_dark(hints.colorScheme()))
     if not app.property("manicFollowsColorScheme"):
         app.setProperty("manicFollowsColorScheme", True)
-        app.styleHints().colorSchemeChanged.connect(
-            lambda scheme: apply_color_scheme(app, scheme == Qt.ColorScheme.Dark)
+        hints.colorSchemeChanged.connect(
+            lambda scheme: apply_color_scheme(app, _wants_dark(scheme))
         )
+
+
+APPEARANCE_SETTING = "appearance"
+# System clears the app's override, so the OS scheme and its live switch show through.
+APPEARANCES = {
+    "system": Qt.ColorScheme.Unknown,
+    "light": Qt.ColorScheme.Light,
+    "dark": Qt.ColorScheme.Dark,
+}
+
+
+def appearance() -> str:
+    saved = str(QSettings().value(APPEARANCE_SETTING, "system"))
+    return saved if saved in APPEARANCES else "system"
+
+
+def set_appearance(app: QApplication, name: str) -> None:
+    QSettings().setValue(APPEARANCE_SETTING, name)
+    hints = app.styleHints()
+    hints.setColorScheme(APPEARANCES[name])
+    dark = _wants_dark(hints.colorScheme())
+    # Where the platform has no app-level override (offscreen) no change is emitted.
+    if theme.is_dark() != dark:
+        apply_color_scheme(app, dark)
+
+
+def _wants_dark(os_scheme: Qt.ColorScheme) -> bool:
+    forced = APPEARANCES[appearance()]
+    return (os_scheme if forced == Qt.ColorScheme.Unknown else forced) == Qt.ColorScheme.Dark
 
 
 def apply_color_scheme(app: QApplication, dark: bool) -> None:

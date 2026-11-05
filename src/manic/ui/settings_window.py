@@ -968,8 +968,7 @@ class SettingsWindow(QDialog):
         self.layout().activate()
         page = self._current_page()
         width = self._scroll.viewport().width()
-        content = page.heightForWidth(width) if page.hasHeightForWidth() else -1
-        content = max(content, page.sizeHint().height())
+        content = max(page.heightForWidth(width), page.sizeHint().height())
         chrome = self.height() - self._scroll.height()
         need = max(self.minimumHeight(), chrome + content)
         if need > self.height() or not grow_only:
@@ -1040,8 +1039,8 @@ class SettingsWindow(QDialog):
     def refresh(self) -> None:
         for page in self._pages:
             page.refresh()
-        self._fit_to_page(grow_only=True)
         self._update_footer()
+        self._fit_to_page(grow_only=True)
 
     def open(self) -> None:
         self.refresh()

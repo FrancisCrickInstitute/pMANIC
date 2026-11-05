@@ -2,6 +2,7 @@ from unittest import mock
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDoubleSpinBox, QScrollArea
 
@@ -10,10 +11,12 @@ from manic.models import database
 from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.models.sample_fit_type import get_sample_fit_types, set_sample_fit_type
 import manic.ui.main_window as main_window_module
+from manic.ui import theme
 from manic.ui.dialog_kit import MARKED_ROLE
 from manic.ui.main_window import MainWindow
 from manic.ui.standard_chooser import StandardChooser
 from manic.ui.settings_window import (
+    AppearanceSection,
     DeconvolutionPage,
     IntegrationSection,
     InternalStandardSection,
@@ -22,6 +25,8 @@ from manic.ui.settings_window import (
     PeakValidationSection,
     QualifierRatioPage,
 )
+
+from manic.utils.utils import apply_app_stylesheet, apply_color_scheme, set_appearance
 
 from conftest import _make_window
 
@@ -271,6 +276,61 @@ def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
     settings.reset_button.click()
     assert not settings.isWindowModified()
     assert not settings.pending_label.isVisible()
+
+
+@pytest.fixture
+def restore_system_appearance(qapp):
+    yield
+    set_appearance(qapp, "system")
+    apply_color_scheme(qapp, False)
+    qapp.setStyleSheet("")
+
+
+def _window_colour(qapp) -> str:
+    return qapp.palette().color(QPalette.Window).name()
+
+
+def test_appearance_switches_at_once_and_is_never_unsaved(
+    qapp, labelled_window, monkeypatch, restore_system_appearance
+):
+    apply_app_stylesheet(qapp)
+    labelled_window.open_settings_window()
+    settings = labelled_window.settings_window
+    combo = settings.findChild(AppearanceSection).combo
+    assert combo.currentText() == "System"
+
+    combo.setCurrentIndex(combo.findText("Dark"))
+    assert theme.is_dark()
+    assert _window_colour(qapp) == theme.DARK["bg"].lower()
+    assert not settings.save_button.isEnabled()
+
+    # Revert undoes the page's unsaved edits, not the scheme the user just chose.
+    settings.findChild(MassToleranceSection).spin.setValue(0.5)
+    settings.reset_button.click()
+    assert theme.is_dark()
+    assert combo.currentText() == "Dark"
+
+    # A restart reapplies it before the first window, and Settings shows it.
+    apply_color_scheme(qapp, False)
+    apply_app_stylesheet(qapp)
+    assert theme.is_dark()
+    second = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    second.open_settings_window()
+    assert second.settings_window.findChild(AppearanceSection).combo.currentText() == "Dark"
+    second.settings_window.close()
+    second.close()
+
+    # A forced scheme ignores the OS; System follows it again.
+    os_scheme = qapp.styleHints().colorSchemeChanged
+    combo.setCurrentIndex(combo.findText("Light"))
+    os_scheme.emit(Qt.ColorScheme.Dark)
+    assert not theme.is_dark()
+    combo.setCurrentIndex(combo.findText("System"))
+    os_scheme.emit(Qt.ColorScheme.Dark)
+    assert theme.is_dark()
+    os_scheme.emit(Qt.ColorScheme.Light)
+    assert not theme.is_dark()
+    assert _window_colour(qapp) == theme.LIGHT["bg"].lower()
 
 
 def test_legacy_radio_save_enables_legacy_integration(labelled_window):

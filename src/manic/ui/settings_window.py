@@ -4,6 +4,7 @@ from PySide6.QtCore import QItemSelectionModel, Qt, QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -49,6 +50,7 @@ from manic.ui.dialog_kit import (
 )
 from manic.ui.theme import set_style_property
 from manic.ui.window_placement import show_over_parent
+from manic.utils.utils import appearance, set_appearance
 
 _ALL_MODES = frozenset(AnalysisMode)
 # A short number reads better in a narrow field than stretched across the page.
@@ -139,6 +141,35 @@ class SettingsPage(QWidget):
         if self._dirty:
             self._dirty = False
             self.dirty_changed.emit(False)
+
+
+class AppearanceSection(SettingsPage):
+    """Applies on choice, like the OS setting it overrides, so it is never unsaved."""
+
+    title = "Appearance"
+
+    def __init__(self, host, parent: QWidget | None = None) -> None:
+        super().__init__(host, parent)
+        form = form_layout()
+        self.setLayout(form)
+        self.combo = ComboBox()
+        self.combo.setObjectName("appearanceCombo")
+        self.combo.setFixedWidth(_NUMBER_FIELD_WIDTH)
+        self.combo.currentIndexChanged.connect(
+            lambda: set_appearance(QApplication.instance(), self.combo.currentData())
+        )
+        form_row(form, "Theme", self.combo)
+
+    def load(self) -> None:
+        with QSignalBlocker(self.combo):
+            _fill_combo(
+                self.combo,
+                [("System", "system"), ("Light", "light"), ("Dark", "dark")],
+                appearance(),
+            )
+
+    def save(self) -> None:
+        pass
 
 
 class MassToleranceSection(SettingsPage):
@@ -779,6 +810,7 @@ class DeconvolutionPage(SettingsPage):
 _LABELLED = frozenset({AnalysisMode.LABELLED})
 
 GENERAL_SECTIONS: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] = (
+    (AppearanceSection, _ALL_MODES),
     (MassToleranceSection, _ALL_MODES),
     (IntegrationSection, _ALL_MODES),
     (InternalStandardSection, _LABELLED),

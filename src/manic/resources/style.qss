@@ -836,7 +836,7 @@ QLabel#statusValue[state="blocked"] {
 }
 
 /* A chosen standard export cannot calibrate with. */
-QLabel#standardNote {
+QLabel#statusValue[state="warning"] {
     color: @warning;
 }
 

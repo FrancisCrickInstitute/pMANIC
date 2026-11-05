@@ -587,11 +587,26 @@ def tour_steps(tour: Tour) -> None:
             return original_close(self)
 
         StandardChooser.close = traced_close
+        QApplication.instance().removeEventFilter(spy)
+        # Control: a stock QComboBox popup on the same window, opened the same way.
+        from PySide6.QtWidgets import QComboBox
+
+        combo = QComboBox(tour.window.toolbar)
+        combo.addItems(["one", "two", "three"])
+        combo.show()
+        tour.window.raise_()
+        tour.window.activateWindow()
+        tour.pump(0.2)
+        combo.showPopup()
+        tour.pump(0.3)
+        print(f"  CHOOSER-DIAG control QComboBox popup visible after 0.3 s: "
+              f"{combo.view().isVisible()}", flush=True)
+        combo.hidePopup()
+        combo.deleteLater()
         try:
             grab_popup(tour, tour.window.toolbar.show_internal_standard_menu)
         finally:
             StandardChooser.close = original_close
-            QApplication.instance().removeEventFilter(spy)
 
     tour.run("internal_standard_menu", chooser_diagnostics, grab_main=False)
     tour.run(

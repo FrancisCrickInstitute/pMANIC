@@ -91,6 +91,8 @@ class IsotopologueRatioWidget(QWidget):
         self.key.setTextFormat(Qt.RichText)
         self.key.setContentsMargins(8, 2, 8, 0)
         theme.style(self.key, "color: @text_secondary; font-size: 11px;")
+        # Never taller than its wrapped lines, so spare height falls below the chart.
+        self.key.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.key.hide()
         theme.notifier.changed.connect(self._refresh_key)
 

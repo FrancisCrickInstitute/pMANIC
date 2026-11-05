@@ -13,8 +13,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from manic.models.analysis import AnalysisMode
 from manic.ui import theme
 from manic.ui.isotopologue_ratio_widget import IsotopologueRatioWidget
+from manic.ui.summary_panel import SummaryPanel
 from manic.ui.total_abundance_widget import TotalAbundanceWidget
 
 NAMES = [f"Bio_{i:03d}" for i in range(30)]
@@ -198,6 +200,21 @@ def test_thirty_samples_are_named_on_readable_rows_that_scroll(qapp, make, count
         assert (widget.chart_area.verticalScrollBar().maximum() > 0) is scrolls
     finally:
         widget.deleteLater()
+
+
+def test_a_short_cohort_keeps_each_summary_together_with_the_room_below(qapp):
+    panel = SummaryPanel(AnalysisMode.LABELLED)
+    ratios, abundance = panel.isotopologue_ratios, panel.total_abundance
+    ratios.update_ratios("Alanine", _eics(NAMES[:2]))
+    abundance.update_abundance_from_data("Alanine", _eics(NAMES[:2]), np.array([1e6, 2e6]))
+    try:
+        _shown(panel, 1300)
+        assert ratios.key.isVisible()
+        # Heading, key, axis and rows touch; the spare height sits under both charts.
+        assert ratios.value_axis.y() - ratios.key.geometry().bottom() <= 2
+        assert abundance.geometry().bottom() < panel.height() / 2
+    finally:
+        panel.deleteLater()
 
 
 @pytest.mark.parametrize("make", [_abundance, _ratios])

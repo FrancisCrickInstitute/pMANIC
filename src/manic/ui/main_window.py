@@ -2688,8 +2688,8 @@ class MainWindow(QMainWindow):
         confirm = self._create_message_box(
             "question",
             "Clear Session",
-            "This will clear all loaded data and reset the application.",
-            "All compound data, raw data, and session settings will be removed. This cannot be undone.",
+            "Clear the compound list, raw data, peak window edits and peak reviews?",
+            "This cannot be undone.",
         )
         clear_button = confirm.button(QMessageBox.Yes)
         clear_button.setText("Clear Session")
@@ -2795,13 +2795,7 @@ class MainWindow(QMainWindow):
                 # Close progress dialog
                 progress.close()
 
-                # Show success message
-                msg_box = self._create_message_box(
-                    "information",
-                    "Session Cleared",
-                    "All data has been cleared. You can now load new data.",
-                )
-                msg_box.exec()
+                show_status_toast(self.statusBar(), "Session cleared")
 
                 logger.info("Session cleared successfully")
 

@@ -924,7 +924,8 @@ QDialog#settingsWindow QStackedWidget > QWidget {
 }
 
 /* The Peak window's folded rows, opened beside the sidebar. A popup window is opaque, so square. */
-QFrame#lowerPopover {
+QFrame#lowerPopover,
+QFrame#standardChooser {
     background-color: @surface;
     border: 1px solid @border_strong;
 }

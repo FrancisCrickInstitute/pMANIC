@@ -5,15 +5,14 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QFrame,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QVBoxLayout,
     QWidget,
-    QWidgetAction,
 )
 
 from manic.ui import theme
@@ -38,7 +37,7 @@ def _check_icon() -> QIcon:
     return QIcon(path.as_posix())
 
 
-class StandardChooser(QMenu):
+class StandardChooser(QFrame):
     """Type to filter, arrows to move, Return or a click to choose, Esc to cancel.
 
     Compounds with an amount come first; one heading marks the rest. ``chosen`` carries
@@ -49,10 +48,11 @@ class StandardChooser(QMenu):
     def __init__(
         self, names: list[str], current: str | None, lacking: set[str], parent: QWidget
     ):
-        super().__init__(parent)
+        # A plain popup, not a QMenu: Windows closes a menu whose text field takes focus.
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setObjectName("standardChooser")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        body = QWidget()
-        layout = QVBoxLayout(body)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
         self.list = QListWidget()
@@ -96,9 +96,20 @@ class StandardChooser(QMenu):
         self.list.itemClicked.connect(self._choose)
         self.list.itemActivated.connect(self._choose)
 
-        action = QWidgetAction(self)
-        action.setDefaultWidget(body)
-        self.addAction(action)
+    def popup(self, pos: QPoint) -> None:
+        self.adjustSize()
+        screen = QGuiApplication.screenAt(pos) or QGuiApplication.primaryScreen()
+        area = screen.availableGeometry()
+        x = min(max(pos.x(), area.left()), area.right() - self.width())
+        y = pos.y() if pos.y() + self.height() <= area.bottom() else pos.y() - self.height()
+        self.move(x, max(y, area.top()))
+        self.show()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+            return
+        super().keyPressEvent(event)
 
     def showEvent(self, event):
         super().showEvent(event)

@@ -603,7 +603,7 @@ class IntegrationWindow(QWidget):
         self._update_apply_button_state()
 
     def _update_apply_button_state(self):
-        """State once, on the scope line, whom Apply and Reset change; Apply window states its own."""
+        """Name whom Apply and Reset change only when a selection narrows it; Apply window states its own."""
         selected = self._selected_samples
         targets = selected or self._all_samples
         for button in (self.apply_button, self.restore_button, self.regenerate_button):
@@ -611,8 +611,6 @@ class IntegrationWindow(QWidget):
         count = len(targets)
         if not self._current_compound:
             scope = "Select a compound to edit its peak window."
-        elif not targets:
-            scope = ""  # the canvas explains an empty grid
         elif selected:
             scope = (
                 f"Applies to {selected[0]}"
@@ -620,10 +618,10 @@ class IntegrationWindow(QWidget):
                 else f"Applies to {count} selected samples"
             )
         else:
-            scope = "Applies to all shown samples"
+            scope = ""  # all shown samples, the default; the canvas explains an empty grid
         self.scope_label.setText(scope)
         self.scope_label.setVisible(bool(scope))
-        set_style_property(self.scope_label, "state", "selected" if selected else "all")
+        set_style_property(self.scope_label, "state", "selected" if selected else None)
         shown = len(self._all_samples)
         self.window_scope_label.setText(
             f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"

@@ -347,7 +347,8 @@ def test_focus_selected_then_show_all(plotted_window, menu):
     assert window.toolbar.get_selected_samples() == ["S1", "S2", "S3"]
     assert window.graph_view.get_current_samples() == ["S1", "S2", "S3"]
     assert window.graph_view.get_selected_samples() == []
-    assert window.toolbar.integration.scope_label.text() == "Applies to all shown samples"
+    # Every shown sample is the default scope, so it goes unsaid.
+    assert window.toolbar.integration.scope_label.isHidden()
 
 
 def test_unchecking_every_sample_empties_the_workspace(plotted_window):
@@ -371,7 +372,6 @@ def test_unchecking_every_sample_empties_the_workspace(plotted_window):
     window.show_all_samples_button.click()
     assert window.workspace.currentWidget() is window.graph_view
     assert window.graph_view.get_current_samples() == ["S1", "S2", "S3"]
-    assert not integration.scope_label.isHidden()
     assert integration.apply_button.isEnabled()
 
 

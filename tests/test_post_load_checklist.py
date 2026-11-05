@@ -234,7 +234,11 @@ def test_checklist_text_never_collides_on_a_short_screen(qapp, tmp_path, height,
         assert layout_problems(dialog) == []
         buttons = dialog.findChild(QDialogButtonBox)
         assert buttons.geometry().bottom() < dialog.height()
-        assert not dialog.scroll.isAncestorOf(buttons)
+        # Scrolled to the steps, the dialog still says what it is and how to leave.
+        dialog.scroll.verticalScrollBar().setValue(dialog.scroll.verticalScrollBar().maximum())
+        title = dialog.findChild(QLabel, "checklistTitle")
+        assert title.isVisible() and title.visibleRegion().boundingRect() == title.rect()
+        assert not dialog.scroll.isAncestorOf(title) and not dialog.scroll.isAncestorOf(buttons)
         table = dialog.mm_file_table
         fourth_row_bottom = table.rowViewportPosition(3) + table.rowHeight(3)
         assert fourth_row_bottom <= table.viewport().height()

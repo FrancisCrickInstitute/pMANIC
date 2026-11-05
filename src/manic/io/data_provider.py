@@ -123,6 +123,7 @@ class DataProvider:
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._bulk_raw_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._targeted_area_cache: Dict[tuple, List[float]] = {}
+        self._has_quantifier_cache: Dict[str, bool] = {}
         self._corrector_local = threading.local()
         self._cache_valid: bool = False
 
@@ -138,6 +139,7 @@ class DataProvider:
         self._bulk_sample_data_cache.clear()
         self._bulk_raw_sample_data_cache.clear()
         self._targeted_area_cache.clear()
+        self._has_quantifier_cache.clear()
         self._cache_valid = False
 
     def get_total_sample_count(self) -> int:
@@ -603,12 +605,16 @@ class DataProvider:
         areas = self.get_compound_areas(sample_name, compound_name)
         if not areas:
             return 0.0
-        with get_connection() as conn:
-            has_quantifier = conn.execute(
-                "SELECT 1 FROM compound_ions "
-                "WHERE compound_name = ? AND role = 'quantifier' LIMIT 1",
-                (compound_name,),
-            ).fetchone()
+        # Cached with the areas: export validation asks once per cell.
+        has_quantifier = self._has_quantifier_cache.get(compound_name)
+        if has_quantifier is None:
+            with get_connection() as conn:
+                has_quantifier = conn.execute(
+                    "SELECT 1 FROM compound_ions "
+                    "WHERE compound_name = ? AND role = 'quantifier' LIMIT 1",
+                    (compound_name,),
+                ).fetchone() is not None
+            self._has_quantifier_cache[compound_name] = has_quantifier
         return float(areas[0] if has_quantifier else sum(areas))
 
     def get_compound_isotope_area(

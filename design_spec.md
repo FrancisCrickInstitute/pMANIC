@@ -132,3 +132,14 @@ would put it there.
   Prefer deleting dead code, one-caller wrappers and duplicated helpers. A new
   test must protect a behaviour a user would notice; do not add tests that
   restate the implementation, pin copy, or duplicate an existing test.
+
+## User directives, round 10 (binding)
+
+- Clean, not cluttered. Every new label, badge, hint, button or line must earn
+  its place; prefer removing to adding. Never remove something genuinely useful.
+- Spacing between buttons matters everywhere: adjacent buttons, including the
+  segments of a segmented control, never touch; keep a consistent gap (at least
+  4 px inside a segmented control, 8 px between separate buttons).
+- Peak verdict colours keep main's and the workbook's meanings (Below threshold
+  light red, Accepted light purple, Marked bad tan), drawn as soft translucent
+  pastel washes and pastel pills, never solid or bold fills.

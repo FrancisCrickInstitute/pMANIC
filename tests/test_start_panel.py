@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from manic.models.analysis import AnalysisMode
+from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.start_panel import StartPanel
 from manic.utils.recent_files import RecentFiles
 
@@ -97,3 +98,25 @@ def test_rebuild_link_is_offered_only_in_labelled_mode(qapp, monkeypatch):
         assert window.update_old_data_action.isEnabled()
     finally:
         window.close()
+
+
+def test_long_recent_names_keep_room_to_tell_their_folders_apart(qapp):
+    name = "2026-10-28_GCMS_StableIsotope_Experiment_17_Batch04_CompoundList_Revision_002.csv"
+    paths = [f"/data/experiments/{name}", f"/data/control/{name}"]
+    panel = StartPanel()
+    try:
+        panel.refresh(False, True, False, paths, [])
+        panel.resize(1400, 900)
+        panel.show()
+        QApplication.processEvents()
+        buttons = [b for b in panel.findChildren(QPushButton, "recentName") if b.isVisibleTo(panel)]
+        assert [b.toolTip() for b in buttons] == paths
+        assert all("…" in b.text() for b in buttons)
+        folders = [
+            label.text()
+            for label in panel.findChildren(ElidedLabel)
+            if label.full_text().startswith("/data/")
+        ]
+        assert folders == ["/data/experiments", "/data/control"]
+    finally:
+        panel.close()

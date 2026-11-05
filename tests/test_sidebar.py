@@ -237,6 +237,22 @@ def test_data_rows_report_load_state_without_counts_or_links(qapp):
     ] == ["Compound list: done", "Raw data: done"]
 
 
+def test_headings_wait_for_what_they_list(qapp):
+    toolbar = Toolbar(AnalysisMode.LABELLED)
+    try:
+        def shown(*widgets):
+            return [widget.isVisibleTo(toolbar) for widget in widgets]
+
+        heading = toolbar._compounds_heading
+        assert shown(heading, toolbar.samples_section) == [False, False]
+        toolbar.update_compound_list(["Alanine"])
+        assert shown(heading, toolbar.samples_section) == [True, False]
+        toolbar.update_sample_list(["S1"])
+        assert shown(heading, toolbar.samples_section) == [True, True]
+    finally:
+        toolbar.deleteLater()
+
+
 def test_compound_filter_narrows_list_and_enter_picks_first_match(qapp, stub_compound):
     toolbar = Toolbar(AnalysisMode.LABELLED)
     picked = []

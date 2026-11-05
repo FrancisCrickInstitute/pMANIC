@@ -30,6 +30,7 @@ from manic.ui.identity_chart import (
     identity_chart_height,
     identity_column_headers,
     identity_unassessed_note,
+    qualifier_gap_note,
     show_identity_tooltip,
 )
 from manic.ui import theme
@@ -138,6 +139,9 @@ class TargetedQcWidget(QWidget):
         self._scroll.setMaximumHeight(height)
         self.columns.set_axis("", identity_column_headers(identity.channels, detail=False))
         note = identity_unassessed_note(identity)
+        if note is not None and qualifier_gap_note(identity) is not None:
+            # The note above the grid, always beside this panel, says why and how to fix it.
+            note = "No qualifier can be assessed."
         self.note.setText(note or "")
         self.note.setVisible(note is not None)
         self._scroll.setVisible(note is None)

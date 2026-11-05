@@ -932,19 +932,6 @@ QPushButton#recentName:disabled {
 
 /* ---------- Window chrome kept from the original sheet ---------- */
 
-QToolButton#settingsButton,
-QToolButton#docsButton {
-    background-color: transparent;
-    border: none;
-    border-radius: 6px;
-    padding: 3px;
-}
-
-QToolButton#settingsButton:hover,
-QToolButton#docsButton:hover {
-    background-color: @surface_hover;
-}
-
 QWidget#isotopologueRatioWidget,
 QWidget#totalAbundanceWidget {
     background-color: @surface;

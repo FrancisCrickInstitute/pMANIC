@@ -134,7 +134,8 @@ class Toolbar(QWidget):
         browse_layout.setSpacing(8)
 
         compounds_heading = QHBoxLayout()
-        compounds_heading.addWidget(section_heading("Compounds"))
+        self._compounds_heading = section_heading("Compounds")
+        compounds_heading.addWidget(self._compounds_heading)
         compounds_heading.addStretch(1)
         self.compound_count_label = QLabel()
         self.compound_count_label.setProperty("role", "hint")
@@ -149,7 +150,8 @@ class Toolbar(QWidget):
         browse_layout.addWidget(self.compound_filter)
         browse_layout.addWidget(self.compound_list, 1)
 
-        browse_layout.addWidget(divider())
+        self._browse_divider = divider()
+        browse_layout.addWidget(self._browse_divider)
 
         self.sample_list = SampleListWidget()
         for lst in (self.compound_list, self.sample_list):
@@ -316,6 +318,8 @@ class Toolbar(QWidget):
         no_match = has_compounds and visible == 0
         self.compound_list.setVisible(has_compounds and not no_match)
         self.compound_filter.setVisible(has_compounds)
+        # Before anything loads, the status rows say so; empty headings would only repeat it.
+        self._compounds_heading.setVisible(has_compounds)
         self.compound_count_label.setText(
             ""
             if not has_compounds
@@ -329,6 +333,8 @@ class Toolbar(QWidget):
         filtering = has_samples and bool(self.sample_filter.text().strip())
         self.sample_list.setVisible(has_samples and matching > 0)
         self.sample_filter.setVisible(has_samples)
+        self._browse_divider.setVisible(has_samples)
+        self.samples_section.setVisible(has_samples)
         shown = len(self.get_selected_samples())
         if not has_samples:
             summary = ""

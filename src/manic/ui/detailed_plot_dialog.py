@@ -487,16 +487,8 @@ class DetailedPlotDialog(QDialog):
             except Exception as baseline_error:
                 logger.error(f"Failed to draw baseline lines: {baseline_error}")
 
-            # Above the plot, beside its title, so it never covers a trace.
-            self.eic_plot.show_legend(
-                loc="lower right",
-                bbox_to_anchor=(1.0, 1.0),
-                ncol=max(1, len(self.eic_plot.ax.get_legend_handles_labels()[1])),
-                frameon=False,
-                borderaxespad=0.2,
-                handlelength=1.6,
-                columnspacing=1.2,
-            )
+            # Above the plot, under its title, so it never covers a trace.
+            self.eic_plot.show_legend()
 
             # Execute batch rendering for performance
             self.eic_plot.finalize_plot()

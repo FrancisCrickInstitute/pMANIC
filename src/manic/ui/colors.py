@@ -110,8 +110,10 @@ def _verdict_scheme(fill: str) -> tuple[VerdictColours, VerdictColours]:
     wash = QColor(fill)
     light_surface, dark_surface = QColor(theme.LIGHT["surface"]), QColor(theme.DARK["surface"])
     light_card = _mix(light_surface, wash, 0.45)
-    dark_card = _mix(dark_surface, wash, 0.16)
-    dark_pill = _mix(dark_surface, wash, 0.28)
+    # The pale fills all turn grey over the dark surface; a fuller tone of each hue keeps them apart.
+    dark_wash = QColor.fromHslF(wash.hslHueF(), 0.7, 0.6)
+    dark_card = _mix(dark_surface, dark_wash, 0.14)
+    dark_pill = _mix(dark_surface, dark_wash, 0.34)
     return (
         VerdictColours(light_card, wash, _readable(wash, wash, lighter=False)),
         VerdictColours(dark_card, dark_pill, _readable(wash, dark_pill, lighter=True)),

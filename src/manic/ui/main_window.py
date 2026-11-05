@@ -846,8 +846,10 @@ class MainWindow(QMainWindow):
         )
 
         # Import Session: enabled only if both compound and CDF data loaded
-        self.import_session_action.setEnabled(
-            self.compound_data_loaded and self.cdf_data_loaded
+        can_import = self.compound_data_loaded and self.cdf_data_loaded
+        self.import_session_action.setEnabled(can_import)
+        self.import_session_action.setToolTip(
+            "" if can_import else "Load the session's compound list and raw data first"
         )
 
         # Clear Session: enabled if any data loaded

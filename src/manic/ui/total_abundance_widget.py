@@ -171,12 +171,6 @@ class TotalAbundanceWidget(QWidget):
             self.chart, [i for i, name in enumerate(names) if name in self._highlighted]
         )
 
-    def highlighted_bars(self) -> list[str]:
-        if not self.chart.series():
-            return []
-        bar_set = self.chart.series()[0].barSets()[0]
-        return [self._current_sample_names[i] for i in sorted(bar_set.selectedBars())]
-
     def _paint_highlight(self, *_args) -> None:
         if not self.chart.series() or not self._has_data():
             return

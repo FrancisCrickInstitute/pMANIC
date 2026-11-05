@@ -221,9 +221,6 @@ class StatusRow(QPushButton):
         self._value.setText(value)
         set_style_property(self._value, "state", state)
 
-    def value_text(self) -> str:
-        return self._value.full_text()
-
 
 class FilterField(QLineEdit):
     """Filters a list as you type. Arrow keys move through the list; Enter picks."""

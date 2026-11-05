@@ -497,10 +497,6 @@ class ChartPopupDialog(QDialog):
             height = item.boundingRect().height()
             item.setPos(end.x() + 4, end.y() - height / 2)
 
-    def value_label_texts(self) -> list[str]:
-        """Value labels top to bottom, as the rows read."""
-        return [item.text() for item, _value, _index in reversed(self._value_labels)]
-
     def _create_isotopologue_chart(self):
         """Create enlarged isotopologue chart with sample names on Y-axis."""
         if self.data is None or len(self.data) == 0:

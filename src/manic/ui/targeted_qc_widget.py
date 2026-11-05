@@ -196,9 +196,6 @@ class TargetedQcWidget(QWidget):
             centre = self.chart_view.mapFromScene(first.sceneBoundingRect().center())
             self._scroll.ensureVisible(centre.x(), centre.y(), 0, int(first.rect().height()))
 
-    def highlighted_rows(self) -> list[str]:
-        return [mark.data(0) for mark in self._marks]
-
     def _paint_highlight(self, *_args) -> None:
         for mark in self._marks:
             if mark.scene() is not None:
@@ -214,7 +211,6 @@ class TargetedQcWidget(QWidget):
             mark.setPen(QPen(color("accent"), 1.5))
             mark.setBrush(Qt.NoBrush)
             mark.setZValue(20)
-            mark.setData(0, name)
             self._marks.append(mark)
 
     def _connect_cell_signals(self) -> None:

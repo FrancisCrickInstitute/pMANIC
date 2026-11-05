@@ -260,11 +260,6 @@ class IsotopologueRatioWidget(QWidget):
             dash.setPos(centre.x() + 4, centre.y() - dash.boundingRect().height() / 2)
             self._dashes.append(dash)
 
-    def dash_rows(self) -> list[str]:
-        return [
-            self._current_sample_names[i] for i in self.empty_rows()
-        ] if self._dashes else []
-
     def row_at(self, viewport_pos) -> int | None:
         """The bar row (0 is the bottom bar) under a chart-view position."""
         if not self._has_data() or not self.chart.series():
@@ -301,9 +296,6 @@ class IsotopologueRatioWidget(QWidget):
             self.chart, [i for i, name in enumerate(names) if name in self._highlighted]
         )
 
-    def highlighted_bars(self) -> list[str]:
-        return [mark.data(0) for mark in self._marks if mark.data(0)]
-
     def _paint_highlight(self, *_args) -> None:
         # An accent outline would vanish against the blue M+0 segment, and fading the
         # other rows muddies the cohort, so a selected row gets a soft band behind its
@@ -335,7 +327,6 @@ class IsotopologueRatioWidget(QWidget):
             tick.setPen(QPen(Qt.NoPen))
             tick.setBrush(color("accent"))
             tick.setZValue(10)
-            tick.setData(0, name)
             self._marks += [band, tick]
 
     def _refresh_key(self, *_args) -> None:

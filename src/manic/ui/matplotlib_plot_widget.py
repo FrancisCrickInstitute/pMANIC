@@ -678,9 +678,6 @@ class MatplotlibPlotWidget(QWidget):
             )
             self._cluster = (label, bracket)
 
-    def visible_peak_labels(self) -> list[str]:
-        return [label.get_text() for label in self._all_peak_labels() if label.get_visible()]
-
     def _declutter_peak_labels(self, _event=None) -> None:
         if not self._peak_labels:
             return

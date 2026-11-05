@@ -103,11 +103,10 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     internal = settings.page_named("Internal Standard")
     assert isinstance(internal, InternalStandardPage)
     assert not internal.combo.isEnabled()
-    assert not internal.standard_combo.isEnabled()
-    assert internal.standard_combo.currentText() == "No internal standard"
+    assert internal.standard_label.text() == "None"
     assert (
         settings.hint_label.text()
-        == "Load a compound list to choose an internal standard."
+        == "Choose an internal standard in the sidebar to set its reference peak."
     )
 
     _select_page(settings, "Deconvolution")
@@ -463,7 +462,7 @@ def test_bulk_fit_follows_the_rows_the_user_selects(labelled_window, monkeypatch
     }
 
 
-def test_internal_standard_page_chooses_the_standard_and_its_reference_peak(labelled_window):
+def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     _insert_compound("Alanine", label_atoms=0)
     _insert_compound("Norvaline", label_atoms=2)
     labelled_window.compound_data_loaded = True
@@ -471,34 +470,27 @@ def test_internal_standard_page_chooses_the_standard_and_its_reference_peak(labe
     labelled_window.open_settings_page("Internal Standard")
     settings = labelled_window.settings_window
     page = settings.page_named("Internal Standard")
-    assert page.standard_combo.currentText() == "No internal standard"
+    assert page.standard_label.text() == "None"
     assert not page.combo.isEnabled()
 
-    page.standard_combo.setCurrentIndex(page.standard_combo.findData("Norvaline"))
+    labelled_window.toolbar.on_internal_standard_selected("Norvaline")
+    assert page.standard_label.text() == "Norvaline"
     assert [page.combo.itemText(i) for i in range(page.combo.count())] == [
         "M+0",
         "M+1",
         "M+2",
     ]
-    page.combo.setCurrentIndex(2)
-    settings.save_button.click()
+    assert settings.hint_label.text() == ""
 
-    assert labelled_window.toolbar.get_internal_standard() == "Norvaline"
-    assert labelled_window.internal_standard_reference_isotope == 2
-    assert not settings.save_button.isEnabled()
-
-    page.standard_combo.setCurrentIndex(page.standard_combo.findData("Alanine"))
-    settings.save_button.click()
-    assert labelled_window.toolbar.get_internal_standard() == "Alanine"
-    assert page.standard_combo.isEnabled()
+    labelled_window.toolbar.on_internal_standard_selected("Alanine")
+    assert page.standard_label.text() == "Alanine"
     assert not page.combo.isEnabled()
     assert page.reference_hint.text() == (
         "Alanine has no label atoms, so only M+0 can be the reference peak."
     )
 
-    page.standard_combo.setCurrentIndex(0)
-    settings.save_button.click()
-    assert labelled_window.toolbar.get_internal_standard() is None
+    labelled_window.toolbar.on_internal_standard_cleared()
+    assert page.standard_label.text() == "None"
 
 
 def test_deconvolution_without_overrides_or_selection_shows_empty_state(labelled_window):

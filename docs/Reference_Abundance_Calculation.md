@@ -81,7 +81,7 @@ If your internal standard is labelled, you can change this in:
 
 **Settings → Internal Standard**
 
-That page also chooses the internal standard itself. Changing the internal standard compound resets the reference peak back to **M+0**.
+Choose the internal standard itself from the sidebar **Internal standard** row. Changing the internal standard compound resets the reference peak back to **M+0**.
 
 ## 3. Data Requirements
 

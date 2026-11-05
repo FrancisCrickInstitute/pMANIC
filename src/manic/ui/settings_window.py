@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from manic.io.compound_reader import read_compound
 from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.ui.combo_box import ComboBox
@@ -52,6 +51,8 @@ from manic.ui.window_placement import show_over_parent
 _ALL_MODES = frozenset(AnalysisMode)
 # A short number reads better in a narrow field than stretched across the page.
 _NUMBER_FIELD_WIDTH = 120
+# One width for the Deconvolution choices so their help buttons line up.
+_CHOICE_FIELD_WIDTH = 180
 
 
 def _target_moved_hint(loaded: str | None, selected: str | None) -> str:
@@ -65,26 +66,21 @@ def _target_moved_hint(loaded: str | None, selected: str | None) -> str:
 
 
 _DECONVOLUTION_LEVEL_OPTIONS = [
-    ("Off - no chromatographic deconvolution", "off"),
-    ("Level 1 - coarsest, fastest, obvious overlaps only", "1"),
-    ("Level 2 - conservative splitting", "2"),
-    ("Level 3 - moderate resolution", "3"),
-    ("Level 4 - default, high-resolution overlap splitting", "4"),
-    ("Level 5 - higher resolution, EMG model + shoulder detection", "5"),
-    ("Level 6 - very high resolution, shoulder detection", "6"),
-    ("Level 7 - finest, slowest, weakest shoulders considered", "7"),
+    ("Off", "off"),
+    ("Level 1 (fastest)", "1"),
+    ("Level 2", "2"),
+    ("Level 3", "3"),
+    ("Level 4 (default)", "4"),
+    ("Level 5", "5"),
+    ("Level 6", "6"),
+    ("Level 7 (finest)", "7"),
 ]
-_DECONVOLUTION_FIT_OPTIONS = [
-    ("Auto - compare peak shapes and pick the best by BIC", "auto"),
-    ("Gaussian - symmetric peaks only", "gaussian"),
-    ("Bi-Gaussian - asymmetric (separate left/right widths)", "bi_gaussian"),
-    ("EMG - exponentially modified Gaussian (tailing)", "emg"),
-]
+_DECONVOLUTION_FIT_OPTIONS = [(label, value) for value, label in FIT_TYPE_LABELS.items()]
 _DECONVOLUTION_GATE_OPTIONS = [
-    ("Balanced - skip noise-only peaks (recommended)", "balanced"),
-    ("Lenient - only skip near-pure noise", "lenient"),
-    ("Aggressive - only fit clearly smooth peaks", "aggressive"),
-    ("Off - always attempt a fit", "off"),
+    ("Balanced (default)", "balanced"),
+    ("Lenient", "lenient"),
+    ("Aggressive", "aggressive"),
+    ("Off", "off"),
 ]
 
 
@@ -187,10 +183,8 @@ class PeakValidationPage(SettingsPage):
 
         layout.addWidget(
             description_label(
-                "Peak validation compares each compound's total peak area with the "
-                "internal standard's reference peak. A peak below the minimum ratio "
-                "gets an amber Below threshold badge on its plot. Right-click the "
-                "plot to accept the peak or mark it as bad."
+                "Compares each compound's peak area with the internal standard's "
+                "reference peak."
             )
         )
 
@@ -205,7 +199,15 @@ class PeakValidationPage(SettingsPage):
         self.spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.spin.valueChanged.connect(self._mark_dirty)
         self._inputs.append(self.spin)
-        form_row(form, "Minimum area ratio", self.spin)
+        form_row(
+            form,
+            "Minimum area ratio",
+            with_help(
+                self.spin,
+                "A peak below this ratio gets an amber Below threshold badge. "
+                "Right-click its plot to accept the peak or mark it as bad.",
+            ),
+        )
         form_row(
             form,
             "",
@@ -235,15 +237,19 @@ class QualifierRatioPage(SettingsPage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
+        description = description_label(
+            "Tolerance is a fraction of the expected ratio (0.25 = ±25%)."
+        )
+        description.setWordWrap(False)
         layout.addWidget(
-            description_label(
-                "Tolerance is a fraction of the expected ratio (0.25 = ±25%). "
+            with_help(
+                description,
                 "An unset tolerance leaves that qualifier unassessed in Identity QC "
-                "and the Qualifier QC sheet."
+                "and the Qualifier QC sheet.",
             )
         )
 
-        self.compound_label = QLabel("Compound: none selected")
+        self.compound_label = section_label("Compound: none selected")
         layout.addWidget(self.compound_label)
 
         form = form_layout()
@@ -407,94 +413,66 @@ class InternalStandardPage(SettingsPage):
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
+        self._standard: str | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        layout.addWidget(
-            description_label(
-                "The reference peak is the internal standard's isotopologue used for "
-                "peak validation, abundance normalization and MRRF calculations."
-            )
-        )
-
         form = form_layout()
-        self.standard_combo = ComboBox()
-        self.standard_combo.setObjectName("internalStandardChoiceCombo")
-        self.standard_combo.currentIndexChanged.connect(self._on_standard_changed)
-        self._inputs.append(self.standard_combo)
-        form_row(form, "Internal standard", self.standard_combo)
+        # Chosen in the sidebar, the compound menu or the setup checklist; shown here
+        # because the reference peak below belongs to it.
+        self.standard_label = QLabel()
+        self.standard_label.setObjectName("internalStandardName")
+        form_row(form, "Internal standard", self.standard_label)
 
         self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
         self.combo.setMaximumWidth(_NUMBER_FIELD_WIDTH)
         self.combo.currentIndexChanged.connect(self._mark_dirty)
         self._inputs.append(self.combo)
-        form_row(form, "Reference peak", self.combo)
+        form_row(
+            form,
+            "Reference peak",
+            with_help(
+                self.combo,
+                "The internal standard's isotopologue used for peak validation, "
+                "abundance normalization and MRRF calculations.",
+            ),
+        )
         self.reference_hint = hint_label("")
         form_row(form, "", self.reference_hint)
         layout.addLayout(form)
         layout.addStretch()
 
-    def _compound_names(self) -> list[str]:
-        return self.host.compound_names()
-
     def editable(self) -> tuple[bool, str]:
-        if not self._compound_names():
-            return False, "Load a compound list to choose an internal standard."
+        if not self.host.internal_standard_name():
+            return False, "Choose an internal standard in the sidebar to set its reference peak."
         return True, ""
 
     def set_inputs_enabled(self, enabled: bool) -> None:
         super().set_inputs_enabled(enabled)
         self.combo.setEnabled(enabled and self.combo.count() > 1)
 
-    def _label_atoms(self, name: str | None) -> int:
-        if not name:
-            return 0
-        if name == self.host.internal_standard_name():
-            return self.host.internal_standard_label_atoms()
-        try:
-            return max(int(read_compound(name).label_atoms or 0), 0)
-        except LookupError:
-            return 0
-
-    def _fill_reference(self, name: str | None, current: int) -> None:
-        label_atoms = self._label_atoms(name)
+    def load(self) -> None:
+        self._standard = self.host.internal_standard_name()
+        self.standard_label.setText(self._standard or "None")
+        label_atoms = self.host.internal_standard_label_atoms()
+        current = self.host.internal_standard_reference_isotope
         with QSignalBlocker(self.combo):
             self.combo.clear()
             for idx in range(label_atoms + 1):
                 self.combo.addItem(f"M+{idx}", idx)
             self.combo.setCurrentIndex(current if 0 <= current <= label_atoms else 0)
-        no_labels = bool(name) and label_atoms == 0
+        no_labels = bool(self._standard) and label_atoms == 0
         self.reference_hint.setText(
-            f"{name} has no label atoms, so only M+0 can be the reference peak."
+            f"{self._standard} has no label atoms, so only M+0 can be the reference peak."
             if no_labels
             else ""
         )
         self.reference_hint.setVisible(no_labels)
-        self.combo.setEnabled(self.standard_combo.isEnabled() and label_atoms > 0)
-
-    def _on_standard_changed(self, _index: int) -> None:
-        # A different standard starts at M+0, as it does when chosen in the sidebar.
-        self._fill_reference(self.standard_combo.currentData(), 0)
-        self._mark_dirty()
-
-    def load(self) -> None:
-        name = self.host.internal_standard_name()
-        with QSignalBlocker(self.standard_combo):
-            self.standard_combo.clear()
-            self.standard_combo.addItem("No internal standard", None)
-            for compound in self._compound_names():
-                self.standard_combo.addItem(compound, compound)
-            index = self.standard_combo.findData(name) if name else 0
-            self.standard_combo.setCurrentIndex(max(index, 0))
-        self._fill_reference(name, self.host.internal_standard_reference_isotope)
         self._clear_dirty()
 
     def save(self) -> None:
-        chosen = self.standard_combo.currentData()
-        if chosen != self.host.internal_standard_name():
-            self.host.apply_internal_standard(chosen)
         self.host.apply_internal_standard_reference_isotope(self.combo.currentData() or 0)
 
 
@@ -516,8 +494,8 @@ class DeconvolutionPage(SettingsPage):
         )
 
         layout.addSpacing(4)
-        layout.addWidget(section_label("Compound settings"))
-        self.compound_label = QLabel("Compound: none selected")
+        # Heads the compound's own settings, as "Per-sample curve fit" heads the table.
+        self.compound_label = section_label("Compound: none selected")
         layout.addWidget(self.compound_label)
 
         form = form_layout()
@@ -530,7 +508,8 @@ class DeconvolutionPage(SettingsPage):
             with_help(
                 self.level_combo,
                 "Higher levels split closer overlaps and weaker shoulders, but run "
-                "slower and are more likely to split noise.",
+                "slower and are more likely to split noise. Levels 5 to 7 also fit "
+                "the EMG shape and look for shoulders.",
             ),
         )
 
@@ -542,8 +521,9 @@ class DeconvolutionPage(SettingsPage):
             "Fit type",
             with_help(
                 self.fit_combo,
-                "Auto tries each peak shape and keeps the best. A single fit type is "
-                "faster because fewer shapes are tried.",
+                "Auto fits each shape the resolution level allows and keeps the best "
+                "by BIC. A single shape is faster: Gaussian for symmetric peaks, "
+                "Bi-Gaussian for unequal left and right widths, EMG for tailing peaks.",
             ),
         )
 
@@ -555,12 +535,16 @@ class DeconvolutionPage(SettingsPage):
             "Noise gate",
             with_help(
                 self.gate_combo,
-                "Skips fitting on noise-only peaks, which then show the raw trace. "
-                "A stricter gate is faster but may skip weak real peaks.",
+                "Skips fitting where the trace looks like noise; those peaks show the "
+                "raw trace. Lenient skips only near-pure noise. Aggressive fits only "
+                "clearly smooth peaks, which is faster but may skip weak real peaks. "
+                "Off always fits.",
             ),
         )
 
         self._inputs.extend([self.level_combo, self.fit_combo, self.gate_combo])
+        for combo in (self.level_combo, self.fit_combo, self.gate_combo):
+            combo.setMinimumWidth(_CHOICE_FIELD_WIDTH)
 
         self.apply_all = QCheckBox("Apply to all compounds")
         self.apply_all.setObjectName("deconvolutionApplyAllCheck")
@@ -813,7 +797,7 @@ class SettingsWindow(QDialog):
     """Non-modal, shown with show(); a QDialog only so style.qss dialog rules apply.
 
     Each page saves on its own: a page writes to the compound and samples it
-    loaded with, so "Save this page" never commits another page's edits.
+    loaded with, so Save never commits another page's edits.
     """
 
     def __init__(self, parent: QWidget, host) -> None:
@@ -875,13 +859,13 @@ class SettingsWindow(QDialog):
         self.hint_label.setObjectName("settingsHint")
         footer.addWidget(self.hint_label, stretch=1)
 
-        self.reset_button = QPushButton("Discard changes")
+        self.reset_button = QPushButton("Revert")
         self.reset_button.setObjectName("settingsResetButton")
         self.reset_button.setAutoDefault(False)
         self.reset_button.setEnabled(False)
         self.reset_button.clicked.connect(self._reset_current)
 
-        self.save_button = QPushButton("Save this page")
+        self.save_button = QPushButton("Save")
         self.save_button.setObjectName("settingsSaveButton")
         self.save_button.setDefault(True)
         self.save_button.setAutoDefault(True)
@@ -893,7 +877,7 @@ class SettingsWindow(QDialog):
         buttons.addButton(self.reset_button, QDialogButtonBox.RejectRole)
         footer.addWidget(buttons, alignment=Qt.AlignBottom)
         # The macOS style gives a default button different layout margins, which
-        # put Save 8px above Discard; lay both out by their visible rects.
+        # put Save 8px above Revert; lay both out by their visible rects.
         for button in (self.reset_button, self.save_button):
             button.setAttribute(Qt.WA_LayoutUsesWidgetRect)
 

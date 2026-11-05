@@ -1,6 +1,6 @@
 # Quick Start
 
-1. In **Choose Analysis Mode**, click **Labelled isotope-tracing analysis** or **Unlabelled targeted analysis**. The mode is fixed for the session.
+1. In **Choose Analysis Mode**, click **Labelled** or **Unlabelled**. The mode is fixed for the session.
 2. Choose **File → Load Compounds/Parameter List** and select your spreadsheet.
 3. Choose **File → Load Raw Data (CDF)** and select the folder of ANDI/AIA NetCDF files.
 4. In **Check your data setup**, confirm the internal standard and which MM files (standard mixture) matched. Click **Continue**, or **Apply** if you chose a different internal standard. If a pattern is wrong, the dialog names your compound list file, and **How do I change a pattern?** opens the steps to reload it.

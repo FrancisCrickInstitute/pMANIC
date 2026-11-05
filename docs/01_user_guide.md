@@ -109,7 +109,7 @@ The selected compound must meet specific criteria in your compound definition fi
 2.  Choose your internal standard compound from the menu.
 3.  To remove a selection, open the same menu and choose **No Internal Standard**.
 
-You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. **Settings → Internal Standard** has the same choice next to the reference peak; click **Save this page** to apply it.
+You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. **Settings → Internal Standard** names the chosen standard and sets its reference peak; click **Save** to apply a new reference peak.
 
 **Verification**
 * **Standard selected:** The **Internal standard** row shows the compound name.
@@ -206,6 +206,16 @@ If you make a mistake or want to revert to the original library definitions:
 2.  Click the **Reset** button in the **Peak window** section.
 3.  This removes all session-specific overrides for those samples.
 
+### Fix a missing qualifier ratio
+In unlabelled mode, Identity QC checks a qualifier ion only when it has an expected ratio and a tolerance. Expected ratios come only from the compound list, in the `Qualifier 1 Ratio` and `Qualifier 2 Ratio` columns (qualifier area / Q area). A missing tolerance does not need a reload: set it in **Settings → Qualifier Ratios**.
+
+To add an expected ratio:
+1.  Fill the compound's `Qualifier 1 Ratio` or `Qualifier 2 Ratio` cell in the compound list file and save the file.
+2.  Choose **File → Clear Session** and confirm.
+3.  Load the compound list, then the raw data, again.
+
+Clear Session also removes the review work in the session: integration changes, peak reviews, curve-fit choices, tolerances set in Settings, the internal standard and compounds added with **Add Compound**. Add missing ratios before you review. Importing a session exported earlier restores the ratios saved in it, so export a new session after the reload.
+
 ---
 
 ## Step 4b: Managing Samples and Compounds
@@ -299,7 +309,7 @@ The Excel file contains five worksheets by default. A sixth sheet is optional.
 
 **File → Clear Session** removes compound data, raw data, and session settings. The window stays in the current analysis mode. Confirm **Clear Session**. When it finishes, **Session Cleared** appears.
 
-**File → New Analysis Session...** opens **Choose Analysis Mode**. Click **Labelled isotope-tracing analysis** or **Unlabelled targeted analysis**. If you pick the mode you are already in, MANIC tells you to use **Clear Session** instead. If you pick the other mode and data is loaded, confirm **New Analysis Session**. MANIC then clears the database and opens a new window.
+**File → New Analysis Session...** opens **Choose Analysis Mode**. Click **Labelled** or **Unlabelled**. If you pick the mode you are already in, MANIC tells you to use **Clear Session** instead. If you pick the other mode and data is loaded, confirm **New Analysis Session**. MANIC then clears the database and opens a new window.
 
 MANIC can save the state of your analysis, including compound definitions, integration boundaries, and manual overrides, without duplicating the large raw data files.
 
@@ -481,7 +491,7 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 
 ## Glossary
 
-**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. **Settings → Internal Standard** offers the same choice.
+**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. **Settings → Internal Standard** shows the same name.
 
 **MM files (standard mixture).** Sample files that match the compound-list `mmfiles` pattern. MANIC uses them for MRRF and background correction.
 

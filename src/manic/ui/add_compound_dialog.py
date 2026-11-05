@@ -381,7 +381,9 @@ class AddCompoundDialog(QDialog):
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
+        # 4px puts an error right under its row; a zero-height spacer row after each
+        # error keeps 8px between rows, as in the forms above.
+        grid.setVerticalSpacing(4)
         grid.setColumnMinimumWidth(0, FORM_LABEL_WIDTH + 8)
         for column, text in enumerate(("m/z", "Expected ratio", "Tolerance"), start=1):
             grid.addWidget(hint_label(text), 0, column)
@@ -397,25 +399,25 @@ class AddCompoundDialog(QDialog):
                 (self.qualifier2_mz, self.qualifier2_ratio, self.qualifier2_tolerance),
             ),
         )
-        error = error_label()
-        for row, (text, fields) in enumerate(rows, start=1):
+        for index, (text, fields) in enumerate(rows):
+            row = 3 * index + 2
+            spacer = QWidget()
+            spacer.setFixedHeight(0)
+            grid.addWidget(spacer, row - 1, 0)
             grid.addWidget(QLabel(text), row, 0)
+            error = error_label()
+            grid.addWidget(error, row + 1, 1, 1, 3)
             for column, field in enumerate(fields, start=1):
                 grid.addWidget(field, row, column)
                 self._errors[field] = error
                 self._watch(field)
         layout.addLayout(grid)
-        notes = QVBoxLayout()
-        notes.setContentsMargins(FORM_LABEL_WIDTH + 16, 0, 0, 0)
-        notes.setSpacing(4)
-        notes.addWidget(error)
-        notes.addWidget(
-            hint_label(
-                "A qualifier without a ratio and tolerance is left unassessed in "
-                "identity QC. Tolerance is a fraction of the ratio (0.25 = ±25%)."
-            )
+        note = hint_label(
+            "A qualifier without a ratio and tolerance is left unassessed in "
+            "identity QC. Tolerance is a fraction of the ratio (0.25 = ±25%)."
         )
-        layout.addLayout(notes)
+        note.setContentsMargins(FORM_LABEL_WIDTH + 16, 0, 0, 0)
+        layout.addWidget(note)
 
     def _build_labelled_record(self) -> CompoundRow:
         return CompoundRow(

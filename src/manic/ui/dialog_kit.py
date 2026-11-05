@@ -49,6 +49,8 @@ QToolButton[role="help"] {
 QToolButton[role="help"]:hover { background: @surface_hover; color: @text; }
 QToolButton[role="help"]:focus { border-color: @accent; }
 QPushButton::menu-indicator { image: none; width: 0px; }
+QLineEdit { placeholder-text-color: @text_tertiary; }
+QLineEdit:read-only { placeholder-text-color: @text_secondary; }
 """
 
 _SIDEBAR_STYLE = """
@@ -132,13 +134,14 @@ def help_button(text: str) -> QToolButton:
 
 
 def with_help(field: QWidget, text: str) -> QWidget:
-    """``field`` with a help button at its right."""
+    """``field`` at its own width with a help button right beside it."""
     row = QWidget()
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
-    layout.addWidget(field, stretch=1)
+    layout.addWidget(field)
     layout.addWidget(help_button(text))
+    layout.addStretch(1)
     return row
 
 

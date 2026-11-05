@@ -17,11 +17,8 @@ def restore_light_scheme(qapp):
     qapp.setStyleSheet("")
 
 
-def _default_button_fill(dialog: AnalysisModeDialog) -> str:
-    button = next(b for b in dialog.findChildren(QPushButton) if b.isDefault())
-    image = button.grab().toImage()
-    # Sample the fill beside the label, not the centred text.
-    return image.pixelColor(4, image.height() // 2).name()
+def _dialog_fill(dialog: AnalysisModeDialog) -> str:
+    return dialog.grab().toImage().pixelColor(2, 2).name()
 
 
 def _best_contrast(image: QImage, against: QColor) -> float:
@@ -37,20 +34,20 @@ def test_parentless_dialog_is_styled_once_stylesheet_is_app_wide(qapp, restore_l
     unstyled = AnalysisModeDialog()
     unstyled.show()
     qapp.processEvents()
-    assert _default_button_fill(unstyled) != "#2f6feb"
+    assert _dialog_fill(unstyled) != "#ffffff"
 
     apply_app_stylesheet(qapp)
     apply_color_scheme(qapp, False)
     styled = AnalysisModeDialog()
     styled.show()
     qapp.processEvents()
-    assert _default_button_fill(styled) == "#2f6feb"
+    assert _dialog_fill(styled) == "#ffffff"
 
     apply_color_scheme(qapp, True)
     dark = AnalysisModeDialog()
     dark.show()
     qapp.processEvents()
-    assert _default_button_fill(dark) == "#1967eb"
+    assert _dialog_fill(dark) == "#232529"
     for dialog in (unstyled, styled, dark):
         dialog.close()
 
@@ -103,9 +100,14 @@ def test_rendered_text_focus_rings_and_status_marks_reach_wcag_contrast_in_both_
     qapp.processEvents()
     hint = next(label for label in dialog.findChildren(QLabel) if label.text().startswith("Lists"))
     image = dialog.grab(QRect(hint.mapTo(dialog, QPoint(0, 0)), hint.size())).toImage()
-    dialog.close()
     ground = image.pixelColor(image.width() - 2, image.height() // 2)
     assert _best_contrast(image, ground) >= 4.5, ground.name()
+    # The read-only path field's "No file selected" placeholder.
+    image = dialog.c_edit.grab().toImage()
+    dialog.close()
+    ground = image.pixelColor(image.width() - 6, image.height() // 2)
+    placeholder = image.copy(4, 4, 120, image.height() - 8)
+    assert _best_contrast(placeholder, ground) >= 4.5, ground.name()
 
     # Focus rings and status-icon marks are non-text, so 3:1.
     button = QPushButton("Apply")

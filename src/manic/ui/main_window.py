@@ -4,13 +4,14 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QPoint, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
     QDesktopServices,
     QIcon,
     QKeySequence,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -533,12 +534,11 @@ class MainWindow(QMainWindow):
             # macOS hides shortcuts in a menu it opens outside the menu bar.
             action.setShortcutVisibleInContextMenu(True)
 
-        def letter_key(action: QAction, key) -> None:
-            # A bare letter, so it acts only while the grid has focus, never in a text field.
-            action.setShortcut(QKeySequence(key))
-            action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-            action.setShortcutVisibleInContextMenu(True)
-            self.graph_view.addAction(action)
+        def letter_key(action: QAction, key, on_key) -> None:
+            # A bare letter that reaches the grid from anywhere in the window, so a
+            # list never takes it as type-ahead; a text field claims it as typing.
+            grid_key(action, key)
+            QShortcut(QKeySequence(key), self).activated.connect(on_key)
 
         self.inspect_action = QAction("Inspect Sample...", self)
         grid_key(self.inspect_action, Qt.Key_Return)
@@ -566,12 +566,14 @@ class MainWindow(QMainWindow):
 
         # The review loop: reach the next flagged sample, then judge it.
         self.next_flagged_action = QAction("Next Flagged Sample", self)
-        self.next_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(1))
-        letter_key(self.next_flagged_action, Qt.Key_N)
+        self.next_flagged_action.triggered.connect(lambda: self._focus_flagged(1))
+        letter_key(self.next_flagged_action, Qt.Key_N, lambda: self._focus_flagged(1))
         menu.addAction(self.next_flagged_action)
         self.previous_flagged_action = QAction("Previous Flagged Sample", self)
-        self.previous_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(-1))
-        letter_key(self.previous_flagged_action, Qt.SHIFT | Qt.Key_N)
+        self.previous_flagged_action.triggered.connect(lambda: self._focus_flagged(-1))
+        letter_key(
+            self.previous_flagged_action, Qt.SHIFT | Qt.Key_N, lambda: self._focus_flagged(-1)
+        )
         menu.addAction(self.previous_flagged_action)
         self.accept_peak_action = QAction("Accept Peak (Below Threshold)", self)
         self.accept_peak_action.triggered.connect(
@@ -579,7 +581,9 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.ACCEPTED)
             )
         )
-        letter_key(self.accept_peak_action, Qt.Key_A)
+        letter_key(
+            self.accept_peak_action, Qt.Key_A, lambda: self._trigger_review(self.accept_peak_action)
+        )
         menu.addAction(self.accept_peak_action)
         self.reject_peak_action = QAction("Mark Peak as Bad", self)
         self.reject_peak_action.triggered.connect(
@@ -587,7 +591,9 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.REJECTED)
             )
         )
-        letter_key(self.reject_peak_action, Qt.Key_B)
+        letter_key(
+            self.reject_peak_action, Qt.Key_B, lambda: self._trigger_review(self.reject_peak_action)
+        )
         menu.addAction(self.reject_peak_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
         menu.addSeparator()
@@ -604,19 +610,13 @@ class MainWindow(QMainWindow):
 
         menu.aboutToShow.connect(self._sync_review_menu)
         self.graph_view.selection_changed.connect(self._sync_review_menu)
-        # Arrow keys move the review lead without a selection change; the verdict
-        # keys check eligibility from the actions' enabled state.
-        self.graph_view.installEventFilter(self)
         self._sync_review_menu()
 
     def _sync_review_menu(self, *_args) -> None:
         view = self.graph_view
-        for action in (
-            self.select_all_plots_action,
-            self.next_flagged_action,
-            self.previous_flagged_action,
-        ):
-            action.setEnabled(view.has_plots())
+        self.select_all_plots_action.setEnabled(view.has_plots())
+        for action in (self.next_flagged_action, self.previous_flagged_action):
+            action.setEnabled(view.has_flagged())
         self.deselect_plots_action.setEnabled(bool(view.get_selected_samples()))
         view.update_review_actions(
             view.review_lead(),
@@ -627,10 +627,18 @@ class MainWindow(QMainWindow):
             fit_menu=self.review_fit_menu,
         )
 
-    def eventFilter(self, watched, event):
-        if watched is self.graph_view and event.type() == QEvent.Type.KeyPress:
-            QTimer.singleShot(0, self._sync_review_menu)
-        return super().eventFilter(watched, event)
+    def _focus_flagged(self, step: int) -> None:
+        view = self.graph_view
+        if not view.focus_flagged(step) and view.has_plots():
+            show_status_toast(
+                self.statusBar(), f"No plots need review in {view.get_current_compound()}"
+            )
+
+    def _trigger_review(self, action: QAction) -> None:
+        # Arrow keys move the review lead without a selection change, so refresh first.
+        self._sync_review_menu()
+        if action.isEnabled():
+            action.trigger()
 
     def _with_review_lead(self, command) -> None:
         lead = self.graph_view.review_lead()
@@ -2853,19 +2861,24 @@ class MainWindow(QMainWindow):
                     internal_standard,
                 )
                 if not ok:
-                    problems_text = "\n".join(f"• {p}" for p in problems)
+                    missing = " or ".join(
+                        words
+                        for field, words in (
+                            ("int_std_amount", "internal-standard amount"),
+                            ("amount_in_std_mix", "amount in the standard mix"),
+                        )
+                        if any(field in problem for problem in problems)
+                    )
                     if not self._confirm(
-                        "Internal Standard Metadata Missing",
+                        "No Internal-Standard Amount",
                         (
-                            f"Internal standard '{internal_standard}' is missing required metadata. "
-                            "Export peak areas instead?"
-                        ),
-                        (
-                            "Fix the compound list and re-import to enable calibrated Abundances.\n\n"
-                            "Problems found:\n"
-                            f"{problems_text}\n\n"
-                            "If you continue, MANIC will export without an internal standard."
-                        ),
+                            f"{internal_standard} has no {missing} in the compound list. "
+                            if missing
+                            else f"{internal_standard} is not in the compound list. "
+                        )
+                        + "Export peak areas instead?",
+                        "Add it to the compound list and import the list again "
+                        "to export calibrated abundances.",
                         "Export Peak Areas",
                     ):
                         return

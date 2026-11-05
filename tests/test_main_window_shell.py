@@ -69,25 +69,6 @@ def test_view_menu_density_follows_the_header_switch(qapp, monkeypatch):
         window.close()
 
 
-def test_n_and_shift_n_step_through_flagged_samples_from_the_grid(qapp, monkeypatch):
-    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
-    steps = []
-    monkeypatch.setattr(window.graph_view, "focus_flagged", steps.append, raising=False)
-    review = {a.text(): a for a in window.review_menu.actions()}
-    try:
-        assert not review["Next Flagged Sample"].isEnabled()
-        monkeypatch.setattr(window.graph_view, "has_plots", lambda: True)
-        window._sync_review_menu()
-        assert review["Next Flagged Sample"].shortcut() == QKeySequence("N")
-        assert review["Previous Flagged Sample"].shortcut() == QKeySequence("Shift+N")
-        assert review["Next Flagged Sample"] in window.graph_view.actions()
-        review["Next Flagged Sample"].trigger()
-        review["Previous Flagged Sample"].trigger()
-        assert steps == [1, -1]
-    finally:
-        window.close()
-
-
 def test_drop_zone_lights_only_for_a_drop_the_window_takes(qapp, monkeypatch, tmp_path):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     loaded = []

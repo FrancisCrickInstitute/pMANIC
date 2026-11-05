@@ -162,14 +162,17 @@ class ClickableChartView(QChartView):
 
 
 def _review_command_text(
-    review: PeakReview | None, count: int, set_text: str, clear_text: str
+    review: PeakReview | None, plots, set_text: str, clear_text: str
 ) -> str:
-    """"Accept 2 Peaks (Below Threshold)" while it sets the review,
-    "Clear Acceptance (2 Peaks)" once every target already has it."""
-    peaks = "Peak" if count <= 1 else f"{count} Peaks"
-    if review is None and count:
-        return clear_text if count == 1 else f"{clear_text} ({peaks})"
-    return set_text.format(peaks)
+    """"Accept Bio_004 (Below Threshold)" or "Accept 2 Peaks (Below Threshold)" while it
+    sets the review, "Clear Acceptance (Bio_004)" once every target already has it."""
+    if len(plots) == 1:
+        target = next(iter(plots)).sample_name
+    else:
+        target = f"{len(plots)} Peaks" if plots else "Peak"
+    if review is None and plots:
+        return f"{clear_text} ({target})"
+    return set_text.format(target)
 
 
 def _show_shortcut(action, sequence) -> None:
@@ -833,19 +836,30 @@ class GraphView(QWidget):
         if isinstance(tile, QWidget):
             self._scroll.ensureWidgetVisible(tile, 0, TILE_GAP)
 
-    def focus_flagged(self, step: int) -> bool:
-        """Focus the next (``step`` 1) or previous (-1) flagged tile, wrapping; False if none is.
+    def _needs_review(self, plot: ClickableChartView) -> bool:
+        """A badge with no verdict yet: Accepted and Marked bad close a tile's review."""
+        tile = plot.parent()
+        return (
+            isinstance(tile, PlotTile)
+            and bool(tile.badges())
+            and tile.verdict not in (PeakVerdict.ACCEPTED, PeakVerdict.REJECTED)
+        )
 
-        A tile is flagged by any badge but Accepted, which closes its review.
-        """
+    def has_flagged(self) -> bool:
+        return any(self._needs_review(plot) for plot in self._current_plots)
+
+    def focus_flagged(self, step: int) -> bool:
+        """Focus and select only the next (``step`` 1) or previous (-1) tile that needs
+        review, wrapping, so A and B judge that tile; False if none does."""
         count = len(self._current_plots)
         start = self._focus_index if self._focus_index is not None else (-1 if step > 0 else count)
         for offset in range(1, count + 1):
             index = (start + step * offset) % count
-            tile = self._current_plots[index].parent()
-            if isinstance(tile, PlotTile) and any(badge.tone != "success" for badge in tile.badges()):
+            plot = self._current_plots[index]
+            if self._needs_review(plot):
                 self.setFocus(Qt.ShortcutFocusReason)
                 self._focus_on(index)
+                self.select_only_plot(plot)
                 return True
         return False
 
@@ -1005,24 +1019,23 @@ class GraphView(QWidget):
         fit_count = 1
         accept_review: PeakReview | None = PeakReview.ACCEPTED
         reject_review: PeakReview | None = PeakReview.REJECTED
-        accept_count = reject_count = 1
+        accept_plots = reject_plots = set()
         if lead is not None:
             accept_review, accept_plots = self._peak_review_targets(lead, PeakReview.ACCEPTED)
             reject_review, reject_plots = self._peak_review_targets(lead, PeakReview.REJECTED)
-            accept_count, reject_count = len(accept_plots), len(reject_plots)
             fit_count = len(self._curve_fit_targets(lead))
         # The label names what the command does; a checkmark could not show a mixed group.
         accept.setCheckable(False)
-        accept.setEnabled(lead is not None and accept_count > 0)
+        accept.setEnabled(bool(accept_plots))
         accept.setText(
             _review_command_text(
-                accept_review, accept_count, "Accept {} (Below Threshold)", "Clear Acceptance"
+                accept_review, accept_plots, "Accept {} (Below Threshold)", "Clear Acceptance"
             )
         )
         reject.setCheckable(False)
         reject.setEnabled(lead is not None)
         reject.setText(
-            _review_command_text(reject_review, reject_count, "Mark {} as Bad", "Clear Bad Mark")
+            _review_command_text(reject_review, reject_plots, "Mark {} as Bad", "Clear Bad Mark")
         )
 
         for group in fit_menu.findChildren(QActionGroup):

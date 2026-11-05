@@ -319,21 +319,25 @@ def test_density_toggle_is_one_tab_stop_that_arrow_keys_switch(grid, qapp):
     assert compact.isChecked() and changed == ["compact", "comfortable", "compact"]
 
 
-def test_next_and_previous_flagged_tile_wrap_and_skip_accepted_ones(grid):
+def test_next_and_previous_flagged_tile_wrap_and_skip_reviewed_ones(grid):
     grid.plot_compound("Cmp", ["A", "B", "C", "D", "E"])
     assert grid.focus_flagged(1) is False
     grid.apply_peak_verdicts(
-        {"B": PeakVerdict.FAIL, "C": PeakVerdict.ACCEPTED, "D": PeakVerdict.REJECTED}
+        {"B": PeakVerdict.FAIL, "C": PeakVerdict.ACCEPTED, "D": PeakVerdict.REJECTED, "E": PeakVerdict.FAIL}
     )
 
     def step(direction):
         assert grid.focus_flagged(direction) is True
+        assert grid.get_selected_samples() == [grid.review_lead().sample_name]
         return grid.review_lead().sample_name
 
-    assert [step(1), step(1), step(1)] == ["B", "D", "B"]
-    assert [step(-1), step(-1)] == ["D", "B"]
+    assert [step(1), step(1), step(1)] == ["B", "E", "B"]
+    assert [step(-1), step(-1)] == ["E", "B"]
     QTest.keyClick(grid, Qt.Key_Right)
-    assert grid.review_lead().sample_name == "C"
+    assert grid.review_lead().sample_name == "B"
+    grid.clear_selection()
+    QTest.keyClick(grid, Qt.Key_Right)
+    assert grid.review_lead().sample_name == "D"
     assert step(-1) == "B"
 
 

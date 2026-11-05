@@ -9,7 +9,7 @@
 
 ## Review from the keyboard
 
-Click a plot first so the grid has keyboard focus.
+Click a plot first so the grid has keyboard focus. A, B and N work anywhere in the window except a text field.
 
 | Key | Action |
 | --- | --- |
@@ -20,7 +20,7 @@ Click a plot first so the grid has keyboard focus.
 | Ctrl+A (⌘A on macOS) | Select all plots |
 | A | Accept a Below threshold peak, or clear the acceptance |
 | B | Mark the peak as bad, or clear the mark |
-| N and Shift+N | Move to the next or previous plot that still needs review (any badge except Accepted) |
+| N and Shift+N | Select the next or previous plot that still needs review: it has a badge and is neither Accepted nor Marked bad |
 
 With plots selected, the **Review** commands and the A and B keys act on the whole selection, and the menu names the count, for example **Mark 3 Peaks as Bad**.
 

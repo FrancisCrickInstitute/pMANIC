@@ -167,7 +167,7 @@ class PostLoadChecklistDialog(QDialog):
         layout.addWidget(self.standard_picker)
         layout.addWidget(
             hint_label(
-                "Weak peaks get an amber Below threshold badge only when an "
+                "Weak peaks get a Below threshold badge only when an "
                 "internal standard is set."
             )
         )

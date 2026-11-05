@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QItemSelectionModel, Qt, QSignalBlocker, Signal
+from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -34,7 +34,6 @@ from manic.ui.dialog_kit import (
     BUTTON_GAP,
     FORM_LABEL_WIDTH,
     MARKED_ROLE,
-    SECTION_SPACING,
     description_label,
     form_layout,
     form_row,
@@ -143,7 +142,7 @@ class SettingsPage(QWidget):
             self.dirty_changed.emit(False)
 
 
-class AppearanceSection(SettingsPage):
+class AppearancePage(SettingsPage):
     """Applies on choice, like the OS setting it overrides, so it is never unsaved."""
 
     title = "Appearance"
@@ -172,7 +171,7 @@ class AppearanceSection(SettingsPage):
         pass
 
 
-class MassToleranceSection(SettingsPage):
+class ExtractionPage(SettingsPage):
     title = "Extraction"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
@@ -206,7 +205,7 @@ class MassToleranceSection(SettingsPage):
         self.host.apply_mass_tolerance(self.spin.value())
 
 
-class PeakValidationSection(SettingsPage):
+class PeakValidationPage(SettingsPage):
     title = "Peak validation"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
@@ -250,7 +249,7 @@ class PeakValidationSection(SettingsPage):
 
 
 class QualifierRatioPage(SettingsPage):
-    title = "Qualifier Ratios"
+    title = "Qualifier ratios"
     _ORDINALS = (1, 2)
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
@@ -363,7 +362,7 @@ class QualifierRatioPage(SettingsPage):
         self.host.apply_qualifier_tolerances(self._compound_name, tolerances)
 
 
-class IntegrationSection(SettingsPage):
+class IntegrationPage(SettingsPage):
     title = "Integration"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
@@ -401,7 +400,7 @@ class IntegrationSection(SettingsPage):
         self.host.apply_use_legacy_integration(self.legacy_radio.isChecked())
 
 
-class NaturalAbundanceSection(SettingsPage):
+class NaturalAbundancePage(SettingsPage):
     title = "Natural abundance"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
@@ -424,7 +423,7 @@ class NaturalAbundanceSection(SettingsPage):
         self.host.apply_nat_abundance_preview(self.preview_check.isChecked())
 
 
-class InternalStandardSection(SettingsPage):
+class InternalStandardPage(SettingsPage):
     title = "Internal standard"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
@@ -807,64 +806,13 @@ class DeconvolutionPage(SettingsPage):
             self.host.apply_sample_fit_types(self._compound_name, changes)
 
 
-_LABELLED = frozenset({AnalysisMode.LABELLED})
-
-GENERAL_SECTIONS: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] = (
-    (AppearanceSection, _ALL_MODES),
-    (MassToleranceSection, _ALL_MODES),
-    (IntegrationSection, _ALL_MODES),
-    (InternalStandardSection, _LABELLED),
-    (PeakValidationSection, _ALL_MODES),
-    (NaturalAbundanceSection, _LABELLED),
-)
-
-
-class GeneralPage(SettingsPage):
-    """The short global settings under section titles; Save writes only the changed ones."""
-
-    title = "General"
-
-    def __init__(self, host, parent: QWidget | None = None) -> None:
-        super().__init__(host, parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        self.sections: list[SettingsPage] = []
-        for section_cls, modes in GENERAL_SECTIONS:
-            if host.analysis_mode not in modes:
-                continue
-            section = section_cls(host)
-            if self.sections:
-                layout.addSpacing(SECTION_SPACING - layout.spacing())
-            layout.addWidget(section_label(section.title))
-            layout.addWidget(section)
-            section.dirty_changed.connect(self.dirty_changed)
-            self.sections.append(section)
-        layout.addStretch()
-
-    def is_dirty(self) -> bool:
-        return any(section.is_dirty() for section in self.sections)
-
-    def set_inputs_enabled(self, enabled: bool) -> None:
-        for section in self.sections:
-            section.set_inputs_enabled(enabled and section.editable()[0])
-
-    def refresh(self) -> None:
-        for section in self.sections:
-            section.refresh()
-
-    def load(self) -> None:
-        for section in self.sections:
-            section.load()
-
-    def save(self) -> None:
-        for section in self.sections:
-            if section.is_dirty():
-                section.save()
-
-
 SETTINGS_PAGES: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] = (
-    (GeneralPage, _ALL_MODES),
+    (AppearancePage, _ALL_MODES),
+    (ExtractionPage, _ALL_MODES),
+    (IntegrationPage, _ALL_MODES),
+    (InternalStandardPage, frozenset({AnalysisMode.LABELLED})),
+    (PeakValidationPage, _ALL_MODES),
+    (NaturalAbundancePage, frozenset({AnalysisMode.LABELLED})),
     (QualifierRatioPage, frozenset({AnalysisMode.UNLABELLED})),
     (DeconvolutionPage, _ALL_MODES),
 )
@@ -897,10 +845,19 @@ class SettingsWindow(QDialog):
         root.setSpacing(0)
 
         self.page_list = sidebar_list("settingsPageList", 200)
+        self.page_list.setUniformItemSizes(False)
+        self._items: list[QListWidgetItem] = []
         for page in self._pages:
+            if len(self._items) == 1:
+                # A gap sets Appearance, which is about the app, apart from the analysis.
+                gap = QListWidgetItem()
+                gap.setFlags(Qt.NoItemFlags)
+                gap.setSizeHint(QSize(0, 12))
+                self.page_list.addItem(gap)
             item = QListWidgetItem(page.title)
             item.setSizeHint(sidebar_item_size())
             self.page_list.addItem(item)
+            self._items.append(item)
         root.addWidget(self.page_list)
 
         right = QVBoxLayout()
@@ -925,7 +882,7 @@ class SettingsWindow(QDialog):
         self.pending_label.setProperty("role", "pending")
         self.pending_label.setWordWrap(True)
         self.pending_label.linkActivated.connect(
-            lambda href: self.page_list.setCurrentRow(int(href))
+            lambda href: self.page_list.setCurrentItem(self._items[int(href)])
         )
         right.addWidget(self.pending_label)
 
@@ -968,8 +925,8 @@ class SettingsWindow(QDialog):
         content = max(page.sizeHint().height() for page in self._pages)
         resize_to_screen(self, 720, self._chrome_height + content)
 
-        self.page_list.currentRowChanged.connect(self._on_page_changed)
-        self.page_list.setCurrentRow(0)
+        self.page_list.currentItemChanged.connect(self._on_page_changed)
+        self.page_list.setCurrentItem(self._items[0])
 
     def page_named(self, title: str) -> SettingsPage:
         for page in self._pages:
@@ -977,13 +934,16 @@ class SettingsWindow(QDialog):
                 return page
         raise KeyError(title)
 
+    def show_page(self, title: str) -> None:
+        self.page_list.setCurrentItem(self._items[self._pages.index(self.page_named(title))])
+
     def _current_page(self) -> SettingsPage:
         return self._pages[self.stack.currentIndex()]
 
-    def _on_page_changed(self, index: int) -> None:
-        if index < 0 or index >= len(self._pages):
+    def _on_page_changed(self, item: QListWidgetItem | None, _previous=None) -> None:
+        if item not in self._items:
             return
-        self.stack.setCurrentIndex(index)
+        self.stack.setCurrentIndex(self._items.index(item))
         self._grow_to_fit_page()
         self._update_footer()
 
@@ -1013,20 +973,20 @@ class SettingsWindow(QDialog):
         self._update_pending()
 
     def _update_pending(self) -> None:
-        dirty_rows = [row for row, page in enumerate(self._pages) if page.is_dirty()]
-        for row, page in enumerate(self._pages):
-            self.page_list.item(row).setData(MARKED_ROLE, page.is_dirty())
-        self.setWindowModified(bool(dirty_rows))
+        dirty = [index for index, page in enumerate(self._pages) if page.is_dirty()]
+        for index, item in enumerate(self._items):
+            item.setData(MARKED_ROLE, index in dirty)
+        self.setWindowModified(bool(dirty))
         # The current page shows its own state through Save; list only the others.
-        other_rows = [row for row in dirty_rows if row != self.stack.currentIndex()]
-        if not other_rows:
+        others = [index for index in dirty if index != self.stack.currentIndex()]
+        if not others:
             self.pending_label.clear()
             self.pending_label.hide()
             return
         # Link colour comes from the palette, so it follows scheme switches.
         links = ", ".join(
-            f'<a href="{row}" style="text-decoration: none;">{self._pages[row].title}</a>'
-            for row in other_rows
+            f'<a href="{index}" style="text-decoration: none;">{self._pages[index].title}</a>'
+            for index in others
         )
         self.pending_label.setText(f"Also unsaved: {links}")
         self.pending_label.show()

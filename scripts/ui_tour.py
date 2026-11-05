@@ -148,6 +148,8 @@ class Tour:
                 pages = widget.findChild(QListWidget)
                 if stack is not None and pages is not None and stack.count() > 1:
                     for row in range(1, pages.count()):
+                        if not pages.item(row).flags() & Qt.ItemIsEnabled:
+                            continue  # a gap between groups, not a page
                         pages.setCurrentRow(row)
                         self.save(widget, f"__{type(widget).__name__}_page{row}")
                 widget.close()
@@ -181,7 +183,7 @@ class Tour:
 
 
 def set_scheme(tour: Tour, scheme: str) -> None:
-    """Pick Light or Dark as Settings › General › Appearance does."""
+    """Pick Light or Dark as Settings › Appearance does."""
     from manic.ui import theme
     from manic.utils.utils import set_appearance
 
@@ -314,7 +316,7 @@ def settings_page(tour: Tour, title: str) -> None:
     window = tour.window
     window.open_settings_window()
     settings = window.settings_window
-    settings.page_list.setCurrentRow(settings._pages.index(settings.page_named(title)))
+    settings.show_page(title)
     tour.save(settings, f"__{type(settings).__name__}")
     settings.close()
 
@@ -496,11 +498,11 @@ def tour_steps(tour: Tour) -> None:
     tour.run("process_external", tour.window.update_old_data, grab_main=False)
     tour.run("about", tour.window.show_about, grab_main=False)
 
-    def compact():
+    def laptop():
         tour.window.resize(1280, 800)
         tour.pump(1.0)
 
-    tour.run("compact_1280x800", compact)
+    tour.run("window_1280x800", laptop)
 
     def unlabelled():
         make_window(tour, AnalysisMode.UNLABELLED)
@@ -529,11 +531,12 @@ def tour_steps(tour: Tour) -> None:
         tour.window.graph_view.apply_peak_verdicts(dict(zip(names, verdicts)))
 
     tour.run("peak_verdicts", peak_verdicts)
-    tour.run(
-        "unlabelled_settings_deconvolution",
-        lambda: settings_page(tour, "Deconvolution"),
-        grab_main=False,
-    )
+    for title in ("Qualifier ratios", "Deconvolution"):
+        tour.run(
+            f"unlabelled_settings_{title.split()[0].lower()}",
+            lambda title=title: settings_page(tour, title),
+            grab_main=False,
+        )
     tour.run(
         "unlabelled_add_compound_empty_submit",
         lambda: add_compound_empty_submit(tour),

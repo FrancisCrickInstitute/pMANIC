@@ -243,19 +243,19 @@ def test_identity_popup_row_selects_the_sample_through_the_qc_widget(qapp):
         ),
         (
             (_qualifier(1, 0.4), _qualifier(2, 0.2)),
-            "Set the missing tolerances in Settings › Qualifier Ratios.",
+            "Set the missing tolerances in Settings › Qualifier ratios.",
             "Qualifier ion 1 m/z 101   expected 0.400  no tolerance",
         ),
         (
             (_qualifier(1, 0.4),),
-            "Set the missing tolerances in Settings › Qualifier Ratios.",
+            "Set the missing tolerances in Settings › Qualifier ratios.",
             "Qualifier ion 1 m/z 101   expected 0.400  no tolerance",
         ),
         (
             (_qualifier(1), _qualifier(2, 0.2)),
             "Expected ratios come from the compound list's Qualifier Ratio columns. "
             "See Fix a missing qualifier ratio. "
-            "Set the missing tolerances in Settings › Qualifier Ratios.",
+            "Set the missing tolerances in Settings › Qualifier ratios.",
             "Qualifier ion 1 m/z 101   no expected ratio",
         ),
         ((_qualifier(1, 0.4, 0.25), _qualifier(2)), None, None),

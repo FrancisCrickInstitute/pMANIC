@@ -2456,9 +2456,7 @@ class MainWindow(QMainWindow):
 
     def open_settings_page(self, title: str) -> None:
         self.open_settings_window()
-        pages = self.settings_window.page_list
-        for item in pages.findItems(title, Qt.MatchExactly):
-            pages.setCurrentItem(item)
+        self.settings_window.show_page(title)
 
     def open_documentation_window(self) -> None:
         if self.documentation_window is None:

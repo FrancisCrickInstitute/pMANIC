@@ -84,7 +84,7 @@ MISSING_RATIO_STEP = (
     "Expected ratios come from the compound list's Qualifier Ratio columns. "
     f"See {_GUIDE_LINK}."
 )
-MISSING_TOLERANCE_STEP = "Set the missing tolerances in Settings\u00a0›\u00a0Qualifier\u00a0Ratios."
+MISSING_TOLERANCE_STEP = "Set the missing tolerances in Settings\u00a0›\u00a0Qualifier\u00a0ratios."
 
 
 def _checkable(channel) -> bool:
@@ -122,7 +122,7 @@ def qualifier_gap_note(identity: IdentityAssessmentSet) -> str | None:
         f"See {_GUIDE_LINK}."
         if c.expected_ratio is None
         else f"Qualifier {c.ordinal} is not assessed: it has no tolerance. "
-        "Set one in Settings\u00a0›\u00a0Qualifier\u00a0Ratios."
+        "Set one in Settings\u00a0›\u00a0Qualifier\u00a0ratios."
         for c in qualifiers
         if not _checkable(c)
     ]

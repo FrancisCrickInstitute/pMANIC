@@ -1,3 +1,4 @@
+import re
 from unittest import mock
 
 import pytest
@@ -16,13 +17,13 @@ from manic.ui.dialog_kit import MARKED_ROLE
 from manic.ui.main_window import MainWindow
 from manic.ui.standard_chooser import StandardChooser
 from manic.ui.settings_window import (
-    AppearanceSection,
+    AppearancePage,
     DeconvolutionPage,
-    IntegrationSection,
-    InternalStandardSection,
-    MassToleranceSection,
-    NaturalAbundanceSection,
-    PeakValidationSection,
+    ExtractionPage,
+    IntegrationPage,
+    InternalStandardPage,
+    NaturalAbundancePage,
+    PeakValidationPage,
     QualifierRatioPage,
 )
 
@@ -30,7 +31,16 @@ from manic.utils.utils import apply_app_stylesheet, apply_color_scheme, set_appe
 
 from conftest import _make_window
 
-LABELLED_TITLES = ["General", "Deconvolution"]
+LABELLED_TITLES = [
+    "Appearance",
+    "",
+    "Extraction",
+    "Integration",
+    "Internal standard",
+    "Peak validation",
+    "Natural abundance",
+    "Deconvolution",
+]
 
 
 def _page_titles(settings_window) -> list[str]:
@@ -41,11 +51,8 @@ def _page_titles(settings_window) -> list[str]:
 
 
 def _select_page(settings_window, title: str) -> None:
-    for index in range(settings_window.page_list.count()):
-        if settings_window.page_list.item(index).text() == title:
-            settings_window.page_list.setCurrentRow(index)
-            return
-    raise KeyError(title)
+    [item] = settings_window.page_list.findItems(title, Qt.MatchExactly)
+    settings_window.page_list.setCurrentItem(item)
 
 
 def _insert_compound(name: str, label_atoms: int = 3) -> None:
@@ -97,9 +104,12 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     assert settings is not None
     assert settings.isVisible()
     assert _page_titles(settings) == LABELLED_TITLES
+    # The gap after Appearance is not a stop for the arrow keys.
+    QTest.keyClick(settings.page_list, Qt.Key_Down)
+    assert settings.page_list.currentItem().text() == "Extraction"
 
-    assert settings.findChild(MassToleranceSection).spin.isEnabled()
-    internal = settings.findChild(InternalStandardSection)
+    assert settings.findChild(ExtractionPage).spin.isEnabled()
+    internal = settings.findChild(InternalStandardPage)
     assert not internal.combo.isEnabled()
     assert internal.standard_label.text() == "None"
     assert settings.hint_label.text() == ""
@@ -141,7 +151,7 @@ def _insert_unlabelled_target(name: str = "Target") -> None:
 def test_qualifier_ratios_page_is_unlabelled_only(labelled_window):
     labelled_window.open_settings_window()
     titles = _page_titles(labelled_window.settings_window)
-    assert "Qualifier Ratios" not in titles
+    assert "Qualifier ratios" not in titles
     assert titles == LABELLED_TITLES
 
 
@@ -152,8 +162,17 @@ def test_qualifier_ratios_not_editable_without_a_selected_compound(
     try:
         window.open_settings_window()
         settings = window.settings_window
-        _select_page(settings, "Qualifier Ratios")
-        page = settings.page_named("Qualifier Ratios")
+        assert _page_titles(settings) == [
+            "Appearance",
+            "",
+            "Extraction",
+            "Integration",
+            "Peak validation",
+            "Qualifier ratios",
+            "Deconvolution",
+        ]
+        _select_page(settings, "Qualifier ratios")
+        page = settings.page_named("Qualifier ratios")
         assert isinstance(page, QualifierRatioPage)
         for ordinal in (1, 2):
             spin = page.findChild(QDoubleSpinBox, f"qualifier{ordinal}ToleranceSpin")
@@ -179,8 +198,8 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
         monkeypatch.setattr(window, "_replot_current_selection", lambda: replots.append(1))
         window.open_settings_window()
         settings = window.settings_window
-        _select_page(settings, "Qualifier Ratios")
-        page = settings.page_named("Qualifier Ratios")
+        _select_page(settings, "Qualifier ratios")
+        page = settings.page_named("Qualifier ratios")
         assert page.compound_label.text() == "Compound: Target"
         assert page._labels[1].text() == "Qualifier 1 (m/z 147)"
         assert page._ratio_labels[1].text() == "expected ratio 0.4"
@@ -209,7 +228,8 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
 def test_mass_tolerance_save_writes_literal_value(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    page = settings.findChild(MassToleranceSection)
+    _select_page(settings, "Extraction")
+    page = settings.findChild(ExtractionPage)
     assert labelled_window.mass_tolerance == 0.2
 
     page.spin.setValue(0.35)
@@ -224,12 +244,13 @@ def test_mass_tolerance_save_writes_literal_value(labelled_window):
 def test_peak_validation_keeps_unsaved_edit_across_pages(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    page = settings.findChild(PeakValidationSection)
+    _select_page(settings, "Peak validation")
+    page = settings.findChild(PeakValidationPage)
     assert page.spin.value() == DEFAULT_MIN_PEAK_HEIGHT_RATIO
 
     page.spin.setValue(0.123)
     _select_page(settings, "Deconvolution")
-    _select_page(settings, "General")
+    _select_page(settings, "Peak validation")
     assert page.spin.value() == 0.123
     assert settings.save_button.isEnabled()
 
@@ -244,38 +265,47 @@ def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
     labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    settings.findChild(MassToleranceSection).spin.setValue(0.35)
+    _select_page(settings, "Extraction")
+    settings.findChild(ExtractionPage).spin.setValue(0.35)
     assert settings.save_button.isEnabled()
     assert settings.hint_label.text() == ""
     assert not settings.pending_label.isVisible()
-    settings.findChild(PeakValidationSection).spin.setValue(0.123)
+    settings.findChild(PeakValidationPage).spin.setValue(0.123)
     _select_page(settings, "Deconvolution")
     settings.page_named("Deconvolution").level_combo.setCurrentIndex(0)
 
-    marked = [
-        settings.page_list.item(row).text()
-        for row in range(settings.page_list.count())
-        if settings.page_list.item(row).data(MARKED_ROLE)
-    ]
-    assert marked == ["General", "Deconvolution"]
+    assert _marked(settings) == ["Extraction", "Peak validation", "Deconvolution"]
     assert settings.isWindowModified()
     assert settings.pending_label.isVisible()
-    assert "General" in settings.pending_label.text()
+    text = settings.pending_label.text()
+    assert text.count("<a ") == 2 and "Extraction" in text and "Peak validation" in text
 
-    settings.pending_label.linkActivated.emit("0")
-    assert settings.page_list.currentItem().text() == "General"
-    assert settings.pending_label.text().count("<a ") == 1
-    assert "Deconvolution" in settings.pending_label.text()
+    settings.pending_label.linkActivated.emit(
+        re.search(r'href="(\d+)"[^>]*>Extraction<', text).group(1)
+    )
+    assert settings.page_list.currentItem().text() == "Extraction"
+    assert "Extraction" not in settings.pending_label.text()
+    # Save writes only the page on screen.
     settings.save_button.click()
     assert labelled_window.mass_tolerance == 0.35
-    assert labelled_window.min_peak_height_ratio == 0.123
-    assert not settings.page_list.item(0).data(MARKED_ROLE)
-    assert settings.page_list.item(1).data(MARKED_ROLE)
+    assert labelled_window.min_peak_height_ratio == DEFAULT_MIN_PEAK_HEIGHT_RATIO
+    assert _marked(settings) == ["Peak validation", "Deconvolution"]
 
+    _select_page(settings, "Peak validation")
+    settings.save_button.click()
+    assert labelled_window.min_peak_height_ratio == 0.123
     _select_page(settings, "Deconvolution")
     settings.reset_button.click()
     assert not settings.isWindowModified()
     assert not settings.pending_label.isVisible()
+
+
+def _marked(settings) -> list[str]:
+    return [
+        settings.page_list.item(row).text()
+        for row in range(settings.page_list.count())
+        if settings.page_list.item(row).data(MARKED_ROLE)
+    ]
 
 
 @pytest.fixture
@@ -296,7 +326,7 @@ def test_appearance_switches_at_once_and_is_never_unsaved(
     apply_app_stylesheet(qapp)
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    combo = settings.findChild(AppearanceSection).combo
+    combo = settings.findChild(AppearancePage).combo
     assert combo.currentText() == "System"
 
     combo.setCurrentIndex(combo.findText("Dark"))
@@ -305,7 +335,8 @@ def test_appearance_switches_at_once_and_is_never_unsaved(
     assert not settings.save_button.isEnabled()
 
     # Revert undoes the page's unsaved edits, not the scheme the user just chose.
-    settings.findChild(MassToleranceSection).spin.setValue(0.5)
+    _select_page(settings, "Extraction")
+    settings.findChild(ExtractionPage).spin.setValue(0.5)
     settings.reset_button.click()
     assert theme.is_dark()
     assert combo.currentText() == "Dark"
@@ -316,7 +347,7 @@ def test_appearance_switches_at_once_and_is_never_unsaved(
     assert theme.is_dark()
     second = _make_window(monkeypatch, AnalysisMode.LABELLED)
     second.open_settings_window()
-    assert second.settings_window.findChild(AppearanceSection).combo.currentText() == "Dark"
+    assert second.settings_window.findChild(AppearancePage).combo.currentText() == "Dark"
     second.settings_window.close()
     second.close()
 
@@ -336,7 +367,8 @@ def test_appearance_switches_at_once_and_is_never_unsaved(
 def test_legacy_radio_save_enables_legacy_integration(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    page = settings.findChild(IntegrationSection)
+    _select_page(settings, "Integration")
+    page = settings.findChild(IntegrationPage)
     assert labelled_window.use_legacy_integration is False
 
     page.legacy_radio.setChecked(True)
@@ -358,7 +390,8 @@ def test_gear_button_and_menu_action_open_settings(labelled_window):
 def test_natural_abundance_save_propagates_preview_flag(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    page = settings.findChild(NaturalAbundanceSection)
+    _select_page(settings, "Natural abundance")
+    page = settings.findChild(NaturalAbundancePage)
     assert labelled_window.graph_view.use_corrected is False
 
     page.preview_check.setChecked(True)
@@ -410,9 +443,9 @@ def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Norvaline"])
     labelled_window.toolbar.on_internal_standard_selected("Norvaline")
-    labelled_window.open_settings_window()
+    labelled_window.open_settings_page("Internal standard")
     settings = labelled_window.settings_window
-    page = settings.findChild(InternalStandardSection)
+    page = settings.findChild(InternalStandardPage)
     assert page.combo.isEnabled()
     assert page.combo.count() == 4
     page.combo.setCurrentIndex(2)
@@ -514,12 +547,12 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     _insert_compound("Norvaline", label_atoms=2)
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Alanine", "Norvaline"])
-    labelled_window.open_settings_page("General")
+    labelled_window.open_settings_page("Internal standard")
     settings = labelled_window.settings_window
-    page = settings.findChild(InternalStandardSection)
+    page = settings.findChild(InternalStandardPage)
     assert page.standard_label.text() == "None"
-    # An unsaved edit elsewhere on the page must not freeze the standard's name.
-    settings.findChild(MassToleranceSection).spin.setValue(0.35)
+    # An unsaved edit on another page must not freeze the standard's name.
+    settings.findChild(ExtractionPage).spin.setValue(0.35)
     assert not page.combo.isEnabled()
 
     labelled_window.toolbar.on_internal_standard_selected("Norvaline")
@@ -540,15 +573,15 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
 
     labelled_window.toolbar.on_internal_standard_cleared()
     assert page.standard_label.text() == "None"
-    assert settings.findChild(MassToleranceSection).spin.value() == 0.35
+    assert settings.findChild(ExtractionPage).spin.value() == 0.35
 
 
 def test_choose_opens_the_sidebar_standard_chooser_under_the_button(labelled_window):
     _insert_compound("Norvaline", label_atoms=2)
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Norvaline"])
-    labelled_window.open_settings_page("General")
-    page = labelled_window.settings_window.findChild(InternalStandardSection)
+    labelled_window.open_settings_page("Internal standard")
+    page = labelled_window.settings_window.findChild(InternalStandardPage)
     button = page.choose_button
 
     button.click()
@@ -567,9 +600,9 @@ def test_changing_the_standard_drops_an_unsaved_reference_peak(labelled_window):
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Norvaline", "Leucine"])
     labelled_window.toolbar.on_internal_standard_selected("Norvaline")
-    labelled_window.open_settings_page("General")
+    labelled_window.open_settings_page("Internal standard")
     settings = labelled_window.settings_window
-    page = settings.findChild(InternalStandardSection)
+    page = settings.findChild(InternalStandardPage)
     page.combo.setCurrentIndex(2)
 
     labelled_window.toolbar.on_internal_standard_selected("Leucine")

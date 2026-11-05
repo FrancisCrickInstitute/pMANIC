@@ -134,13 +134,14 @@ def help_button(text: str) -> QToolButton:
 
 
 def with_help(field: QWidget, text: str) -> QWidget:
-    """``field`` with a help button at its right."""
+    """``field`` at its own width with a help button right beside it."""
     row = QWidget()
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
-    layout.addWidget(field, stretch=1)
+    layout.addWidget(field)
     layout.addWidget(help_button(text))
+    layout.addStretch(1)
     return row
 
 

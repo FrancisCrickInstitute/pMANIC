@@ -153,9 +153,9 @@ For ambiguous peaks, inspecting the raw data more closely might be helpful:
 1.  **Right-click** on any specific plot in the grid.
 2.  Select **Inspect *sample*...**. Double-clicking a plot, or pressing Return on the focused plot, does the same.
 3.  A window will open showing three synchronized views:
-    * **Extracted Ion Chromatogram (EIC):** Zoomable view of the peak.
-    * **Total Ion Chromatogram (TIC):** To see global elution context.
-    * **Mass Spectrum:** The actual mass spectrum at compound retention time.
+    * **Extracted ion chromatogram (EIC):** Zoomable view of the peak.
+    * **Total ion chromatogram (TIC):** To see global elution context.
+    * **Mass spectrum:** The actual mass spectrum at compound retention time.
 4.  Use the toolbar to **Zoom (🔍)** or **Pan (✋)**.
 
 #### 3. Selecting Samples to Adjust
@@ -366,9 +366,9 @@ Right-click a plot for these commands. The **Review** menu in the menu bar offer
 ### Detailed Sample View
 Right-click any plot in the main grid and select **Inspect *sample*...**, or double-click the plot, to open the inspection window. This view is essential for verifying peak purity and identity.
 
-* **Extracted Ion Chromatogram (EIC):** The specific trace for the target compound, showing the integration window boundaries.
-* **Total Ion Chromatogram (TIC):** The global chromatogram for the sample, useful for checking if a peak shifted relative to major markers.
-* **Mass Spectrum:** The actual mass spectrum at the peak's retention time. Use this to confirm the spectral fingerprint matches your metabolite.
+* **Extracted ion chromatogram (EIC):** The specific trace for the target compound, showing the integration window boundaries.
+* **Total ion chromatogram (TIC):** The global chromatogram for the sample, useful for checking if a peak shifted relative to major markers.
+* **Mass spectrum:** The actual mass spectrum at the peak's retention time. Use this to confirm the spectral fingerprint matches your metabolite.
 
 Use the **‹ ›** buttons in the header, or the left and right arrow keys, to move to the previous or next sample in grid order without closing the window.
 
@@ -461,7 +461,7 @@ Two toggles beside **Compact** and **Comfortable** in the grid header, **Shared 
 **Settings → General**, **Natural abundance** section
 
 * Checkbox: **Show corrected data**. Off by default.
-* **Function:** Controls what the main chromatogram plots and the Label Incorporation bars show.
+* **Function:** Controls what the main chromatogram plots and the Label incorporation bars show.
     * Ticked: Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * Unticked: Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
 * **Usage:** Toggle this to check how correction redistributes the isotopologue signals.

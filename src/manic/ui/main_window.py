@@ -192,7 +192,6 @@ class MainWindow(QMainWindow):
             self.on_internal_standard_selected
         )
         self.graph_view.settings_requested.connect(self.open_settings_window)
-        self.graph_view.documentation_requested.connect(self.open_documentation_window)
         self.graph_view.guide_requested.connect(self.open_documentation_link)
         self.summary.targeted_qc.guide_requested.connect(self.open_documentation_link)
         self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)

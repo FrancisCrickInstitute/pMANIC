@@ -204,7 +204,6 @@ class GraphView(QWidget):
     focus_selected_requested = Signal(list)
     show_all_samples_requested = Signal()
     settings_requested = Signal()
-    documentation_requested = Signal()
     # A documentation link, "file.md#section".
     guide_requested = Signal(str)
     # "compact" or "comfortable", whichever control set it.

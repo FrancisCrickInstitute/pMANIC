@@ -30,6 +30,7 @@ from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import PinnedAxis, bar_value_text, value_axis_ticks
 from manic.ui.chart_style import (
     abundance_scale,
+    fit_category_names,
     fit_name_font,
     place_row_notes,
     scale_text,
@@ -37,10 +38,7 @@ from manic.ui.chart_style import (
     style_axis,
     style_chart,
 )
-from manic.ui.sidebar_widgets import (
-    SummaryChartArea,
-    fit_category_names,
-)
+from manic.ui.sidebar_widgets import SummaryChartArea
 
 from manic.ui.theme import color
 
@@ -171,6 +169,8 @@ class TotalAbundanceWidget(QWidget):
 
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+        # New axes start with full names at the axis size; the plot area may not change to refit them.
+        self._fit_names()
         self._paint_highlight()
         self._place_row_notes()
 

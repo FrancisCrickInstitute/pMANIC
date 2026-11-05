@@ -32,12 +32,15 @@ from manic.processors.display_deconvolution import integrated_display_areas
 from . import theme
 from .chart_header import ChartHeader
 from .chart_popup_dialog import PinnedAxis, missing_ratio_note, value_axis_ticks
-from .chart_style import fit_name_font, place_row_notes, style_axis, style_chart
-from .colors import label_colors
-from .sidebar_widgets import (
-    SummaryChartArea,
+from .chart_style import (
     fit_category_names,
+    fit_name_font,
+    place_row_notes,
+    style_axis,
+    style_chart,
 )
+from .colors import label_colors
+from .sidebar_widgets import SummaryChartArea
 from .theme import color
 
 
@@ -235,6 +238,8 @@ class IsotopologueRatioWidget(QWidget):
 
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+        # New axes start with full names at the axis size; the plot area may not change to refit them.
+        self._fit_names()
         self._refresh_key()
         self._paint_highlight()
         self._place_dashes()

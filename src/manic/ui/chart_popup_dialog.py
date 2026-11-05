@@ -34,6 +34,7 @@ from manic.ui.chart_header import HeaderName
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
     abundance_scale,
+    fit_category_names,
     scale_text,
     set_nice_ticks,
     style_axis,
@@ -59,7 +60,6 @@ from manic.ui.identity_chart import (
     identity_unassessed_note,
     show_identity_tooltip,
 )
-from manic.ui.sidebar_widgets import fit_category_names
 from manic.ui.theme import FONT_SIZE_TITLE, color
 from manic.ui import theme
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus

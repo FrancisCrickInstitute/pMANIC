@@ -22,7 +22,7 @@ from manic.ui.chart_popup_dialog import (
     identity_key_html,
     IDENTITY_KEY_TOOLTIP,
 )
-from manic.ui.chart_style import fit_name_font, style_chart, text_style
+from manic.ui.chart_style import fit_category_names, fit_name_font, style_chart, text_style
 from manic.ui.identity_chart import (
     IdentityGridBinding,
     add_identity_grid,
@@ -34,7 +34,7 @@ from manic.ui.identity_chart import (
     show_identity_tooltip,
 )
 from manic.ui import theme
-from manic.ui.sidebar_widgets import ROOMY_ROW_PX, SUMMARY_SHORT_ROWS, fit_category_names
+from manic.ui.sidebar_widgets import ROOMY_ROW_PX, SUMMARY_SHORT_ROWS
 from manic.ui.theme import color
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 

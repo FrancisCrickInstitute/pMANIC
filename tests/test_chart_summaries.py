@@ -328,6 +328,29 @@ def test_a_peak_area_too_small_to_draw_reads_as_its_popup_value(qapp):
         widget.deleteLater()
 
 
+@pytest.mark.parametrize("make", [_abundance, _ratios])
+def test_rebuilding_a_summary_keeps_its_name_size_and_shortening(qapp, make):
+    # The grid's selection rebuilds the chart with an unchanged plot area.
+    names = [f"Sample_{i:02d}_ratio_fail_overlap" for i in range(8)]
+    widget = _shown(make(names), 400)
+    try:
+        axis = widget.chart.axes(Qt.Vertical)[0]
+        before = axis.labelsFont().pixelSize(), axis.categories()
+        assert all("…" in name for name in before[1])
+        if make is _abundance:
+            widget.update_abundance_from_data(
+                "Alanine", _eics(names), np.arange(1, 9, dtype=float) * 1e6
+            )
+        else:
+            widget.update_ratios("Alanine", _eics(names))
+        for _ in range(5):
+            QApplication.processEvents()
+        axis = widget.chart.axes(Qt.Vertical)[0]
+        assert (axis.labelsFont().pixelSize(), axis.categories()) == before
+    finally:
+        widget.deleteLater()
+
+
 @pytest.mark.parametrize("make", [_ratios, _abundance])
 def test_a_summary_hover_tooltip_has_its_own_opaque_background(qapp, make):
     # The chart view's own transparent style must not leak into the tooltip it shows.

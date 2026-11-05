@@ -13,7 +13,7 @@ from PySide6.QtCharts import (
     QXYSeries,
 )
 from PySide6.QtCore import QMargins, QPointF, Qt
-from PySide6.QtGui import QBrush, QFont, QFontMetricsF, QPen
+from PySide6.QtGui import QBrush, QFont, QFontMetrics, QFontMetricsF, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsSimpleTextItem
 
 from manic.ui.theme import color, remap_color
@@ -136,6 +136,24 @@ def fit_name_font(chart: QChart, axis: QAbstractAxis) -> None:
     px = min(max(int(chart.plotArea().height() / rows * 0.6), AXIS_LABEL_PX), CAPTION_PX)
     if axis.labelsFont().pixelSize() != px:
         axis.setLabelsFont(ui_font(px))
+
+
+def fit_category_names(axis, names: list[str], view_width: int) -> None:
+    """Shorten names in the middle to fit a summary chart's name column.
+
+    QtCharts gives the name axis at most 40% of the chart and lets a longer name
+    run off its edge (or, truncating, leaves only "…"). Hover gives the full name.
+    """
+    metrics = QFontMetrics(axis.labelsFont())
+    width = int(view_width * 0.4) - 8
+    fitted, seen = [], {}
+    for name in names:
+        short = metrics.elidedText(name, Qt.TextElideMode.ElideMiddle, width)
+        # A category axis needs unique names; alike shortenings differ by invisible marks.
+        fitted.append(short + "\u200b" * seen.get(short, 0))
+        seen[short] = seen.get(short, 0) + 1
+    if fitted != axis.categories():
+        axis.setCategories(fitted)
 
 
 def place_row_notes(

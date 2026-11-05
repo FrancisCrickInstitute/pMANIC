@@ -70,7 +70,7 @@ class TargetedQcWidget(QWidget):
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.chart_view.setFrameShape(QFrame.NoFrame)
-        self.chart_view.setStyleSheet("background: transparent; border: none;")
+        self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
         self.chart_view.setToolTip(
             "Click a row to select its plot; double-click to enlarge."
         )

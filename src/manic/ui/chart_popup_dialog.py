@@ -363,7 +363,7 @@ class ChartPopupDialog(QDialog):
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setFrameShape(QFrame.NoFrame)
-        self.chart_view.setStyleSheet("background: transparent;")
+        self.chart_view.setStyleSheet("QChartView { background: transparent; }")
         self.chart_view.setFocusPolicy(Qt.StrongFocus)
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)

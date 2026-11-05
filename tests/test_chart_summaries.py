@@ -286,3 +286,37 @@ def test_a_sample_with_no_ratio_shows_a_dash_and_explains_on_hover(qapp, monkeyp
         )
     finally:
         widget.deleteLater()
+
+
+@pytest.mark.parametrize("make", [_ratios, _abundance])
+def test_a_summary_hover_tooltip_has_its_own_opaque_background(qapp, make):
+    # The chart view's own transparent style must not leak into the tooltip it shows.
+    from PySide6.QtGui import QCursor
+    from PySide6.QtWidgets import QToolTip, QWidget
+
+    widget = make(["S1", "S2"])
+    try:
+        _shown(widget)
+        bar_set = next(s for series in widget.chart.series() for s in series.barSets())
+        bar_set.hovered.emit(True, 0)
+        qapp.processEvents()
+        chart_tip = _tip_background()
+        QToolTip.hideText()
+        plain = QWidget()
+        QToolTip.showText(QCursor.pos(), "S1", plain)
+        qapp.processEvents()
+        assert chart_tip == _tip_background()
+        assert chart_tip.alpha() > 0
+    finally:
+        QToolTip.hideText()
+        widget.deleteLater()
+
+
+def _tip_background():
+    from PySide6.QtWidgets import QApplication
+
+    [tip] = [
+        w for w in QApplication.topLevelWidgets()
+        if w.objectName() == "qtooltip_label" and w.isVisible()
+    ]
+    return tip.palette().color(tip.backgroundRole())

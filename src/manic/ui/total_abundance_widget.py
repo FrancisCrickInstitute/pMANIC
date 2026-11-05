@@ -67,7 +67,7 @@ class TotalAbundanceWidget(QWidget):
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.chart_view.setFrameShape(QFrame.NoFrame)
-        self.chart_view.setStyleSheet("background: transparent; border: none;")
+        self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
 
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
 

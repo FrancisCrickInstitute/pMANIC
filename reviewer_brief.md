@@ -63,3 +63,12 @@ them affect any score:
 {ROUND_CONTEXT}
 
 Return the full report as your final message.
+
+## Screenshots and probes run offscreen
+
+`scripts/ui_tour.py` renders offscreen on a virtual 2560x1410 screen by default
+(no window opens on the user's desktops). Use it as is; pass `--size 1500x940` or
+`--size 1024x720` for laptop sizes and `QT_SCALE_FACTOR=1.5 ... --size 1280x800`
+for 150%. Any probe script of your own must set
+`QT_QPA_PLATFORM="offscreen:configfile=<repo>/scripts/screen2560.json"`. Never use
+`--onscreen` (CI only).

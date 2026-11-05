@@ -96,3 +96,12 @@ any hook you need in a file you do not own.
   no flag for labelled peaks outside the integration window; label colours stay;
   `manic_session_export/` stays; Settings stays one page per topic.
 - The monitor is attached: run tours for real at `--size 2560x1410`.
+
+## Screenshots and probes run offscreen
+
+`scripts/ui_tour.py` renders offscreen on a virtual 2560x1410 screen by default
+(no window opens on the user's desktops). Use it as is; pass `--size 1500x940` or
+`--size 1024x720` for laptop sizes and `QT_SCALE_FACTOR=1.5 ... --size 1280x800`
+for 150%. Any probe script of your own must set
+`QT_QPA_PLATFORM="offscreen:configfile=<repo>/scripts/screen2560.json"`. Never use
+`--onscreen` (CI only).

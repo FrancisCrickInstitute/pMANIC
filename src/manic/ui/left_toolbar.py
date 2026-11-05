@@ -257,6 +257,9 @@ class Toolbar(QWidget):
             section = CollapsibleSection(chart.header.title.text(), chart, expanded=True)
             section.set_headless(True)
             section.header.clicked.connect(lambda _c=False, s=section: self._choose_chart(s))
+            # A chart at its tallest sits at the top of its room, not in the middle.
+            section.layout().setStretchFactor(chart, 1)
+            section.layout().addStretch(0)
             summary_layout.addWidget(section, 1)
             self._charts.append(section)
         self._chart = self._charts[0]

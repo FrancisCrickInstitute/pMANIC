@@ -477,6 +477,8 @@ def tour_steps(tour: Tour) -> None:
         viewer = tour.window.documentation_window
         # Each page renders after it is picked; capture that page, not its loading note.
         for row in range(viewer.page_list.count()):
+            if viewer.page_list.item(row).data(Qt.UserRole) is None:
+                continue  # a section heading, not a page
             viewer.page_list.setCurrentRow(row)
             tour.wait_for(viewer.is_rendered, timeout=30)
             tour.save(viewer, f"__DocumentationViewer_page{row}" if row else "__DocumentationViewer")

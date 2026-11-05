@@ -10,8 +10,8 @@ This implementation uses QWebEngineView for:
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -22,13 +22,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedLayout,
     QStackedWidget,
+    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
 
 from manic.utils.paths import docs_path
 from manic.ui import theme
-from manic.ui.chart_style import text_style
+from manic.ui.chart_style import text_style, ui_font
 from manic.ui.dialog_kit import resize_to_screen, sidebar_item_size, sidebar_list, window_title
 from manic.ui.theme import COLORS
 from manic.ui.window_placement import show_over_parent
@@ -66,6 +67,24 @@ def _documentation_group(name: str) -> int:
     if name.startswith("Reference_"):
         return 4
     return 5
+
+
+# Groups listed under one heading, so their titles drop the shared "Workflow: " or "Reference: ".
+_GROUP_HEADINGS = {3: "Workflows", 4: "Reference"}
+
+
+class _HeadingDelegate(QStyledItemDelegate):
+    """Draws a heading row (no page) as a quiet group title; page rows as usual."""
+
+    def paint(self, painter, option, index) -> None:
+        if index.data(Qt.UserRole) is not None:
+            super().paint(painter, option, index)
+            return
+        painter.save()
+        painter.setFont(ui_font(12, QFont.Weight.DemiBold))
+        painter.setPen(theme.color("text_secondary"))
+        painter.drawText(option.rect.adjusted(13, 0, 0, -6), Qt.AlignLeft | Qt.AlignBottom, index.data())
+        painter.restore()
 
 
 def documentation_index(docs_dir: Path) -> list[tuple[str, Path]]:
@@ -154,12 +173,25 @@ class DocumentationViewer(QDialog):
         layout.setSpacing(0)
 
         self.page_list = sidebar_list("documentationPageList", 300)
+        self.page_list.setItemDelegate(_HeadingDelegate(self.page_list))
+        # Heading rows are taller, to set their group apart.
+        self.page_list.setUniformItemSizes(False)
         metrics = self.page_list.fontMetrics()
         room = self.page_list.width() - 32
+        last_heading = None
         for title, path in documentation_index(self.docs_dir):
-            item = QListWidgetItem(title)
+            heading = _GROUP_HEADINGS.get(_documentation_group(path.name))
+            if heading is not None and heading != last_heading:
+                header = QListWidgetItem(heading)
+                header.setFlags(Qt.NoItemFlags)
+                header.setSizeHint(sidebar_item_size() + QSize(0, 8))
+                self.page_list.addItem(header)
+            last_heading = heading
+            # The document keeps its full title; under a heading the list drops the prefix.
+            label = title.partition(": ")[2] if heading and ": " in title else title
+            item = QListWidgetItem(label)
             # The whole title on hover only when the list cuts it short.
-            if metrics.horizontalAdvance(title) > room:
+            if metrics.horizontalAdvance(label) > room:
                 item.setToolTip(title)
             item.setSizeHint(sidebar_item_size())
             item.setData(Qt.UserRole, path)

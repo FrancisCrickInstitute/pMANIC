@@ -763,18 +763,24 @@ class IntegrationWindow(QWidget):
         edited = self._has_draft()
         if not self._current_compound:
             scope = "Select a compound to edit its peak window."
+        elif edited:
+            # The tR window's draft caption, "All 30 shown · not applied", in the same words.
+            who = (
+                f"All {count} shown"
+                if not selected
+                else selected[0]
+                if count == 1
+                else f"{count} selected"
+            )
+            scope = who + NOT_APPLIED
         elif selected:
             scope = (
                 f"Applies to {selected[0]}"
                 if count == 1
                 else f"Applies to {count} selected samples"
             )
-        elif edited:
-            scope = f"Applies to all {count} shown {'sample' if count == 1 else 'samples'}"
         else:
             scope = ""  # all shown samples, the default; the canvas explains an empty grid
-        if edited:
-            scope += NOT_APPLIED
         self.scope_label.setText(scope)
         window_edited = self.has_window_draft()
         lead = self._last_draft if edited and window_edited else "peak" if edited else "window"

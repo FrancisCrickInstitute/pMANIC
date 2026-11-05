@@ -1,3 +1,4 @@
+import pytest
 from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
@@ -194,5 +195,46 @@ def test_finished_data_export_reports_in_a_toast_not_a_dialog(qapp, monkeypatch,
         assert toast.findChild(QLabel, "toastLabel").text() == "Exported manic_data_export.xlsx"
         assert toast.action_button.text() == "Show in Folder"
         assert dialogs == []
+    finally:
+        window.close()
+
+
+def test_destructive_confirmations_default_to_cancel(qapp, monkeypatch, tmp_path):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    session = tmp_path / "week3.json"
+    asked = []
+
+    def decline(box):
+        asked.append(
+            (
+                box.text(),
+                [button.text() for button in box.buttons()],
+                box.defaultButton().text(),
+                box.informativeText(),
+            )
+        )
+        return QMessageBox.Cancel
+
+    monkeypatch.setattr(QMessageBox, "exec", decline)
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getOpenFileName", lambda *a, **k: (str(session), "")
+    )
+    monkeypatch.setattr("manic.ui.main_window.validate_method_file", lambda *a, **k: (True, ""))
+    monkeypatch.setattr(
+        "manic.ui.main_window.get_method_info",
+        lambda _path: {"session_override_count": 4, "expected_sample_count": 30},
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.import_session_overrides",
+        lambda *a, **k: pytest.fail("imported after Cancel"),
+    )
+    try:
+        window.clear_session()
+        window.import_session()
+        (clear, clear_buttons, clear_default, _), (text, buttons, default, info) = asked
+        assert sorted(clear_buttons) == ["Cancel", "Clear Session"] and clear_default == "Cancel"
+        assert text == "Import week3.json?"
+        assert sorted(buttons) == ["Cancel", "Import Overrides"] and default == "Cancel"
+        assert "?" not in info
     finally:
         window.close()

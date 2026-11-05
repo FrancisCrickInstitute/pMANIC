@@ -2105,7 +2105,7 @@ class MainWindow(QMainWindow):
                 msg_box.exec()
                 return
 
-            # Build info text based on what the session contains
+            # What the session holds and what importing it replaces.
             info_lines = ["Session contains:"]
             if has_overrides:
                 info_lines.append(f"• {method_info['session_override_count']} integration overrides")
@@ -2117,20 +2117,20 @@ class MainWindow(QMainWindow):
                     info_lines.append(f"• {deleted_sample_count} deleted sample(s)")
             info_lines.append("")
             if has_overrides:
-                info_lines.append("This will import session-specific integration boundaries.")
                 info_lines.append("Any existing session overrides will be replaced.")
             if has_deletion_data:
                 info_lines.append("Compound and sample deletion states will be synchronized.")
-            info_lines.append("")
-            info_lines.append("Continue with session import?")
-            info_text = "\n".join(info_lines)
-
-            # Confirm import
-            reply = self._show_question_dialog(
-                "Import Session Overrides", "Import session data?", info_text
+            confirm = self._create_message_box(
+                "question",
+                "Import Session Overrides",
+                f"Import {Path(file_path).name}?",
+                "\n".join(info_lines),
             )
-
-            if reply != QMessageBox.Yes:
+            confirm.setStandardButtons(QMessageBox.Cancel)
+            import_button = confirm.addButton("Import Overrides", QMessageBox.AcceptRole)
+            confirm.setDefaultButton(QMessageBox.Cancel)
+            confirm.exec()
+            if confirm.clickedButton() is not import_button:
                 return
 
             # Import the session overrides
@@ -2650,6 +2650,8 @@ class MainWindow(QMainWindow):
         clear_button.setText("Clear Session")
         set_style_property(clear_button, "variant", "danger")
         confirm.button(QMessageBox.No).setText("Cancel")
+        # Return must not clear a session by accident.
+        confirm.setDefaultButton(QMessageBox.No)
         reply = confirm.exec()
 
         if reply == QMessageBox.Yes:

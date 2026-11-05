@@ -58,6 +58,7 @@ from manic.ui.identity_chart import (
     identity_unassessed_note,
     show_identity_tooltip,
 )
+from manic.ui.sidebar_widgets import fit_category_names
 from manic.ui.theme import FONT_SIZE_TITLE, color
 from manic.ui import theme
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
@@ -121,14 +122,16 @@ def missing_ratio_note(sample_name: str) -> str:
 
 
 def bar_value_text(value: float, *, precise: bool = False) -> str:
-    """A bar's value in the axis unit: '0.91', '<0.01', or '—' for none.
+    """A bar's value in the axis unit: '0.91', '<0.01', '0', or '—' for no data.
 
-    ``precise`` gives three significant figures, for the row being read.
+    ``precise`` gives four significant figures, for the row being read.
     """
-    if not np.isfinite(value) or value == 0:
+    if not np.isfinite(value):
         return "—"
+    if value == 0:
+        return "0"
     if precise:
-        return f"{value:.3g}"
+        return f"{value:.4g}"
     if abs(value) < 0.005:
         return "<0.01"
     return f"{value:.2f}"
@@ -266,7 +269,7 @@ class ChartPopupDialog(QDialog):
         self._current_row: int | None = None
         # Tooltip for each row that has nothing drawn, by category index.
         self._row_notes: dict[int, str] = {}
-        self._note_shown: int | None = None
+        self._tip_shown = False
 
         self.setWindowTitle(f"{title} — MANIC")
         self.setModal(True)
@@ -276,6 +279,9 @@ class ChartPopupDialog(QDialog):
 
         self._setup_ui(title, compound_name or (identity.compound_name if identity else ""))
         self._populate_chart()
+        name_axis = self._name_axis()
+        # Full names bottom to top, as the name axis holds them before _fit_names shortens them.
+        self._category_names: list[str] = name_axis.categories() if name_axis is not None else []
         self._fit_to_rows()
         self._row_marker = QGraphicsRectItem(self.chart)
         self._row_marker.setBrush(Qt.NoBrush)
@@ -444,8 +450,8 @@ class ChartPopupDialog(QDialog):
         self._recolour_selection()
         theme.notifier.changed.connect(self._recolour_selection)
 
-        # The row under the pointer or picked with the arrow keys reads at three
-        # significant figures (see _refresh_value_labels), so no tooltip.
+        # The row under the pointer or picked with the arrow keys reads at four
+        # significant figures (see _refresh_value_labels), so no value tooltip.
         bar_series.append(bar_set)
         self.chart.addSeries(bar_series)
 
@@ -470,7 +476,7 @@ class ChartPopupDialog(QDialog):
             item.setFont(ui_font(VALUE_PX))
             # Above QtCharts' gridlines, which sit over plain chart children.
             item.setZValue(50)
-            self._value_labels.append((item, value if np.isfinite(value) else 0.0, index))
+            self._value_labels.append((item, value, index))
         self._value_series = series
         self._refresh_value_labels()
         self.chart.plotAreaChanged.connect(self._place_value_labels)
@@ -487,7 +493,7 @@ class ChartPopupDialog(QDialog):
 
     def _place_value_labels(self, *_args) -> None:
         for item, value, index in self._value_labels:
-            end = self.chart.mapToPosition(QPointF(max(value, 0.0), index), self._value_series)
+            end = self.chart.mapToPosition(QPointF(value if value > 0 else 0.0, index), self._value_series)
             height = item.boundingRect().height()
             item.setPos(end.x() + 4, end.y() - height / 2)
 
@@ -545,7 +551,7 @@ class ChartPopupDialog(QDialog):
         for index in empty:
             self._row_notes[index] = missing_ratio_note(self.sample_names[index])
         if empty:
-            self._add_value_labels(stacked_series, [(index, 0.0) for index in empty])
+            self._add_value_labels(stacked_series, [(index, np.nan) for index in empty])
 
     def _create_identity_chart(self):
         if self._identity is None or not self._identity.samples:
@@ -644,7 +650,7 @@ class ChartPopupDialog(QDialog):
         axis.setLabelsFont(ui_font(VALUE_PX))
         axis.setLabelsColor(color("text"))
         axis.setLineVisible(False)
-        # Every row is tall enough for its name, so never shorten it to "…".
+        # Long names are shortened in the middle instead (see _fit_names).
         axis.setTruncateLabels(False)
         return axis
 
@@ -692,12 +698,19 @@ class ChartPopupDialog(QDialog):
         self.chart.addAxis(y_axis, Qt.AlignLeft)
         self._pin_value_axis(x_axis, "Isotopologue ratio")
 
-    def row_names(self) -> list[str]:
-        """Sample names top to bottom, as the rows read."""
-        axis = next(
+    def _name_axis(self) -> QBarCategoryAxis | None:
+        return next(
             (a for a in self.chart.axes(Qt.Vertical) if isinstance(a, QBarCategoryAxis)), None
         )
-        return list(reversed(axis.categories())) if axis is not None else []
+
+    def row_names(self) -> list[str]:
+        """Full sample names top to bottom, as the rows read."""
+        return list(reversed(self._category_names))
+
+    def _fit_names(self) -> None:
+        axis = self._name_axis()
+        if axis is not None:
+            fit_category_names(axis, self._category_names, self.chart_view.width())
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -727,6 +740,7 @@ class ChartPopupDialog(QDialog):
         self._current_row = row
         self._place_row_marker()
         self._refresh_value_labels()
+        self._show_row_tip()
 
     def _place_row_marker(self, *_args) -> None:
         if self._current_row is None or not self.chart.series():
@@ -739,18 +753,24 @@ class ChartPopupDialog(QDialog):
         centre = self.chart_view.mapFromScene(self._row_marker.sceneBoundingRect().center())
         self._scroll.ensureVisible(centre.x(), centre.y(), 0, int(rect.height()))
 
-    def row_note(self, row: int) -> str | None:
-        """The tooltip for a row (top to bottom) with nothing drawn, if it has one."""
-        return self._row_notes.get(len(self.sample_names) - 1 - row)
+    def row_tip(self, row: int) -> str | None:
+        """A row's tooltip (top to bottom): why it has nothing drawn, or its shortened name in full."""
+        category = len(self._category_names) - 1 - row
+        if category in self._row_notes:
+            return self._row_notes[category]
+        name = self._category_names[category]
+        return name if self._name_axis().categories()[category] != name else None
 
-    def _show_row_note(self, viewport_pos) -> None:
-        row = self._row_at(viewport_pos)
-        note = None if row is None else self.row_note(row)
-        if note is not None:
-            QToolTip.showText(self.chart_view.viewport().mapToGlobal(viewport_pos), note, self.chart_view)
-        elif self._note_shown is not None:
+    def _show_row_tip(self) -> None:
+        tip = None if self._current_row is None else self.row_tip(self._current_row)
+        if tip is not None:
+            # At the row's name, so the arrow keys show it too.
+            rect = self._row_marker.sceneBoundingRect()
+            anchor = self.chart_view.mapFromScene(rect.left(), rect.center().y())
+            QToolTip.showText(self.chart_view.mapToGlobal(anchor), tip, self.chart_view)
+        elif self._tip_shown:
             QToolTip.hideText()
-        self._note_shown = None if note is None else row
+        self._tip_shown = tip is not None
 
     def _open_guide(self, href: str) -> None:
         self.accept()
@@ -766,8 +786,8 @@ class ChartPopupDialog(QDialog):
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QEvent.KeyPress and obj in (self._scroll, self.chart_view):
             return self._row_key(event.key())
-        if obj is self.chart_view.viewport() and event.type() == QEvent.MouseMove:
-            self._show_row_note(event.position().toPoint())
+        if obj is self.chart_view and event.type() == QEvent.Resize:
+            self._fit_names()
         if obj is self.chart_view.viewport() and self.row_names():
             if event.type() == QEvent.MouseMove:
                 row = self._row_at(event.position().toPoint())

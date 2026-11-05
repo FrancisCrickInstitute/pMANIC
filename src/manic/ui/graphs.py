@@ -243,6 +243,7 @@ class GraphView(QWidget):
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
         self.settings_button.clicked.connect(self.settings_requested.emit)
         for button in (self.docs_button, self.settings_button):
+            button.setAccessibleName(button.toolTip())
             button.setProperty("variant", "ghost")
             button.setIconSize(button.iconSize() * 0.9)
             button.setFixedSize(28, 28)

@@ -271,6 +271,7 @@ class DocumentationViewer(QDialog):
             button.setIconSize(QSize(20, 20))
             button.setAutoRaise(True)
             button.setProperty("variant", "ghost")
+            button.setAccessibleName(tip)
             button.setToolTip(f"{tip} ({QKeySequence(key).toString(QKeySequence.NativeText)})")
             button.clicked.connect(lambda _checked=False, back=up: self._find(backward=back))
             row.addWidget(button)

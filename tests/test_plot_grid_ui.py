@@ -11,6 +11,7 @@ from manic.io.compound_reader import Compound
 from manic.models.analysis import IonChannel, IonRole
 from manic.processors.tile_y_scale import YScalePolicy
 from manic.ui import theme
+from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import value_axis_ticks
 from manic.ui.channel_chips import ChannelChip, ChannelChipRow
 from manic.ui.colors import ChannelTraceStyle, label_colors, verdict_colours
@@ -525,3 +526,10 @@ def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, density):
         edges.append((centre - half, centre + half))
     assert len(edges) >= 2
     assert all(right + 4 < left for (_, right), (left, _) in zip(edges, edges[1:]))
+
+
+def test_icon_buttons_have_accessible_names(grid):
+    assert [b.accessibleName() for b in (grid.docs_button, grid.settings_button)] == [
+        "Documentation", "Settings"
+    ]
+    assert ChartHeader("Peak area").expand_button.accessibleName() == "Enlarge peak area chart"

@@ -132,6 +132,8 @@ def _channel_stem(x_data: np.ndarray, y_data: np.ndarray, mz: float) -> int | No
 STEM_HEADROOM = 1.05
 # Space under a legend for the axis multiplier, in logical px.
 LEGEND_LIFT_PX = 20
+# Plot height a legend leaves before it drops to a smaller font, in logical px.
+LEGEND_MIN_PLOT_PX = 120
 
 # The detailed view's lone small buttons; a pair that is one choice is segmented().
 TOGGLE_QSS = """
@@ -544,8 +546,11 @@ class MatplotlibPlotWidget(QWidget):
         handles, labels = self.ax.get_legend_handles_labels()
         self._legend_entries = (handles, labels) if labels else None
 
-    def _wrap_legend(self, width: float) -> float:
-        """Lay the legend out in as many columns as ``width`` px holds; its height in px."""
+    def _wrap_legend(self, width: float, room: float) -> float:
+        """Lay the legend out in as many columns as ``width`` px holds; its height in px.
+
+        A legend taller than ``room`` px is set in a smaller font, which fits more per row.
+        """
         if self._legend_entries is None:
             return 0.0
         handles, labels = self._legend_entries
@@ -567,19 +572,24 @@ class MatplotlibPlotWidget(QWidget):
         def px(artist):
             return artist.get_window_extent(renderer).width * logical
 
-        legend = self.ax.legend(handles, labels, ncol=len(labels), **style)
-        font_px = PLOT_LABEL_FONTSIZE * PLOT_DPI / 72
-        spacing = style["columnspacing"] * font_px
-        # Each entry is its handle, matplotlib's default 0.8 em text pad, its text and a gap.
-        entry = max(px(text) for text in legend.get_texts()) + (style["handlelength"] + 0.8) * font_px + spacing
-        columns = max(1, min(len(labels), int((width + spacing) // entry)))
-        rows = -(-len(labels) // columns)
-        # Matplotlib fills columns top to bottom; reorder so entries read across, M+0 first.
-        order = [row * columns + col for col in range(columns) for row in range(rows) if row * columns + col < len(labels)]
-        legend = self.ax.legend(
-            [handles[i] for i in order], [labels[i] for i in order], ncol=columns, **style
-        )
-        return legend.get_window_extent(renderer).height * logical
+        for fontsize in (PLOT_LABEL_FONTSIZE, _points(11)):
+            style["fontsize"] = fontsize
+            legend = self.ax.legend(handles, labels, ncol=len(labels), **style)
+            font_px = fontsize * PLOT_DPI / 72
+            spacing = style["columnspacing"] * font_px
+            # Each entry is its handle, matplotlib's default 0.8 em text pad, its text and a gap.
+            entry = max(px(text) for text in legend.get_texts()) + (style["handlelength"] + 0.8) * font_px + spacing
+            columns = max(1, min(len(labels), int((width + spacing) // entry)))
+            rows = -(-len(labels) // columns)
+            # Matplotlib fills columns top to bottom; reorder so entries read across, M+0 first.
+            order = [row * columns + col for col in range(columns) for row in range(rows) if row * columns + col < len(labels)]
+            legend = self.ax.legend(
+                [handles[i] for i in order], [labels[i] for i in order], ncol=columns, **style
+            )
+            height = legend.get_window_extent(renderer).height * logical
+            if height <= room:
+                break
+        return height
 
     def _on_theme_changed(self, remap: dict) -> None:
         if self.figure is None:
@@ -613,12 +623,13 @@ class MatplotlibPlotWidget(QWidget):
         width, height = self.canvas.get_width_height()
         if width < 100 or height < 100:
             return
-        left, right = 72, 16
-        legend_px = self._wrap_legend(width - left - right)
+        left, right, bottom = 72, 16, 46
+        room = height - 38 - LEGEND_LIFT_PX - bottom - LEGEND_MIN_PLOT_PX
+        legend_px = self._wrap_legend(width - left - right, room)
         self._set_axes_title(self.title, legend_px)
         top = 38 + (LEGEND_LIFT_PX + legend_px - 2 if legend_px else 0)
         self.figure.subplots_adjust(
-            left=left / width, right=1 - right / width, top=1 - top / height, bottom=46 / height
+            left=left / width, right=1 - right / width, top=1 - top / height, bottom=bottom / height
         )
 
     def set_mode(self, mode: str) -> None:

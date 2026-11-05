@@ -14,7 +14,7 @@ import sys
 from collections.abc import Callable, Sequence
 
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -60,6 +60,7 @@ from manic.validation.unlabelled_identity import IdentitySampleAssessment, Quali
 from manic.ui.chart_style import text_style
 from manic.ui.identity_chart import STATUS_LABELS
 from manic.ui.icon_button import segmented
+from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
 from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
@@ -78,6 +79,21 @@ SPECTRUM_CLUSTER_MARGIN = 20
 
 def _rgba(qcolor, alpha: float) -> str:
     return f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
+
+
+class _SampleName(ElidedLabel):
+    """The header's sample, cut in the middle when the row is short; hover shows it whole."""
+
+    def __init__(self):
+        super().__init__(mode=Qt.TextElideMode.ElideMiddle, hover=True)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+
+    def sizeHint(self) -> QSize:
+        width = self.fontMetrics().horizontalAdvance(self.full_text()) + 2
+        return QSize(width, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(self.fontMetrics().horizontalAdvance("in …"), super().minimumSizeHint().height())
 
 
 # Same meaning as on the grid tiles: dashed steel blue bounds the
@@ -146,6 +162,7 @@ class DetailedPlotDialog(QDialog):
     def _show_sample_name(self) -> None:
         self.setWindowTitle(f"{self.compound_name} in {self.sample_name} — MANIC")
         self.sample_label.setText(f"in {self.sample_name}")
+        self.sample_label.setAccessibleName(self.sample_name)
         index = self._samples.index(self.sample_name)
         self.previous_sample.setEnabled(index > 0)
         self.next_sample.setEnabled(index < len(self._samples) - 1)
@@ -247,7 +264,7 @@ class DetailedPlotDialog(QDialog):
         header_layout.setSpacing(8)
         title_label = QLabel(self.compound_name)
         theme.style(title_label, text_style("text", FONT_SIZE_TITLE, 600))
-        self.sample_label = QLabel()
+        self.sample_label = _SampleName()
         theme.style(self.sample_label, text_style("text_secondary", FONT_SIZE_TITLE))
         header_layout.addWidget(title_label)
         header_layout.addWidget(self.sample_label)

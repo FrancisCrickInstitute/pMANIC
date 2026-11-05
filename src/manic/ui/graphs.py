@@ -898,6 +898,8 @@ class GraphView(QWidget):
         context_menu.addSeparator()
         accept_action = context_menu.addAction("Accept Peak (Below Threshold)")
         reject_action = context_menu.addAction("Mark Peak as Bad")
+        _show_shortcut(accept_action, QKeySequence(Qt.Key_A))
+        _show_shortcut(reject_action, QKeySequence(Qt.Key_B))
         fit_menu = context_menu.addMenu("Curve Fit")
         self.update_review_actions(
             clicked_plot,

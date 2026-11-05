@@ -137,9 +137,7 @@ def test_deconvolution_status_opens_its_settings_page(qapp, monkeypatch):
         page = settings.findChild(DeconvolutionPage)
         assert page.isVisible()
         assert page.compound_label.text() == "Compound: Pyruvate"
-        assert page.level_combo.currentText() == (
-            "Level 4 - default, high-resolution overlap splitting"
-        )
+        assert page.level_combo.currentText() == "Level 4 (default)"
     finally:
         if window.settings_window is not None:
             window.settings_window.close()

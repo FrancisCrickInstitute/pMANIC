@@ -178,6 +178,8 @@ class MainWindow(QMainWindow):
         )
         self.graph_view.settings_requested.connect(self.open_settings_window)
         self.graph_view.documentation_requested.connect(self.open_documentation_window)
+        self.graph_view.guide_requested.connect(self.open_documentation_link)
+        self.toolbar.targeted_qc.guide_requested.connect(self.open_documentation_link)
         self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
         self.toolbar.compounds_restored.connect(self.on_compounds_restored)
         self.toolbar.add_compound_requested.connect(self.show_add_compound_dialog)
@@ -2349,6 +2351,11 @@ class MainWindow(QMainWindow):
         else:
             self.toolbar.on_internal_standard_selected(chosen)
 
+    def open_documentation_link(self, href: str) -> None:
+        if self.documentation_window is None:
+            self.documentation_window = DocumentationViewer(self)
+        self.documentation_window.open_link(href)
+
     def _open_checklist_guide(self) -> None:
         if self.documentation_window is None:
             self.documentation_window = DocumentationViewer(self)
@@ -2415,15 +2422,6 @@ class MainWindow(QMainWindow):
 
     def internal_standard_name(self) -> str | None:
         return self.toolbar.get_internal_standard()
-
-    def compound_names(self) -> list[str]:
-        return self.toolbar.compound_list.real_names()
-
-    def apply_internal_standard(self, name: str | None) -> None:
-        if name is None:
-            self.toolbar.on_internal_standard_cleared()
-        else:
-            self.toolbar.on_internal_standard_selected(name)
 
     def internal_standard_label_atoms(self) -> int:
         internal_standard = self.toolbar.get_internal_standard()

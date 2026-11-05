@@ -94,9 +94,6 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     internal = settings.findChild(InternalStandardSection)
     assert not internal.combo.isEnabled()
     assert internal.standard_label.text() == "None"
-    assert internal.reference_hint.text() == (
-        "Choose an internal standard in the sidebar to set its reference peak."
-    )
     assert settings.hint_label.text() == ""
 
     _select_page(settings, "Deconvolution")
@@ -481,6 +478,28 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     labelled_window.toolbar.on_internal_standard_cleared()
     assert page.standard_label.text() == "None"
     assert settings.findChild(MassToleranceSection).spin.value() == 0.35
+
+
+def test_choose_opens_the_standard_menu_under_the_button(labelled_window, monkeypatch):
+    _insert_compound("Norvaline", label_atoms=2)
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Norvaline"])
+    opened_at = []
+
+    def choose(global_pos):  # the user picks Norvaline from the menu
+        opened_at.append(global_pos)
+        labelled_window.toolbar.on_internal_standard_selected("Norvaline")
+
+    monkeypatch.setattr(labelled_window, "choose_internal_standard", choose, raising=False)
+    labelled_window.open_settings_page("General")
+    page = labelled_window.settings_window.findChild(InternalStandardSection)
+
+    page.choose_button.click()
+
+    button = page.choose_button
+    assert opened_at == [button.mapToGlobal(button.rect().bottomLeft())]
+    assert page.standard_label.text() == "Norvaline"
+    assert page.combo.isEnabled()
 
 
 def test_changing_the_standard_drops_an_unsaved_reference_peak(labelled_window):

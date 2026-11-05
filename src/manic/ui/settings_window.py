@@ -400,11 +400,24 @@ class InternalStandardSection(SettingsPage):
         self._standard: str | None = None
         form = form_layout()
         self.setLayout(form)
-        # Chosen in the sidebar, the compound menu or the setup checklist; shown here
-        # because the reference peak below belongs to it.
+        # Shown here because the reference peak below belongs to it. Choose opens the
+        # sidebar's own menu, so there is one chooser.
         self.standard_label = QLabel()
         self.standard_label.setObjectName("internalStandardName")
-        form_row(form, "Compound", self.standard_label)
+        self.choose_button = QPushButton("Choose…")
+        self.choose_button.setObjectName("internalStandardChoose")
+        self.choose_button.setAutoDefault(False)  # Save stays the page's default action
+        self.choose_button.clicked.connect(
+            lambda: self.host.choose_internal_standard(
+                self.choose_button.mapToGlobal(self.choose_button.rect().bottomLeft())
+            )
+        )
+        standard_row = QHBoxLayout()
+        standard_row.setSpacing(12)
+        standard_row.addWidget(self.standard_label)
+        standard_row.addWidget(self.choose_button)
+        standard_row.addStretch(1)
+        form_row(form, "Compound", standard_row)
 
         self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
@@ -441,9 +454,7 @@ class InternalStandardSection(SettingsPage):
             for idx in range(label_atoms + 1):
                 self.combo.addItem(f"M+{idx}", idx)
             self.combo.setCurrentIndex(current if 0 <= current <= label_atoms else 0)
-        if not self._standard:
-            hint = "Choose an internal standard in the sidebar to set its reference peak."
-        elif label_atoms == 0:
+        if self._standard and label_atoms == 0:
             hint = f"{self._standard} has no label atoms, so only M+0 can be the reference peak."
         else:
             hint = ""

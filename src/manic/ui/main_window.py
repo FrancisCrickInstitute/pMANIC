@@ -208,19 +208,13 @@ class MainWindow(QMainWindow):
         """Handle the result of the update check."""
         self._show_update_check_toast(success, has_update, latest_version)
 
-        if has_update:
-            msg = self._create_message_box(
-                "information",
-                "New Version Available",
-                f"A new version of MANIC is available (v{latest_version}).",
-                "Would you like to view the release page to download it?",
-            )
-            # Add Yes/No buttons manually since _create_message_box is generic
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg.setDefaultButton(QMessageBox.Yes)
-
-            if msg.exec() == QMessageBox.Yes:
-                QDesktopServices.openUrl(QUrl(url))
+        if has_update and self._confirm(
+            "New Version Available",
+            f"MANIC v{latest_version} is available.",
+            "",
+            "View Release Page",
+        ):
+            QDesktopServices.openUrl(QUrl(url))
 
     def _show_update_check_toast(
         self,

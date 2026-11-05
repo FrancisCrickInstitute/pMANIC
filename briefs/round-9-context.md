@@ -1,4 +1,4 @@
-Round 9 (re-rating). Commit `1bb490b` on `feat/ui-ux-overhaul`.
+Round 9 (re-rating). Commit `c574eca` on `feat/ui-ux-overhaul`.
 
 - Host: a Mac (macOS, real display, Retina). Ignore the reviewer brief's Linux
   `env.sh` line: run `uv run` directly. The tour opens real windows for about a
@@ -6,7 +6,7 @@ Round 9 (re-rating). Commit `1bb490b` on `feat/ui-ux-overhaul`.
   tours on this machine at the same time; if a capture misses because another
   window took focus, rerun that step rather than reporting it as an app bug.
 - Repository checkout to inspect and run: `/Users/couttsj/Documents/_code/pMANIC-review-r9`
-  (detached at 1bb490b; `testdata/` is ready). Read-only: change no file in it.
+  (detached at c574eca; `testdata/` is ready). Read-only: change no file in it.
 - Notes folder (`<NOTES>`): `/Users/couttsj/Documents/_code/pMANIC-notes` (read-only for you).
 - Screenshots for this round, all in `<NOTES>/reviews/round-9/shots/`:
   - Real Windows and macOS from the CI runners (small laptop-sized screens:
@@ -43,6 +43,8 @@ Round 9 (re-rating). Commit `1bb490b` on `feat/ui-ux-overhaul`.
     have accessible names. Add Compound scrolls by whole rows.
   - Reference docs: one Algorithm section in Baseline Correction; repeated
     rules stated once with links.
+  - The internal standard chooser closed as it opened on Windows (its filter was briefly a
+    window of its own); fixed and confirmed in Windows CI. Check it there.
   - Known limit: the first documentation page may flash blank on CI macOS.
   - Declined: replacing the isotopologue colours (user's choice); moving the
     session JSON out of `manic_session_export/`; flagging labelled peaks outside
@@ -51,7 +53,7 @@ Round 9 (re-rating). Commit `1bb490b` on `feat/ui-ux-overhaul`.
   which are fixed, partly fixed or still open.
 - Platforms: score every factor at the weakest of Windows/macOS x light/dark, per
   the rubric. Use the CI folders for Windows.
-- Lost functionality: compare against `origin/main` (`git diff origin/main...1bb490b -- src/manic/ui`)
+- Lost functionality: compare against `origin/main` (`git diff origin/main...c574eca -- src/manic/ui`)
   and the running app. Every menu action, shortcut, context-menu command, setting,
   dialog, popup, filter, multi-select, peak verdict, fit control, scale option and
   integration control on main must still exist and work.

@@ -480,20 +480,6 @@ def test_internal_standard_menu_checks_the_current_choice(qapp):
         toolbar.deleteLater()
 
 
-def test_settings_opens_the_same_standard_menu_where_it_asks(qapp, monkeypatch):
-    window = _make_window(monkeypatch)
-    try:
-        window.toolbar.update_compound_list(["Alanine", "Glycine"])
-        window.choose_internal_standard(QPoint(120, 90))
-        menu = window.toolbar.standard.findChildren(QMenu)[-1]
-        assert menu.pos() == QPoint(120, 90)
-        next(a for a in menu.actions() if a.text() == "Glycine").trigger()
-        menu.close()
-        assert _value(window.toolbar.standard).text() == "Glycine"
-    finally:
-        window.close()
-
-
 def test_sections_collapse_and_remember(qapp, stub_compound):
     toolbar = _sidebar(1400)
     try:

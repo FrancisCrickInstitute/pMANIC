@@ -1,7 +1,7 @@
 from unittest import mock
 
 import pytest
-from PySide6.QtWidgets import QDoubleSpinBox, QScrollArea
+from PySide6.QtWidgets import QDoubleSpinBox, QMenu, QScrollArea
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
@@ -480,24 +480,20 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     assert settings.findChild(MassToleranceSection).spin.value() == 0.35
 
 
-def test_choose_opens_the_standard_menu_under_the_button(labelled_window, monkeypatch):
+def test_choose_opens_the_sidebar_standard_menu_under_the_button(labelled_window):
     _insert_compound("Norvaline", label_atoms=2)
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Norvaline"])
-    opened_at = []
-
-    def choose(global_pos):  # the user picks Norvaline from the menu
-        opened_at.append(global_pos)
-        labelled_window.toolbar.on_internal_standard_selected("Norvaline")
-
-    monkeypatch.setattr(labelled_window, "choose_internal_standard", choose, raising=False)
     labelled_window.open_settings_page("General")
     page = labelled_window.settings_window.findChild(InternalStandardSection)
-
-    page.choose_button.click()
-
     button = page.choose_button
-    assert opened_at == [button.mapToGlobal(button.rect().bottomLeft())]
+
+    button.click()
+
+    menu = labelled_window.toolbar.standard.findChildren(QMenu)[-1]
+    assert menu.pos() == button.mapToGlobal(button.rect().bottomLeft())
+    next(a for a in menu.actions() if a.text() == "Norvaline").trigger()
+    menu.close()
     assert page.standard_label.text() == "Norvaline"
     assert page.combo.isEnabled()
 

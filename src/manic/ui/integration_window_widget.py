@@ -238,7 +238,7 @@ class IntegrationWindow(QWidget):
         self._drafts: Dict[Tuple[str, Tuple[str, ...]], Dict[str, str]] = {}
 
         self._build_ui()
-        self._setup_apply_button_state()
+        self._update_apply_button_state()
 
     def _get_main_window(self):
         """Get the main window instance to use its message box helper."""
@@ -689,10 +689,6 @@ class IntegrationWindow(QWidget):
             ).fetchone()
             
             return row["retention_time"] if row and row["retention_time"] else 0.0
-
-    def _setup_apply_button_state(self):
-        """Setup initial apply button state and styling"""
-        self._update_apply_button_state()
 
     def _update_apply_button_state(self, *_args):
         """Name whom Apply and Reset change: a selection in the caption, all shown samples

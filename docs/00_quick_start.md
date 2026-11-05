@@ -6,7 +6,7 @@
 4. In **Check your data setup**, confirm the internal standard and the matched MM files (standard mixture). Click **Continue**, or **Apply** if you picked a different internal standard. To fix an MM pattern, see [Configure Internal Standard](01_user_guide.md#step-3-configure-internal-standard).
 5. Select a compound and check each sample's plot.
 6. For a plot with a **Below threshold** badge, click it, then press **A** to accept the peak or **B** to mark it bad. The **Review** menu and the plot's right-click menu hold the same commands. See [Review Integration](01_user_guide.md#step-4-review-integration).
-7. Choose **File → Export Data...**. Pick **Time-based (recommended)** or **Legacy (MATLAB-compatible unit spacing)**. In labelled mode, tick **Include % Carbons Labelled sheet** only if you want that sheet. Click **Choose Location…** and save the workbook.
+7. Choose **File → Export Data...**, confirm the integration method and save the workbook. [Export Results](01_user_guide.md#step-5-export-results) explains the options.
 
 ## Review from the keyboard
 

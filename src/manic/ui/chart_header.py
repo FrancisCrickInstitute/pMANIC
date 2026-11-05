@@ -32,7 +32,7 @@ def expand_icon() -> QIcon:
 
 
 class ChartHeader(QWidget):
-    """'TOTAL ABUNDANCE ............ [expand]' above a summary chart."""
+    """'PEAK AREA ............ [expand]' above a summary chart."""
 
     def __init__(self, title: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -51,6 +51,7 @@ class ChartHeader(QWidget):
         self.expand_button.setProperty("variant", "ghost")
         self.expand_button.setCursor(Qt.PointingHandCursor)
         self.expand_button.setToolTip("Enlarge with sample names (or double-click the chart)")
+        self.expand_button.setAccessibleName(f"Enlarge {title.lower()} chart")
         self.expand_button.setFixedSize(24, 24)
         self.expand_button.setEnabled(False)
 

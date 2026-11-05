@@ -51,14 +51,10 @@ def abundances_from_provider(provider, compound_name: str, sample_names: list[st
 
 
 class TotalAbundanceWidget(QWidget):
-    """
-    Horizontal bar chart showing total abundance for each sample.
+    """Horizontal bar chart of each sample's peak area (peak_area_label names it).
 
-    Shows the sum of all isotopologue areas for each sample, representing
-    the total amount of compound detected (ignoring isotopic distribution).
-
-    Companion to the isotopologue ratio widget - same integration logic but
-    displays total abundance instead of relative ratios.
+    Companion to the isotopologue ratio widget: same integration, but the
+    summed area instead of the ratios.
     """
 
     sample_activated = Signal(str)
@@ -78,7 +74,7 @@ class TotalAbundanceWidget(QWidget):
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))
 
-        self.header = ChartHeader("Total abundance")
+        self.header = ChartHeader("Peak area")
         self.header.expand_button.clicked.connect(self._show_popup_chart)
 
         layout = QVBoxLayout(self)
@@ -189,7 +185,7 @@ class TotalAbundanceWidget(QWidget):
     def hover_text(self, index: int) -> str:
         value = float(self._current_abundances[index])
         shown = f"{value:.3g}" if np.isfinite(value) else "—"
-        return f"{self._current_sample_names[index]}\nTotal abundance  {shown}"
+        return f"{self._current_sample_names[index]}\nPeak area  {shown}"
 
     def _on_bar_hovered(self, status: bool, index: int) -> None:
         if not status or not self._has_data():
@@ -259,7 +255,7 @@ class TotalAbundanceWidget(QWidget):
             
             dialog = ChartPopupDialog(
                 chart_type="total_abundance",
-                title="Total Abundance",
+                title="Peak area",
                 data=self._current_abundances,
                 sample_names=self._current_sample_names,
                 parent=self,

@@ -125,8 +125,8 @@ def test_mini_charts_pair_each_sample_with_its_own_values(qapp, monkeypatch):
         _shown(abundance_chart, 300)
 
         assert _hover(ratio_chart, "S1", monkeypatch)[-1] == "S1\nM+0  90.0%\nM+1  10.0%\nM+2  0.0%"
-        assert _hover(abundance_chart, "S1", monkeypatch)[-1] == "S1\nTotal abundance  100"
-        assert _hover(abundance_chart, "S3", monkeypatch)[-1] == "S3\nTotal abundance  3e+04"
+        assert _hover(abundance_chart, "S1", monkeypatch)[-1] == "S1\nPeak area  100"
+        assert _hover(abundance_chart, "S3", monkeypatch)[-1] == "S3\nPeak area  3e+04"
         assert [e.sample_name for e in eics] == names
 
         assert ratio_chart.key.isVisible()

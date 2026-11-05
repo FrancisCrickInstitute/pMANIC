@@ -677,6 +677,18 @@ class MainWindow(QMainWindow):
         self._sync_review_menu()
         if action.isEnabled():
             action.trigger()
+            return
+        view = self.graph_view
+        if not view.has_plots():
+            return
+        lead = view.review_lead()
+        if lead is None:
+            message = "Select a plot first"
+        elif len(view.get_selected_samples()) > 1:
+            message = "No selected plot is Below threshold"
+        else:
+            message = f"{lead.sample_name} is not Below threshold"
+        show_status_toast(self.statusBar(), message)
 
     def _with_review_lead(self, command) -> None:
         lead = self.graph_view.review_lead()

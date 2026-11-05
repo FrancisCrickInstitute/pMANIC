@@ -151,3 +151,29 @@ def test_a_failed_render_says_so_and_offers_a_retry(viewer):
     viewer.retry_button.click()
     assert _wait(viewer.web_view.isVisible)
     assert _page_text(viewer) == "Quick Start\n\nLoad a compound list."
+
+
+def test_a_new_page_shows_loading_until_that_page_renders(viewer):
+    viewer.open()
+    assert _wait(viewer.is_rendered)
+    viewer.page_list.setCurrentRow(1)
+    assert not viewer.is_rendered() and viewer.status_label.text() == "Loading…"
+    # A finish while the previous page is still the one drawn is not this request's.
+    viewer.web_view.loadFinished.emit(True)
+    assert not viewer.is_rendered()
+    assert _wait(viewer.is_rendered)
+    assert _page_text(viewer) == "Guide"
+
+
+def test_a_guide_link_opens_its_page_at_the_section(viewer, docs_dir):
+    (docs_dir / "01_user_guide.md").write_text(
+        "# Guide\n\n## Fix a missing qualifier ratio\n\nFill the column.\n", encoding="utf-8"
+    )
+    viewer.open_link("01_user_guide.md#fix-a-missing-qualifier-ratio")
+    assert viewer.current_file == docs_dir / "01_user_guide.md"
+    assert viewer.page_list.currentItem().text() == "Guide"
+    assert _wait(viewer.is_rendered)
+    hashes = []
+    viewer.web_view.page().runJavaScript("location.hash", 0, hashes.append)
+    assert _wait(lambda: hashes)
+    assert hashes == ["#fix-a-missing-qualifier-ratio"]

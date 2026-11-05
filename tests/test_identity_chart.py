@@ -164,12 +164,8 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1", "Qualifier 2"]
 
         assert widget.header.detail.text() == "2 samples failed"
-        key = "Qualifier cells  ■ ✓ Validated 1 ■ ✕ Failed 2 ■ – Absent 3"
+        key = "Qualifier cells  ■ ✓ Validated 1 ■ ✕ Failed 2 ■ – Not assessed 3"
         assert _plain(widget.key) == _plain(dialog.status_legend) == key
-        assert widget.key.toolTip() == (
-            "Counts are qualifier cells: one per sample for each qualifier ion.\n"
-            "No verdict (grey): 3 absent, 0 not assessed, 0 unavailable."
-        )
 
         configured = ChartPopupDialog.for_identity(
             _identity(["S1", "S2"], failed=("S2",), qualifiers=(V1, V2))
@@ -241,8 +237,8 @@ def test_identity_popup_row_selects_the_sample_through_the_qc_widget(qapp):
     [
         (
             (_qualifier(1), _qualifier(2)),
-            "Expected ratios come from the compound list. Fill its Qualifier Ratio columns "
-            "and reload the list; Help › Check Data Setup lists the reload steps.",
+            "Expected ratios come from the compound list's Qualifier Ratio columns. "
+            "See Fix a missing qualifier ratio.",
             "Qualifier ion 1 m/z 101   no expected ratio",
         ),
         (
@@ -257,8 +253,8 @@ def test_identity_popup_row_selects_the_sample_through_the_qc_widget(qapp):
         ),
         (
             (_qualifier(1), _qualifier(2, 0.2)),
-            "Expected ratios come from the compound list. Fill its Qualifier Ratio columns "
-            "and reload the list; Help › Check Data Setup lists the reload steps. "
+            "Expected ratios come from the compound list's Qualifier Ratio columns. "
+            "See Fix a missing qualifier ratio. "
             "Set the missing tolerances in Settings › Qualifier Ratios.",
             "Qualifier ion 1 m/z 101   no expected ratio",
         ),
@@ -282,7 +278,7 @@ def test_compound_with_no_expected_ratios_says_so_instead_of_a_grey_grid(qapp, q
             assert shown_note.isVisible() is not grid
             assert scroll.isVisible() is grid and key.isVisible() is grid
             if not grid:
-                assert shown_note.text().replace("\xa0", " ") == note
+                assert _plain(shown_note) == note
         if not grid:
             assert dialog.ion_legend.labels()[1] == chip
     finally:
@@ -354,6 +350,24 @@ def test_one_sample_leaves_no_band_below_it(qapp):
     finally:
         host.deleteLater()
         dialog.deleteLater()
+
+
+def test_summary_fits_the_inspector_when_data_arrives_after_it_painted(qapp):
+    inspector = QScrollArea()
+    inspector.setWidgetResizable(True)
+    inspector.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    widget = TargetedQcWidget()
+    inspector.setWidget(widget)
+    try:
+        # Painted empty first, as when the compound list loads before the raw data.
+        _settle(inspector, 296, 300)
+        inspector.grab()
+        widget.update_results(_identity(["MM_01", "MM_02"], qualifiers=(V1, V2)))
+        _settle(inspector, 296, 300)
+        assert widget.width() <= inspector.viewport().width()
+        assert all(x < widget.width() for _text, x in widget.columns.tick_positions())
+    finally:
+        inspector.deleteLater()
 
 
 def test_long_sidebar_names_shorten_to_fit_instead_of_running_off(qapp):

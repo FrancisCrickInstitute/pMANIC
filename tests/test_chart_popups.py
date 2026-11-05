@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.ui import theme
-from manic.ui.chart_popup_dialog import ChartPopupDialog, bar_value_text
+from manic.ui.chart_popup_dialog import ChartPopupDialog
 
 # The sidebar charts hand popups their samples bottom to top.
 SIDEBAR_ORDER = ["Std_MM_02", "Bio_002", "Bio_001"]
@@ -77,11 +77,21 @@ def test_both_popups_read_top_down_in_grid_order_with_values_paired(qapp):
         assert (by_name["A"], by_name["C"], by_name["D"]) == (0.91, 0.0, 1.13)
         assert low.row_names() == ["D", "C", "B", "A"]
         assert _value_labels(low) == ["1.13", "—", "<0.01", "0.91"]
-        # A NaN abundance cannot reach a drawn row (it breaks the axis scale first).
-        assert bar_value_text(float("nan")) == "—"
     finally:
         for dialog in (abundance, ratios, low):
             dialog.deleteLater()
+
+
+def test_a_sample_with_no_abundance_shows_a_dash_on_a_sane_axis(qapp):
+    dialog = _abundance([9100.0, float("nan"), 11300.0], ["A", "B", "C"])
+    try:
+        dialog.show()
+        qapp.processEvents()
+        assert _value_labels(dialog) == ["1.13", "—", "0.91"]
+        assert dialog.pinned_axis.title() == "×10⁴"
+        assert [text for text, _x in dialog.pinned_axis.tick_positions()] == ["0.0", "0.2", "0.4", "0.6", "0.8", "1.0", "1.2"]
+    finally:
+        dialog.deleteLater()
 
 
 def test_clicking_a_row_activates_its_sample_and_closes(qapp):

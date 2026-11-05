@@ -474,9 +474,13 @@ def tour_steps(tour: Tour) -> None:
     tour.run("settings", tour.window.open_settings_window, grab_main=False)
     def documentation():
         tour.window.open_documentation_window()
-        # The web view renders after it opens; capture the page, not its loading note.
-        tour.wait_for(tour.window.documentation_window.is_rendered, timeout=30)
-        tour.pump(0.5)
+        viewer = tour.window.documentation_window
+        # Each page renders after it is picked; capture that page, not its loading note.
+        for row in range(viewer.page_list.count()):
+            viewer.page_list.setCurrentRow(row)
+            tour.wait_for(viewer.is_rendered, timeout=30)
+            tour.save(viewer, f"__DocumentationViewer_page{row}" if row else "__DocumentationViewer")
+        viewer.close()
 
     tour.run("documentation", documentation, grab_main=False)
     tour.run("add_compound", tour.window.show_add_compound_dialog, grab_main=False)

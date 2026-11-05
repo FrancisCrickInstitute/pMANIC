@@ -44,10 +44,10 @@ def _points(px: float) -> float:
     return px * 72 / PLOT_DPI
 
 
-# The detailed view is for reading values, so its text is a step above the grid's.
-PLOT_TICK_FONTSIZE = _points(11)
-PLOT_LABEL_FONTSIZE = _points(12)
-PLOT_TITLE_FONTSIZE = _points(13)
+# The detailed view is for reading values, so its text is two steps above the grid's.
+PLOT_TICK_FONTSIZE = _points(13)
+PLOT_LABEL_FONTSIZE = _points(14)
+PLOT_TITLE_FONTSIZE = _points(15)
 matplotlib.rcParams["figure.dpi"] = PLOT_DPI
 matplotlib.rcParams["figure.autolayout"] = False
 matplotlib.rcParams["axes.unicode_minus"] = False
@@ -94,6 +94,9 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
                 row[:3] = to_rgba(new)[:3]
         return out if len(out) > 1 else tuple(out[0])
 
+    # Read every colour before writing any: a figure and its patch share one facecolor,
+    # and remapping it twice turns dark surface into white, then into light on_accent.
+    updates = []
     for artist in figure.findobj():
         for prop in ("color", "facecolor", "edgecolor", "markeredgecolor", "markerfacecolor"):
             getter = getattr(artist, f"get_{prop}", None)
@@ -104,9 +107,14 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
                 value = getter()
                 if len(np.atleast_1d(value)) == 0 or (isinstance(value, str) and value in ("none", "auto")):
                     continue
-                setter(swap(value))
+                updates.append((setter, swap(value)))
             except (TypeError, ValueError):
                 continue
+    for setter, value in updates:
+        try:
+            setter(value)
+        except (TypeError, ValueError):
+            continue
 
 
 logger = logging.getLogger(__name__)
@@ -513,7 +521,7 @@ class MatplotlibPlotWidget(QWidget):
         if width < 100 or height < 100:
             return
         self.figure.subplots_adjust(
-            left=64 / width, right=1 - 16 / width, top=1 - 34 / height, bottom=40 / height
+            left=72 / width, right=1 - 16 / width, top=1 - 38 / height, bottom=46 / height
         )
 
     def set_mode(self, mode: str) -> None:

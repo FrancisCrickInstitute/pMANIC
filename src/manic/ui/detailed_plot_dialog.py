@@ -33,7 +33,6 @@ from manic.constants import (
     DETAILED_DIALOG_HEIGHT,
     DETAILED_DIALOG_SCREEN_RATIO,
     DETAILED_DIALOG_WIDTH,
-    DETAILED_MS_HEIGHT,
     DETAILED_TIC_HEIGHT,
     MS_TIME_TOLERANCE,
     PLOT_GUIDELINE_WIDTH,
@@ -54,7 +53,7 @@ from manic.ui.colors import (
     label_colors,
     steel_blue_colour,
 )
-from manic.validation.unlabelled_identity import IdentitySampleAssessment
+from manic.validation.unlabelled_identity import IdentitySampleAssessment, QualifierStatus
 from manic.ui.chart_style import text_style
 from manic.ui.identity_chart import STATUS_LABELS
 from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
@@ -253,9 +252,14 @@ class DetailedPlotDialog(QDialog):
             140, min(200, int(screen_rect.height() * 0.15) if screen_rect else 200)
         )
 
-        self.eic_plot.setMinimumHeight(2 * min_plot_height)
+        self.eic_plot.setMinimumHeight(3 * min_plot_height // 2)
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
+        # The TIC and spectrum share one row under the chromatogram, so all three
+        # charts are in view together, even on a short screen.
+        supporting = QSplitter(Qt.Horizontal)
+        supporting.setChildrenCollapsible(False)
+        splitter.addWidget(supporting)
 
         # Initialize Total Ion Chromatogram display
         self.tic_plot = MatplotlibPlotWidget(
@@ -265,7 +269,7 @@ class DetailedPlotDialog(QDialog):
         )
         self.tic_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        splitter.addWidget(self.tic_plot)
+        supporting.addWidget(self.tic_plot)
 
         # Initialize Mass Spectrum display
         self.ms_plot = MatplotlibPlotWidget(
@@ -273,7 +277,7 @@ class DetailedPlotDialog(QDialog):
         )
         self.ms_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
         self.ms_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        splitter.addWidget(self.ms_plot)
+        supporting.addWidget(self.ms_plot)
 
         # One toolbar for all three charts, in the title row.
         self.nav_toolbar = CompactNavigationToolbar(
@@ -281,9 +285,9 @@ class DetailedPlotDialog(QDialog):
         )
         header_layout.addWidget(self.nav_toolbar)
 
-        # The chromatogram is what is inspected; it gets half the height.
-        splitter.setSizes([2 * DETAILED_TIC_HEIGHT, DETAILED_TIC_HEIGHT, DETAILED_MS_HEIGHT])
-        for index, stretch in enumerate((2, 1, 1)):
+        # The chromatogram is what is inspected; it gets three fifths of the height.
+        splitter.setSizes([3 * DETAILED_TIC_HEIGHT, 2 * DETAILED_TIC_HEIGHT])
+        for index, stretch in enumerate((3, 2)):
             splitter.setStretchFactor(index, stretch)
 
         # Add splitter to scroll layout
@@ -297,7 +301,7 @@ class DetailedPlotDialog(QDialog):
 
         # Create information display panel
         info_layout = QHBoxLayout()
-        self.info_label = QLabel("Loading data...")
+        self.info_label = QLabel("Loading…")
         theme.style(self.info_label, text_style("text_secondary", 11))
         self.info_label.setWordWrap(True)
         info_layout.addWidget(self.info_label, stretch=1)
@@ -435,7 +439,7 @@ class DetailedPlotDialog(QDialog):
         """Plot the EIC data with integration boundaries."""
         if not self.eic_data or not self.compound_info:
             self.eic_plot.clear_plot()
-            self.eic_plot.set_title("Enhanced Extracted Ion Chromatogram (no data)")
+            self.eic_plot.set_title("Extracted Ion Chromatogram (no data)")
             return
 
         self._eic_plot_error = None
@@ -506,7 +510,7 @@ class DetailedPlotDialog(QDialog):
             logger.error(f"Failed to plot EIC: {e}")
             self._eic_plot_error = str(e)
             self.eic_plot.set_title(
-                "Enhanced Extracted Ion Chromatogram (plot failed)"
+                "Extracted Ion Chromatogram (plot failed)"
             )
 
     def _add_baseline_lines(self, left_bound: float, right_bound: float, prepared):
@@ -731,14 +735,17 @@ class DetailedPlotDialog(QDialog):
         channel = channels[channel_index]
         if channel.role is not IonRole.QUALIFIER:
             return label
-        assessment = self.identity.qualifiers.for_ordinal(channel.ordinal)
-        return f"{label} ({STATUS_LABELS[assessment.status].lower()})"
+        status = self.identity.qualifiers.for_ordinal(channel.ordinal).status
+        # One name for every grey state; the Identity popup chips give the reason.
+        if status not in (QualifierStatus.VALIDATED, QualifierStatus.FAILED):
+            status = QualifierStatus.NOT_ASSESSED
+        return f"{label} ({STATUS_LABELS[status].lower()})"
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""
         if not self.tic_data:
             self.tic_plot.clear_plot()
-            self.tic_plot.set_title("Total Ion Chromatogram (data not available)")
+            self.tic_plot.set_title("Total Ion Chromatogram (no data)")
             return
 
         try:
@@ -766,13 +773,13 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot TIC: {e}")
-            self.tic_plot.set_title("Total Ion Chromatogram (error loading data)")
+            self.tic_plot.set_title("Total Ion Chromatogram (plot failed)")
 
     def _plot_ms(self):
         """Plot the mass spectrum data."""
         if not self.ms_data:
             self.ms_plot.clear_plot()
-            self.ms_plot.set_title("Mass Spectrum (data not available)")
+            self.ms_plot.set_title("Mass Spectrum (no data)")
             return
 
         try:
@@ -810,28 +817,21 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot MS: {e}")
-            self.ms_plot.set_title("Mass Spectrum (error loading data)")
+            self.ms_plot.set_title("Mass Spectrum (plot failed)")
 
     def _update_info_label(self):
-        """Update the information label with data summary."""
+        """tR, the observed apex and the integration window: what the EIC is read against."""
         info_parts = []
 
         if self.compound_info:
             rt = self.compound_info.retention_time
             info_parts.append(f"tR {rt:.3f} min")
-            if self.compound_info.is_unlabelled_target:
-                if self.observed_rt is not None:
-                    info_parts.append(f"Q apex observed {self.observed_rt:.3f} min")
-            # Ion identities are named by the EIC legend and spectrum labels, not again here.
-
-        if self.eic_data:
-            info_parts.append(f"{len(self.eic_data.time)} EIC points")
-
-        if self.tic_data:
-            info_parts.append(f"{len(self.tic_data.time)} TIC points")
-
-        if self.ms_data:
-            info_parts.append(f"{len(self.ms_data.mz)} MS peaks")
+            if self.observed_rt is not None:
+                info_parts.append(f"observed apex {self.observed_rt:.3f} min")
+            info_parts.append(
+                f"integration {rt - self.compound_info.loffset:.3f}–"
+                f"{rt + self.compound_info.roffset:.3f} min"
+            )
 
         if self._eic_plot_error:
             info_parts.insert(0, f"EIC plot failed: {self._eic_plot_error}")

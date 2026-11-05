@@ -169,6 +169,7 @@ def test_live_scheme_switch_repaints_spectrum_label_boxes(qapp, spectrum):
         assert to_hex(widget.figure.get_facecolor()) == "#232529"
         apply_color_scheme(qapp, False)
         assert boxes() == {"#ffffff"}
+        assert to_hex(widget.figure.get_facecolor()) == to_hex(widget.ax.get_facecolor()) == "#ffffff"
     finally:
         apply_color_scheme(qapp, False)
         qapp.setStyleSheet("")
@@ -191,8 +192,8 @@ def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(dialog):
     dialog._plot_eic()
     dialog._update_info_label()
     assert dialog.info_label.text() == (
-        "EIC plot failed: finalize failed  ·  tR 5.000 min  ·  3 EIC points"
+        "EIC plot failed: finalize failed  ·  tR 5.000 min  ·  integration 4.900–5.100 min"
     )
     assert dialog.eic_plot.ax.get_title(loc="left") == (
-        "Enhanced Extracted Ion Chromatogram (plot failed)"
+        "Extracted Ion Chromatogram (plot failed)"
     )

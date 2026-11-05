@@ -32,6 +32,7 @@ from manic.models.analysis import IonRole
 from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
+    abundance_scale,
     scale_text,
     set_nice_ticks,
     style_axis,
@@ -69,7 +70,7 @@ _AXIS_SPACE = 16
 
 def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
     """Qualifier cells per key entry: Validated, Failed, and everything else."""
-    counts = {"Validated": 0, "Failed": 0, "No verdict": 0}
+    counts = {"Validated": 0, "Failed": 0, "Not assessed": 0}
     for sample in identity.samples:
         for qualifier in sample.qualifiers:
             if qualifier.status is QualifierStatus.VALIDATED:
@@ -77,51 +78,30 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
             elif qualifier.status is QualifierStatus.FAILED:
                 counts["Failed"] += 1
             else:
-                counts["No verdict"] += 1
+                counts["Not assessed"] += 1
     return counts
-
-
-_NO_VERDICT_STATES = {
-    QualifierStatus.ABSENT: "absent",
-    QualifierStatus.NOT_ASSESSED: "not assessed",
-    QualifierStatus.UNAVAILABLE: "unavailable",
-}
-
-
-def _grey_counts(identity: IdentityAssessmentSet) -> dict[QualifierStatus, int]:
-    grey = {status: 0 for status in _NO_VERDICT_STATES}
-    for sample in identity.samples:
-        for qualifier in sample.qualifiers:
-            if qualifier.status in grey:
-                grey[qualifier.status] += 1
-    return grey
 
 
 def identity_key_html(identity: IdentityAssessmentSet) -> str:
     counts = identity_status_counts(identity)
-    grey_counts = _grey_counts(identity)
-    grey_kinds = [status for status, n in grey_counts.items() if n]
-    # One grey kind is named once, as itself, not as "No verdict" plus its only subtype.
-    grey_entry = (
-        (STATUS_MARKS[grey_kinds[0]], _NO_VERDICT_STATES[grey_kinds[0]].capitalize())
-        if len(grey_kinds) == 1 else ("", "No verdict")
+    present = {q.status for sample in identity.samples for q in sample.qualifiers}
+    # Every grey cell's mark, so the key accounts for each mark in the grid.
+    grey_marks = " ".join(
+        mark for status, mark in STATUS_MARKS.items()
+        if status in present
+        and status not in (QualifierStatus.VALIDATED, QualifierStatus.FAILED)
     )
     parts = []
-    for qcolor, (mark, name), key in (
-        (QUALIFIER_GREEN, (STATUS_MARKS[QualifierStatus.VALIDATED], "Validated"), "Validated"),
-        (QUALIFIER_RED, (STATUS_MARKS[QualifierStatus.FAILED], "Failed"), "Failed"),
-        (QUALIFIER_GREY, grey_entry, "No verdict"),
+    for qcolor, mark, name in (
+        (QUALIFIER_GREEN, STATUS_MARKS[QualifierStatus.VALIDATED], "Validated"),
+        (QUALIFIER_RED, STATUS_MARKS[QualifierStatus.FAILED], "Failed"),
+        (QUALIFIER_GREY, grey_marks, "Not assessed"),
     ):
-        count = f"&nbsp;<b>{counts[key]}</b>"
-        mark = f"{mark}&nbsp;" if mark else ""
-        parts.append(f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{mark}{name}{count}')
-    if len(grey_kinds) > 1:
-        # Each grey state by its cell mark, so the key reads without hovering.
-        grey = ", ".join(
-            f"{STATUS_MARKS[status]}&nbsp;{grey_counts[status]}&nbsp;{_NO_VERDICT_STATES[status]}"
-            for status in grey_kinds
+        mark = f"{mark.replace(' ', '&nbsp;')}&nbsp;" if mark else ""
+        parts.append(
+            f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{mark}{name}'
+            f"&nbsp;<b>{counts[name]}</b>"
         )
-        parts[-1] += f" ({grey})"
     # Counts are cells, not samples; the unit leads so it is read first.
     unit = "Qualifier cells&nbsp;"
     # Each entry stays whole, so a narrow key wraps between entries.
@@ -130,16 +110,7 @@ def identity_key_html(identity: IdentityAssessmentSet) -> str:
     )
 
 
-def identity_key_tooltip(identity: IdentityAssessmentSet) -> str:
-    """What the key counts, and which states the grey cells hold."""
-    grey = _grey_counts(identity)
-    breakdown = ", ".join(
-        f"{grey[status]} {label}" for status, label in _NO_VERDICT_STATES.items()
-    )
-    return (
-        "Counts are qualifier cells: one per sample for each qualifier ion.\n"
-        f"No verdict (grey): {breakdown}."
-    )
+IDENTITY_KEY_TOOLTIP = "Counts are qualifier cells: one per sample for each qualifier ion."
 
 
 def missing_ratio_note(sample_name: str) -> str:
@@ -256,6 +227,8 @@ class ChartPopupDialog(QDialog):
     """
 
     sample_activated = Signal(str)
+    # A documentation link from the note, "file.md#section"; the popup closes first.
+    guide_requested = Signal(str)
 
     def __init__(
         self,
@@ -385,6 +358,8 @@ class ChartPopupDialog(QDialog):
         layout.addLayout(rows, stretch=1)
         self.empty_note = QLabel()
         self.empty_note.setWordWrap(True)
+        self.empty_note.setTextFormat(Qt.RichText)
+        self.empty_note.linkActivated.connect(self._open_guide)
         theme.style(self.empty_note, text_style("text_secondary", 13))
         self.empty_note.hide()
         layout.addWidget(self.empty_note)
@@ -449,14 +424,11 @@ class ChartPopupDialog(QDialog):
         bar_set.setColor(abundance_colour)
         bar_set.setBorderColor(abundance_colour)
 
-        # Calculate scaling for display
-        max_abundance = float(np.max(self.data)) if len(self.data) > 0 else 1.0
-        scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
-        scale_factor = 10**scale_exp if scale_exp != 0 else 1
-
+        max_abundance, scale_exp = abundance_scale(self.data)
+        scale_factor = 10**scale_exp
         scaled = [float(abundance) / scale_factor for abundance in self.data]
         for value in scaled:
-            bar_set.append(value)
+            bar_set.append(value if np.isfinite(value) else 0.0)
 
         # No hover text: each row already shows its name and the same rounded value.
         bar_series.append(bar_set)
@@ -579,7 +551,7 @@ class ChartPopupDialog(QDialog):
         )
         self.pinned_axis.set_axis("", identity_column_headers(self._identity.channels))
         self.status_legend.setText(identity_key_html(self._identity))
-        self.status_legend.setToolTip(identity_key_tooltip(self._identity))
+        self.status_legend.setToolTip(IDENTITY_KEY_TOOLTIP)
         self.status_legend.show()
         for bar_set in self._identity_binding.bar_sets:
             bar_set.hovered.connect(
@@ -756,6 +728,10 @@ class ChartPopupDialog(QDialog):
         elif self._note_shown is not None:
             QToolTip.hideText()
         self._note_shown = None if note is None else row
+
+    def _open_guide(self, href: str) -> None:
+        self.accept()
+        self.guide_requested.emit(href)
 
     def activate_row(self, row: int) -> None:
         names = self.row_names()

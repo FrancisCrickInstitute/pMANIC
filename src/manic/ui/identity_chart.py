@@ -71,11 +71,21 @@ def identity_chart_height(rows: int, row_height: int = IDENTITY_ROW_MAX) -> int:
     return rows * row_height
 
 
+# The User Guide section on filling a qualifier's expected ratio, as a documentation link.
+MISSING_RATIO_GUIDE = "01_user_guide.md#fix-a-missing-qualifier-ratio"
+_GUIDE_LINK = (
+    f'<a href="{MISSING_RATIO_GUIDE}" style="text-decoration: none;">'
+    "Fix\u00a0a\u00a0missing\u00a0qualifier\u00a0ratio</a>"
+)
 MISSING_RATIO_STEP = (
-    "Expected ratios come from the compound list. Fill its Qualifier Ratio columns "
-    "and reload the list; Help\u00a0›\u00a0Check\u00a0Data\u00a0Setup lists the reload steps."
+    "Expected ratios come from the compound list's Qualifier Ratio columns. "
+    f"See {_GUIDE_LINK}."
 )
 MISSING_TOLERANCE_STEP = "Set the missing tolerances in Settings\u00a0›\u00a0Qualifier\u00a0Ratios."
+
+
+def _checkable(channel) -> bool:
+    return channel.expected_ratio is not None and channel.ratio_tolerance is not None
 
 
 def identity_unassessed_note(identity: IdentityAssessmentSet) -> str | None:
@@ -87,7 +97,7 @@ def identity_unassessed_note(identity: IdentityAssessmentSet) -> str | None:
     qualifiers = [c for c in identity.channels if c.role is IonRole.QUALIFIER]
     if not qualifiers:
         return f"{identity.compound_name} has no qualifier ions, so there is no identity to check."
-    if any(c.expected_ratio is not None and c.ratio_tolerance is not None for c in qualifiers):
+    if any(_checkable(c) for c in qualifiers):
         return None
     steps = []
     if any(c.expected_ratio is None for c in qualifiers):
@@ -95,6 +105,27 @@ def identity_unassessed_note(identity: IdentityAssessmentSet) -> str | None:
     if any(c.expected_ratio is not None for c in qualifiers):
         steps.append(MISSING_TOLERANCE_STEP)
     return " ".join(steps)
+
+
+def qualifier_gap_note(identity: IdentityAssessmentSet) -> str | None:
+    """One note for a qualifier no sample can be checked on, while another qualifier can.
+
+    The gap is the compound's, not any sample's, so the grid states it once
+    instead of marking every tile partial.
+    """
+    qualifiers = [c for c in identity.channels if c.role is IonRole.QUALIFIER]
+    if not any(_checkable(c) for c in qualifiers):
+        return None
+    notes = [
+        f"Qualifier {c.ordinal} is not assessed: the compound list gives it no expected ratio. "
+        f"See {_GUIDE_LINK}."
+        if c.expected_ratio is None
+        else f"Qualifier {c.ordinal} is not assessed: it has no tolerance. "
+        "Set one in Settings\u00a0›\u00a0Qualifier\u00a0Ratios."
+        for c in qualifiers
+        if not _checkable(c)
+    ]
+    return " ".join(notes) or None
 
 
 class _CellMark(QGraphicsSimpleTextItem):

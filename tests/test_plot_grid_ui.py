@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QTextDocumentFragment
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
@@ -277,6 +278,53 @@ def test_not_detected_tile_is_tinted_throughout_and_its_traces_faded(scheme, gri
         "Marked bad", "Not detected"
     ]
     assert tiles["Missing"].tint() == "danger_soft"
+
+
+def test_a_qualifier_the_method_cannot_check_is_one_header_note_not_a_badge_per_tile(grid):
+    quantifier = IonChannel(116.0, IonRole.QUANTIFIER)
+    checked = IonChannel(147.0, IonRole.QUALIFIER, ordinal=1, expected_ratio=0.4, ratio_tolerance=0.25)
+    # Serine's qualifier 2: in the method, but with no expected ratio.
+    unchecked = IonChannel(73.0, IonRole.QUALIFIER, ordinal=2)
+
+    def assessment(sample, passed):
+        qc = IdentityQcResult(
+            status=IdentityStatus.NOT_ASSESSED if passed else IdentityStatus.REVIEW_REQUIRED,
+            quantifier_area=100.0, observed_rt=7.09, rt_error=0.0, rt_passed=True,
+            qualifier_ratios=(
+                QualifierRatioResult(checked, 0.41 if passed else 0.9, passed),
+                QualifierRatioResult(unchecked, 0.2, None),
+            ),
+            reasons=(),
+        )
+        pair = qualifier_pair((quantifier, checked, unchecked), qc, error=None)
+        return IdentitySampleAssessment(sample, qc, pair, None)
+
+    samples = ["Sample_01", "Sample_04_ratio_fail", "Sample_05"]
+    identity = IdentityAssessmentSet(
+        "Serine",
+        (quantifier, checked, unchecked),
+        tuple(assessment(name, name != "Sample_04_ratio_fail") for name in samples),
+    )
+    grid.plot_compound("Serine", samples, identity=identity)
+    tiles = {name: plot.parent() for name, plot in _plots(grid).items()}
+    assert {name: [b.text() for b in _badge_labels(t)] for name, t in tiles.items()} == {
+        "Sample_01": [], "Sample_04_ratio_fail": ["QC fail"], "Sample_05": [],
+    }
+    assert {name: t.tint() for name, t in tiles.items()} == {
+        "Sample_01": None, "Sample_04_ratio_fail": "danger_soft", "Sample_05": None,
+    }
+    assert grid.qc_note.isVisibleTo(grid)
+    assert QTextDocumentFragment.fromHtml(grid.qc_note.text()).toPlainText().replace("\xa0", " ") == (
+        "Qualifier 2 is not assessed: the compound list gives it no expected ratio. "
+        "See Fix a missing qualifier ratio."
+    )
+    links = []
+    grid.guide_requested.connect(links.append)
+    grid.qc_note.linkActivated.emit("01_user_guide.md#fix-a-missing-qualifier-ratio")
+    assert links == ["01_user_guide.md#fix-a-missing-qualifier-ratio"]
+
+    grid.plot_compound("Serine", samples)
+    assert not grid.qc_note.isVisibleTo(grid)
 
 
 def test_activated_sample_is_selected_focused_and_scrolled_to(grid, qapp):

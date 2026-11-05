@@ -49,6 +49,8 @@ QToolButton[role="help"] {
 QToolButton[role="help"]:hover { background: @surface_hover; color: @text; }
 QToolButton[role="help"]:focus { border-color: @accent; }
 QPushButton::menu-indicator { image: none; width: 0px; }
+QLineEdit { placeholder-text-color: @text_tertiary; }
+QLineEdit:read-only { placeholder-text-color: @text_secondary; }
 """
 
 _SIDEBAR_STYLE = """

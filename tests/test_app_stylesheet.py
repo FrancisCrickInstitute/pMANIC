@@ -103,9 +103,14 @@ def test_rendered_text_focus_rings_and_status_marks_reach_wcag_contrast_in_both_
     qapp.processEvents()
     hint = next(label for label in dialog.findChildren(QLabel) if label.text().startswith("Lists"))
     image = dialog.grab(QRect(hint.mapTo(dialog, QPoint(0, 0)), hint.size())).toImage()
-    dialog.close()
     ground = image.pixelColor(image.width() - 2, image.height() // 2)
     assert _best_contrast(image, ground) >= 4.5, ground.name()
+    # The read-only path field's "No file selected" placeholder.
+    image = dialog.c_edit.grab().toImage()
+    dialog.close()
+    ground = image.pixelColor(image.width() - 6, image.height() // 2)
+    placeholder = image.copy(4, 4, 120, image.height() - 8)
+    assert _best_contrast(placeholder, ground) >= 4.5, ground.name()
 
     # Focus rings and status-icon marks are non-text, so 3:1.
     button = QPushButton("Apply")

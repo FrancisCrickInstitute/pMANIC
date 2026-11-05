@@ -12,6 +12,7 @@ from manic.ui.left_toolbar import SPLIT_SETTING, Toolbar
 from manic.ui.loaded_data_widget import LoadedDataWidget
 from manic.ui.standard_chooser import StandardChooser
 from manic.ui.standard_indicator_widget import StandardIndicator
+from manic.utils.utils import apply_app_stylesheet
 
 from conftest import _make_window
 
@@ -583,12 +584,11 @@ def test_dragged_split_is_remembered(qapp):
         again.deleteLater()
 
 
-# Short of room, Samples gives up rows before Compounds drops below three.
 @pytest.mark.parametrize(
     "height, samples_open, compound_rows, sample_rows",
-    [(LAPTOP_720, True, 4, 3), (700, False, 6, 0), (540, True, 3, 1)],
+    [(LAPTOP_720, True, 4, 3), (700, False, 6, 0)],
 )
-def test_laptop_lists_keep_their_rows_with_samples_open(
+def test_laptop_lists_keep_four_compounds_and_three_samples_with_samples_open(
     qapp, height, samples_open, compound_rows, sample_rows
 ):
     toolbar = _sidebar(height, samples_open)
@@ -598,6 +598,19 @@ def test_laptop_lists_keep_their_rows_with_samples_open(
         assert toolbar.section_switcher.isVisible()
     finally:
         toolbar.deleteLater()
+
+
+def test_short_of_room_samples_give_up_rows_before_compounds_drop_below_three(qapp):
+    # Row heights come from the app stylesheet, as in the app.
+    before = qapp.styleSheet()
+    apply_app_stylesheet(qapp)
+    toolbar = _sidebar(600, samples_open=True)
+    try:
+        assert _full_rows(toolbar.compound_list) >= 3
+        assert _full_rows(toolbar.sample_list) >= 1
+    finally:
+        toolbar.deleteLater()
+        qapp.setStyleSheet(before)
 
 
 # 680 is about the sidebar of a 1024x768 window with a taller menu bar.

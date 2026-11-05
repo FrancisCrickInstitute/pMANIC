@@ -2861,19 +2861,24 @@ class MainWindow(QMainWindow):
                     internal_standard,
                 )
                 if not ok:
-                    problems_text = "\n".join(f"• {p}" for p in problems)
+                    missing = " or ".join(
+                        words
+                        for field, words in (
+                            ("int_std_amount", "internal-standard amount"),
+                            ("amount_in_std_mix", "amount in the standard mix"),
+                        )
+                        if any(field in problem for problem in problems)
+                    )
                     if not self._confirm(
-                        "Internal Standard Metadata Missing",
+                        "No Internal-Standard Amount",
                         (
-                            f"Internal standard '{internal_standard}' is missing required metadata. "
-                            "Export peak areas instead?"
-                        ),
-                        (
-                            "Fix the compound list and re-import to enable calibrated Abundances.\n\n"
-                            "Problems found:\n"
-                            f"{problems_text}\n\n"
-                            "If you continue, MANIC will export without an internal standard."
-                        ),
+                            f"{internal_standard} has no {missing} in the compound list. "
+                            if missing
+                            else f"{internal_standard} is not in the compound list. "
+                        )
+                        + "Export peak areas instead?",
+                        "Add it to the compound list and import the list again "
+                        "to export calibrated abundances.",
                         "Export Peak Areas",
                     ):
                         return

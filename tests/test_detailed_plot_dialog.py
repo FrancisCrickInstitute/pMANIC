@@ -312,16 +312,21 @@ def test_all_three_charts_fit_a_small_window_without_scrolling(qapp, dialog, siz
     assert min(p.height() for p in (dialog.tic_plot, dialog.ms_plot)) >= 140
 
 
-def test_a_long_sample_name_is_cut_in_the_middle_and_shown_whole_on_hover(qapp, monkeypatch):
+def test_long_names_are_cut_in_the_middle_and_shown_whole_on_hover(qapp, monkeypatch):
+    from manic.ui.chart_header import HeaderName
     from manic.ui.detailed_plot_dialog import DetailedPlotDialog
 
     monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    compound = "2-Hydroxyglutarate-di-tert-butyldimethylsilyl-derivative (Melatonin)"
     name = "2026-03-14_GCMS_Run042_Plasma_Fasted_Bio_001_rep3_inj2"
-    dialog = DetailedPlotDialog("Melatonin", name, samples=["A", name])
+    dialog = DetailedPlotDialog(compound, name, samples=["A", name])
     try:
         dialog.resize(700, 520)
         dialog.show()
         qapp.processEvents()
+        title = dialog.findChildren(HeaderName)[0]
+        assert title.text().startswith("2-Hydroxy") and title.text().endswith("(Melatonin)")
+        assert "…" in title.text() and title.toolTip() == compound
         shown = dialog.sample_label.text()
         assert "…" in shown and shown.startswith("in 2026") and shown.endswith("inj2")
         assert dialog.sample_label.toolTip() == f"in {name}"

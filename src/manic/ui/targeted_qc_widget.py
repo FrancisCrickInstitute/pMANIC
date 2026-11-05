@@ -22,7 +22,7 @@ from manic.ui.chart_popup_dialog import (
     identity_key_html,
     IDENTITY_KEY_TOOLTIP,
 )
-from manic.ui.chart_style import style_chart, text_style
+from manic.ui.chart_style import fit_name_font, style_chart, text_style
 from manic.ui.identity_chart import (
     IdentityGridBinding,
     add_identity_grid,
@@ -139,14 +139,13 @@ class TargetedQcWidget(QWidget):
         # With room to spare the rows grow, like the Peak area bars beside them.
         self._scroll.setMaximumHeight(identity_chart_height(len(identity.samples), ROOMY_ROW_PX))
         self.columns.set_axis("", identity_column_headers(identity.channels, detail=False))
-        note = identity_unassessed_note(identity)
-        if note is not None and qualifier_gap_note(identity) is not None:
-            # The note above the grid, always beside this panel, says why and how to fix it.
-            note = "No qualifier can be assessed."
+        assessed = identity_unassessed_note(identity) is None
+        # The grid hides its own note on the gap while this panel is open.
+        note = qualifier_gap_note(identity) or identity_unassessed_note(identity)
         self.note.setText(note or "")
         self.note.setVisible(note is not None)
-        self._scroll.setVisible(note is None)
-        self.columns.setVisible(note is None)
+        self._scroll.setVisible(assessed)
+        self.columns.setVisible(assessed)
         self._connect_cell_signals()
         self._fit_names()
         self._paint_highlight()
@@ -160,7 +159,7 @@ class TargetedQcWidget(QWidget):
         )
         self.key.setText(identity_key_html(identity))
         self.key.setToolTip(IDENTITY_KEY_TOOLTIP)
-        self.key.setVisible(note is None)
+        self.key.setVisible(assessed)
         self._cap_height()
 
     def _cap_height(self) -> None:
@@ -191,6 +190,7 @@ class TargetedQcWidget(QWidget):
     def _fit_names(self, *_args) -> None:
         axes = self.chart.axes(Qt.Vertical)
         if self._identity is not None and axes:
+            fit_name_font(self.chart, axes[0])
             fit_category_names(
                 axes[0],
                 [sample.sample_name for sample in reversed(self._identity.samples)],

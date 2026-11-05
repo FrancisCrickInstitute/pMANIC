@@ -206,6 +206,43 @@ def test_grid_header_names_the_compound_with_tr_and_count(grid, rts):
     assert grid.selection_summary.text() == ""
 
 
+def test_a_long_compound_name_is_cut_in_the_middle_and_keeps_the_tr_in_view(grid, qapp, rts):
+    name = "2-Hydroxyglutarate-di-tert-butyldimethylsilyl-derivative (Pyruvate)"
+    grid.plot_compound(name, ["S1", "S2"])
+    grid.resize(560, 400)
+    grid.show()
+    qapp.processEvents()
+    title = grid.compound_title.text()
+    assert "…" in title and title.startswith("2-Hydroxy") and title.endswith("(Pyruvate)")
+    assert grid.compound_title.toolTip() == name
+    assert grid.selection_summary.text() == "tR 7.09"
+
+
+def test_a_narrow_header_keeps_one_row_with_the_scale_toggles_in_a_menu(grid, qapp, rts):
+    grid.plot_compound("Pyruvate", ["S1", "S2"])
+    grid.show()
+    for width, folded in ((900, False), (520, True)):
+        grid.resize(width, 400)
+        qapp.processEvents()
+        assert grid.scale_menu_button.isVisibleTo(grid) is folded
+        assert grid.shared_y_button.isVisibleTo(grid) is not folded
+        row = grid._header_row
+        middles = {
+            row.itemAt(i).widget().geometry().center().y()
+            for i in range(row.count())
+            if row.itemAt(i).widget() is not None and row.itemAt(i).widget().isVisible()
+        }
+        assert max(middles) - min(middles) <= 1
+    menu = grid.scale_menu_button.menu()
+    menu.aboutToShow.emit()
+    shared = next(action for action in menu.actions() if action.text() == "Shared Y")
+    assert not shared.isChecked()
+    shared.trigger()
+    assert grid.shared_y_button.isChecked()
+    menu.aboutToShow.emit()
+    assert shared.isChecked()
+
+
 def test_chip_row_wraps_before_truncating_a_chip(qapp):
     host = QWidget()
     layout = QVBoxLayout(host)
@@ -344,6 +381,15 @@ def test_tiles_fit_the_2560_screen_or_scroll_at_the_large_size(
     assert (grid._scroll.verticalScrollBar().maximum() > 0) == (samples == 200)
 
 
+def test_tiles_too_small_to_judge_a_peak_scroll_at_the_large_size_instead(grid, qapp):
+    # The grid viewport of a 1280x800 window with the Summary open; fitting all 30
+    # tiles would leave each 139x106.
+    _show_grid_with_viewport(grid, qapp, 30, 727, 676)
+    assert grid._grid_shape[1] >= LARGE_TILE[1]
+    assert _plots(grid)["S0"].parent().height() >= LARGE_TILE[1]
+    assert grid._scroll.verticalScrollBar().maximum() > 0
+
+
 def test_next_and_previous_flagged_tile_wrap_and_skip_reviewed_ones(grid):
     grid.plot_compound("Cmp", ["A", "B", "C", "D", "E"])
     assert grid.focus_flagged(1) is False
@@ -396,6 +442,11 @@ def test_a_qualifier_the_method_cannot_check_is_one_header_note_not_a_badge_per_
     assert {name: [b.text() for b in _badge_labels(t)] for name, t in tiles.items()} == {
         "Sample_01": [], "Sample_04_ratio_fail": ["QC fail"], "Sample_05": [],
     }
+    assert grid.qc_note.isVisibleTo(grid)
+    # While the Summary is open, its Identity panel carries the note instead.
+    grid.summary_button.setChecked(True)
+    assert not grid.qc_note.isVisibleTo(grid)
+    grid.summary_button.setChecked(False)
     assert grid.qc_note.isVisibleTo(grid)
     assert QTextDocumentFragment.fromHtml(grid.qc_note.text()).toPlainText().replace("\xa0", " ") == (
         "Qualifier 2 is not assessed: the compound list gives it no expected ratio. "

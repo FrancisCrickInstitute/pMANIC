@@ -1,4 +1,4 @@
-"""Title row for the summary charts, with a visible enlarge button."""
+"""Title row for the summary charts, with a visible enlarge button, and the names in headers."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 from manic.ui import theme
 from manic.ui.chart_style import text_style, ui_font
 from manic.ui.icon_button import ThemedToolButton
+from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.theme import color
 
 
@@ -29,6 +30,25 @@ def expand_icon() -> QIcon:
         painter.drawLine(corner, QPointF(cx + dx * 4.5, cy + dy * 4.5))
     painter.end()
     return QIcon(pixmap)
+
+
+class HeaderName(ElidedLabel):
+    """A header's compound or sample, cut in the middle when the row is short, where the
+    distinguishing suffix survives; hover shows it whole. It keeps about ``min_chars``
+    characters, so a long neighbour never squeezes it to nothing."""
+
+    def __init__(self, text: str = "", *, min_chars: int):
+        super().__init__(text, mode=Qt.TextElideMode.ElideMiddle, hover=True)
+        self._min_chars = min_chars
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+
+    def sizeHint(self) -> QSize:
+        width = self.fontMetrics().horizontalAdvance(self.full_text()) + 2
+        return QSize(width, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:
+        least = self.fontMetrics().averageCharWidth() * self._min_chars
+        return QSize(min(least, self.sizeHint().width()), super().minimumSizeHint().height())
 
 
 class ChartHeader(QWidget):

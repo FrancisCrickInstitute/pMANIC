@@ -21,7 +21,14 @@ from manic.io.eic_reader import EIC
 from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import PinnedAxis, value_axis_ticks
-from manic.ui.chart_style import abundance_scale, scale_text, set_nice_ticks, style_axis, style_chart
+from manic.ui.chart_style import (
+    abundance_scale,
+    fit_name_font,
+    scale_text,
+    set_nice_ticks,
+    style_axis,
+    style_chart,
+)
 from manic.ui.sidebar_widgets import (
     SummaryChartArea,
     fit_category_names,
@@ -157,6 +164,7 @@ class TotalAbundanceWidget(QWidget):
     def _fit_names(self, *_args) -> None:
         axes = self.chart.axes(Qt.Vertical)
         if self._current_sample_names and axes:
+            fit_name_font(self.chart, axes[0])
             fit_category_names(axes[0], self._current_sample_names, self.chart_view.width())
 
     def set_highlighted(self, sample_names) -> None:

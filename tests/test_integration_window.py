@@ -120,6 +120,13 @@ def test_an_unapplied_edit_comes_back_with_its_compound_and_says_so(qapp, monkey
             "Applies to S2 · not applied",
         )
 
+        # With no selection the edit goes to every shown sample, and says so the same way.
+        integration.populate_fields_from_plots("Alanine", [], shown)
+        left.selectAll()
+        QTest.keyClicks(left, "0.07")
+        assert _caption(integration.scope_label) == "Applies to all 2 shown samples · not applied"
+
+        integration.populate_fields_from_plots("Alanine", ["S2"], shown)
         # Applied, the app shows the stored window again: the same value, no longer a draft.
         integration.apply_button.click()
         integration.populate_fields_from_plots("Alanine", ["S2"], shown)
@@ -152,12 +159,14 @@ def test_an_unapplied_tr_window_comes_back_with_its_compound_and_says_so(qapp, m
         window.selectAll()
         QTest.keyClicks(window, "0.37")
         assert _caption(integration.window_scope_label) == "Re-extracts all 2 shown samples · not applied"
+        assert integration.regenerate_button.property("variant") == "primary"
 
         show("Glycine")
         assert (window.text(), _caption(integration.window_scope_label)) == (
             "0.2",
             "Re-extracts all 2 shown samples",
         )
+        assert integration.regenerate_button.property("variant") is None
 
         show("Alanine")
         assert (window.text(), _caption(integration.window_scope_label)) == (

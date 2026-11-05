@@ -229,6 +229,11 @@ def test_checklist_text_never_collides_on_a_short_screen(qapp, tmp_path, height,
         table = dialog.mm_file_table
         fourth_row_bottom = table.rowViewportPosition(3) + table.rowHeight(3)
         assert fourth_row_bottom <= table.viewport().height()
+        if height >= 540 and not steps_shown:
+            # The table gives up rows before the disclosure under it leaves the view.
+            toggle = dialog.change_pattern_toggle
+            bottom = toggle.mapTo(dialog.scroll.viewport(), toggle.rect().bottomLeft()).y()
+            assert bottom <= dialog.scroll.viewport().height()
     finally:
         dialog.close()
 

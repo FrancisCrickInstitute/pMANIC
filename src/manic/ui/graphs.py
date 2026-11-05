@@ -121,7 +121,7 @@ class ClickableChartView(QChartView):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setFocusPolicy(Qt.NoFocus)
         self.setFrameShape(QFrame.NoFrame)
-        # Transparent so the card's QC tint shows through.
+        # Transparent so the card's verdict tint shows through.
         self.setBackgroundBrush(Qt.NoBrush)
         self.viewport().setAutoFillBackground(False)
         self.setCursor(Qt.PointingHandCursor)
@@ -243,6 +243,7 @@ class GraphView(QWidget):
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
         self.settings_button.clicked.connect(self.settings_requested.emit)
         for button in (self.docs_button, self.settings_button):
+            button.setAccessibleName(button.toolTip())
             button.setProperty("variant", "ghost")
             button.setIconSize(button.iconSize() * 0.9)
             button.setFixedSize(28, 28)
@@ -1175,7 +1176,8 @@ class GraphView(QWidget):
                 sample_name=sample_name,
                 parent=self,
                 use_corrected=self.use_corrected,
-                identity=self._sample_identity(sample_name),
+                samples=[plot.sample_name for plot in self._current_plots],
+                identity_for=self._sample_identity,
             )
             dialog.exec()
 
@@ -1495,7 +1497,7 @@ class GraphView(QWidget):
         """Create a ClickableChartView with EIC data and guide lines."""
         chart = QChart()
         style_chart(chart, QMargins(2, 2, 4, 0))
-        # The card's fill, tinted for a QC problem, runs under the traces too.
+        # The card's fill, tinted for a peak verdict, runs under the traces too.
         chart.setPlotAreaBackgroundVisible(False)
 
         x_axis = QValueAxis()

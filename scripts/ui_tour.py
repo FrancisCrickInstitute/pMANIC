@@ -524,6 +524,18 @@ def tour_steps(tour: Tour) -> None:
         tour.pump(1.5)
 
     tour.run("unlabelled_another_compound", unlabelled_problem_compound)
+
+    def peak_verdicts():
+        """Each review verdict beside the QC badges: tile colours match the workbook."""
+        from manic.validation.peak_verdict import PeakVerdict
+
+        tour.window.toolbar.compound_list.setCurrentRow(0)  # Alanine: QC fail, Not detected
+        tour.pump(1.5)
+        verdicts = (PeakVerdict.FAIL, PeakVerdict.ACCEPTED, PeakVerdict.REJECTED)
+        names = [view.sample_name for view in charts(tour.window)]
+        tour.window.graph_view.apply_peak_verdicts(dict(zip(names, verdicts)))
+
+    tour.run("peak_verdicts", peak_verdicts)
     tour.run(
         "unlabelled_settings_deconvolution",
         lambda: settings_page(tour, "Deconvolution"),

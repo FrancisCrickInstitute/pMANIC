@@ -502,7 +502,10 @@ def test_internal_standard_chooser_works_from_the_keyboard(qapp):
         chooser = _open_chooser(toolbar)
         assert chooser.list.currentItem().text() == "Glycine"
         QTest.keyClicks(chooser.filter, "xyz")
-        assert _shown_rows(chooser) == ["No internal standard"]
+        assert _shown_rows(chooser) == ["No internal standard", "No matching compounds"]
+        # The list shrinks to the rows it shows instead of leaving a blank panel.
+        row = chooser.list.sizeHintForRow(0)
+        assert chooser.list.height() == 2 * row + 2 * chooser.list.frameWidth()
         QTest.keyClick(chooser.filter, Qt.Key_Return)  # no match: nothing to choose
         assert chooser.isVisible()
         QTest.keyClick(chooser.filter, Qt.Key_Escape)  # clears the filter

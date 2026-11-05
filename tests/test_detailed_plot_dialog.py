@@ -269,3 +269,44 @@ def test_the_chromatogram_key_names_the_baseline_it_draws(qapp, dialog, monkeypa
     dialog.compound_info.baseline_correction = 0
     dialog._plot_eic()
     assert dialog.eic_plot.ax.get_legend() is None
+
+
+def test_the_arrows_step_through_the_samples_in_grid_order(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    loaded = []
+    monkeypatch.setattr(
+        DetailedPlotDialog, "_load_data", lambda self: loaded.append((self.sample_name, self.identity))
+    )
+    dialog = DetailedPlotDialog(
+        "Pyruvate", "B", samples=["A", "B", "C"], identity_for=lambda name: f"QC {name}"
+    )
+    try:
+        dialog.show()
+        dialog.activateWindow()
+        assert QTest.qWaitForWindowActive(dialog)
+        QTest.keyClick(dialog, Qt.Key_Right)
+        QTest.keyClick(dialog, Qt.Key_Right)  # C is the last: nothing further
+        assert dialog.windowTitle() == "Pyruvate in C — MANIC"
+        assert not dialog.next_sample.isEnabled() and dialog.previous_sample.isEnabled()
+        dialog.previous_sample.click()
+        QTest.keyClick(dialog, Qt.Key_Left)
+        assert dialog.sample_label.text() == "in A" and not dialog.previous_sample.isEnabled()
+        assert loaded == [("B", "QC B"), ("C", "QC C"), ("B", "QC B"), ("A", "QC A")]
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+@pytest.mark.parametrize("size", [(880, 520), (921, 581)])
+def test_all_three_charts_fit_a_small_window_without_scrolling(qapp, dialog, size):
+    from PySide6.QtWidgets import QScrollArea
+
+    dialog.resize(*size)
+    dialog.show()
+    qapp.processEvents()
+    assert dialog.findChild(QScrollArea).verticalScrollBar().maximum() == 0
+    assert min(p.height() for p in (dialog.tic_plot, dialog.ms_plot)) >= 140

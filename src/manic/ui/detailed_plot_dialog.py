@@ -11,9 +11,11 @@ Features responsive layout adaptation and professional scientific notation.
 
 import logging
 import sys
+from collections.abc import Callable, Sequence
 
 import numpy as np
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -56,7 +59,12 @@ from manic.ui.colors import (
 from manic.validation.unlabelled_identity import IdentitySampleAssessment, QualifierStatus
 from manic.ui.chart_style import text_style
 from manic.ui.identity_chart import STATUS_LABELS
-from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
+from manic.ui.matplotlib_plot_widget import (
+    SEGMENT_QSS,
+    TOGGLE_QSS,
+    CompactNavigationToolbar,
+    MatplotlibPlotWidget,
+)
 from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
 
@@ -67,6 +75,7 @@ TRACE_KEY = {
     "component": ("Other fitted peak", "dotted", 0.6, 1.2),
     "baseline": ("Baseline", "dashed", 1.0, 1.2),
 }
+PLOT_TITLES = ("Extracted Ion Chromatogram", "Total Ion Chromatogram", "Mass Spectrum")
 # m/z either side of a labelled compound's isotopologues that the spectrum opens on.
 SPECTRUM_CLUSTER_MARGIN = 20
 
@@ -96,13 +105,17 @@ class DetailedPlotDialog(QDialog):
         parent=None,
         use_corrected: bool = False,
         *,
-        identity: IdentitySampleAssessment | None = None,
+        samples: Sequence[str] = (),
+        identity_for: Callable[[str], IdentitySampleAssessment | None] = lambda _name: None,
     ):
+        """``samples`` is the grid's order, which the previous/next sample buttons follow."""
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
         self.use_corrected = use_corrected  # Store the isotope correction flag
-        self.identity = identity
+        self._samples = list(samples) or [sample_name]
+        self._identity_for = identity_for
+        self.identity = identity_for(sample_name)
         self._channel_styles = ()
         # Which TRACE_KEY treatments the chromatogram drew.
         self._treatments: set[str] = set()
@@ -116,11 +129,33 @@ class DetailedPlotDialog(QDialog):
         self._eic_plot_error = None
 
         self._setup_ui()
+        self._show_sample_name()
         self._load_data()
+
+    def step_sample(self, step: int) -> None:
+        """Show the previous (-1) or next (1) sample in the grid's order, if there is one."""
+        index = self._samples.index(self.sample_name) + step
+        if not 0 <= index < len(self._samples):
+            return
+        self.sample_name = self._samples[index]
+        self.identity = self._identity_for(self.sample_name)
+        self.eic_data = self.tic_data = self.ms_data = self.compound_info = None
+        self.observed_rt = None
+        self._eic_plot_error = None
+        for plot, title in zip((self.eic_plot, self.tic_plot, self.ms_plot), PLOT_TITLES):
+            plot.set_title(title)
+        self._show_sample_name()
+        self._load_data()
+
+    def _show_sample_name(self) -> None:
+        self.setWindowTitle(f"{self.compound_name} in {self.sample_name} — MANIC")
+        self.sample_label.setText(f"in {self.sample_name}")
+        index = self._samples.index(self.sample_name)
+        self.previous_sample.setEnabled(index > 0)
+        self.next_sample.setEnabled(index < len(self._samples) - 1)
 
     def _setup_ui(self):
         """Setup the dialog UI."""
-        self.setWindowTitle(f"{self.compound_name} in {self.sample_name} — MANIC")
         self.setModal(True)
 
         # Ensure the dialog is resizable on all platforms
@@ -216,10 +251,12 @@ class DetailedPlotDialog(QDialog):
         header_layout.setSpacing(8)
         title_label = QLabel(self.compound_name)
         theme.style(title_label, text_style("text", FONT_SIZE_TITLE, 600))
-        sample_label = QLabel(f"in {self.sample_name}")
-        theme.style(sample_label, text_style("text_secondary", FONT_SIZE_TITLE))
+        self.sample_label = QLabel()
+        theme.style(self.sample_label, text_style("text_secondary", FONT_SIZE_TITLE))
         header_layout.addWidget(title_label)
-        header_layout.addWidget(sample_label)
+        header_layout.addWidget(self.sample_label)
+        header_layout.addSpacing(4)
+        header_layout.addWidget(self._build_sample_steps())
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
@@ -252,17 +289,13 @@ class DetailedPlotDialog(QDialog):
 
         # Initialize Extracted Ion Chromatogram display
         self.eic_plot = MatplotlibPlotWidget(
-            title="Extracted Ion Chromatogram",
+            title=PLOT_TITLES[0],
             x_label="Time (min)",
             y_label="Intensity",
         )
-        # Adaptive minimum heights for small screens, but never below what a title,
-        # ticks and axis label need; a short screen scrolls the charts instead.
-        min_plot_height = max(
-            140, min(200, int(screen_rect.height() * 0.15) if screen_rect else 200)
-        )
-
-        self.eic_plot.setMinimumHeight(3 * min_plot_height // 2)
+        # Minimums leave room for a title, ticks and axis labels and no more, so all
+        # three charts fit together in a short window; only a shorter one scrolls.
+        self.eic_plot.setMinimumHeight(200)
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
         # The TIC and spectrum share one row under the chromatogram, so all three
@@ -273,19 +306,19 @@ class DetailedPlotDialog(QDialog):
 
         # Initialize Total Ion Chromatogram display
         self.tic_plot = MatplotlibPlotWidget(
-            title="Total Ion Chromatogram",
+            title=PLOT_TITLES[1],
             x_label="Time (min)",
             y_label="Total Intensity",
         )
-        self.tic_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
+        self.tic_plot.setMinimumHeight(140)
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         supporting.addWidget(self.tic_plot)
 
         # Initialize Mass Spectrum display
         self.ms_plot = MatplotlibPlotWidget(
-            title="Mass Spectrum", x_label="m/z", y_label="Intensity"
+            title=PLOT_TITLES[2], x_label="m/z", y_label="Intensity"
         )
-        self.ms_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
+        self.ms_plot.setMinimumHeight(140)
         self.ms_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         supporting.addWidget(self.ms_plot)
 
@@ -325,6 +358,31 @@ class DetailedPlotDialog(QDialog):
 
         # Enable window maximization capability
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+
+    def _build_sample_steps(self) -> QWidget:
+        """Previous and next sample, one segmented control; the arrow keys do the same."""
+        box = QWidget()
+        theme.style(box, TOGGLE_QSS + SEGMENT_QSS)
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        buttons = []
+        for name, glyph, step, key in (
+            ("Previous sample", "‹", -1, Qt.Key_Left),
+            ("Next sample", "›", 1, Qt.Key_Right),
+        ):
+            button = QToolButton()
+            button.setObjectName("segmentLeft" if step < 0 else "segmentRight")
+            button.setText(glyph)
+            button.setAccessibleName(name)
+            button.setToolTip(f"{name} ({QKeySequence(key).toString(QKeySequence.NativeText)})")
+            button.clicked.connect(lambda _checked=False, step=step: self.step_sample(step))
+            QShortcut(QKeySequence(key), self, lambda step=step: self.step_sample(step))
+            row.addWidget(button)
+            buttons.append(button)
+        self.previous_sample, self.next_sample = buttons
+        box.setVisible(len(self._samples) > 1)
+        return box
 
     def _load_data(self):
         """Load all required data for the plots."""

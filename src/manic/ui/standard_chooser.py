@@ -23,6 +23,7 @@ from .sidebar_widgets import FilterField
 NO_STANDARD = "No internal standard"
 # Heads the compounds the export cannot calibrate with, as the sidebar's note words it.
 NO_AMOUNT = "No amount: exports peak areas"
+NO_MATCH = "No matching compounds"
 VISIBLE_ROWS = 10
 WIDTH = 280
 
@@ -84,16 +85,16 @@ class StandardChooser(QFrame):
             item.setIcon(check if name == current else QIcon(blank))
             if name == current:
                 self._current_row = self.list.row(item)
-        if not names:
-            hint = QListWidgetItem("Load a compound list first", self.list)
-            hint.setFlags(Qt.ItemFlag.NoItemFlags)
+        self._no_match = QListWidgetItem(
+            NO_MATCH if names else "Load a compound list first", self.list
+        )
+        self._no_match.setFlags(Qt.ItemFlag.NoItemFlags)
+        self._no_match.setHidden(bool(names))
         if current not in names:
             self._current_row = 0
         self.list.setCurrentRow(self._current_row)
-        rows = min(self.list.count(), VISIBLE_ROWS)
-        self.list.setFixedSize(
-            WIDTH, rows * self.list.sizeHintForRow(0) + 2 * self.list.frameWidth()
-        )
+        self._opened_above = False
+        self._fit_rows()
         self.list.itemClicked.connect(self._choose)
         self.list.itemActivated.connect(self._choose)
 
@@ -102,9 +103,23 @@ class StandardChooser(QFrame):
         screen = QGuiApplication.screenAt(pos) or QGuiApplication.primaryScreen()
         area = screen.availableGeometry()
         x = min(max(pos.x(), area.left()), area.right() - self.width())
-        y = pos.y() if pos.y() + self.height() <= area.bottom() else pos.y() - self.height()
+        self._opened_above = pos.y() + self.height() > area.bottom()
+        y = pos.y() - self.height() if self._opened_above else pos.y()
         self.move(x, max(y, area.top()))
         self.show()
+
+    def _fit_rows(self) -> None:
+        """Size the list to its shown rows, up to VISIBLE_ROWS, keeping the edge
+        nearest the anchor in place."""
+        shown = sum(not self.list.isRowHidden(r) for r in range(self.list.count()))
+        bottom = self.geometry().bottom()
+        self.list.setFixedSize(
+            WIDTH,
+            min(shown, VISIBLE_ROWS) * self.list.sizeHintForRow(0) + 2 * self.list.frameWidth(),
+        )
+        self.adjustSize()
+        if self._opened_above:
+            self.move(self.x(), bottom - self.height() + 1)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -122,6 +137,7 @@ class StandardChooser(QFrame):
         clears the standard by a stray match; clearing it returns to the current choice.
         No internal standard stays in reach above the matches."""
         self.list.setRowHidden(0, False)
+        self._no_match.setHidden(True)
         if self._no_amount is not None:
             start = self.list.row(self._no_amount) + 1
             self.list.setRowHidden(
@@ -130,6 +146,7 @@ class StandardChooser(QFrame):
             )
         if not self.filter.text().strip():
             self.list.setCurrentRow(self._current_row)
+            self._fit_rows()
             return
         first = next(
             (
@@ -140,8 +157,10 @@ class StandardChooser(QFrame):
             ),
             -1,
         )
+        self._no_match.setHidden(first != -1)
         self.list.clearSelection()
         self.list.setCurrentRow(first)
+        self._fit_rows()
 
     def eventFilter(self, watched, event):
         if (

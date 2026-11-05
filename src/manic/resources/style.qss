@@ -836,7 +836,8 @@ QLabel#peakScope[state="selected"] {
 }
 
 /* Typed but not applied: attention, not a verdict. */
-QLabel#peakScope[state="edited"] {
+QLabel#peakScope[state="edited"],
+QLabel#windowScope[state="edited"] {
     color: @warning;
     font-weight: 500;
 }

@@ -236,6 +236,10 @@ class IntegrationWindow(QWidget):
         # What the peak fields last loaded, and each target's unapplied edit until Apply or Reset.
         self._loaded: Dict[str, str] = {}
         self._drafts: Dict[Tuple[str, Tuple[str, ...]], Dict[str, str]] = {}
+        # The tR window is per compound, whatever the selection, so its draft is too.
+        self._window_compound = ""
+        self._loaded_window = ""
+        self._window_drafts: Dict[str, str] = {}
 
         self._build_ui()
         self._update_apply_button_state()
@@ -345,6 +349,7 @@ class IntegrationWindow(QWidget):
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
         # Enable Enter key to trigger regeneration (same as clicking Apply window)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
+        self.tr_window_edit.textEdited.connect(self._update_apply_button_state)
         self.regenerate_button = QPushButton("Apply window")
         self.regenerate_button.setObjectName("RegenerateButton")
         self.regenerate_button.setToolTip("Ignores the plot selection")
@@ -444,11 +449,18 @@ class IntegrationWindow(QWidget):
                 compound_data = read_compound(compound_name)
                 tr_window_value = getattr(compound_data, "tr_window", 0.2)
 
-            tr_window_field = self.findChild(QLineEdit, "tr_window_input")
-            if tr_window_field:
-                tr_window_field.setText(self._format_number(tr_window_value))
-
-
+            field = self.tr_window_edit
+            if self._has_window_draft():
+                self._window_drafts[self._window_compound] = field.text()
+            else:
+                self._window_drafts.pop(self._window_compound, None)
+            field.setText(self._format_number(tr_window_value))
+            self._window_compound = compound_name
+            self._loaded_window = field.text()
+            draft = self._window_drafts.pop(compound_name, None)
+            if draft is not None and _field_value(draft) != _field_value(self._loaded_window):
+                field.setText(draft)
+            self._update_apply_button_state()
         except Exception as e:
             logger.exception("Error populating tR window field: %s", e)
 
@@ -457,8 +469,11 @@ class IntegrationWindow(QWidget):
         if compound_dict is None:
             # A cleared session leaves no edit to come back to.
             self._clear_fields()
+            self.tr_window_edit.clear()
             self._drafts.clear()
+            self._window_drafts.clear()
             self._loaded = self._field_texts()
+            self._loaded_window = ""
             self._update_apply_button_state()
             return
 
@@ -478,11 +493,9 @@ class IntegrationWindow(QWidget):
                     line_edit.setText("")
 
     def _clear_fields(self):
-        """Clear all line edit fields"""
-        for obj_name in ["lo_input", "tr_input", "ro_input", "tr_window_input"]:
-            line_edit = self.findChild(QLineEdit, obj_name)
-            if line_edit:
-                line_edit.clear()
+        """Clear the peak fields; the tR window has its own loader and draft."""
+        for obj_name in PEAK_FIELDS:
+            self.findChild(QLineEdit, obj_name).clear()
 
     def _field_texts(self) -> Dict[str, str]:
         return {name: self.findChild(QLineEdit, name).text() for name in PEAK_FIELDS}
@@ -492,6 +505,11 @@ class IntegrationWindow(QWidget):
 
     def _has_draft(self) -> bool:
         return bool(self._current_compound) and _differs(self._field_texts(), self._loaded)
+
+    def _has_window_draft(self) -> bool:
+        return bool(self._window_compound) and _field_value(
+            self.tr_window_edit.text()
+        ) != _field_value(self._loaded_window)
 
     def populate_fields_from_plots(
         self, compound_name: str, selected_samples: list, all_samples: Optional[list] = None
@@ -727,10 +745,13 @@ class IntegrationWindow(QWidget):
                 "Restore all shown samples to the compound's default peak window"
             )
         shown = len(self._all_samples)
+        window_edited = self._has_window_draft()
         self.window_scope_label.setText(
             f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
+            + (" · not applied" if window_edited else "")
         )
         self.window_scope_label.setVisible(bool(self._current_compound and shown))
+        set_style_property(self.window_scope_label, "state", "edited" if window_edited else None)
 
     def _get_samples_needing_reload(
         self,

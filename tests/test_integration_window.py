@@ -105,3 +105,43 @@ def test_an_unapplied_edit_comes_back_with_its_compound_and_says_so(qapp, monkey
         assert (left.text(), integration.scope_label.text()) == ("0.05", "Applies to S2")
     finally:
         integration.deleteLater()
+
+
+def test_an_unapplied_tr_window_comes_back_with_its_compound_and_says_so(qapp, monkeypatch):
+    with database.get_connection() as conn:
+        for name in ("Alanine", "Glycine"):
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+                "mass0, label_atoms) VALUES (?, 1.0, 0.1, 0.1, 217.0, 0)",
+                (name,),
+            )
+    integration = IntegrationWindow(AnalysisMode.LABELLED)
+    monkeypatch.setattr(
+        integration, "_show_message", lambda *a, **k: pytest.fail(f"message box: {a}")
+    )
+    window = integration.tr_window_edit
+    shown = ["S1", "S2"]
+
+    def show(compound):
+        integration.populate_fields_from_plots(compound, [], shown)
+        integration.populate_tr_window_field(compound)
+
+    try:
+        show("Alanine")
+        window.selectAll()
+        QTest.keyClicks(window, "0.37")
+        assert integration.window_scope_label.text() == "Re-extracts all 2 shown samples · not applied"
+
+        show("Glycine")
+        assert (window.text(), integration.window_scope_label.text()) == (
+            "0.2",
+            "Re-extracts all 2 shown samples",
+        )
+
+        show("Alanine")
+        assert (window.text(), integration.window_scope_label.text()) == (
+            "0.37",
+            "Re-extracts all 2 shown samples · not applied",
+        )
+    finally:
+        integration.deleteLater()

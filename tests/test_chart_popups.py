@@ -84,7 +84,8 @@ def test_both_popups_read_top_down_in_grid_order_with_values_paired(qapp):
         by_name = {name: bars.at(i) for i, name in enumerate(axis.categories())}
         assert (by_name["A"], by_name["C"], by_name["D"]) == (0.91, 0.0, 1.13)
         assert low.row_names() == ["D", "C", "B", "A"]
-        assert _value_labels(low) == ["1.13", "—", "<0.01", "0.91"]
+        # A real zero reads 0; only a sample with no data gets the dash.
+        assert _value_labels(low) == ["1.13", "0", "<0.01", "0.91"]
     finally:
         for dialog in (abundance, ratios, low):
             dialog.deleteLater()
@@ -102,9 +103,9 @@ def test_a_sample_with_no_abundance_shows_a_dash_on_a_sane_axis(qapp):
         dialog.deleteLater()
 
 
-def test_the_row_being_read_shows_its_value_to_three_figures(qapp):
+def test_the_row_being_read_shows_its_value_to_four_figures(qapp):
     # Bottom to top, as the sidebar hands them over: "Large" is the top row.
-    dialog = _abundance([0.004, 9.06], ["Small", "Large"])
+    dialog = _abundance([0.004, 9.0612], ["Small", "Large"])
     try:
         dialog.show()
         qapp.processEvents()
@@ -113,9 +114,36 @@ def test_the_row_being_read_shows_its_value_to_three_figures(qapp):
         assert _value_labels(dialog) == ["9.06", "0.004"]
         QTest.keyClick(dialog.chart_view, Qt.Key_Up)
         assert _marked_row(dialog) == "Large"
-        assert _value_labels(dialog) == ["9.06", "<0.01"]
+        assert _value_labels(dialog) == ["9.061", "<0.01"]
         QTest.keyClick(dialog.chart_view, Qt.Key_Down)
         assert _value_labels(dialog) == ["9.06", "0.004"]
+    finally:
+        dialog.deleteLater()
+
+
+def test_a_long_sample_name_is_shortened_in_the_middle_and_shown_whole_on_its_row(qapp, monkeypatch):
+    shown = []
+    monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_args: shown.append(text))
+    long_name = "2024-03-18_plate07_" + "x" * 60 + "_Bio_017_rep2"
+    dialog = _abundance([200.0, 100.0], [long_name, "Bio_001"])
+    activated = []
+    dialog.sample_activated.connect(activated.append)
+    try:
+        dialog.show()
+        qapp.processEvents()
+        name = dialog.chart.axes(Qt.Vertical)[0].categories()[0]
+        assert name.startswith("2024-03-18_plate") and name.endswith("rep2") and "…" in name
+        # The name column stays inside the chart.
+        assert dialog.chart.plotArea().left() < dialog.chart_view.width() * 0.45
+        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
+        assert shown == []
+        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
+        assert shown == [long_name]
+        _hover(dialog, 0)
+        _hover(dialog, 1)
+        assert shown[-1] == long_name
+        QTest.keyClick(dialog.chart_view, Qt.Key_Return)
+        assert activated == [long_name]
     finally:
         dialog.deleteLater()
 

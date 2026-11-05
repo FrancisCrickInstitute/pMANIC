@@ -5,8 +5,8 @@ from manic.models.database import get_connection
 from manic.ui.sidebar_widgets import StatusRow
 
 
-def _lacks_amount(compound_name: str, mode: AnalysisMode) -> bool:
-    """True when export cannot calibrate with this standard: labelled needs both amounts
+def lacking_amount(names: list[str], mode: AnalysisMode) -> set[str]:
+    """The names export cannot calibrate with as the standard: labelled needs both amounts
     (the export prompt's check), unlabelled its int_std_amount."""
     fields = (
         ("int_std_amount", "amount_in_std_mix")
@@ -14,11 +14,17 @@ def _lacks_amount(compound_name: str, mode: AnalysisMode) -> bool:
         else ("int_std_amount",)
     )
     with get_connection() as conn:
-        row = conn.execute(
-            f"SELECT {', '.join(fields)} FROM compounds WHERE compound_name = ? AND deleted = 0",
-            (compound_name,),
-        ).fetchone()
-    return row is None or any(not (row[f] and float(row[f]) > 0) for f in fields)
+        rows = conn.execute(
+            f"SELECT compound_name, {', '.join(fields)} FROM compounds "
+            f"WHERE deleted = 0 AND compound_name IN ({', '.join('?' * len(names))})",
+            names,
+        ).fetchall()
+    calibrated = {
+        row["compound_name"]
+        for row in rows
+        if all(row[f] and float(row[f]) > 0 for f in fields)
+    }
+    return set(names) - calibrated
 
 
 class StandardIndicator(StatusRow):
@@ -43,7 +49,7 @@ class StandardIndicator(StatusRow):
         self.internal_standard = compound_name
         self.set_state("done", compound_name)
         self.setToolTip("Click to change")
-        self.note.setHidden(not _lacks_amount(compound_name, self._mode))
+        self.note.setHidden(not lacking_amount([compound_name], self._mode))
 
     def clear_internal_standard(self):
         self.internal_standard = None

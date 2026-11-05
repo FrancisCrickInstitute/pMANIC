@@ -7,6 +7,7 @@ import numpy as np
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QDesktopServices,
     QIcon,
     QKeySequence,
@@ -468,6 +469,20 @@ class MainWindow(QMainWindow):
         view_menu = menu_bar.addMenu("View")
         self.view_menu = view_menu
         view_menu.setToolTipsVisible(True)
+        # The grid header's density switch, for the keyboard.
+        density = QActionGroup(view_menu)
+        for key, text in (("compact", "Compact"), ("comfortable", "Comfortable")):
+            action = density.addAction(text)
+            action.setCheckable(True)
+            action.setData(key)
+            action.triggered.connect(lambda _checked=False, k=key: self.graph_view.set_density(k))
+            view_menu.addAction(action)
+        view_menu.aboutToShow.connect(
+            lambda: next(
+                a for a in density.actions() if a.data() == self.graph_view.density()
+            ).setChecked(True)
+        )
+        view_menu.addSeparator()
         shortcuts = {"Shared Y-Scale": "Ctrl+Shift+Y", "Scale to Selected Peak": "Ctrl+Shift+P"}
         for action in self.toolbar.scale_actions():
             action.setShortcut(QKeySequence(shortcuts[action.text()]))
@@ -524,7 +539,7 @@ class MainWindow(QMainWindow):
             # macOS hides shortcuts in a menu it opens outside the menu bar.
             action.setShortcutVisibleInContextMenu(True)
 
-        def verdict_key(action: QAction, key) -> None:
+        def letter_key(action: QAction, key) -> None:
             # A bare letter, so it acts only while the grid has focus, never in a text field.
             action.setShortcut(QKeySequence(key))
             action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
@@ -561,7 +576,7 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.ACCEPTED)
             )
         )
-        verdict_key(self.accept_peak_action, Qt.Key_A)
+        letter_key(self.accept_peak_action, Qt.Key_A)
         menu.addAction(self.accept_peak_action)
         self.reject_peak_action = QAction("Mark Peak as Bad", self)
         self.reject_peak_action.triggered.connect(
@@ -569,8 +584,16 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.REJECTED)
             )
         )
-        verdict_key(self.reject_peak_action, Qt.Key_B)
+        letter_key(self.reject_peak_action, Qt.Key_B)
         menu.addAction(self.reject_peak_action)
+        self.next_flagged_action = QAction("Next Flagged Sample", self)
+        self.next_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(1))
+        letter_key(self.next_flagged_action, Qt.Key_N)
+        menu.addAction(self.next_flagged_action)
+        self.previous_flagged_action = QAction("Previous Flagged Sample", self)
+        self.previous_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(-1))
+        letter_key(self.previous_flagged_action, Qt.SHIFT | Qt.Key_N)
+        menu.addAction(self.previous_flagged_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
         menu.addSeparator()
         # The Peak window's baseline toggle, so it sits with the peak commands.
@@ -593,7 +616,12 @@ class MainWindow(QMainWindow):
 
     def _sync_review_menu(self, *_args) -> None:
         view = self.graph_view
-        self.select_all_plots_action.setEnabled(view.has_plots())
+        for action in (
+            self.select_all_plots_action,
+            self.next_flagged_action,
+            self.previous_flagged_action,
+        ):
+            action.setEnabled(view.has_plots())
         self.deselect_plots_action.setEnabled(bool(view.get_selected_samples()))
         view.update_review_actions(
             view.review_lead(),

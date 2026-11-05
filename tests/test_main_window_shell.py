@@ -1,7 +1,7 @@
 import pytest
 from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QToolButton
 
 from manic.io.compounds_import import CompoundRow, insert_compound
 from manic.models import database
@@ -51,6 +51,41 @@ def test_view_menu_scale_choice_is_exclusive_and_remembered(qapp, monkeypatch):
         assert again.graph_view._y_scale_policy is YScalePolicy.SHARED_EXTRACT
     finally:
         again.close()
+
+
+def test_view_menu_density_follows_the_header_switch(qapp, monkeypatch):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    try:
+        actions = {a.text(): a for a in window.view_menu.actions()}
+        compact, comfortable = actions["Compact"], actions["Comfortable"]
+        compact.trigger()
+        assert window.graph_view.density() == "compact"
+        assert window.findChild(QToolButton, "density_compact").isChecked()
+
+        window.findChild(QToolButton, "density_comfortable").click()
+        window.view_menu.aboutToShow.emit()
+        assert comfortable.isChecked() and not compact.isChecked()
+    finally:
+        window.close()
+
+
+def test_n_and_shift_n_step_through_flagged_samples_from_the_grid(qapp, monkeypatch):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    steps = []
+    monkeypatch.setattr(window.graph_view, "focus_flagged", steps.append, raising=False)
+    review = {a.text(): a for a in window.review_menu.actions()}
+    try:
+        assert not review["Next Flagged Sample"].isEnabled()
+        monkeypatch.setattr(window.graph_view, "has_plots", lambda: True)
+        window._sync_review_menu()
+        assert review["Next Flagged Sample"].shortcut() == QKeySequence("N")
+        assert review["Previous Flagged Sample"].shortcut() == QKeySequence("Shift+N")
+        assert review["Next Flagged Sample"] in window.graph_view.actions()
+        review["Next Flagged Sample"].trigger()
+        review["Previous Flagged Sample"].trigger()
+        assert steps == [1, -1]
+    finally:
+        window.close()
 
 
 def test_drop_zone_lights_only_for_a_drop_the_window_takes(qapp, monkeypatch, tmp_path):

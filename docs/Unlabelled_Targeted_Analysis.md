@@ -242,7 +242,7 @@ analyst.
 ### Step A. Start an unlabelled session
 
 Launch MANIC (or use **File → New Analysis Session…**) and choose
-**Unlabelled targeted analysis**.
+**Unlabelled**.
 
 ### Step B. Load the compound list
 

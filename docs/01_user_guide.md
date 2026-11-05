@@ -299,7 +299,7 @@ The Excel file contains five worksheets by default. A sixth sheet is optional.
 
 **File → Clear Session** removes compound data, raw data, and session settings. The window stays in the current analysis mode. Confirm **Clear Session**. When it finishes, **Session Cleared** appears.
 
-**File → New Analysis Session...** opens **Choose Analysis Mode**. Click **Labelled isotope-tracing analysis** or **Unlabelled targeted analysis**. If you pick the mode you are already in, MANIC tells you to use **Clear Session** instead. If you pick the other mode and data is loaded, confirm **New Analysis Session**. MANIC then clears the database and opens a new window.
+**File → New Analysis Session...** opens **Choose Analysis Mode**. Click **Labelled** or **Unlabelled**. If you pick the mode you are already in, MANIC tells you to use **Clear Session** instead. If you pick the other mode and data is loaded, confirm **New Analysis Session**. MANIC then clears the database and opens a new window.
 
 MANIC can save the state of your analysis, including compound definitions, integration boundaries, and manual overrides, without duplicating the large raw data files.
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -47,6 +48,9 @@ class RecoveryDialog(QDialog):
 
         self.item_list = QListWidget()
         self.item_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        # As in the sidebar lists: names that differ near their ends keep them; hover shows all.
+        self.item_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.item_list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.item_list.itemSelectionChanged.connect(self._update_button_state)
         layout.addWidget(self.item_list, stretch=1)
 
@@ -69,6 +73,8 @@ class RecoveryDialog(QDialog):
         self.item_list.clear()
         deleted = self._load_deleted()
         self.item_list.addItems(deleted)
+        for row, name in enumerate(deleted):
+            self.item_list.item(row).setToolTip(name)
         if deleted:
             # As tall as the names, up to twelve rows; a longer list scrolls.
             rows = min(len(deleted), 12)

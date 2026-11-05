@@ -219,6 +219,35 @@ def test_narrowing_past_three_grid_columns_closes_the_summary_until_there_is_roo
         window.close()
 
 
+def test_a_resized_window_lays_out_its_panels_like_a_fresh_one(qapp, monkeypatch):
+    fresh = {}
+    for width in (2560, 1500, 1280):
+        window = _grid_window(monkeypatch, width)
+        fresh[width] = window.splitter.sizes()
+        window.close()
+    three_columns = 3 * LARGE_TILE[0] + 2 * TILE_GAP
+    window = _grid_window(monkeypatch, 2560)
+    try:
+        for width in (1500, 1280, 2560):
+            window.resize(width, 800)
+            QApplication.processEvents()
+            assert window.splitter.sizes() == fresh[width]
+            assert window.graph_view._grid_viewport()[0] >= three_columns
+        # A Summary dragged wide is remembered, but a narrower window takes it back for the grid.
+        sidebar, grid, summary = window.splitter.sizes()
+        window.splitter.moveSplitter(sidebar + grid - 400, 2)
+        dragged = window.splitter.sizes()[2]
+        window.resize(1280, 800)
+        QApplication.processEvents()
+        assert window.summary.isVisible()
+        assert window.graph_view._grid_viewport()[0] >= three_columns
+        window.resize(2560, 800)
+        QApplication.processEvents()
+        assert window.splitter.sizes()[2] == dragged
+    finally:
+        window.close()
+
+
 def test_the_summary_closes_rather_than_cut_the_sidebar_or_widen_the_window(qapp, monkeypatch):
     window = _grid_window(monkeypatch, 1024)
     toolbar = window.toolbar

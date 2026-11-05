@@ -372,18 +372,30 @@ def test_n_makes_the_flagged_tile_the_one_target_of_a_and_b(qapp, monkeypatch, p
         window.close()
 
 
-def test_n_with_nothing_to_review_says_so(qapp, monkeypatch, plot_data):
+def test_review_keys_that_cannot_act_say_why(qapp, monkeypatch, plot_data):
     from manic.ui.toast_notification import ToastNotification
 
-    window, _ = _review_window(monkeypatch, {"A": PASS, "B": ACCEPTED, "C": REJECTED})
+    window, reviews = _review_window(monkeypatch, {"A": PASS, "B": ACCEPTED, "C": REJECTED})
     view = window.graph_view
+
+    def toast_after(key):
+        QTest.keyClick(view, key)
+        toasts = window.statusBar().findChildren(ToastNotification)
+        [toast] = [toast for toast in toasts if toast.isVisible()]
+        return toast.findChild(QLabel, "toastLabel").text()
+
     try:
         review = _review_menu(window)
         assert not review["Next Flagged Sample"].isEnabled()
         assert not review["Previous Flagged Sample"].isEnabled()
-        QTest.keyClick(view, Qt.Key_N)
-        [toast] = window.statusBar().findChildren(ToastNotification)
-        assert toast.findChild(QLabel, "toastLabel").text() == "No flagged plots in Cmp"
+        assert toast_after(Qt.Key_N) == "No flagged plots in Cmp"
+        assert toast_after(Qt.Key_A) == "Select a plot first"
+        assert toast_after(Qt.Key_B) == "Select a plot first"
+        view.select_samples(["A"])
+        assert toast_after(Qt.Key_A) == "A is not Below threshold"
+        view.select_samples(["A", "C"])
+        assert toast_after(Qt.Key_A) == "No selected plot is Below threshold"
+        assert reviews == []
 
         view.apply_peak_verdicts({"A": FAIL})
         assert _review_menu(window)["Next Flagged Sample"].isEnabled()

@@ -1,4 +1,4 @@
-# Workflow: Data Interpretation
+# Data Interpretation
 
 When you export data from MANIC (Step 5), the application generates a multi-sheet Excel workbook. This document explains the labelled (isotope-tracing) sheets. Unlabelled sessions write **Raw Values** and **Abundances** in the same matrix layout, then add **Qualifier QC**. See [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md#8-excel-export).
 
@@ -13,7 +13,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 * **Use Case:** Quality control. Use this to check if a sample had low overall signal or injection issues.
 * **Deconvolution:** When chromatographic peak deconvolution is on, these areas come from the selected model curve, or from the raw in-window scans when an ion of that compound and sample fails to fit. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
 
-[Reference: Integration Methods](Reference_Integration_Methods.md) compares Time-Based and Legacy integration.
+[Integration Methods](Reference_Integration_Methods.md) compares Time-Based and Legacy integration.
 
 ---
 
@@ -28,7 +28,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 >
 > The correction algorithm subtracts the "natural" contribution. If a peak is entirely due to natural background (unlabelled), the corrected value for heavier isotopologues will properly be zero.
 
-[Reference: Natural Isotope Correction](Reference_Natural_Isotope_Correction.md) explains the matrix-based correction.
+[Natural Isotope Correction](Reference_Natural_Isotope_Correction.md) explains the matrix-based correction.
 
 ---
 
@@ -92,7 +92,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
     * An Internal Standard must be selected.
     * `int_std_amount` and `amount_in_std_mix` must be defined in your Compound List.
 
-[Reference: Abundance Calculation](Reference_Abundance_Calculation.md) derives the formula and the MRRF slopes.
+[Abundance Calculation](Reference_Abundance_Calculation.md) derives the formula and the MRRF slopes.
 
 ---
 
@@ -111,4 +111,4 @@ MANIC automatically validates every peak during export. You may see coloured cel
 * **⬜ Grey (Info):** **Relative units** in the **Abundances** sheet.
     * In the Abundances sheet "Units" row, a grey cell indicates the value is reported as `Relative`/`rel` rather than `nmol`.
 
-[Reference: Peak Validation](Reference_Peak_Validation.md) covers the threshold and how to change it.
+[Peak Validation](Reference_Peak_Validation.md) covers the threshold and how to change it.

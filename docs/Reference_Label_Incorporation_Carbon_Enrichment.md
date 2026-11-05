@@ -1,4 +1,4 @@
-# Reference: Label Incorporation & Carbon Enrichment
+# Label Incorporation & Carbon Enrichment
 
 MANIC produces two distinct metrics to quantify isotopic labelling. While they are related, they answer different biological questions:
 

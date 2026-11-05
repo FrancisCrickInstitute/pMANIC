@@ -677,6 +677,18 @@ class MainWindow(QMainWindow):
         self._sync_review_menu()
         if action.isEnabled():
             action.trigger()
+            return
+        view = self.graph_view
+        if not view.has_plots():
+            return
+        lead = view.review_lead()
+        if lead is None:
+            message = "Select a plot first"
+        elif len(view.get_selected_samples()) > 1:
+            message = "No selected plot is Below threshold"
+        else:
+            message = f"{lead.sample_name} is not Below threshold"
+        show_status_toast(self.statusBar(), message)
 
     def _with_review_lead(self, command) -> None:
         lead = self.graph_view.review_lead()
@@ -753,7 +765,7 @@ class MainWindow(QMainWindow):
         if page is self.graph_view and not self._summary_settled:
             self._summary_settled = True
             settings = QSettings()
-            self._summary_roomy = self._summary_fits(columns=3)
+            self._summary_roomy = self._summary_room() >= SUMMARY_MIN_WIDTH
             self.show_summary_action.setChecked(
                 settings.value(SUMMARY_OPEN_SETTING, type=bool) and self._summary_fits()
                 if settings.contains(SUMMARY_OPEN_SETTING)
@@ -802,38 +814,45 @@ class MainWindow(QMainWindow):
             # the user reopens it (nothing is saved) rather than widen the window past its screen.
             self.show_summary_action.setChecked(False)
             return
-        settings = QSettings()
-        sidebar = 0
-        if sidebar_shown:
-            sidebar = settings.value(SIDEBAR_WIDTH_SETTING, SIDEBAR_WIDTH, type=int)
-            sidebar = max(sidebar, self.toolbar.minimumSizeHint().width())
-        handle = self.splitter.handleWidth()
-        # The grid's and the Summary's share, with a handle for each panel shown.
-        free = self.splitter.width() - sidebar - handle * (sidebar_shown + summary_shown)
-        summary = 0
-        if summary_shown:
-            saved = settings.value(
-                SUMMARY_WIDTH_SETTING, summary_width_for(self.width()), type=int
-            )
-            # Taken from the grid down to its two columns.
-            summary = max(min(saved, free - self.workspace.minimumSizeHint().width()), SUMMARY_MIN_WIDTH)
         self.toolbar.setVisible(sidebar_shown)
         self.summary.setVisible(summary_shown)
-        self.splitter.setSizes([sidebar, free - summary, summary])
+        self._size_panels()
 
-    def _summary_fits(self, columns: int = 2) -> bool:
-        """Room for the sidebar at its content width, ``columns`` large grid columns and
-        the Summary."""
+    def _size_panels(self) -> None:
+        """The sidebar at its remembered width and the Summary at its remembered (or the
+        window's default) width, cut toward its minimum so the grid keeps three large
+        columns; the grid takes the rest."""
         handle = self.splitter.handleWidth()
-        sidebar = (
-            self.toolbar.minimumSizeHint().width() + handle
-            if self.show_sidebar_action.isChecked()
-            else 0
-        )
+        sidebar = self._sidebar_width() if self.toolbar.isVisibleTo(self) else 0
+        summary = 0
+        if self.summary.isVisibleTo(self):
+            preferred = QSettings().value(
+                SUMMARY_WIDTH_SETTING, summary_width_for(self.width()), type=int
+            )
+            summary = max(min(preferred, self._summary_room()), SUMMARY_MIN_WIDTH)
+        grid = self.splitter.width() - sidebar - summary - handle * ((sidebar > 0) + (summary > 0))
+        self.splitter.setSizes([sidebar, grid, summary])
+
+    def _sidebar_width(self) -> int:
+        saved = QSettings().value(SIDEBAR_WIDTH_SETTING, SIDEBAR_WIDTH, type=int)
+        return max(saved, self.toolbar.minimumSizeHint().width())
+
+    def _summary_room(self, columns: int = 3, sidebar: int | None = None) -> int:
+        """The width left for the Summary beside ``columns`` large grid columns and the
+        sidebar, at its remembered width unless ``sidebar`` is given."""
+        handle = self.splitter.handleWidth()
+        taken = 0
+        if self.show_sidebar_action.isChecked():
+            taken = (self._sidebar_width() if sidebar is None else sidebar) + handle
         grid = self.graph_view.minimumSizeHint().width() + (columns - 2) * (
             LARGE_TILE[0] + TILE_GAP
         )
-        return self.splitter.width() >= sidebar + grid + SUMMARY_MIN_WIDTH + handle
+        return self.splitter.width() - taken - grid - handle
+
+    def _summary_fits(self) -> bool:
+        """Room for the Summary beside two grid columns, the sidebar squeezed to its content."""
+        room = self._summary_room(columns=2, sidebar=self.toolbar.minimumSizeHint().width())
+        return room >= SUMMARY_MIN_WIDTH
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -841,13 +860,14 @@ class MainWindow(QMainWindow):
             return
         # Narrowed past room for three grid columns, the Summary closes (nothing is saved);
         # widened back, it returns if the user's choice is open.
-        roomy = self._summary_fits(columns=3)
-        if roomy == self._summary_roomy:
-            return
-        self._summary_roomy = roomy
-        self.show_summary_action.setChecked(
-            roomy and QSettings().value(SUMMARY_OPEN_SETTING, True, type=bool)
-        )
+        roomy = self._summary_room() >= SUMMARY_MIN_WIDTH
+        if roomy != self._summary_roomy:
+            self._summary_roomy = roomy
+            self.show_summary_action.setChecked(
+                roomy and QSettings().value(SUMMARY_OPEN_SETTING, True, type=bool)
+            )
+        if self.summary.isVisibleTo(self):
+            self._size_panels()
 
     def _remember_panel_widths(self, *_args) -> None:
         sidebar, _grid, summary = self.splitter.sizes()
@@ -1136,7 +1156,7 @@ class MainWindow(QMainWindow):
         elif self.compound_data_loaded or self.cdf_data_loaded:
             if not self._confirm(
                 "Quit MANIC?",
-                "This session is not saved. Use File > Export Method... to keep the compound settings before quitting.",
+                f"This session is not saved. File > {self.export_method_action.text()} keeps it.",
                 "",
                 "Quit",
             ):

@@ -131,7 +131,7 @@ Selecting a compound shows a grid of mini-plots, one for each sample ticked in t
 * **Grey solid line:** The expected retention time (`tR`).
 * **Blue dashed lines:** The integration boundaries (`tR - loffset` and `tR + roffset`).
 * **Badges** (coloured like the exported workbook's cells):
-    * **No badge:** Good peak (area is above threshold).
+    * **No badge:** The area meets the threshold, or no internal standard is set, so it was not checked.
     * **Below threshold** (light red badge and tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Minimum area ratio** in **Settings → Peak validation**.
     * **Accepted** (light purple) or **Marked bad** (tan): You reviewed a weak peak from the **Review** menu or the plot right-click menu.
 * **Blue outline:** The plot is selected for editing.

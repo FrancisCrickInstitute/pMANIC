@@ -733,7 +733,7 @@ class DetailedPlotDialog(QDialog):
         # One name for every grey state; the Identity popup chips give the reason.
         if status not in (QualifierStatus.VALIDATED, QualifierStatus.FAILED):
             status = QualifierStatus.NOT_ASSESSED
-        return f"{label} ({STATUS_LABELS[status].lower()})"
+        return f"{label} ({STATUS_LABELS[status]})"
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""

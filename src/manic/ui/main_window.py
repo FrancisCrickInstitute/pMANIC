@@ -474,6 +474,9 @@ class MainWindow(QMainWindow):
         self.start_panel.documentation_requested.connect(
             self.open_documentation_window
         )
+        self.start_panel.process_external_requested.connect(
+            self.update_old_data_action.trigger
+        )
         self.installEventFilter(self.start_panel)
         self._refresh_shell()
         self.start_panel.primary_button.setFocus()

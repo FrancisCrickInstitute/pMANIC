@@ -33,6 +33,7 @@ class StartPanel(QWidget):
     recent_raw_data_requested = Signal(str)
     new_session_requested = Signal()
     documentation_requested = Signal()
+    process_external_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -89,6 +90,8 @@ class StartPanel(QWidget):
             _footer_link("Change analysis mode", self.new_session_requested),
             _dot(),
             _footer_link("Quick start guide", self.documentation_requested),
+            _dot(),
+            _footer_link("Rebuild an export without CDF files…", self.process_external_requested),
         ):
             row.addWidget(widget)
         return footer

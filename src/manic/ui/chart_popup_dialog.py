@@ -401,7 +401,7 @@ class ChartPopupDialog(QDialog):
         footer.addStretch()
         hover = {
             "identity": "Hover a cell for details",
-            "isotopologue_ratios": "Hover or ↑↓ to read a sample's percentages",
+            "isotopologue_ratios": "↑↓ to read",
         }.get(self.chart_type, "")
         self._hint = QLabel(hover)
         self._hover_hint = hover
@@ -690,7 +690,7 @@ class ChartPopupDialog(QDialog):
         if self.row_names():
             self._hint.setText(
                 " · ".join(
-                    p for p in (self._hover_hint, "Click a sample, or ↑↓ and Return, to show its plot")
+                    p for p in (self._hover_hint, "Return or click to open a plot")
                     if p
                 )
             )

@@ -32,6 +32,7 @@ from manic.ui.combo_box import ComboBox
 from manic.ui.dialog_kit import (
     FORM_LABEL_WIDTH,
     MARKED_ROLE,
+    SECTION_SPACING,
     description_label,
     form_layout,
     form_row,
@@ -122,6 +123,12 @@ class SettingsPage(QWidget):
         for widget in self._inputs:
             widget.setEnabled(enabled)
 
+    def refresh(self) -> None:
+        """Pick up changes made elsewhere without discarding unsaved edits."""
+        if not self.is_dirty():
+            self.load()
+        self.set_inputs_enabled(self.editable()[0])
+
     def _mark_dirty(self, *_args) -> None:
         if not self._dirty:
             self._dirty = True
@@ -133,23 +140,13 @@ class SettingsPage(QWidget):
             self.dirty_changed.emit(False)
 
 
-class MassTolerancePage(SettingsPage):
-    title = "Mass Tolerance"
+class MassToleranceSection(SettingsPage):
+    title = "Extraction"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        layout.addWidget(
-            description_label(
-                "The ± window in daltons around each ion's m/z used to extract "
-                "its chromatogram (EIC)."
-            )
-        )
-
         form = form_layout()
+        self.setLayout(form)
         self.spin = QDoubleSpinBox()
         self.spin.setObjectName("massToleranceSpin")
         self.spin.setMaximumWidth(_NUMBER_FIELD_WIDTH)
@@ -159,9 +156,14 @@ class MassTolerancePage(SettingsPage):
         self.spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.spin.valueChanged.connect(self._mark_dirty)
         self._inputs.append(self.spin)
-        form_row(form, "Mass tolerance (Da)", self.spin)
-        layout.addLayout(form)
-        layout.addStretch()
+        form_row(
+            form,
+            "Mass tolerance (Da)",
+            with_help(
+                self.spin,
+                "The ± window around each ion's m/z used to extract its chromatogram (EIC).",
+            ),
+        )
 
     def load(self) -> None:
         with QSignalBlocker(self.spin):
@@ -172,23 +174,13 @@ class MassTolerancePage(SettingsPage):
         self.host.apply_mass_tolerance(self.spin.value())
 
 
-class PeakValidationPage(SettingsPage):
-    title = "Peak Validation"
+class PeakValidationSection(SettingsPage):
+    title = "Peak validation"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        layout.addWidget(
-            description_label(
-                "Compares each compound's peak area with the internal standard's "
-                "reference peak."
-            )
-        )
-
         form = form_layout()
+        self.setLayout(form)
         self.spin = QDoubleSpinBox()
         self.spin.setObjectName("minPeakAreaSpin")
         self.spin.setMaximumWidth(_NUMBER_FIELD_WIDTH)
@@ -204,8 +196,10 @@ class PeakValidationPage(SettingsPage):
             "Minimum area ratio",
             with_help(
                 self.spin,
-                "A peak below this ratio gets an amber Below threshold badge. "
-                "Right-click its plot to accept the peak or mark it as bad.",
+                "Compares each compound's peak area with the internal standard's "
+                "reference peak. A peak below this ratio gets an amber Below "
+                "threshold badge. Right-click its plot to accept the peak or mark "
+                "it as bad.",
             ),
         )
         form_row(
@@ -213,8 +207,6 @@ class PeakValidationPage(SettingsPage):
             "",
             hint_label("For example 0.005 = 0.5% of the reference peak area. 0 turns it off."),
         )
-        layout.addLayout(form)
-        layout.addStretch()
 
     def load(self) -> None:
         with QSignalBlocker(self.spin):
@@ -339,15 +331,11 @@ class QualifierRatioPage(SettingsPage):
         self.host.apply_qualifier_tolerances(self._compound_name, tolerances)
 
 
-class IntegrationPage(SettingsPage):
+class IntegrationSection(SettingsPage):
     title = "Integration"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
         self.time_radio = QRadioButton("Time-based (recommended)")
         self.time_radio.setObjectName("integrationTimeRadio")
         self.legacy_radio = QRadioButton("Legacy")
@@ -359,10 +347,11 @@ class IntegrationPage(SettingsPage):
         self.legacy_radio.toggled.connect(self._on_radio_toggled)
         self._inputs.extend([self.time_radio, self.legacy_radio])
 
-        layout.addWidget(self.time_radio)
-        layout.addWidget(self.legacy_radio)
-        layout.addWidget(hint_label("Applies to plots. Export asks again."))
-        layout.addStretch()
+        form = form_layout()
+        self.setLayout(form)
+        form_row(form, "Method", self.time_radio)
+        form_row(form, "", self.legacy_radio)
+        form_row(form, "", hint_label("Applies to plots. Export asks again."))
 
     def _on_radio_toggled(self, checked: bool) -> None:
         if checked:
@@ -380,24 +369,19 @@ class IntegrationPage(SettingsPage):
         self.host.apply_use_legacy_integration(self.legacy_radio.isChecked())
 
 
-class NaturalAbundancePage(SettingsPage):
-    title = "Natural Abundance"
+class NaturalAbundanceSection(SettingsPage):
+    title = "Natural abundance"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        self.preview_check = QCheckBox(
-            "Preview natural-abundance-corrected data in plots"
-        )
+        self.preview_check = QCheckBox("Show corrected data")
         self.preview_check.setObjectName("natAbundancePreviewCheck")
         self.preview_check.toggled.connect(self._mark_dirty)
         self._inputs.append(self.preview_check)
-        layout.addWidget(self.preview_check)
-        layout.addWidget(hint_label("Exports always apply the correction."))
-        layout.addStretch()
+        form = form_layout()
+        self.setLayout(form)
+        form_row(form, "Plots", self.preview_check)
+        form_row(form, "", hint_label("Exports always apply the correction."))
 
     def load(self) -> None:
         with QSignalBlocker(self.preview_check):
@@ -408,22 +392,19 @@ class NaturalAbundancePage(SettingsPage):
         self.host.apply_nat_abundance_preview(self.preview_check.isChecked())
 
 
-class InternalStandardPage(SettingsPage):
-    title = "Internal Standard"
+class InternalStandardSection(SettingsPage):
+    title = "Internal standard"
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
         self._standard: str | None = None
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
         form = form_layout()
+        self.setLayout(form)
         # Chosen in the sidebar, the compound menu or the setup checklist; shown here
         # because the reference peak below belongs to it.
         self.standard_label = QLabel()
         self.standard_label.setObjectName("internalStandardName")
-        form_row(form, "Internal standard", self.standard_label)
+        form_row(form, "Compound", self.standard_label)
 
         self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
@@ -441,13 +422,9 @@ class InternalStandardPage(SettingsPage):
         )
         self.reference_hint = hint_label("")
         form_row(form, "", self.reference_hint)
-        layout.addLayout(form)
-        layout.addStretch()
 
     def editable(self) -> tuple[bool, str]:
-        if not self.host.internal_standard_name():
-            return False, "Choose an internal standard in the sidebar to set its reference peak."
-        return True, ""
+        return bool(self.host.internal_standard_name()), ""
 
     def set_inputs_enabled(self, enabled: bool) -> None:
         super().set_inputs_enabled(enabled)
@@ -463,13 +440,14 @@ class InternalStandardPage(SettingsPage):
             for idx in range(label_atoms + 1):
                 self.combo.addItem(f"M+{idx}", idx)
             self.combo.setCurrentIndex(current if 0 <= current <= label_atoms else 0)
-        no_labels = bool(self._standard) and label_atoms == 0
-        self.reference_hint.setText(
-            f"{self._standard} has no label atoms, so only M+0 can be the reference peak."
-            if no_labels
-            else ""
-        )
-        self.reference_hint.setVisible(no_labels)
+        if not self._standard:
+            hint = "Choose an internal standard in the sidebar to set its reference peak."
+        elif label_atoms == 0:
+            hint = f"{self._standard} has no label atoms, so only M+0 can be the reference peak."
+        else:
+            hint = ""
+        self.reference_hint.setText(hint)
+        self.reference_hint.setVisible(bool(hint))
         self._clear_dirty()
 
     def is_dirty(self) -> bool:
@@ -786,13 +764,64 @@ class DeconvolutionPage(SettingsPage):
             self.host.apply_sample_fit_types(self._compound_name, changes)
 
 
+_LABELLED = frozenset({AnalysisMode.LABELLED})
+
+GENERAL_SECTIONS: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] = (
+    (MassToleranceSection, _ALL_MODES),
+    (IntegrationSection, _ALL_MODES),
+    (InternalStandardSection, _LABELLED),
+    (PeakValidationSection, _ALL_MODES),
+    (NaturalAbundanceSection, _LABELLED),
+)
+
+
+class GeneralPage(SettingsPage):
+    """The short global settings under section titles; Save writes only the changed ones."""
+
+    title = "General"
+
+    def __init__(self, host, parent: QWidget | None = None) -> None:
+        super().__init__(host, parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self.sections: list[SettingsPage] = []
+        for section_cls, modes in GENERAL_SECTIONS:
+            if host.analysis_mode not in modes:
+                continue
+            section = section_cls(host)
+            if self.sections:
+                layout.addSpacing(SECTION_SPACING - layout.spacing())
+            layout.addWidget(section_label(section.title))
+            layout.addWidget(section)
+            section.dirty_changed.connect(self.dirty_changed)
+            self.sections.append(section)
+        layout.addStretch()
+
+    def is_dirty(self) -> bool:
+        return any(section.is_dirty() for section in self.sections)
+
+    def set_inputs_enabled(self, enabled: bool) -> None:
+        for section in self.sections:
+            section.set_inputs_enabled(enabled and section.editable()[0])
+
+    def refresh(self) -> None:
+        for section in self.sections:
+            section.refresh()
+
+    def load(self) -> None:
+        for section in self.sections:
+            section.load()
+
+    def save(self) -> None:
+        for section in self.sections:
+            if section.is_dirty():
+                section.save()
+
+
 SETTINGS_PAGES: tuple[tuple[type[SettingsPage], frozenset[AnalysisMode]], ...] = (
-    (MassTolerancePage, _ALL_MODES),
-    (PeakValidationPage, _ALL_MODES),
+    (GeneralPage, _ALL_MODES),
     (QualifierRatioPage, frozenset({AnalysisMode.UNLABELLED})),
-    (IntegrationPage, _ALL_MODES),
-    (NaturalAbundancePage, frozenset({AnalysisMode.LABELLED})),
-    (InternalStandardPage, frozenset({AnalysisMode.LABELLED})),
     (DeconvolutionPage, _ALL_MODES),
 )
 
@@ -811,7 +840,6 @@ class SettingsWindow(QDialog):
         # [*] lets setWindowModified() mark unsaved pages in the title bar.
         self.setWindowTitle(window_title("Settings[*]"))
         style_dialog(self)
-        resize_to_screen(self, 880, 720)
         self.setMinimumSize(640, 400)
 
         self._pages: list[SettingsPage] = [
@@ -888,6 +916,13 @@ class SettingsWindow(QDialog):
         right.addLayout(footer)
         root.addLayout(right, stretch=1)
 
+        self._chrome_height = self.sizeHint().height() - scroll.sizeHint().height()
+        for page in self._pages:
+            page.refresh()
+        # Sized to the tallest loaded page so short pages do not sit above a void.
+        content = max(page.sizeHint().height() for page in self._pages)
+        resize_to_screen(self, 720, self._chrome_height + content)
+
         self.page_list.currentRowChanged.connect(self._on_page_changed)
         self.page_list.setCurrentRow(0)
 
@@ -904,7 +939,14 @@ class SettingsWindow(QDialog):
         if index < 0 or index >= len(self._pages):
             return
         self.stack.setCurrentIndex(index)
+        self._grow_to_fit_page()
         self._update_footer()
+
+    def _grow_to_fit_page(self) -> None:
+        """Grow, never shrink, so a page that gained rows needs no scrollbar."""
+        need = self._chrome_height + self._current_page().sizeHint().height()
+        if need > self.height():
+            resize_to_screen(self, self.width(), need)
 
     def _on_page_dirty_changed(self, _dirty: bool) -> None:
         self._update_footer()
@@ -959,9 +1001,8 @@ class SettingsWindow(QDialog):
 
     def refresh(self) -> None:
         for page in self._pages:
-            if not page.is_dirty():
-                page.load()
-            page.set_inputs_enabled(page.editable()[0])
+            page.refresh()
+        self._grow_to_fit_page()
         self._update_footer()
 
     def open(self) -> None:

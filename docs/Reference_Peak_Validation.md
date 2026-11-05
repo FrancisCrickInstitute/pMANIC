@@ -40,13 +40,13 @@ The validation status is communicated in two places:
 ### 1. In the Application (Step 4)
 When reviewing integration, look under each plot's sample name:
 
-* **No badge:** The peak is healthy.
+* **No badge:** The peak meets the threshold, or no internal standard is set, so it was not checked.
 * **Below threshold** (light red badge and tile): The peak is weak. Right-click the plot, or open the **Review** menu, and choose **Accept Peak (Below Threshold)** or **Mark Peak as Bad** to record a decision. The badge then reads **Accepted** (light purple) or **Marked bad** (tan).
 
 ### 2. In the Exported Excel File (Step 5)
 Every sheet of the results workbook fills a peak's cells by its status:
 
-* **No fill:** Valid data.
+* **No fill:** The peak met the threshold, or was not checked because no internal standard was set.
 * **Light red:** The value was calculated, but the underlying peak failed validation. Treat these quantitative results with caution.
 * **Light purple** or **tan:** You accepted the peak or marked it as bad.
 

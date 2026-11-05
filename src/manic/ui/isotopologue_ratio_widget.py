@@ -436,7 +436,7 @@ class IsotopologueRatioWidget(QWidget):
 
             dialog = ChartPopupDialog(
                 chart_type="isotopologue_ratios",
-                title="Label Incorporation",
+                title="Label incorporation",
                 data=self._current_ratios,
                 sample_names=self._current_sample_names,
                 parent=self,

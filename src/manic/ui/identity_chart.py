@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QGraphicsSimpleTextItem, QToolTip, QWidget
 from manic.models.analysis import IonRole
 from manic.ui.channel_chips import expectation_text
 from manic.ui.chart_style import style_axis, ui_font
-from manic.ui.colors import QUALIFIER_STATUS_COLORS
+from manic.ui.colors import QUALIFIER_GREEN, QUALIFIER_PASS_TINT, QUALIFIER_STATUS_COLORS
 from manic.ui.theme import color, contrast
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -130,16 +130,20 @@ def qualifier_gap_note(identity: IdentityAssessmentSet) -> str | None:
 
 
 class _CellMark(QGraphicsSimpleTextItem):
-    """A cell's state mark, in whichever text colour reads on the cell fill."""
+    """A cell's state mark, in ``ink`` or else whichever text colour reads on the cell fill."""
 
-    def __init__(self, text: str, fill: QColor, x: float, row: int, parent):
+    def __init__(self, text: str, fill: QColor, ink: QColor | None, x: float, row: int, parent):
         super().__init__(text, parent)
-        # The shared QColor is retuned in place on a scheme switch.
+        # The shared QColors are retuned in place on a scheme switch.
         self._fill = fill
+        self._ink = ink
         self.cell = (x, row)
 
     def paint(self, painter, _option, _widget=None):
-        painter.setPen(max((color("text"), color("surface")), key=lambda c: contrast(c, self._fill)))
+        painter.setPen(
+            self._ink
+            or max((color("text"), color("surface")), key=lambda c: contrast(c, self._fill))
+        )
         painter.setFont(self.font())
         painter.drawText(self.boundingRect(), Qt.AlignCenter, self.text())
 
@@ -225,8 +229,10 @@ def add_identity_grid(
     cells: dict[QBarSet, IdentityCell] = {}
     for row, sample in enumerate(display):
         for column, qualifier in enumerate(identity_cells(sample)):
-            fill = QUALIFIER_STATUS_COLORS[qualifier.status]
-            mark = _CellMark(STATUS_MARKS[qualifier.status], fill, column + 0.5, row, chart)
+            passed = qualifier.status is QualifierStatus.VALIDATED
+            fill = QUALIFIER_PASS_TINT if passed else QUALIFIER_STATUS_COLORS[qualifier.status]
+            ink = QUALIFIER_GREEN if passed else None
+            mark = _CellMark(STATUS_MARKS[qualifier.status], fill, ink, column + 0.5, row, chart)
             mark.setFont(ui_font(label_font_size))
             mark.setZValue(10)
             bar_set = QBarSet("")

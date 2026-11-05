@@ -245,7 +245,7 @@ def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(dialog):
         "EIC plot failed: finalize failed  ·  tR 5.000 min  ·  integration 4.900–5.100 min"
     )
     assert dialog.eic_plot.ax.get_title(loc="left") == (
-        "Extracted Ion Chromatogram (plot failed)"
+        "Extracted ion chromatogram (plot failed)"
     )
 
 
@@ -310,3 +310,24 @@ def test_all_three_charts_fit_a_small_window_without_scrolling(qapp, dialog, siz
     qapp.processEvents()
     assert dialog.findChild(QScrollArea).verticalScrollBar().maximum() == 0
     assert min(p.height() for p in (dialog.tic_plot, dialog.ms_plot)) >= 140
+
+
+def test_a_long_sample_name_is_cut_in_the_middle_and_shown_whole_on_hover(qapp, monkeypatch):
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    name = "2026-03-14_GCMS_Run042_Plasma_Fasted_Bio_001_rep3_inj2"
+    dialog = DetailedPlotDialog("Melatonin", name, samples=["A", name])
+    try:
+        dialog.resize(700, 520)
+        dialog.show()
+        qapp.processEvents()
+        shown = dialog.sample_label.text()
+        assert "…" in shown and shown.startswith("in 2026") and shown.endswith("inj2")
+        assert dialog.sample_label.toolTip() == f"in {name}"
+        assert dialog.previous_sample.isVisible()
+        steps = dialog.previous_sample.parentWidget()
+        assert steps.geometry().right() <= dialog.nav_toolbar.geometry().left()
+    finally:
+        dialog.close()
+        dialog.deleteLater()

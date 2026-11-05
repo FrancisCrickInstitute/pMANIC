@@ -14,7 +14,7 @@ import sys
 from collections.abc import Callable, Sequence
 
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -60,6 +60,7 @@ from manic.validation.unlabelled_identity import IdentitySampleAssessment, Quali
 from manic.ui.chart_style import text_style
 from manic.ui.identity_chart import STATUS_LABELS
 from manic.ui.icon_button import segmented
+from manic.ui.sidebar_widgets import ElidedLabel
 from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
 from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
@@ -71,13 +72,28 @@ TRACE_KEY = {
     "component": ("Other fitted peak", "dotted", 0.6, 1.2),
     "baseline": ("Baseline", "dashed", 1.0, 1.2),
 }
-PLOT_TITLES = ("Extracted Ion Chromatogram", "Total Ion Chromatogram", "Mass Spectrum")
+PLOT_TITLES = ("Extracted ion chromatogram", "Total ion chromatogram", "Mass spectrum")
 # m/z either side of a labelled compound's isotopologues that the spectrum opens on.
 SPECTRUM_CLUSTER_MARGIN = 20
 
 
 def _rgba(qcolor, alpha: float) -> str:
     return f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
+
+
+class _SampleName(ElidedLabel):
+    """The header's sample, cut in the middle when the row is short; hover shows it whole."""
+
+    def __init__(self):
+        super().__init__(mode=Qt.TextElideMode.ElideMiddle, hover=True)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+
+    def sizeHint(self) -> QSize:
+        width = self.fontMetrics().horizontalAdvance(self.full_text()) + 2
+        return QSize(width, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(self.fontMetrics().horizontalAdvance("in …"), super().minimumSizeHint().height())
 
 
 # Same meaning as on the grid tiles: dashed steel blue bounds the
@@ -146,6 +162,7 @@ class DetailedPlotDialog(QDialog):
     def _show_sample_name(self) -> None:
         self.setWindowTitle(f"{self.compound_name} in {self.sample_name} — MANIC")
         self.sample_label.setText(f"in {self.sample_name}")
+        self.sample_label.setAccessibleName(self.sample_name)
         index = self._samples.index(self.sample_name)
         self.previous_sample.setEnabled(index > 0)
         self.next_sample.setEnabled(index < len(self._samples) - 1)
@@ -247,7 +264,7 @@ class DetailedPlotDialog(QDialog):
         header_layout.setSpacing(8)
         title_label = QLabel(self.compound_name)
         theme.style(title_label, text_style("text", FONT_SIZE_TITLE, 600))
-        self.sample_label = QLabel()
+        self.sample_label = _SampleName()
         theme.style(self.sample_label, text_style("text_secondary", FONT_SIZE_TITLE))
         header_layout.addWidget(title_label)
         header_layout.addWidget(self.sample_label)
@@ -304,7 +321,7 @@ class DetailedPlotDialog(QDialog):
         self.tic_plot = MatplotlibPlotWidget(
             title=PLOT_TITLES[1],
             x_label="Time (min)",
-            y_label="Total Intensity",
+            y_label="Total intensity",
         )
         self.tic_plot.setMinimumHeight(140)
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -498,7 +515,7 @@ class DetailedPlotDialog(QDialog):
         """Plot the EIC data with integration boundaries."""
         if not self.eic_data or not self.compound_info:
             self.eic_plot.clear_plot()
-            self.eic_plot.set_title("Extracted Ion Chromatogram (no data)")
+            self.eic_plot.set_title("Extracted ion chromatogram (no data)")
             return
 
         self._eic_plot_error = None
@@ -566,7 +583,7 @@ class DetailedPlotDialog(QDialog):
             logger.error(f"Failed to plot EIC: {e}")
             self._eic_plot_error = str(e)
             self.eic_plot.set_title(
-                "Extracted Ion Chromatogram (plot failed)"
+                "Extracted ion chromatogram (plot failed)"
             )
 
     def _add_baseline_lines(self, left_bound: float, right_bound: float, prepared):
@@ -806,7 +823,7 @@ class DetailedPlotDialog(QDialog):
         """Plot the TIC data with retention time marker."""
         if not self.tic_data:
             self.tic_plot.clear_plot()
-            self.tic_plot.set_title("Total Ion Chromatogram (no data)")
+            self.tic_plot.set_title("Total ion chromatogram (no data)")
             return
 
         try:
@@ -819,7 +836,7 @@ class DetailedPlotDialog(QDialog):
                 self.tic_data.intensity,
                 color=COLORS["text_secondary"],
                 width=1.4,
-                name="Total Ion Chromatogram",
+                name="Total ion chromatogram",
             )
 
             # Display retention time indicator with transparency
@@ -834,13 +851,13 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot TIC: {e}")
-            self.tic_plot.set_title("Total Ion Chromatogram (plot failed)")
+            self.tic_plot.set_title("Total ion chromatogram (plot failed)")
 
     def _plot_ms(self):
         """Plot the mass spectrum data."""
         if not self.ms_data:
             self.ms_plot.clear_plot()
-            self.ms_plot.set_title("Mass Spectrum (no data)")
+            self.ms_plot.set_title("Mass spectrum (no data)")
             return
 
         try:
@@ -888,7 +905,7 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot MS: {e}")
-            self.ms_plot.set_title("Mass Spectrum (plot failed)")
+            self.ms_plot.set_title("Mass spectrum (plot failed)")
 
     def _update_info_label(self):
         """tR, the observed apex and the integration window: what the EIC is read against."""

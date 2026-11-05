@@ -207,7 +207,7 @@ def test_a_narrow_window_starts_with_the_summary_closed_and_keeps_two_columns(qa
         for button in (view.shared_y_button, view.peak_scale_button, view.summary_button):
             corner = button.mapTo(view, button.rect().bottomRight())
             assert button.isVisible() and 0 < corner.x() < view.width()
-        assert window.toolbar.width() >= window.toolbar.minimumWidth()
+        assert window.toolbar.width() >= window.toolbar.minimumSizeHint().width()
     finally:
         window.close()
     # Opening it in a narrow window was a choice; the next one keeps it.
@@ -216,6 +216,40 @@ def test_a_narrow_window_starts_with_the_summary_closed_and_keeps_two_columns(qa
         assert again.summary.isVisible()
     finally:
         again.close()
+
+
+def test_the_summary_closes_rather_than_cut_the_sidebar_or_widen_the_window(qapp, monkeypatch):
+    window = _grid_window(monkeypatch, 1024)
+    toolbar = window.toolbar
+    toolbar.loaded_data.update_status(True, True)
+    edit = toolbar.integration.tr_window_edit
+    try:
+        window.show_summary_action.trigger()
+        QApplication.processEvents()
+        # All three fit at 1024: the sidebar keeps its content width, nothing is cut.
+        assert window.summary.isVisible() and window.width() == 1024
+        title = toolbar.loaded_data.compounds_row._title
+        assert title.width() >= title.fontMetrics().horizontalAdvance("Compound list")
+        assert edit.fontMetrics().horizontalAdvance("0.125") + 16 <= edit.width()
+
+        window.show_sidebar_action.trigger()
+        window.resize(820, 800)
+        QApplication.processEvents()
+        window.show_sidebar_action.trigger()
+        QApplication.processEvents()
+        assert toolbar.isVisible() and window.width() == 820
+        assert window.summary.isHidden() and not window.show_summary_action.isChecked()
+        assert QSettings().value(SUMMARY_OPEN_SETTING, type=bool) is True
+    finally:
+        window.close()
+    # The saved choice waits for a window with room; a narrower one opens without it.
+    narrow = _grid_window(monkeypatch, 900)
+    try:
+        assert narrow.summary.isHidden() and not narrow.show_summary_action.isChecked()
+        narrow.show_summary_action.trigger()
+        assert narrow.summary.isVisible()
+    finally:
+        narrow.close()
 
 
 def test_drop_zone_lights_only_for_a_drop_the_window_takes(qapp, monkeypatch, tmp_path):

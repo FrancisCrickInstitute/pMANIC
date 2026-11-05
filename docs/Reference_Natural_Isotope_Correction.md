@@ -27,7 +27,7 @@ $$x = A^{-1} \cdot b$$
 
 This is a single solve of $A x = b$. There is no later scaling by the diagonal of $A$.
 
-> **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by less than half a percentage point.**
+> **Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by less than half a percentage point.**
 >
 > Versions up to 4.x performed the solve and then divided each isotopologue by
 > the matching diagonal element of $A$, an extra step inherited from the legacy
@@ -82,7 +82,7 @@ The algorithm requires the following metadata from your Compound List:
 ### Derivatization Adjustments
 Before building the matrix, MANIC adjusts the molecular formula to include the atoms added by chemical derivatization.   
 
-> **⚠️ Critical Assumption for TBDMS**
+> **Critical Assumption for TBDMS**
 >
 > For TBDMS derivatization, MANIC assumes the standard **[M-57]+ fragment** (loss of the t-butyl group) for the first derivatization group, but assumes any **additional** groups remain intact.
 >

@@ -527,6 +527,16 @@ def test_a_short_form_never_cuts_a_heading_or_field_at_its_edge(qapp, mode):
             if widget.isVisible()
             and widget.mapTo(form, QPoint()).y() < edge < widget.mapTo(form, QPoint()).y() + widget.height()
         ]
+        # The last thing in view above the buttons is never a heading without its fields.
+        in_view = [
+            (widget.mapTo(form, QPoint()).y() + widget.height(), widget)
+            for widget in form.findChildren(QLabel) + form.findChildren(QLineEdit)
+            if widget.isVisible()
+            and widget.mapTo(form, QPoint()).y() + widget.height() <= edge
+        ]
+        last = max(in_view, key=lambda item: item[0])[1]
+        if last.property("role") == "section":
+            cut.append((height, f"{last.text()} alone"))
     assert cut == []
     dialog.close()
 

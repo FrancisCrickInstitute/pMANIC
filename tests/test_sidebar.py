@@ -237,6 +237,23 @@ def test_data_rows_report_load_state_without_counts_or_links(qapp):
     ] == ["Compound list: done", "Raw data: done"]
 
 
+def test_status_ticks_repaint_when_the_scheme_switches(qapp):
+    from manic.utils.utils import apply_color_scheme
+
+    rows = LoadedDataWidget()
+    rows.update_status(True, True)
+    icon = rows.compounds_row._icon
+    try:
+        apply_color_scheme(qapp, False)
+        light = icon.pixmap().toImage()
+        apply_color_scheme(qapp, True)
+        assert icon.pixmap().toImage() != light
+    finally:
+        apply_color_scheme(qapp, False)
+        qapp.setStyleSheet("")
+        rows.deleteLater()
+
+
 def test_headings_wait_for_what_they_list(qapp):
     toolbar = Toolbar(AnalysisMode.LABELLED)
     try:
@@ -607,6 +624,37 @@ def test_peak_window_stays_whole_at_1024x768(qapp, height):
         toolbar.deleteLater()
 
 
+def test_short_lists_hug_their_rows_with_the_peak_window_right_under_them(qapp):
+    toolbar = Toolbar(AnalysisMode.UNLABELLED)
+    toolbar.update_label_colours(True, True)
+    toolbar.update_compound_list([f"Compound {i}" for i in range(8)])
+    toolbar.update_sample_list([f"Sample_{i:02d}" for i in range(11)])
+    toolbar.resize(296, 1357)
+    toolbar.show()
+
+    def top(widget) -> int:
+        return widget.mapTo(toolbar, QPoint(0, 0)).y()
+
+    def bottom(widget) -> int:
+        return top(widget) + widget.height()
+
+    try:
+        for samples_open in (False, True):
+            toolbar.samples_section.set_expanded(samples_open)
+            _settle(toolbar)
+            above = toolbar.sample_list if samples_open else toolbar.samples_section.header
+            # Directly below what it edits, the slack under it, not in bands between rows.
+            assert 0 <= top(toolbar.inspector) - bottom(above) <= 16, samples_open
+            assert bottom(toolbar.inspector) < toolbar.height() - 300
+            assert _full_rows(toolbar.compound_list) == 8
+            if samples_open:
+                assert top(toolbar.sample_filter) - bottom(toolbar.samples_section.header) == 8
+                assert top(toolbar.sample_list) - bottom(toolbar.sample_filter) == 8
+                assert _full_rows(toolbar.sample_list) == 11
+    finally:
+        toolbar.deleteLater()
+
+
 def test_closing_samples_gives_its_room_back_without_a_resize(qapp):
     toolbar = _sidebar(700)
     try:
@@ -710,6 +758,29 @@ def test_short_sidebar_keeps_the_editor_whole_and_folds_the_rows_below_behind_th
             assert not heading.parentWidget().is_expanded()
     finally:
         toolbar.deleteLater()
+
+
+def test_a_pending_edit_on_a_150_percent_laptop_leaves_samples_two_rows(qapp):
+    # The sidebar of a 1008x633 window with a pending edit, row heights from the stylesheet.
+    before = qapp.styleSheet()
+    apply_app_stylesheet(qapp)
+    _add_compound("Compound 0")
+    toolbar = _sidebar(604, samples_open=True)
+    integration = toolbar.integration
+    left = integration.findChild(QLineEdit, "lo_input")
+    try:
+        integration.populate_fields_from_plots("Compound 0", [], [f"Bio_{i:03d}" for i in range(30)])
+        left.selectAll()
+        QTest.keyClicks(left, "0.15")
+        _settle(toolbar)
+        assert integration.scope_label.text() == "All 30 shown\u00a0·\u00a0not\u00a0applied"
+        assert _full_rows(toolbar.compound_list) >= 3
+        assert _full_rows(toolbar.sample_list) >= 2
+        editor = [integration.findChild(QLineEdit, n) for n in ("lo_input", "tr_input", "ro_input")]
+        assert all(_in_view(toolbar, w) for w in editor + [integration.apply_button])
+    finally:
+        toolbar.deleteLater()
+        qapp.setStyleSheet(before)
 
 
 def test_clearing_a_filter_on_a_short_list_keeps_the_current_compound_in_view(qapp):

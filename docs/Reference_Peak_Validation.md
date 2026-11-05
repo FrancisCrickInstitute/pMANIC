@@ -10,7 +10,7 @@ Instead of requiring you to manually inspect every chromatogram for noise, the s
 
 A peak is considered **Invalid/Weak** (and flagged **Below threshold**) if its total integrated area is too small compared to the Internal Standard in that same sample.  
 
-> **⚠️ Requirement: Internal Standard**
+> **Requirement: Internal Standard**
 >
 > Automated validation requires an Internal Standard to be selected. If no standard is selected, no peak gets a **Below threshold** badge.
 

@@ -155,11 +155,12 @@ class PostLoadChecklistDialog(QDialog):
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(8)
 
+        # The title and the buttons stay put; only the body between them scrolls.
         title = title_label("Check your data setup")
         title.setObjectName("checklistTitle")
-        layout.addWidget(title)
+        outer.addWidget(title)
+        outer.addSpacing(SECTION_SPACING - outer.spacing())
 
-        layout.addSpacing(SECTION_SPACING - 8)
         layout.addWidget(section_label("Internal standard"))
         self._initial_internal_standard = current_internal_standard
         self.standard_picker = StandardPicker(

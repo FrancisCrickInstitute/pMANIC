@@ -258,7 +258,7 @@ class MainWindow(QMainWindow):
 
         # The grid replaces the start panel once raw data is loaded.
         self.graph_view = GraphView()
-        self.start_panel = StartPanel()
+        self.start_panel = StartPanel(self.analysis_mode is AnalysisMode.LABELLED)
         self.workspace = QStackedWidget()
         self.workspace.setObjectName("workspace")
         self.no_samples_panel = self._build_no_samples_panel()
@@ -764,7 +764,7 @@ class MainWindow(QMainWindow):
             self._summary_settled = True
             settings = QSettings()
             self.show_summary_action.setChecked(
-                settings.value(SUMMARY_OPEN_SETTING, type=bool)
+                settings.value(SUMMARY_OPEN_SETTING, type=bool) and self._summary_fits()
                 if settings.contains(SUMMARY_OPEN_SETTING)
                 else self.width() >= SUMMARY_MIN_WINDOW_WIDTH
             )
@@ -806,11 +806,16 @@ class MainWindow(QMainWindow):
         )
         if (sidebar_shown, summary_shown) == (self.toolbar.isVisibleTo(self), self.summary.isVisibleTo(self)):
             return
+        if summary_shown and self.summary.isVisibleTo(self) and not self._summary_fits():
+            # The sidebar back in a window too narrow for all three: the Summary closes until
+            # the user reopens it (nothing is saved) rather than widen the window past its screen.
+            self.show_summary_action.setChecked(False)
+            return
         settings = QSettings()
         sidebar = 0
         if sidebar_shown:
             sidebar = settings.value(SIDEBAR_WIDTH_SETTING, SIDEBAR_WIDTH, type=int)
-            sidebar = max(sidebar, self.toolbar.minimumWidth())
+            sidebar = max(sidebar, self.toolbar.minimumSizeHint().width())
         handle = self.splitter.handleWidth()
         # The grid's and the Summary's share, with a handle for each panel shown.
         free = self.splitter.width() - sidebar - handle * (sidebar_shown + summary_shown)
@@ -824,6 +829,17 @@ class MainWindow(QMainWindow):
         self.toolbar.setVisible(sidebar_shown)
         self.summary.setVisible(summary_shown)
         self.splitter.setSizes([sidebar, free - summary, summary])
+
+    def _summary_fits(self) -> bool:
+        """Room for the sidebar at its content width, two grid columns and the Summary."""
+        handle = self.splitter.handleWidth()
+        sidebar = (
+            self.toolbar.minimumSizeHint().width() + handle
+            if self.show_sidebar_action.isChecked()
+            else 0
+        )
+        need = sidebar + self.graph_view.minimumSizeHint().width() + SUMMARY_MIN_WIDTH + handle
+        return self.splitter.width() >= need
 
     def _remember_panel_widths(self, *_args) -> None:
         sidebar, _grid, summary = self.splitter.sizes()

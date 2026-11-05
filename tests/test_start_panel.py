@@ -84,3 +84,16 @@ def test_start_screen_link_opens_process_external_data(qapp, monkeypatch):
         assert len(opened) == 1
     finally:
         window.close()
+
+
+def test_rebuild_link_is_offered_only_in_labelled_mode(qapp, monkeypatch):
+    window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
+    try:
+        links = [
+            button.text()
+            for button in window.start_panel.findChildren(QPushButton, "startFooterLink")
+        ]
+        assert links == ["Change analysis mode", "Quick start guide"]
+        assert window.update_old_data_action.isEnabled()
+    finally:
+        window.close()

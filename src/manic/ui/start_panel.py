@@ -35,9 +35,10 @@ class StartPanel(QWidget):
     documentation_requested = Signal()
     process_external_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, labelled: bool = True, parent=None):
         super().__init__(parent)
         self.setObjectName("startPanel")
+        self._offers_rebuild = labelled
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 20, 20, 20)
 
@@ -95,6 +96,10 @@ class StartPanel(QWidget):
         ):
             self._footer_row.addWidget(widget)
         lines.addLayout(self._footer_row)
+        self._footer = footer
+        if not self._offers_rebuild:
+            # The rebuild reads labelled compound lists only; File keeps the command.
+            return footer
         self._rebuild_dot = _dot()
         self._rebuild_link = _footer_link(
             "Rebuild an export without CDF files…", self.process_external_requested
@@ -108,11 +113,12 @@ class StartPanel(QWidget):
             - self._rebuild_link.sizeHint().width()
             - 2 * self._footer_row.spacing()
         )
-        self._footer = footer
         return footer
 
     def resizeEvent(self, event):  # noqa: N802 (Qt override)
         super().resizeEvent(event)
+        if not self._offers_rebuild:
+            return
         lines = self._footer.layout()
         room = self.drop_zone.contentsRect().width() - self.drop_zone.layout().contentsMargins().left() * 2
         one_row = self._footer_row.sizeHint().width() + (

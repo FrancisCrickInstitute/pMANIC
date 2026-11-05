@@ -93,14 +93,20 @@ class _WholeRowScroll(QScrollArea):
         cut = bottom
         if form.sizeHint().height() > self.height():
             leaves = [
-                (top, top + leaf.height())
+                (top, top + leaf.height(), leaf)
                 for leaf in form.findChildren(QWidget)
                 if isinstance(leaf, (QLabel, QLineEdit, QAbstractSpinBox))
                 and leaf.isVisibleTo(form)
                 for top in (leaf.mapTo(form, QPoint(0, 0)).y(),)
             ]
-            while straddling := [top for top, end in leaves if top < cut < end]:
+            while straddling := [top for top, end, _ in leaves if top < cut < end]:
                 cut = min(straddling)
+            # A heading shows only with its first field under it.
+            shown = [(end, top, leaf) for top, end, leaf in leaves if end <= cut]
+            if shown:
+                _end, top, last = max(shown, key=lambda item: item[0])
+                if last.property("role") == "section":
+                    cut = top
         if self.viewportMargins().bottom() != bottom - cut:
             self.setViewportMargins(0, 0, 0, bottom - cut)
 

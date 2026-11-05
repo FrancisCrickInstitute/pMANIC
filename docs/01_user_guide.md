@@ -41,8 +41,6 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns l
 
 **Verification**
 
-Upon a successful import, the application provides immediate visual feedback:
-
 * The **Compound list** row at the top of the sidebar shows a green check, and the **Compounds** heading shows the number of compounds.
 * The **Compounds** list in the sidebar fills with the names of all imported compounds.
 
@@ -86,8 +84,6 @@ A progress bar will appear as the application:
 
 **Verification**   
 
-Upon completion, verify the data loaded correctly:
-
 * The **Raw data** row at the top of the sidebar shows a green check, and the **Samples** heading shows the number of samples.
 * Expand **Samples** in the sidebar to see the filenames of your imported samples.
 * Selecting a compound shows one plot per sample in the main view.
@@ -122,7 +118,7 @@ You can also right-click a compound in the **Compounds** list and choose **Selec
 * **Standard selected:** The **Internal standard** row shows the compound name. If the compound list gives it no amount, the row turns amber with an exclamation mark, and export writes peak areas; hover the row for the reason.
 * **No standard:** The row shows **None**. An internal standard is optional.
 
-The compound you are reviewing is highlighted in the **Compounds** list and named at the left of the status bar.
+The compound you are reviewing is highlighted in the **Compounds** list and named in the heading above the plot grid.
 
 ---
 
@@ -130,7 +126,7 @@ The compound you are reviewing is highlighted in the **Compounds** list and name
 
 **The Main Graph View**   
 
-Upon selecting a compound, MANIC displays a grid of mini-plots, one for each sample ticked in the **Samples** section. The heading above the grid names the compound, its tR, and how many samples are shown or selected.
+Selecting a compound shows a grid of mini-plots, one for each sample ticked in the **Samples** section. The heading above the grid names the compound and its tR. Once you select plots it adds how many, for example **3 of 30 selected**. The **Samples** heading in the sidebar counts the samples shown.
 
 * **Grey solid line:** The expected retention time (`tR`).
 * **Blue dashed lines:** The integration boundaries (`tR - loffset` and `tR + roffset`).
@@ -166,7 +162,7 @@ For ambiguous peaks, inspecting the raw data more closely might be helpful:
 You can adjust integration parameters for all samples at once or for specific outliers.
 
 * **Edit All:** Right-click a plot and choose **Deselect All**. With nothing selected, **Apply** and **Reset** change every shown sample.
-* **Edit Specific Samples:** Click on individual plots to select them (they get a blue outline). You can also drag a box to select multiple. The **Peak window** section shows "Applies to N selected samples", or the sample's name for one. Changes apply *only* to the selection.
+* **Edit Specific Samples:** Click on individual plots to select them (they get a blue outline). Drag a box to select several. The **Peak window** section shows "Applies to N selected samples", or the sample's name for one. Changes apply *only* to the selection.
 * **Show Only Selected Samples:** Right-click a selected plot and choose this command to hide every other sample. The remaining tiles stay selected. If you right-click a plot that is not selected, the command uses that plot alone.
 * **Show All Samples:** Right-click and choose this command to show every sample again with no plots selected, the same as when you first load a compound.
 * **Samples list:** Untick a sample in the **Samples** section of the sidebar to hide its plot, and tick it to show it again. Type in **Filter samples** to narrow the list. While a filter is set, the section heading reads **k shown · n match**.
@@ -379,7 +375,7 @@ Use the **‹ ›** buttons in the header, or the left and right arrow keys, to 
 ### Summary Panel
 The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
 
-* **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. Until you open or close it once, a window narrower than 1200 px starts with the panel closed.
+* **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. Until you open or close it once, a window narrower than 1200 px starts with the panel closed. When a window is too narrow for the sidebar, two columns of plots and the panel, the panel closes until you open it again.
 * **Enlarge:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
 * **Rows:** Both charts name every sample. When a run has more samples than the panel has room for, the chart scrolls; selecting plots in the grid scrolls it to their bars. Click a row to select that sample's plot.
 
@@ -389,7 +385,7 @@ The button at the top left of the grid, or **View → Show Sidebar** (Ctrl+Alt+S
 
 ## 8. Settings & Configuration
 
-On Windows, **Settings...** is in the **File** menu, and **Documentation**, **Check Data Setup**, **Check for Updates** and **About** are in the **Help** menu. On macOS, **Settings** and **About** sit in the **MANIC** application menu and the other three under **Help**. The book and gear icons at the top right of the plot area open Documentation and Settings too.
+On Windows, **Settings...** is in the **File** menu, and **Documentation**, **Check Data Setup**, **Check for Updates** and **About** are in the **Help** menu. On macOS, **Settings** and **About** sit in the **MANIC** application menu and the other three under **Help**. The gear icon at the top right of the plot area opens Settings too.
 
 **Shortcuts.** **Settings...** is Ctrl+, and **Documentation** is F1. On macOS they are ⌘, and ⌘?.
 
@@ -403,7 +399,7 @@ Settings has a **General** page and a **Deconvolution** page; unlabelled mode ad
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
 * **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder.
-* **Deep Dive:** 📖 [Mass Tolerance](Reference_Mass_Tolerance.md)
+* **Reference:** [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Integration
 **Settings → General**, **Integration** section
@@ -411,14 +407,14 @@ Settings has a **General** page and a **Deconvolution** page; unlabelled mode ad
 * Two **Method** radios: **Time-based (recommended)** (default) and **Legacy**.
 * The choice changes on-screen peak areas only.
 * Export asks again in **Export Data**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
-* **Deep Dive:** 📖 [Compare Integration Methods](Reference_Integration_Methods.md)
+* **Reference:** [Compare Integration Methods](Reference_Integration_Methods.md)
 
 ### Minimum Peak Area
 **Settings → General**, **Peak validation** section, **Minimum area ratio**
 
 * **Default:** `0.005` (0.5%)
 * **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area get a light red **Below threshold** badge.
-* **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
+* **Reference:** [Understanding Peak Validation](Reference_Peak_Validation.md)
 
 ### Baseline Correction
 The **Baseline correction** checkbox is in the **Peak window** section of the sidebar, under the **tR window** field. **Review → Baseline Correction** toggles it too.
@@ -426,7 +422,7 @@ The **Baseline correction** checkbox is in the **Peak window** section of the si
 * **On (Default):** Subtracts a linear baseline from each peak area. A dashed line will appear on plots showing the fitted baseline.
 * **Off:** Uses the raw integrated area without baseline subtraction.
 * **Scope:** This is a per-compound setting. Toggling it affects all samples for the selected compound.
-* **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
+* **Reference:** [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Y-axis scale
 Two toggles beside **Compact** and **Comfortable** in the grid header, **Shared Y** and **Scale to peak**, set how sample tiles scale. The **View** menu has the same commands. MANIC remembers the last choice.
@@ -449,7 +445,7 @@ Two toggles beside **Compact** and **Comfortable** in the grid header, **Shared 
     * `Bi-Gaussian` - asymmetric peaks with separate left/right widths.
     * `EMG` - exponentially modified Gaussian for tailing peaks.
 * **Each fittable ion is fitted on its own.** When the level is not `Off`, MANIC fits each channel independently. Overlaps are split and the in-window component nearest the expected retention time is kept. A well-resolved single peak becomes a one-component model so that ion uses the same measurement as any sibling that needed a split. Set the level to `Off` to always integrate the raw trace.
-* **Noise gate:** Controls how aggressively MANIC skips fitting on messy/noise-only peaks. When a window is skipped it simply shows and integrates the plain raw trace instead of drawing a meaningless fitted curve - which also keeps exports fast, since noise-only traces are otherwise the slowest to (pointlessly) fit. This is a per-compound setting with four presets:
+* **Noise gate:** Controls how aggressively MANIC skips fitting on messy/noise-only peaks. When a window is skipped it shows and integrates the plain raw trace instead of drawing a meaningless fitted curve - which also keeps exports fast, since noise-only traces are otherwise the slowest to (pointlessly) fit. This is a per-compound setting with four presets:
     * `Balanced` - skip noise and weak peaks buried in heavy noise (recommended default).
     * `Lenient` - skip only near-pure noise.
     * `Aggressive` - only fit clearly smooth peaks.
@@ -459,7 +455,7 @@ Two toggles beside **Compact** and **Comfortable** in the grid header, **Shared 
 * **One noisy failed ion puts the whole envelope on scans:** If any isotopologue with real intensity cannot be fitted, plots show the raw scan traces and export integrates those same raw in-window scans for every non-empty ion of that pair on both Raw and Corrected. An ion with no positive signal inside the dashed boundaries is empty, not a failed fit. Signal elsewhere in the chromatogram does not change that. A successful fit with no peak centre inside the boundaries is also empty. Empty ions stay at area 0. Weak positive ions use their raw scans if fitting fails.
 * **Status indicator:** The right side of the bottom status bar shows the selected compound's setting, e.g. `Deconvolution level 4 · automatic peak shape · balanced noise gate`, or `Deconvolution off`.
 * **Logging:** The per-compound resolution, fit type, and noise gate are recorded in the export changelog so processed results are reproducible.
-* **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
+* **Reference:** [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction
 **Settings → General**, **Natural abundance** section
@@ -470,24 +466,24 @@ Two toggles beside **Compact** and **Comfortable** in the grid header, **Shared 
     * Unticked: Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
 * **Usage:** Toggle this to check how correction redistributes the isotopologue signals.
 * **Note:** This setting only affects the *display* and the on-screen bars. Export still writes both Raw and Corrected sheets from the raw fit, then correction of that selected component. Time-based export uses a denser evaluation of the fit for a more accurate area.
-* **Deep Dive:** 📖 [Natural Isotope Correction Algorithm](Reference_Natural_Isotope_Correction.md)
+* **Reference:** [Natural Isotope Correction Algorithm](Reference_Natural_Isotope_Correction.md)
 
 ---
 
 ## 9. Special Workflow: Process External Data
 
-**File → Process External Data...**, or **Rebuild an export without CDF files…** on the start screen
+**File → Process External Data...**, or **Rebuild an export without CDF files…** on the labelled start screen
 
-Rebuild an export from the "Raw Values" (integrated peak areas) of an old experiment, from the legacy MANIC tool (v3.3.0) or a previous MANIC export, when you **do not** have the original raw CDF files (or do not wish to re-integrate them). The rebuild uses the current natural abundance correction and MRRF algorithms.
+Rebuild a labelled export from the "Raw Values" (integrated peak areas) of an old experiment, from the legacy MANIC tool (v3.3.0) or a previous MANIC export, when you **do not** have the original raw CDF files (or do not wish to re-integrate them). The rebuild uses the current natural abundance correction and MRRF algorithms.
 
 **Prerequisites**
 
 1.  **Old Results File:** An Excel or CSV file containing a sheet/table of uncorrected peak areas (Raw Values).
-2.  **Compound List:** A valid compound definition file (see Step 1) that matches the metabolites in your old results. This is required to provide the molecular formulas and atom counts needed for the new correction math.
+2.  **Compound List:** A labelled compound definition file (see Step 1), with **mass0** and **labelAtoms** columns, that matches the metabolites in your old results. This is required to provide the molecular formulas and atom counts needed for the new correction math.
 
 **Procedure**
 
-1.  Choose **File → Process External Data...**, or click **Rebuild an export without CDF files…** on the start screen.
+1.  Choose **File → Process External Data...**, or click **Rebuild an export without CDF files…** on the labelled start screen.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**.
 4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen.
@@ -498,14 +494,14 @@ Rebuild an export from the "Raw Values" (integrated peak areas) of an old experi
 
 MANIC reads the raw areas from the workbook, pairs them with the compound list, and writes five sheets: **Raw Values**, **Corrected Values**, **Isotope Ratio**, **% Label Incorporation**, and **Abundances**.
 
-> **⚠️ Scientific Limitation: Approximate Mode**
+> **Scientific limitation: Approximate Mode**
 >
 > Because the original raw data (CDF) is missing, MANIC cannot perform the standard "per-timepoint" correction. Instead, it applies a mathematical approximation to the **total integrated area**.
 >
 > * **Result:** The "Corrected Values" may differ slightly from a full re-analysis of raw CDFs.
 > * **Restriction:** You cannot adjust integration boundaries or view chromatograms in this mode.
 
-**Full Explanation:** 📖 [Process External Data](Workflow_Process_External_Data.md)
+**Full explanation:** [Process External Data](Workflow_Process_External_Data.md)
 
 ---
 
@@ -520,7 +516,7 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 | **MRRF** | Sum-based calculation | Mean-based calculation (more robust to sample count variations). |
 | **Validation** | Manual visual check | Automatic **Below threshold** badges on weak peaks. |
 
-* **Correction Math:** 📖 [Natural Isotope Correction Algorithm](Reference_Natural_Isotope_Correction.md)
+* **Correction Math:** [Natural Isotope Correction Algorithm](Reference_Natural_Isotope_Correction.md)
 
 ## Glossary
 

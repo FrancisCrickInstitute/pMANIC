@@ -135,6 +135,10 @@ class DocumentationViewer(QDialog):
         self.docs_dir = Path(docs_path())
         self.current_file = None
         self.current_fragment = None
+        # Each load titles its page with a fresh token, so a finish from an
+        # earlier request is never taken for the current one.
+        self._request = 0
+        self._pending_fragment = None
 
         self.setup_ui()
 
@@ -196,25 +200,33 @@ class DocumentationViewer(QDialog):
         self.retry_button.setVisible(retry)
         self.content.setCurrentWidget(self.status_page)
 
+    def _request_title(self) -> str:
+        return f"manic-docs-{self._request}"
+
     def _on_load_finished(self, ok: bool) -> None:
-        if ok:
-            self.content.setCurrentWidget(self.web_view)
-        else:
+        if not ok:
             self._show_status("This page could not be displayed.", retry=True)
+            return
+        if self.web_view.title() != self._request_title():
+            return
+        if self._pending_fragment:
+            self.web_view.page().runJavaScript(f"location.hash = '#{self._pending_fragment}';")
+            self._pending_fragment = None
+        self.content.setCurrentWidget(self.web_view)
 
     def _retry(self) -> None:
-        self._show_status("Loading…")
         if self.current_file is not None:
             self.load_markdown_file(self.current_file, self.current_fragment)
 
     def is_rendered(self) -> bool:
-        """True once a page has finished loading and is on screen."""
+        """True once the last page asked for has finished loading and is on screen."""
         return self.content.currentWidget() is self.web_view
 
     def _on_theme_changed(self, _remap: dict) -> None:
         self.web_view.page().setBackgroundColor(theme.color("surface"))
         if self.current_file is not None:
-            self.load_markdown_file(self.current_file, self.current_fragment)
+            # The same page restyled: it stays in view until the new colours are drawn.
+            self.load_markdown_file(self.current_file, self.current_fragment, show_loading=False)
 
     def open(self) -> None:
         if self.current_file is None and self.page_list.count():
@@ -224,6 +236,11 @@ class DocumentationViewer(QDialog):
     def open_at(self, file_path: Path, fragment: str | None = None) -> None:
         self.load_markdown_file(Path(file_path), fragment)
         self.open()
+
+    def open_link(self, href: str) -> None:
+        """Open a "file.md#section" link from elsewhere in the app."""
+        name, _, fragment = href.partition("#")
+        self.open_at(self.docs_dir / name, fragment or None)
 
     def _on_page_selected(self, row: int) -> None:
         if row < 0:
@@ -332,7 +349,9 @@ class DocumentationViewer(QDialog):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
             return False
 
-    def load_markdown_file(self, file_path: Path, fragment: str = None) -> bool:
+    def load_markdown_file(
+        self, file_path: Path, fragment: str = None, *, show_loading: bool = True
+    ) -> bool:
         """
         Load and render a markdown file with full GitHub styling and MathJax.
         
@@ -364,35 +383,23 @@ class DocumentationViewer(QDialog):
             # Store current file for relative link resolution BEFORE loading HTML
             self.current_file = file_path
             self.current_fragment = fragment or None
+            self._pending_fragment = self.current_fragment
             self._sync_page_list(file_path)
+            self._request += 1
+            if show_loading:
+                self._show_status("Loading…")
 
             # Convert markdown to HTML
             html_body = self._markdown_to_html(raw_markdown)
             
             # Wrap in complete HTML document with GitHub styling and MathJax
-            full_html = self._wrap_with_github_style(html_body)
+            full_html = self._wrap_with_github_style(html_body, self._request_title())
             
             # Set the HTML content with base URL pointing to docs directory
             # This allows both relative .md links AND _assets/ to resolve correctly
             base_url = QUrl.fromLocalFile(str(self.docs_dir) + "/")
             self.web_view.setHtml(full_html, base_url)
             
-            # If fragment provided, scroll to it after page loads
-            if fragment:
-                def scroll_to_anchor(ok):
-                    """Scroll to the anchor after page finishes loading."""
-                    if ok:
-                        logger.debug(f"Scrolling to anchor: {fragment}")
-                        # Use JavaScript to scroll to the anchor
-                        self.web_view.page().runJavaScript(f"location.hash = '#{fragment}';")
-                    # Disconnect after first use
-                    try:
-                        self.web_view.loadFinished.disconnect(scroll_to_anchor)
-                    except:
-                        pass
-                
-                self.web_view.loadFinished.connect(scroll_to_anchor)
-
             logger.info(f"Successfully loaded: {file_path.name}")
             return True
 
@@ -465,7 +472,7 @@ class DocumentationViewer(QDialog):
             escaped_text = markdown_text.replace("<", "&lt;").replace(">", "&gt;")
             return f"<pre>Error rendering markdown:\n{str(e)}\n\n{escaped_text}</pre>"
 
-    def _wrap_with_github_style(self, html_body: str) -> str:
+    def _wrap_with_github_style(self, html_body: str, title: str) -> str:
         """
         Wrap HTML content in a complete document with GitHub CSS and MathJax.
         
@@ -489,6 +496,7 @@ class DocumentationViewer(QDialog):
         return f"""<!DOCTYPE html>
 <html>
 <head>
+<title>{title}</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
@@ -750,41 +758,5 @@ window.MathJax = {{
 </body>
 </html>"""
 
-    def _show_error(self, message: str):
-        """
-        Display an error message in the web view.
-        
-        Args:
-            message: Error message to display
-        """
-        c = COLORS
-        error_html = f"""
-        <html>
-        <head>
-        <style>
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-                color: {c["text"]};
-                background-color: {c["surface"]};
-                padding: 40px;
-                max-width: 600px;
-                margin: 0 auto;
-            }}
-            h2 {{
-                color: {c["danger"]};
-                border-bottom: 2px solid {c["danger"]};
-                padding-bottom: 8px;
-            }}
-            p {{
-                color: {c["text_secondary"]};
-                line-height: 1.6;
-            }}
-        </style>
-        </head>
-        <body>
-            <h2>Error Loading Documentation</h2>
-            <p>{message}</p>
-        </body>
-        </html>
-        """
-        self.web_view.setHtml(error_html)
+    def _show_error(self, message: str) -> None:
+        self._show_status(message)

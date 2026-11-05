@@ -42,7 +42,6 @@ from PySide6.QtWidgets import (  # noqa: E402
     QWidget,
 )
 
-SCHEMES = {"light": Qt.ColorScheme.Light, "dark": Qt.ColorScheme.Dark}
 LABELLED = ROOT / "testdata" / "bench" / "labelled"
 UNLABELLED = ROOT / "testdata" / "unlabelled_synthetic"
 
@@ -181,20 +180,14 @@ class Tour:
             self.pump(0.2)
 
 
-def set_scheme(tour: Tour, scheme: Qt.ColorScheme) -> None:
+def set_scheme(tour: Tour, scheme: str) -> None:
+    """Pick Light or Dark as Settings › General › Appearance does."""
     from manic.ui import theme
+    from manic.utils.utils import set_appearance
 
-    from manic.utils.utils import apply_color_scheme
-
-    hints = tour.app.styleHints()
-    hints.setColorScheme(scheme)
-    try:
-        tour.wait_for(lambda: hints.colorScheme() == scheme, timeout=3)
-    except TimeoutError:
-        # Headless Linux (offscreen) has no platform theme to report a scheme.
-        apply_color_scheme(tour.app, scheme == Qt.ColorScheme.Dark)
+    set_appearance(tour.app, scheme)
     tour.pump(0.3)
-    if theme.is_dark() != (scheme == Qt.ColorScheme.Dark):
+    if theme.is_dark() != (scheme == "dark"):
         raise RuntimeError(f"app did not restyle for {scheme}")
 
 
@@ -273,8 +266,8 @@ def detailed_scheme_switch(tour: Tour) -> None:
     def switch_while_open(dialog):
         dialog.show()
         tour.pump(0.5)
-        start = Qt.ColorScheme.Dark if theme.is_dark() else Qt.ColorScheme.Light
-        flipped = Qt.ColorScheme.Light if theme.is_dark() else Qt.ColorScheme.Dark
+        start = "dark" if theme.is_dark() else "light"
+        flipped = "light" if theme.is_dark() else "dark"
         set_scheme(tour, flipped)
         tour.save(dialog, f"__{type(dialog).__name__}_switched")
         set_scheme(tour, start)
@@ -420,8 +413,8 @@ def tour_steps(tour: Tour) -> None:
     def live_scheme_switch():
         from manic.ui import theme
 
-        start = Qt.ColorScheme.Dark if theme.is_dark() else Qt.ColorScheme.Light
-        flipped = Qt.ColorScheme.Light if theme.is_dark() else Qt.ColorScheme.Dark
+        start = "dark" if theme.is_dark() else "light"
+        flipped = "light" if theme.is_dark() else "dark"
         selected = tour.window.graph_view.get_selected_samples()
         set_scheme(tour, flipped)
         tour.save(tour.window, "__switched")
@@ -575,7 +568,7 @@ def main() -> int:
     parser.add_argument("out", type=Path)
     parser.add_argument("--size", default="1600x1000")
     parser.add_argument(
-        "--scheme", choices=sorted(SCHEMES), help="force light or dark (default: follow the OS)"
+        "--scheme", choices=("light", "dark"), help="force light or dark (default: follow the OS)"
     )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -609,7 +602,7 @@ def main() -> int:
     tour = Tour(app, args.out, (width, height))
     if args.scheme:
         try:
-            set_scheme(tour, SCHEMES[args.scheme])
+            set_scheme(tour, args.scheme)
         except Exception:
             tour.errors.append(f"scheme: {traceback.format_exc(limit=3)}")
     QDialog.exec = lambda self: tour.capture_modal(self)

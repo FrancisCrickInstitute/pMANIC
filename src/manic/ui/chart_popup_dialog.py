@@ -118,10 +118,15 @@ def missing_ratio_note(sample_name: str) -> str:
     return f"{sample_name}\nNo ratio: this sample has no integrated peak area for this compound."
 
 
-def bar_value_text(value: float) -> str:
-    """A bar's value in the axis unit at fixed precision: '0.91', '<0.01', or '—' for none."""
+def bar_value_text(value: float, *, precise: bool = False) -> str:
+    """A bar's value in the axis unit: '0.91', '<0.01', or '—' for none.
+
+    ``precise`` gives three significant figures, for the row being read.
+    """
     if not np.isfinite(value) or value == 0:
         return "—"
+    if precise:
+        return f"{value:.3g}"
     if abs(value) < 0.005:
         return "<0.01"
     return f"{value:.2f}"
@@ -430,7 +435,8 @@ class ChartPopupDialog(QDialog):
         for value in scaled:
             bar_set.append(value if np.isfinite(value) else 0.0)
 
-        # No hover text: each row already shows its name and the same rounded value.
+        # The row under the pointer or picked with the arrow keys reads at three
+        # significant figures (see _refresh_value_labels), so no tooltip.
         bar_series.append(bar_set)
         self.chart.addSeries(bar_series)
 
@@ -453,14 +459,17 @@ class ChartPopupDialog(QDialog):
             item.setZValue(50)
             self._value_labels.append((item, value if np.isfinite(value) else 0.0, index))
         self._value_series = series
-        self._recolour_value_labels()
+        self._refresh_value_labels()
         self.chart.plotAreaChanged.connect(self._place_value_labels)
-        theme.notifier.changed.connect(self._recolour_value_labels)
+        theme.notifier.changed.connect(self._refresh_value_labels)
         self._place_value_labels()
 
-    def _recolour_value_labels(self, *_args) -> None:
-        for item, _value, _index in self._value_labels:
-            item.setBrush(color("text_secondary"))
+    def _refresh_value_labels(self, *_args) -> None:
+        """Compact values, except the current row's, which reads in full in the text colour."""
+        current = None if self._current_row is None else len(self.sample_names) - 1 - self._current_row
+        for item, value, index in self._value_labels:
+            item.setText(bar_value_text(value, precise=index == current))
+            item.setBrush(color("text" if index == current else "text_secondary"))
             item.update()
 
     def _place_value_labels(self, *_args) -> None:
@@ -704,6 +713,7 @@ class ChartPopupDialog(QDialog):
     def set_current_row(self, row: int | None) -> None:
         self._current_row = row
         self._place_row_marker()
+        self._refresh_value_labels()
 
     def _place_row_marker(self, *_args) -> None:
         if self._current_row is None or not self.chart.series():

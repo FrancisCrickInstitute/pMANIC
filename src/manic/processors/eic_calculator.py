@@ -76,15 +76,23 @@ def _extract_eic_with_times(
         ends = np.append(cdf.scan_index[idx[1:]], len(cdf.mass))
 
     start_end_array = np.array([starts, ends]).T
-    all_relevant_mass = np.concatenate(
-        [cdf.mass[s:e] for s, e in start_end_array]
-    )
-    all_relevant_intensity = np.concatenate(
-        [cdf.intensity[s:e] for s, e in start_end_array]
-    )
-    scan_indices = np.concatenate(
-        [np.full(e - s, i, dtype=int) for i, (s, e) in enumerate(start_end_array)]
-    )
+    plain = not (np.ma.isMaskedArray(cdf.mass) or np.ma.isMaskedArray(cdf.intensity))
+    if plain and np.array_equal(starts[1:], ends[:-1]):
+        # Consecutive scans are one contiguous run of points: slice it once.
+        # Masked arrays keep the per-scan path, which concatenates them unmasked.
+        all_relevant_mass = cdf.mass[starts[0] : ends[-1]]
+        all_relevant_intensity = cdf.intensity[starts[0] : ends[-1]]
+        scan_indices = np.repeat(np.arange(len(idx), dtype=int), ends - starts)
+    else:
+        all_relevant_mass = np.concatenate(
+            [cdf.mass[s:e] for s, e in start_end_array]
+        )
+        all_relevant_intensity = np.concatenate(
+            [cdf.intensity[s:e] for s, e in start_end_array]
+        )
+        scan_indices = np.concatenate(
+            [np.full(e - s, i, dtype=int) for i, (s, e) in enumerate(start_end_array)]
+        )
 
     num_scans = len(idx)
     if target_mzs is None:

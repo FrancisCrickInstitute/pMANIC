@@ -50,6 +50,7 @@ from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
 from manic.models.analysis import IonRole
+from manic.models.sample_fit_type import get_sample_fit_types
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
 from manic.ui.colors import (
     channel_trace_styles,
@@ -59,6 +60,7 @@ from manic.ui.colors import (
 from manic.validation.unlabelled_identity import IdentitySampleAssessment, QualifierStatus
 from manic.ui.chart_header import HeaderName
 from manic.ui.chart_style import text_style
+from manic.ui.graphs import tile_caption
 from manic.ui.identity_chart import STATUS_LABELS
 from manic.ui.icon_button import segmented
 from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
@@ -146,7 +148,9 @@ class DetailedPlotDialog(QDialog):
 
     def _show_sample_name(self) -> None:
         self.setWindowTitle(f"{self.compound_name} in {self.sample_name} — MANIC")
-        self.sample_label.setText(f"in {self.sample_name}")
+        # A sample's fit override, as its grid caption names it.
+        fit_type = get_sample_fit_types(self.compound_name).get((self.compound_name, self.sample_name))
+        self.sample_label.setText(tile_caption(f"in {self.sample_name}", fit_type))
         self.sample_label.setAccessibleName(self.sample_name)
         index = self._samples.index(self.sample_name)
         self.previous_sample.setEnabled(index > 0)

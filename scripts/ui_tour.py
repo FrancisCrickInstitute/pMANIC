@@ -563,10 +563,19 @@ def tour_steps(tour: Tour) -> None:
                     widget = widget.parentWidget()
                     if isinstance(widget, StandardChooser):
                         chooser = widget
-                if chooser is not None and event.type() in watched:
+                noisy = {QEvent.Paint, QEvent.UpdateRequest, QEvent.UpdateLater, QEvent.Timer,
+                         QEvent.MetaCall, QEvent.HoverMove, QEvent.Polish, QEvent.PolishRequest,
+                         QEvent.StyleChange, QEvent.ChildPolished, QEvent.LayoutRequest}
+                global_types = {QEvent.MouseButtonPress, QEvent.MouseButtonRelease,
+                                QEvent.WindowDeactivate, QEvent.ApplicationStateChange,
+                                QEvent.ApplicationDeactivate, QEvent.NonClientAreaMouseButtonPress,
+                                QEvent.FocusAboutToChange, QEvent.Close}
+                if (chooser is not None and event.type() not in noisy) or (
+                    chooser is None and event.type() in global_types
+                ):
                     print(f"  CHOOSER-DIAG {type(obj).__name__} {event.type().name}"
-                          f" active={QApplication.activeWindow()!r}"
-                          f" popup={QApplication.activePopupWidget()!r}", flush=True)
+                          f" spont={event.spontaneous()}"
+                          f" popup={type(QApplication.activePopupWidget()).__name__}", flush=True)
                 return False
 
         spy = Spy()

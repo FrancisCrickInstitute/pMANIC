@@ -119,10 +119,24 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
 
 logger = logging.getLogger(__name__)
 
-STEM_HEADROOM = 1.18
-CLUSTER_HEADROOM = 1.4
+# Above the tallest stem in view; each peak label then gets the room it needs on top.
+STEM_HEADROOM = 1.05
 # Space under a legend for the axis multiplier, in logical px.
 LEGEND_LIFT_PX = 20
+
+# The detailed view's small toggles, in the grid's segmented-control shape.
+_TOGGLE_QSS = """
+QToolButton {
+    font-size: 11px; color: @text_secondary;
+    background: @surface; border: 1px solid @border_strong;
+    border-radius: 6px; padding: 2px 9px; min-height: 18px;
+}
+QToolButton:hover { background: @surface_hover; }
+QToolButton:checked {
+    color: @text; background: @accent_soft; border-color: @accent;
+    font-weight: 600;
+}
+"""
 
 
 class CompactNavigationToolbar(QWidget):
@@ -141,20 +155,10 @@ class CompactNavigationToolbar(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Same segmented shape as the grid's Compact/Comfortable switch.
         theme.style(
             self,
-            """
-            QToolButton {
-                font-size: 11px; color: @text_secondary;
-                background: @surface; border: 1px solid @border_strong;
-                border-radius: 6px; padding: 2px 9px; min-height: 18px;
-            }
-            QToolButton:hover { background: @surface_hover; }
-            QToolButton:checked {
-                color: @text; background: @accent_soft; border-color: @accent;
-                font-weight: 600;
-            }
+            _TOGGLE_QSS
+            + """
             QToolButton#chartPan {
                 border-top-right-radius: 0; border-bottom-right-radius: 0;
                 border-right: none;
@@ -168,7 +172,7 @@ class CompactNavigationToolbar(QWidget):
         self.home_btn = QToolButton()
         self.home_btn.setText("↻ Reset all")
         self.home_btn.setToolTip(
-            "Fit all three charts to their data. Double-click a chart to reset only that chart."
+            "Return all three charts to their opening view. Double-click a chart to reset only that chart."
         )
         self.home_btn.clicked.connect(self._reset_view)
         layout.addWidget(self.home_btn)
@@ -229,6 +233,12 @@ class MatplotlibPlotWidget(QWidget):
 
         self.data_lines = []
         self._last_stem_data = None
+        # The stems' x range at full scan, and the one the chart opens on and resets to.
+        self._full_x: tuple[float, float] | None = None
+        self._home_x: tuple[float, float] | None = None
+        # The y range last fitted to the stems; while it stands, labels get headroom.
+        self._fitted_ylim: tuple[float, float] | None = None
+        self.full_scan_button: QToolButton | None = None
 
         self._setup_ui()
 
@@ -281,7 +291,7 @@ class MatplotlibPlotWidget(QWidget):
         self._reset_peak_labels()
         self._legend_entries = None
         self.canvas.mpl_connect("resize_event", self._fit_margins)
-        self.canvas.mpl_connect("draw_event", self._declutter_peak_labels)
+        self.canvas.mpl_connect("draw_event", self._on_draw)
         self.canvas.mpl_connect("button_press_event", self._reset_on_double_click)
         self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
         self.canvas.customContextMenuRequested.connect(self._show_context_menu)
@@ -297,6 +307,7 @@ class MatplotlibPlotWidget(QWidget):
         self.ax.set_facecolor(COLORS["surface"])
         self._reset_peak_labels()
         self._legend_entries = None
+        self._fitted_ylim = None
         self._set_axes_title(self.title)
         self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
@@ -414,14 +425,12 @@ class MatplotlibPlotWidget(QWidget):
             stemlines.set_color(color)
             stemlines.set_linewidth(width)
 
-            # Ensure Y axis starts at 0, with room above the tallest peak for its label
+            x_min, x_max = float(x_data.min()), float(x_data.max())
+            x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 10.0
+            self._full_x = self._home_x = (max(0.0, x_min - x_padding), x_max + x_padding)
+            self._fit_stems(*self._full_x)
+
             y_max = float(np.max(y_data))
-            self.ax.set_ylim(0, y_max * STEM_HEADROOM)
-
-            x_min, x_max = x_data.min(), x_data.max()
-            x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 10
-            self.ax.set_xlim(max(0, x_min - x_padding), x_max + x_padding)
-
             if y_max > SCIENTIFIC_NOTATION_THRESHOLD:
                 self.ax.ticklabel_format(axis="y", style="scientific", scilimits=(0, 0))
                 self.ax.yaxis.get_offset_text().set_fontsize(PLOT_TICK_FONTSIZE)
@@ -431,15 +440,44 @@ class MatplotlibPlotWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to plot stems: {e}")
 
-    def show_x_range(self, low: float, high: float) -> None:
-        """Open on ``low``..``high`` with the stems there filling the height; reset shows them all."""
+    def _fit_stems(self, low: float, high: float) -> None:
+        """Show m/z ``low``..``high``, with the stems there filling the height."""
         self.ax.set_xlim(low, high)
-        if self._last_stem_data is not None:
-            x_data, y_data = self._last_stem_data
-            inside = y_data[(x_data >= low) & (x_data <= high)]
-            if inside.size:
-                # Room above the tallest bar for the cluster's bracket and name.
-                self.ax.set_ylim(0, float(inside.max()) * CLUSTER_HEADROOM)
+        x_data, y_data = self._last_stem_data
+        inside = y_data[(x_data >= low) & (x_data <= high)]
+        top = float(inside.max()) if inside.size else float(y_data.max())
+        self.ax.set_ylim(0.0, top * STEM_HEADROOM)
+        self._fitted_ylim = self.ax.get_ylim()
+
+    def show_x_range(self, low: float, high: float) -> None:
+        """Open, and reset, on the stems in ``low``..``high``; a Full scan toggle shows them all."""
+        if self._last_stem_data is None:
+            return
+        self._home_x = (low, high)
+        self._fit_stems(low, high)
+        if self.full_scan_button is None:
+            button = QToolButton(self.canvas)
+            button.setText("Full scan")
+            button.setCheckable(True)
+            button.setToolTip(f"Show the whole scan; the chart opens on m/z {low:.0f}–{high:.0f}")
+            theme.style(button, _TOGGLE_QSS)
+            button.toggled.connect(self._show_full_scan)
+            self.full_scan_button = button
+            button.show()
+
+    def _show_full_scan(self, full: bool) -> None:
+        self._fit_stems(*(self._full_x if full else self._home_x))
+        self.canvas.draw_idle()
+
+    def _place_full_scan_button(self) -> None:
+        """At the right end of the title row, centred on the title."""
+        button = self.full_scan_button
+        button.adjustSize()
+        box = self.ax.title.get_window_extent(self.canvas.get_renderer())
+        logical = self.canvas.height() / self.figure.bbox.height
+        # 2 px above the box's middle, which its descenders pull down.
+        centre = self.canvas.height() - (box.y0 + box.y1) / 2 * logical - 2
+        button.move(self.canvas.width() - button.width() - 16, max(0, round(centre - button.height() / 2)))
 
     def add_vertical_line(
         self,
@@ -447,6 +485,8 @@ class MatplotlibPlotWidget(QWidget):
         color: str = "red",
         width: int = PLOT_GUIDELINE_WIDTH,
         style: str = "solid",
+        *,
+        behind: bool = False,
     ):
         """
         Add a vertical line at specified position.
@@ -456,6 +496,7 @@ class MatplotlibPlotWidget(QWidget):
             color: Line color
             width: Line width
             style: Line style (solid, dashed, dotted)
+            behind: Draw under the data and gridlines, so it never hides a stem's height
         """
         try:
             if color.startswith("rgba"):
@@ -480,6 +521,7 @@ class MatplotlibPlotWidget(QWidget):
                 linewidth=width,
                 linestyle=linestyle,
                 alpha=None if not isinstance(color, tuple) else color[3],
+                zorder=0.5 if behind else None,
             )
 
             # Defer canvas update for batch rendering
@@ -607,21 +649,17 @@ class MatplotlibPlotWidget(QWidget):
         return {_Mode.PAN: "pan", _Mode.ZOOM: "zoom"}.get(self.nav.mode, "")
 
     def reset_view(self) -> None:
-        """Fit the view to the drawn data.
+        """Fit the view to the drawn data, or a spectrum to the range it opened on.
 
         Matplotlib's nav-stack home can become unstable in Qt embed cases,
         especially for stem plots, so limits come from the stored data.
         """
         try:
             if self._last_stem_data is not None:
-                x_data, y_data = self._last_stem_data
-                if len(x_data) == 0:
-                    return
-                x_min, x_max = float(np.min(x_data)), float(np.max(x_data))
-                x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 10.0
-                self.ax.set_xlim(max(0.0, x_min - x_padding), x_max + x_padding)
-                y_max = float(np.max(y_data))
-                self.ax.set_ylim(0.0, y_max * STEM_HEADROOM if y_max > 0 else 1.0)
+                if self.full_scan_button is not None and self.full_scan_button.isChecked():
+                    self.full_scan_button.setChecked(False)  # fits the opening range
+                else:
+                    self._fit_stems(*self._home_x)
             elif self.data_lines:
                 x_concat = np.concatenate([x for x, _y in self.data_lines])
                 y_concat = np.concatenate([y for _x, y in self.data_lines])
@@ -734,9 +772,47 @@ class MatplotlibPlotWidget(QWidget):
             )
             self._cluster = (label, bracket)
 
-    def _declutter_peak_labels(self, _event=None) -> None:
+    def _on_draw(self, _event=None) -> None:
+        if self.full_scan_button is not None:
+            self._place_full_scan_button()
         if not self._peak_labels:
             return
+        before = [label.get_visible() for label in self._all_peak_labels()]
+        refit = self._make_label_headroom()
+        self._declutter_peak_labels()
+        if refit or before != [label.get_visible() for label in self._all_peak_labels()]:
+            # Settles in one more draw: the same layout gives the same answer.
+            self.canvas.draw_idle()
+
+    def _make_label_headroom(self) -> bool:
+        """While the stems are fitted, raise the top until each label in view fits under it.
+
+        The room is in pixels, so a short chart keeps its labels. True if the range moved.
+        """
+        if self._fitted_ylim is None or self.ax.get_ylim() != self._fitted_ylim:
+            return False  # the user panned or zoomed
+        renderer = self.canvas.get_renderer()
+        area = self.ax.get_window_extent(renderer)
+        low, high = self.ax.get_xlim()
+        x_data, y_data = self._last_stem_data
+        inside = y_data[(x_data >= low) & (x_data <= high)]
+        top = float(inside.max()) * STEM_HEADROOM if inside.size else self._fitted_ylim[1]
+        for label in self._all_peak_labels():
+            x, y = label.xy
+            if not low <= x <= high:
+                continue
+            label.set_visible(True)  # hidden text measures as an empty box
+            above = label.get_window_extent(renderer).y1 - self.ax.transData.transform((x, y))[1]
+            room = area.height - above - 2
+            if room > 0:
+                top = max(top, y * area.height / room)
+        if abs(top - self._fitted_ylim[1]) <= 1e-3 * top:
+            return False
+        self.ax.set_ylim(0.0, top)
+        self._fitted_ylim = self.ax.get_ylim()
+        return True
+
+    def _declutter_peak_labels(self) -> None:
         renderer = self.canvas.get_renderer()
         area = self.ax.get_window_extent(renderer)
         placed = []
@@ -756,7 +832,6 @@ class MatplotlibPlotWidget(QWidget):
             )
             return column if fits else None
 
-        before = [label.get_visible() for label in self._all_peak_labels()]
         own = self._peak_labels[: self._own_count]
         if self._cluster is not None:
             label, bracket = self._cluster
@@ -782,9 +857,6 @@ class MatplotlibPlotWidget(QWidget):
             if column is not None:
                 placed.append(column)
             label.set_visible(column is not None)
-        if before != [label.get_visible() for label in self._all_peak_labels()]:
-            # Settles in one more draw: the same layout gives the same answer.
-            self.canvas.draw_idle()
 
     def finalize_plot(self):
         """Finalize plot after all data is added - single draw call for speed."""

@@ -29,13 +29,14 @@ def spectrum(qapp):
 
     widgets = []
 
-    def draw(own_mz=(), own_names=None):
+    def draw(own_mz=(), own_names=None, size=(900, 300)):
         widget = MatplotlibPlotWidget("Mass Spectrum", "m/z", "Intensity")
         widgets.append(widget)
         widget.plot_stems(SPECTRUM_MZ, SPECTRUM_INTENSITY)
         widget.label_peaks(SPECTRUM_MZ, SPECTRUM_INTENSITY, own_mz=own_mz, own_names=own_names)
         widget.finalize_plot()
-        widget.resize(900, 300)
+        widget.setMinimumHeight(140)  # as the detailed view allows on a short screen
+        widget.resize(*size)
         widget.show()
         for _ in range(5):
             qapp.processEvents()
@@ -155,7 +156,7 @@ def test_isotopologues_are_named_together_at_full_range_and_apart_when_zoomed(sp
     assert not bracket.get_visible()
 
 
-def test_labelled_spectrum_opens_on_its_cluster_and_reset_shows_the_scan(qapp, dialog):
+def test_labelled_spectrum_opens_on_its_cluster_and_full_scan_is_one_toggle(qapp, dialog):
     from manic.models.analysis import IonChannel, IonRole
 
     dialog.ms_data = SimpleNamespace(mz=SPECTRUM_MZ, intensity=SPECTRUM_INTENSITY)
@@ -164,10 +165,28 @@ def test_labelled_spectrum_opens_on_its_cluster_and_reset_shows_the_scan(qapp, d
         mass0=174.0,
     )
     dialog._plot_ms()
-    assert dialog.ms_plot.ax.get_xlim() == (154.0, 197.0)
-    dialog.nav_toolbar.home_btn.click()
-    low, high = dialog.ms_plot.ax.get_xlim()
+    plot = dialog.ms_plot
+    toggle = plot.full_scan_button
+    assert plot.ax.get_xlim() == (154.0, 197.0) and not toggle.isChecked()
+    toggle.click()
+    low, high = plot.ax.get_xlim()
     assert low < 73.02 and high > 300.0
+    # Reset all returns to the opening view, not the scan.
+    dialog.nav_toolbar.home_btn.click()
+    assert plot.ax.get_xlim() == (154.0, 197.0) and not toggle.isChecked()
+    # The target m/z guide sits behind the stems.
+    guide = next(line for line in plot.ax.lines if list(line.get_xdata()) == [174.0, 174.0])
+    assert guide.get_zorder() < min(c.get_zorder() for c in plot.ax.collections)
+
+
+@pytest.mark.parametrize("own_mz", [(174.99,), OWN_IONS], ids=["quantifier", "isotopologues"])
+def test_a_short_spectrum_keeps_its_own_ion_labels_inside_the_plot(spectrum, own_mz):
+    # The supporting row of a 921x581 detailed view.
+    widget = spectrum(own_mz=own_mz, size=(440, 160))
+    renderer = widget.canvas.get_renderer()
+    [tallest] = [text for text in widget.ax.texts if text.get_text() == "174.99"]
+    assert tallest.get_visible()
+    assert tallest.get_window_extent(renderer).y1 <= widget.ax.get_window_extent(renderer).y1 + 1
 
 
 def test_live_scheme_switch_repaints_spectrum_label_boxes(qapp, spectrum):
@@ -212,3 +231,4 @@ def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(dialog):
     assert dialog.eic_plot.ax.get_title(loc="left") == (
         "Extracted Ion Chromatogram (plot failed)"
     )
+

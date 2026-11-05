@@ -801,13 +801,14 @@ class DetailedPlotDialog(QDialog):
                 masses = [channel.mz for channel in channels]
                 self.ms_plot.show_x_range(min(masses) - SPECTRUM_CLUSTER_MARGIN, max(masses) + SPECTRUM_CLUSTER_MARGIN)
 
-            # Mark target m/z position with transparent indicator
+            # The target m/z, faint and behind its stem, so the stem's height still reads.
             if self.compound_info:
                 self.ms_plot.add_vertical_line(
                     self.compound_info.mass0,
-                    color=COLORS["text_secondary"],
+                    color=COLORS["border_strong"],
                     width=PLOT_GUIDELINE_WIDTH,
                     style="solid",
+                    behind=True,
                 )
 
             # Execute batch rendering for performance

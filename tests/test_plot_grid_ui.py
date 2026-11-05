@@ -5,7 +5,7 @@ import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QTextDocumentFragment
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget
 
 from manic.io.compound_reader import Compound
 from manic.models.analysis import IonChannel, IonRole
@@ -278,6 +278,43 @@ def test_not_detected_tile_is_tinted_throughout_and_its_traces_faded(scheme, gri
         "Marked bad", "Not detected"
     ]
     assert tiles["Missing"].tint() == "danger_soft"
+
+
+def test_density_toggle_is_one_tab_stop_that_arrow_keys_switch(grid, qapp):
+    grid.show()
+    qapp.processEvents()
+    changed = []
+    grid.density_changed.connect(changed.append)
+    compact, comfortable = (grid.findChild(QToolButton, f"density_{key}") for key in ("compact", "comfortable"))
+    assert (compact.focusPolicy(), comfortable.focusPolicy()) == (Qt.NoFocus, Qt.TabFocus)
+    comfortable.setFocus()
+    QTest.keyClick(comfortable, Qt.Key_Left)
+    assert grid.density() == "compact" and changed == ["compact"]
+    assert compact.isChecked() and compact.hasFocus()
+    assert (compact.focusPolicy(), comfortable.focusPolicy()) == (Qt.TabFocus, Qt.NoFocus)
+    QTest.keyClick(compact, Qt.Key_Right)
+    assert grid.density() == "comfortable" and comfortable.hasFocus()
+    # The View menu sets it through the same method.
+    grid.set_density("compact")
+    assert compact.isChecked() and changed == ["compact", "comfortable", "compact"]
+
+
+def test_next_and_previous_flagged_tile_wrap_and_skip_accepted_ones(grid):
+    grid.plot_compound("Cmp", ["A", "B", "C", "D", "E"])
+    assert grid.focus_flagged(1) is False
+    grid.apply_peak_verdicts(
+        {"B": PeakVerdict.FAIL, "C": PeakVerdict.ACCEPTED, "D": PeakVerdict.REJECTED}
+    )
+
+    def step(direction):
+        assert grid.focus_flagged(direction) is True
+        return grid.review_lead().sample_name
+
+    assert [step(1), step(1), step(1)] == ["B", "D", "B"]
+    assert [step(-1), step(-1)] == ["D", "B"]
+    QTest.keyClick(grid, Qt.Key_Right)
+    assert grid.review_lead().sample_name == "C"
+    assert step(-1) == "B"
 
 
 def test_a_qualifier_the_method_cannot_check_is_one_header_note_not_a_badge_per_tile(grid):

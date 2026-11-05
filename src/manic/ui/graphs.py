@@ -198,6 +198,8 @@ class GraphView(QWidget):
     documentation_requested = Signal()
     # A documentation link, "file.md#section".
     guide_requested = Signal(str)
+    # "compact" or "comfortable", whichever control set it.
+    density_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -353,9 +355,11 @@ class GraphView(QWidget):
             button.setToolTip(tip)
             button.setCheckable(True)
             button.setChecked(key == self._density)
-            button.setFocusPolicy(Qt.NoFocus)
+            # One tab stop, on the checked side; a click leaves focus on the grid.
+            button.setFocusPolicy(Qt.TabFocus if key == self._density else Qt.NoFocus)
             button.setProperty("density", key)
             button.setObjectName(f"density_{key}")
+            button.installEventFilter(self)
             self._density_buttons.addButton(button)
             layout.addWidget(button)
         self._density_buttons.buttonClicked.connect(
@@ -373,10 +377,12 @@ class GraphView(QWidget):
             QToolButton:checked {
                 color: @text; background: @surface_alt; font-weight: 600;
             }
+            QToolButton:focus { border-color: @accent; }
             QToolButton#density_compact {
                 border-top-left-radius: 6px; border-bottom-left-radius: 6px;
-                border-right: none;
             }
+            /* Comfortable's left edge is the divider; this side shows the fill. */
+            QToolButton#density_compact:!focus { border-right-color: transparent; }
             QToolButton#density_comfortable {
                 border-top-right-radius: 6px; border-bottom-right-radius: 6px;
             }
@@ -389,11 +395,18 @@ class GraphView(QWidget):
             return
         self._density = density
         QSettings().setValue("graph/density", density)
-        for button in self._density_buttons.buttons():
-            button.setChecked(button.property("density") == density)
+        buttons = self._density_buttons.buttons()
+        had_focus = any(button.hasFocus() for button in buttons)
+        for button in buttons:
+            checked = button.property("density") == density
+            button.setChecked(checked)
+            button.setFocusPolicy(Qt.TabFocus if checked else Qt.NoFocus)
+            if checked and had_focus:
+                button.setFocus(Qt.TabFocusReason)
         for tile in self._container_pool:
             self._apply_density_text(tile)
         self._place_tiles(force=True)
+        self.density_changed.emit(density)
 
     def _apply_density_text(self, tile: PlotTile) -> None:
         tick_px, caption_px = DENSITY_TEXT[self._density]
@@ -416,6 +429,12 @@ class GraphView(QWidget):
         """
         Event filter to handle rubberband selection across child widgets.
         """
+        if obj in self._density_buttons.buttons():
+            if event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Left, Qt.Key_Right):
+                # Left picks the left segment, Compact; Right picks Comfortable.
+                self.set_density(self._density_buttons.buttons()[event.key() == Qt.Key_Right].property("density"))
+                return True
+            return False
         if event.type() == QEvent.Resize and obj is self._scroll.viewport():
             self._resize_timer.start(60)
             return False
@@ -813,6 +832,22 @@ class GraphView(QWidget):
         tile = self._current_plots[index].parent()
         if isinstance(tile, QWidget):
             self._scroll.ensureWidgetVisible(tile, 0, TILE_GAP)
+
+    def focus_flagged(self, step: int) -> bool:
+        """Focus the next (``step`` 1) or previous (-1) flagged tile, wrapping; False if none is.
+
+        A tile is flagged by any badge but Accepted, which closes its review.
+        """
+        count = len(self._current_plots)
+        start = self._focus_index if self._focus_index is not None else (-1 if step > 0 else count)
+        for offset in range(1, count + 1):
+            index = (start + step * offset) % count
+            tile = self._current_plots[index].parent()
+            if isinstance(tile, PlotTile) and any(badge.tone != "success" for badge in tile.badges()):
+                self.setFocus(Qt.ShortcutFocusReason)
+                self._focus_on(index)
+                return True
+        return False
 
     def focusInEvent(self, event):
         super().focusInEvent(event)

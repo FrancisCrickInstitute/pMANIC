@@ -63,7 +63,9 @@ from manic.ui import theme
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
 # Every sample gets this much height so its name is never elided.
-ROW_HEIGHT = 22
+ROW_HEIGHT = 26
+# Sample names, bar-end values and the value axis: a step above the sidebar's 10 px.
+VALUE_PX = 12
 # The chart margins above and below the rows; the axis text is pinned outside.
 _AXIS_SPACE = 16
 
@@ -353,7 +355,7 @@ class ChartPopupDialog(QDialog):
             "QScrollArea { background: @surface; border: 1px solid @border; border-radius: 8px; }",
         )
         self.pinned_axis = PinnedAxis(
-            self.chart_view, font_px=11 if self.chart_type == "identity" else AXIS_LABEL_PX
+            self.chart_view, font_px=11 if self.chart_type == "identity" else VALUE_PX
         )
         # Tight to the rows it labels, not a layout gap away.
         rows = QVBoxLayout()
@@ -454,7 +456,7 @@ class ChartPopupDialog(QDialog):
         """Text past the bar end of each (category, value). QtCharts' own labels can only print raw numbers."""
         for index, value in values:
             item = _BackedText(bar_value_text(value), self.chart)
-            item.setFont(ui_font(10))
+            item.setFont(ui_font(VALUE_PX))
             # Above QtCharts' gridlines, which sit over plain chart children.
             item.setZValue(50)
             self._value_labels.append((item, value if np.isfinite(value) else 0.0, index))
@@ -628,7 +630,7 @@ class ChartPopupDialog(QDialog):
         axis = QBarCategoryAxis()
         axis.append(names)
         style_axis(axis)
-        axis.setLabelsFont(ui_font(11))
+        axis.setLabelsFont(ui_font(VALUE_PX))
         axis.setLabelsColor(color("text"))
         axis.setLineVisible(False)
         # Every row is tall enough for its name, so never shorten it to "…".

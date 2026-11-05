@@ -177,3 +177,20 @@ def test_session_export_names_the_file_it_wrote_and_opens_its_folder(
         assert [url.toLocalFile() for url in opened] == [str(written.parent)]
     finally:
         window.close()
+
+
+def test_finished_data_export_reports_in_a_toast_not_a_dialog(qapp, monkeypatch, tmp_path):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    dialogs = []
+    monkeypatch.setattr(QMessageBox, "exec", lambda box: dialogs.append(box.text()))
+    try:
+        window.show()
+        # The export worker reports back through _export_finished.
+        window._export_path = str(tmp_path / "manic_data_export.xlsx")
+        window._export_finished(True)
+        toast = _toast(window)
+        assert toast.findChild(QLabel, "toastLabel").text() == "Exported manic_data_export.xlsx"
+        assert toast.action_button.text() == "Show in Folder"
+        assert dialogs == []
+    finally:
+        window.close()

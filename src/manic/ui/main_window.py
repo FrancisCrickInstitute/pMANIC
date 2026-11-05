@@ -2930,7 +2930,6 @@ class MainWindow(QMainWindow):
             )
 
             self._export_path = file_path
-            self._export_include_carbon = include_carbon_enrichment
             self._export_progress_dialog = progress_dialog
             self._export_thread = QThread(self)
             self._export_worker = ExportWorker(
@@ -2992,47 +2991,12 @@ class MainWindow(QMainWindow):
 
     def _export_finished(self, success: bool):
         self._close_export_dialog()
-        file_path = self._export_path
-        include_carbon_enrichment = self._export_include_carbon
         if success:
-            if self.analysis_mode is AnalysisMode.UNLABELLED:
-                sheet_list = [
-                    "• Raw Values - Quantifier ion areas",
-                    "• Abundances - Quantifier-only amounts",
-                    "• Qualifier QC - qualifier/Q ratio pass or review",
-                ]
-            else:
-                sheet_list = [
-                    "• Raw Values - Direct instrument signals",
-                    "• Corrected Values - Natural isotope corrected signals",
-                    "• Isotope Ratios - Normalized corrected values",
-                    "• % Label Incorporation - Experimental label percentages",
-                ]
-                if include_carbon_enrichment:
-                    sheet_list.append(
-                        "• % Carbons Labelled - Average fractional carbon enrichment"
-                    )
-                sheet_list.append(
-                    "• Abundances - Absolute metabolite concentrations"
-                )
-            sheet_count = len(sheet_list)
-            sheets_text = "\n".join(sheet_list)
-            msg_box = self._create_message_box(
-                "information",
-                "Data Export Successful",
-                f"Data exported successfully to:\n{file_path}\n\n"
-                f"The Excel file contains {sheet_count} worksheets:\n"
-                f"{sheets_text}",
-            )
-            msg_box.exec()
-            logger.info(f"Data exported successfully to {file_path}")
+            path = Path(self._export_path)
+            self._show_export_toast(f"Exported {path.name}", path.parent)
+            logger.info(f"Data exported successfully to {path}")
         else:
-            msg_box = self._create_message_box(
-                "information",
-                "Export Cancelled",
-                "Data export was cancelled.",
-            )
-            msg_box.exec()
+            show_status_toast(self.statusBar(), "Export cancelled")
             logger.info("Data export was cancelled")
         self._update_menu_states()
 

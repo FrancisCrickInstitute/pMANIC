@@ -1,10 +1,10 @@
-"""Chip row naming each plotted channel, with a swatch of its trace pen."""
+"""Legend row naming each plotted channel, with a swatch of its trace pen."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QLayout, QLayoutItem, QSizePolicy, QWidget, QWidgetItem
 
@@ -15,9 +15,10 @@ from manic.ui.theme import color
 from manic.validation.unlabelled_identity import qualifier_expectation
 
 SWATCH_WIDTH = 16
-CHIP_HEIGHT = 22
-PAD_X = 9
+CHIP_HEIGHT = 18
 GAP = 6
+# After each label, so neighbouring entries read as separate.
+TRAIL = 10
 
 
 def identity_key_chips(
@@ -43,13 +44,15 @@ def expectation_text(channel: IonChannel) -> str:
 
 
 class ChannelChip(QWidget):
+    """A legend entry: a swatch of the trace pen, then the channel name."""
+
     def __init__(self, label: str, style: ChannelTraceStyle, parent=None):
         super().__init__(parent)
         self.label = label
         self.style = style
         self.setFont(ui_font(11))
         metrics = QFontMetrics(self.font())
-        chrome = PAD_X + SWATCH_WIDTH + GAP + PAD_X
+        chrome = SWATCH_WIDTH + GAP + TRAIL
         self._full = QSize(chrome + metrics.horizontalAdvance(label), CHIP_HEIGHT)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.setFixedHeight(CHIP_HEIGHT)
@@ -62,28 +65,23 @@ class ChannelChip(QWidget):
         return self._full
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(PAD_X * 2 + SWATCH_WIDTH, CHIP_HEIGHT)
+        return QSize(SWATCH_WIDTH + TRAIL, CHIP_HEIGHT)
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-
-        painter.setPen(QPen(color("border"), 1))
-        painter.setBrush(color("surface"))
-        painter.drawRoundedRect(rect, CHIP_HEIGHT / 2, CHIP_HEIGHT / 2)
-
-        y = rect.center().y()
+        y = self.height() / 2
         painter.setPen(QPen(self.style.color, 2.5, self.style.line_style, Qt.RoundCap))
-        painter.drawLine(PAD_X, y, PAD_X + SWATCH_WIDTH, y)
+        painter.drawLine(QPointF(1.5, y), QPointF(SWATCH_WIDTH - 1.5, y))
 
         painter.setPen(color("text"))
-        text_left = PAD_X + SWATCH_WIDTH + GAP
-        text_width = int(rect.width()) - text_left - PAD_X + 2
+        text_left = SWATCH_WIDTH + GAP
+        # The trailing gap too: scaled fonts can run a pixel past the metrics' advance.
+        text_width = self.width() - text_left
         painter.drawText(
-            QRectF(text_left, 0, text_width, rect.height()),
+            QRectF(text_left, 0, text_width, self.height()),
             Qt.AlignVCenter | Qt.AlignLeft,
-            QFontMetrics(self.font()).elidedText(self.label, Qt.ElideRight, text_width),
+            QFontMetrics(self.font()).elidedText(self.label, Qt.ElideMiddle, text_width),
         )
 
 
@@ -159,7 +157,7 @@ class FlowLayout(QLayout):
 
 
 class ChannelChipRow(QWidget):
-    """Channel chips that wrap onto more rows rather than truncating, then an
+    """Channel entries that wrap onto more rows rather than truncating, then an
     optional trailing widget (a colour key) that wraps with them."""
 
     def __init__(self, parent=None, trailing: QWidget | None = None):

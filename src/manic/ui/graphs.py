@@ -739,7 +739,7 @@ class GraphView(QWidget):
         self._fit_header()
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:
-        """One chip per plotted channel above the grid, in both analysis modes."""
+        """One legend entry per plotted channel above the grid, in both analysis modes."""
         if not eics:
             self._hide_legend()
             return

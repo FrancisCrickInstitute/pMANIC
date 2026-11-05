@@ -44,6 +44,18 @@ def scale_text(exponent: int) -> str:
     return f"×10{str(exponent).translate(_SUPERSCRIPT)}" if exponent else ""
 
 
+def abundance_scale(values) -> tuple[float, int]:
+    """(largest finite value, power of ten the axis shows it in); (1, 0) when none is positive.
+
+    A sample with no abundance (NaN) has no bar, so it never sets the axis.
+    """
+    finite = [float(v) for v in values if math.isfinite(v)]
+    top = max(finite, default=0.0)
+    if not top > 0:
+        return 1.0, 0
+    return top, math.floor(math.log10(top))
+
+
 def nice_step(span: float, max_ticks: float) -> float:
     """Largest 1-2-5 step that gives at least ``max_ticks`` intervals over ``span``."""
     if not math.isfinite(span) or span <= 0:

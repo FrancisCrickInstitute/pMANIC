@@ -32,6 +32,7 @@ from manic.models.analysis import IonRole
 from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
+    abundance_scale,
     scale_text,
     set_nice_ticks,
     style_axis,
@@ -423,14 +424,11 @@ class ChartPopupDialog(QDialog):
         bar_set.setColor(abundance_colour)
         bar_set.setBorderColor(abundance_colour)
 
-        # Calculate scaling for display
-        max_abundance = float(np.max(self.data)) if len(self.data) > 0 else 1.0
-        scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
-        scale_factor = 10**scale_exp if scale_exp != 0 else 1
-
+        max_abundance, scale_exp = abundance_scale(self.data)
+        scale_factor = 10**scale_exp
         scaled = [float(abundance) / scale_factor for abundance in self.data]
         for value in scaled:
-            bar_set.append(value)
+            bar_set.append(value if np.isfinite(value) else 0.0)
 
         # No hover text: each row already shows its name and the same rounded value.
         bar_series.append(bar_set)

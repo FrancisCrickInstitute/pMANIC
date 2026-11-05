@@ -20,7 +20,7 @@ from manic.io.eic_reader import EIC
 from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import PinnedAxis, value_axis_ticks
-from manic.ui.chart_style import scale_text, set_nice_ticks, style_axis, style_chart
+from manic.ui.chart_style import abundance_scale, scale_text, set_nice_ticks, style_axis, style_chart
 from manic.ui.colors import abundance_colour
 from manic.ui.sidebar_widgets import (
     SUMMARY_CHART_MAX_HEIGHT,
@@ -136,14 +136,9 @@ class TotalAbundanceWidget(QWidget):
         bar_set.setColor(self.bar_color)
         bar_set.setBorderColor(self.bar_color)
 
-        # Calculate scaling for display like EIC plots
-        max_abundance = float(np.max(abundances)) if len(abundances) > 0 else 1.0
-        scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
-        scale_factor = 10**scale_exp if scale_exp != 0 else 1
-
+        _top, scale_exp = abundance_scale(abundances)
         for abundance in abundances:
-            scaled_abundance = abundance / scale_factor
-            bar_set.append(scaled_abundance)
+            bar_set.append(abundance / 10**scale_exp if np.isfinite(abundance) else 0.0)
         bar_set.hovered.connect(self._on_bar_hovered)
 
         bar_series.append(bar_set)
@@ -187,7 +182,8 @@ class TotalAbundanceWidget(QWidget):
 
     def hover_text(self, index: int) -> str:
         value = float(self._current_abundances[index])
-        return f"{self._current_sample_names[index]}\nTotal abundance  {value:.3g}"
+        shown = f"{value:.3g}" if np.isfinite(value) else "—"
+        return f"{self._current_sample_names[index]}\nTotal abundance  {shown}"
 
     def _on_bar_hovered(self, status: bool, index: int) -> None:
         if not status or not self._has_data():
@@ -201,13 +197,8 @@ class TotalAbundanceWidget(QWidget):
             self.chart.removeAxis(axis)
 
         x_axis = QValueAxis()
-        max_abundance = float(np.max(abundances)) if len(abundances) > 0 else 1.0
-
-        # Calculate scaling factor like EIC plots
-        scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
-        scale_factor = 10**scale_exp if scale_exp != 0 else 1
-
-        scaled_max = max_abundance / scale_factor
+        max_abundance, scale_exp = abundance_scale(abundances)
+        scaled_max = max_abundance / 10**scale_exp
         x_axis.setRange(0, scaled_max * 1.05)  # Add 5% padding
         set_nice_ticks(x_axis, 0, scaled_max * 1.05, max_ticks=2)
 

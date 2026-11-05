@@ -430,6 +430,15 @@ class MatplotlibPlotWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to plot stems: {e}")
 
+    def show_x_range(self, low: float, high: float) -> None:
+        """Open on ``low``..``high`` with the stems there filling the height; reset shows them all."""
+        self.ax.set_xlim(low, high)
+        if self._last_stem_data is not None:
+            x_data, y_data = self._last_stem_data
+            inside = y_data[(x_data >= low) & (x_data <= high)]
+            if inside.size:
+                self.ax.set_ylim(0, float(inside.max()) * STEM_HEADROOM)
+
     def add_vertical_line(
         self,
         x_position: float,
@@ -717,9 +726,9 @@ class MatplotlibPlotWidget(QWidget):
                 color=COLORS["text_secondary"], linewidth=PLOT_GUIDELINE_WIDTH,
                 transform=offset_copy(self.ax.transData, fig=self.figure, y=3, units="points"),
             )[0]
-            # Beside the bracket's end, so it sits on no stem and no guide line.
+            # Above the bracket, over the tallest bar, clear of every stem.
             label = self._peak_label(
-                f"{own[named[0]]}…{own[named[-1]]}", right, top, own=True, rise=3, side=4
+                f"{own[named[0]]}…{own[named[-1]]}", (left + right) / 2, top, own=True, rise=6
             )
             self._cluster = (label, bracket)
 

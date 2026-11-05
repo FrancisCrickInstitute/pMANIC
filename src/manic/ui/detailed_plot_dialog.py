@@ -61,6 +61,8 @@ from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
 
 logger = logging.getLogger(__name__)
+# m/z either side of a labelled compound's isotopologues that the spectrum opens on.
+SPECTRUM_CLUSTER_MARGIN = 20
 
 
 def _rgba(qcolor, alpha: float) -> str:
@@ -794,6 +796,10 @@ class DetailedPlotDialog(QDialog):
                 own_mz=[channel.mz for channel in channels],
                 own_names=[f"M+{channel.ordinal}" for channel in channels] if isotopologues else None,
             )
+            if channels and isotopologues:
+                # The cluster is a few m/z wide; at full scan it is one sliver.
+                masses = [channel.mz for channel in channels]
+                self.ms_plot.show_x_range(min(masses) - SPECTRUM_CLUSTER_MARGIN, max(masses) + SPECTRUM_CLUSTER_MARGIN)
 
             # Mark target m/z position with transparent indicator
             if self.compound_info:

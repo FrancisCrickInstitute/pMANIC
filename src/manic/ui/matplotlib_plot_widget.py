@@ -44,10 +44,10 @@ def _points(px: float) -> float:
     return px * 72 / PLOT_DPI
 
 
-# The detailed view is for reading values, so its text is a step above the grid's.
-PLOT_TICK_FONTSIZE = _points(11)
-PLOT_LABEL_FONTSIZE = _points(12)
-PLOT_TITLE_FONTSIZE = _points(13)
+# The detailed view is for reading values, so its text is two steps above the grid's.
+PLOT_TICK_FONTSIZE = _points(13)
+PLOT_LABEL_FONTSIZE = _points(14)
+PLOT_TITLE_FONTSIZE = _points(15)
 matplotlib.rcParams["figure.dpi"] = PLOT_DPI
 matplotlib.rcParams["figure.autolayout"] = False
 matplotlib.rcParams["axes.unicode_minus"] = False
@@ -513,7 +513,7 @@ class MatplotlibPlotWidget(QWidget):
         if width < 100 or height < 100:
             return
         self.figure.subplots_adjust(
-            left=64 / width, right=1 - 16 / width, top=1 - 34 / height, bottom=40 / height
+            left=72 / width, right=1 - 16 / width, top=1 - 38 / height, bottom=46 / height
         )
 
     def set_mode(self, mode: str) -> None:

@@ -191,8 +191,8 @@ def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(dialog):
     dialog._plot_eic()
     dialog._update_info_label()
     assert dialog.info_label.text() == (
-        "EIC plot failed: finalize failed  ·  tR 5.000 min  ·  3 EIC points"
+        "EIC plot failed: finalize failed  ·  tR 5.000 min  ·  integration 4.900–5.100 min"
     )
     assert dialog.eic_plot.ax.get_title(loc="left") == (
-        "Enhanced Extracted Ion Chromatogram (plot failed)"
+        "Extracted Ion Chromatogram (plot failed)"
     )

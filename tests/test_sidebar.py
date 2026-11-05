@@ -842,6 +842,14 @@ def test_long_names_keep_whole_rows_and_show_in_full_on_hover(qapp):
             assert _full_rows(lst) == len(names)
             point = lst.visualItemRect(lst.item(0)).topLeft() + QPoint(20, 5)
             assert _hover_text(lst.viewport(), point) == names[0]
+        standards = [f"{compound} 00{i}" for i in (1, 2)]
+        chooser = StandardChooser(standards, standards[0], set(), toolbar)
+        chooser.popup(toolbar.mapToGlobal(QPoint(0, 0)))
+        _settle(toolbar)
+        assert not chooser.list.horizontalScrollBar().isVisible()
+        point = chooser.list.visualItemRect(chooser.list.item(2)).topLeft() + QPoint(20, 5)
+        assert _hover_text(chooser.list.viewport(), point) == standards[1]
+        chooser.close()
     finally:
         toolbar.deleteLater()
 

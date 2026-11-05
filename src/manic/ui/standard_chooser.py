@@ -57,6 +57,9 @@ class StandardChooser(QFrame):
         layout.setSpacing(4)
         self.list = QListWidget()
         self.list.setAccessibleName("Internal standard")
+        # As in the sidebar lists: long names share a prefix, so keep their ends; hover shows all.
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.filter = FilterField(self.list, "Filter compounds")
         self.filter.installEventFilter(self)
         self.filter.filtered.connect(self._on_filtered)
@@ -82,6 +85,7 @@ class StandardChooser(QFrame):
                 self._no_amount = item
                 continue
             item.setData(Qt.ItemDataRole.UserRole, name)
+            item.setToolTip(name or "")
             item.setIcon(check if name == current else QIcon(blank))
             if name == current:
                 self._current_row = self.list.row(item)

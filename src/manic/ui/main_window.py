@@ -2151,22 +2151,19 @@ class MainWindow(QMainWindow):
                     )
                     legacy_msg.exec()
 
-                import_text = (
-                    f"Session overrides imported successfully from:\n{file_path}\n\n"
-                    f"Integration boundaries have been updated for the affected samples."
-                )
                 standard_note = format_session_import_standard_note(
                     restore,
                     labelled=self.analysis_mode is AnalysisMode.LABELLED,
                 )
-                if standard_note:
-                    import_text = f"{import_text}\n\n{standard_note}"
-                msg_box = self._create_message_box(
-                    "information",
-                    "Session Import Successful",
-                    import_text,
-                )
-                msg_box.exec()
+                if restore.kind is InternalStandardRestoreKind.FAILED:
+                    self._create_message_box(
+                        "warning", "Internal Standard Not Restored", standard_note
+                    ).exec()
+                # Routine success: a toast, with the restored standard when there is one.
+                message = f"Imported {Path(file_path).name}"
+                if standard_note and restore.kind is not InternalStandardRestoreKind.FAILED:
+                    message = f"{message} · {standard_note.rstrip('.')}"
+                show_status_toast(self.statusBar(), message, hover=file_path)
                 logger.info(f"Session overrides imported from {file_path}")
                 self._refresh_after_session_import()
             else:

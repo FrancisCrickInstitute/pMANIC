@@ -276,3 +276,45 @@ def test_import_session_says_what_it_needs_while_disabled(qapp, monkeypatch):
         assert action.isEnabled() and action.toolTip() == "Import Session"
     finally:
         window.close()
+
+
+def test_successful_session_import_reports_in_a_toast(qapp, monkeypatch, tmp_path):
+    from manic.models.session_export import InternalStandardRestore, InternalStandardRestoreKind
+
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    session = tmp_path / "week3.json"
+    dialogs = []
+
+    def answer(box):
+        dialogs.append(box.text())
+        importing = [b for b in box.buttons() if b.text() == "Import Overrides"]
+        if importing:
+            importing[0].click()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", answer)
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getOpenFileName", lambda *a, **k: (str(session), "")
+    )
+    monkeypatch.setattr("manic.ui.main_window.validate_method_file", lambda *a, **k: (True, ""))
+    monkeypatch.setattr(
+        "manic.ui.main_window.get_method_info",
+        lambda _path: {"session_override_count": 4, "expected_sample_count": 30},
+    )
+    monkeypatch.setattr(
+        "manic.ui.main_window.import_session_overrides", lambda *a, **k: (True, True)
+    )
+    monkeypatch.setattr(
+        window,
+        "_apply_imported_internal_standard",
+        lambda _path: InternalStandardRestore(InternalStandardRestoreKind.RESTORED, "Pyruvate", 1),
+    )
+    monkeypatch.setattr(window, "_refresh_after_session_import", lambda: None)
+    try:
+        window.show()
+        window.import_session()
+        assert dialogs == ["Import week3.json?"]
+        label = _toast(window).findChild(QLabel, "toastLabel")
+        assert label.full_text() == "Imported week3.json · Internal standard: Pyruvate (M+1)"
+    finally:
+        window.close()

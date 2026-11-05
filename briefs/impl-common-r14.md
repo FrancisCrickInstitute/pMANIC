@@ -89,3 +89,6 @@ any hook you need in a file you do not own.
   and look at it first; laptop sizes (1500x940, 1280x800, 1024x720, 150%) must still work.
 - Read the last three sections of `design_spec.md` (clean not cluttered, button
   spacing, pastel verdicts, big screens, both panels toggle). They are binding.
+- Scope every widget stylesheet with a selector (`QChartView { ... }`), never
+  bare declarations: a tooltip shown from a widget inherits its unscoped rules
+  (a bare `background: transparent` made the summary tooltips invisible).

@@ -2,14 +2,34 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import threading
 import warnings
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-from scipy.optimize import least_squares, nnls
-from scipy.signal import find_peaks, peak_widths
-from scipy.special import erfcx
+
+
+def _imported_on_first_call(module: str, name: str):
+    # SciPy takes ~0.4 s to import, which the window does not need to open.
+    def load(*args, **kwargs):
+        # A plain import statement, so PyInstaller still bundles these modules.
+        from scipy import optimize, signal, special
+
+        modules = {"optimize": optimize, "signal": signal, "special": special}
+        function = getattr(modules[module], name)
+        if globals()[name] is load:  # a test may have patched the name since
+            globals()[name] = function
+        return function(*args, **kwargs)
+
+    return load
+
+
+least_squares = _imported_on_first_call("optimize", "least_squares")
+nnls = _imported_on_first_call("optimize", "nnls")
+find_peaks = _imported_on_first_call("signal", "find_peaks")
+peak_widths = _imported_on_first_call("signal", "peak_widths")
+erfcx = _imported_on_first_call("special", "erfcx")
 
 ChromatographicPeakDeconvolutionStringency = Literal[
     "off",
@@ -604,6 +624,29 @@ def _deconvolve_matrix(
     )
 
 
+class FitMissing(Exception):
+    """Raised by a fit cache while a render is probed for the fits it lacks."""
+
+
+# Fits computed ahead of a render on worker processes (see fit_prefetch), keyed
+# like the caches below; each is consumed once, on its cache miss.
+_prefetched: dict[tuple, FittedComponentModel | None] = {}
+# While this thread's ``keys`` is a list, cache misses record their key there
+# and raise FitMissing. Thread-local so a background export never probes.
+_probe = threading.local()
+
+
+def _cached_fit(fit, *args) -> FittedComponentModel | None:
+    key = (fit.__name__, *args)
+    if key in _prefetched:
+        return _prefetched.pop(key)
+    keys = getattr(_probe, "keys", None)
+    if keys is not None:
+        keys.append(key)
+        raise FitMissing
+    return fit(*args)
+
+
 @functools.lru_cache(maxsize=8192)
 def _fit_single_component_model_cached(
     time_bytes: bytes,
@@ -611,6 +654,18 @@ def _fit_single_component_model_cached(
     matrix_shape: tuple[int, int],
     params: ChromatographicPeakDeconvolutionParameters,
     target_rt: float | None = None,
+) -> FittedComponentModel | None:
+    return _cached_fit(
+        _fit_single_from_bytes, time_bytes, matrix_bytes, matrix_shape, params, target_rt
+    )
+
+
+def _fit_single_from_bytes(
+    time_bytes: bytes,
+    matrix_bytes: bytes,
+    matrix_shape: tuple[int, int],
+    params: ChromatographicPeakDeconvolutionParameters,
+    target_rt: float | None,
 ) -> FittedComponentModel | None:
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
@@ -643,6 +698,18 @@ def _fit_joint_component_model_cached(
     different key and never returns a stale result; the cost is only memory (each
     entry is one window's small fit result).
     """
+    return _cached_fit(
+        _fit_joint_from_bytes, time_bytes, matrix_bytes, matrix_shape, params, target_rt
+    )
+
+
+def _fit_joint_from_bytes(
+    time_bytes: bytes,
+    matrix_bytes: bytes,
+    matrix_shape: tuple[int, int],
+    params: ChromatographicPeakDeconvolutionParameters,
+    target_rt: float | None,
+) -> FittedComponentModel | None:
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
     return _fit_joint_component_model(time, matrix, params, target_rt=target_rt)
@@ -791,22 +858,33 @@ def _fit_shape_candidate(
         return center_array, shape_matrix
 
     def solve_linear(
-        shape_matrix: np.ndarray, enforce_nonneg: bool = False
+        shape_matrix: np.ndarray, enforce_nonneg: bool = False, normal=None
     ) -> tuple[np.ndarray, np.ndarray]:
         # Cheap unconstrained solve via the tiny (1+K)x(1+K) normal equations.
         # During optimization this runs on every residual evaluation, so it must
         # be fast; non-negativity is only enforced once on the final fit, where a
         # per-channel NNLS cleans up any channel with a negative coefficient.
-        design, gram = _normal_equations(shape_matrix, ones, ridge)
+        design, gram = normal or _normal_equations(shape_matrix, ones, ridge)
         coef = np.linalg.solve(gram, design.T @ y.T)
         if enforce_nonneg:
             for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
                 coef[:, channel], _ = nnls(design, y[channel])
         return coef[0], coef[1:].T
 
+    # least_squares asks for the Jacobian at the point whose residual it just
+    # evaluated, so the residual keeps its shapes and normal equations for it.
+    last_evaluation: dict = {}
+
     def residual(values: np.ndarray) -> np.ndarray:
-        _, shape_matrix = shapes_from(values, sort=False)
-        intercept, weights = solve_linear(shape_matrix)
+        values_matrix = np.asarray(values, dtype=np.float64).reshape(
+            component_count, param_count
+        )
+        raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
+        shape_matrix = _normalize_rows(raw)
+        normal = _normal_equations(shape_matrix, ones, ridge)
+        last_evaluation.clear()
+        last_evaluation[values_matrix.tobytes()] = (raw, shape_matrix, normal)
+        intercept, weights = solve_linear(shape_matrix, normal=normal)
         total = intercept[:, None] + weights @ shape_matrix
         return ((total - y) / channel_scale[:, None]).ravel()
 
@@ -815,7 +893,14 @@ def _fit_shape_candidate(
             component_count, param_count
         )
         return _variable_projection_jacobian(
-            x_rel, shape_model, values_matrix, y, ones, ridge, channel_scale
+            x_rel,
+            shape_model,
+            values_matrix,
+            y,
+            ones,
+            ridge,
+            channel_scale,
+            evaluated=last_evaluation.get(values_matrix.tobytes()),
         )
 
     try:
@@ -1155,10 +1240,18 @@ def _component_shapes(
 
 
 def _component_shape_gradients(
-    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
+    x_rel: np.ndarray,
+    shape_model: PeakShapeModel,
+    values_matrix: np.ndarray,
+    raw: np.ndarray | None = None,
+    shapes: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Normalized shapes (K, n) and their derivatives (K, p, n)."""
-    raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
+    """Normalized shapes (K, n) and their derivatives (K, p, n).
+
+    ``raw`` and ``shapes`` may be passed when already computed at ``values_matrix``.
+    """
+    if raw is None:
+        raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
     center = values_matrix[:, 0, None]
     if shape_model == "gaussian":
         sigma = values_matrix[:, 1, None]
@@ -1188,7 +1281,8 @@ def _component_shape_gradients(
             axis=1,
         )
 
-    shapes = _normalize_rows(raw)
+    if shapes is None:
+        shapes = _normalize_rows(raw)
     max_shapes = np.max(raw, axis=1)
     valid = (max_shapes > 0) & np.isfinite(max_shapes)
     max_gradients = np.take_along_axis(
@@ -1216,6 +1310,7 @@ def _variable_projection_jacobian(
     ones: np.ndarray,
     ridge: np.ndarray,
     channel_scale: np.ndarray,
+    evaluated: tuple | None = None,
 ) -> np.ndarray:
     """Golub-Pereyra derivative of the variable-projection residual.
 
@@ -1225,8 +1320,14 @@ def _variable_projection_jacobian(
     """
     component_count, param_count = values_matrix.shape
     channels, points = y.shape
-    shapes, gradients = _component_shape_gradients(x_rel, shape_model, values_matrix)
-    design, gram = _normal_equations(shapes, ones, ridge)
+    if evaluated is None:
+        shapes, gradients = _component_shape_gradients(x_rel, shape_model, values_matrix)
+        design, gram = _normal_equations(shapes, ones, ridge)
+    else:
+        raw, shapes, (design, gram) = evaluated
+        shapes, gradients = _component_shape_gradients(
+            x_rel, shape_model, values_matrix, raw=raw, shapes=shapes
+        )
     gram_inv_design_t = np.linalg.solve(gram, design.T)
     coef = gram_inv_design_t @ y.T
     residual = y.T - design @ coef

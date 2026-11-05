@@ -56,6 +56,13 @@ The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no wi
 | `plot_first` | First plot after opening: a fresh window, cold caches, full tile grid | 30 tiles | grid and sidebar populated |
 | `plot_next` | Next-compound navigation; one identified benchmark per target | 9 targets spread over the list | grid populated after each move |
 | `export` | Full Excel export, non-legacy integration | 30 samples | expected sheets and sample rows |
+| `startup` | Cold start in a new interpreter until the main window is shown (subprocess) | one window | window shown in the case's mode |
+| `session_roundtrip` | Export the session from one window, import it into a freshly opened one | 30 tiles replotted | export and import both succeed, grid populated |
+| `regenerate` | Widen one compound's tR window, then change the mass tolerance for every EIC | 30 samples, then every EIC | every EIC present, grid populated |
+| `resize` | Shrink, then enlarge, the window with a full tile grid | 30 tiles | final size, grid populated |
+| `select_samples` | Focus a third of the samples, then select all | 10, then 30 tiles | focused tile count, grid populated |
+| `detailed_plot` | Open the EIC, TIC, and MS dialog for one tile | one dialog | EIC, TIC, and MS loaded |
+| `clear_session` | Clear a loaded session, then start a new one in the same mode | fresh window | new window shown, database empty |
 
 Each test runs once per dataset. Labelled compounds carry M+0..M+n channels and go through correction; unlabelled compounds are single-channel. The two are separate rows in the table.
 
@@ -72,7 +79,7 @@ Import, export and the tile grid scale linearly with samples, so 30 is enough to
 | `--bench-full` | 60 deconvolution windows at levels 4 and 7, and every compound navigated in separately identified `plot_next` rows. This is a distinct workload and requires a matching full baseline. |
 | `--bench-repeat N` | N rounds per stage (default 1). Use 3 when a change looks like it moved something by less than 10 %. |
 | `--bench-scan-dt-s 0.1` | Generate and use dense-axis data. The scan interval is part of the workload identity and corpus validation. |
-| `-k import` | Only the stages whose test name matches. Names: `import`, `corrections`, `deconvolve`, `plot_first`, `plot_next`, `export`, `labelled`, `unlabelled`. |
+| `-k import` | Only the stages whose test name matches. Names: `import`, `corrections`, `deconvolve`, `plot_first`, `plot_next`, `export`, `startup`, `session_roundtrip`, `regenerate`, `resize`, `select_samples`, `detailed_plot`, `clear_session`, `labelled`, `unlabelled`. |
 | `--benchmark-compare=0003` | Compare against a specific saved run by its 4-digit prefix instead of the latest. |
 | `--benchmark-autosave` | Save this run as a baseline. Leave it off for candidate runs so repeated compares keep pointing at the same baseline. |
 | `--benchmark-histogram=PATH` | Change where the plots are written (default `.benchmarks/plots/run`). |

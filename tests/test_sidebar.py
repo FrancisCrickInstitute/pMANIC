@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QSettings, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtGui import QAccessible, QAccessibleActionInterface, QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QLineEdit, QMenu, QWidget
@@ -809,3 +809,27 @@ def test_clearing_a_filter_on_a_short_list_keeps_the_current_compound_in_view(qa
         assert compounds.viewport().rect().contains(row)
     finally:
         toolbar.deleteLater()
+
+
+def test_building_the_standard_chooser_opens_no_other_window(qapp):
+    # On Windows a stray window takes activation, and Qt then closes the popup at once.
+    shown = []
+
+    class Spy(QObject):
+        def eventFilter(self, obj, event):
+            if event.type() == QEvent.Show and isinstance(obj, QWidget) and obj.isWindow():
+                shown.append(type(obj).__name__)
+            return False
+
+    spy = Spy()
+    qapp.installEventFilter(spy)
+    parent = QWidget()
+    try:
+        chooser = StandardChooser(["Alanine", "Glycine"], None, set(), parent)
+        chooser.popup(QPoint(10, 10))
+        qapp.processEvents()
+        assert shown == ["StandardChooser"]
+        chooser.close()
+    finally:
+        qapp.removeEventFilter(spy)
+        parent.deleteLater()

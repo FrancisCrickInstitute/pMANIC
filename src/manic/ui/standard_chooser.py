@@ -48,7 +48,6 @@ class StandardChooser(QFrame):
     def __init__(
         self, names: list[str], current: str | None, lacking: set[str], parent: QWidget
     ):
-        # A plain popup, not a QMenu: Windows closes a menu whose text field takes focus.
         super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setObjectName("standardChooser")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -58,13 +57,13 @@ class StandardChooser(QFrame):
         self.list = QListWidget()
         self.list.setAccessibleName("Internal standard")
         self.filter = FilterField(self.list, "Filter compounds")
-        self.filter.setVisible(bool(names))
-        # Qt hands an opening popup the focus; setFocus while it shows closes it on Windows.
-        self.setFocusProxy(self.filter if names else self.list)
         self.filter.installEventFilter(self)
         self.filter.filtered.connect(self._on_filtered)
         layout.addWidget(self.filter)
         layout.addWidget(self.list)
+        # Only once parented: a parentless widget shown is its own window, which takes
+        # activation on Windows and so closes the popup.
+        self.filter.setVisible(bool(names))
 
         check = _check_icon()
         self.list.setIconSize(QSize(14, 14))
@@ -116,6 +115,7 @@ class StandardChooser(QFrame):
     def showEvent(self, event):
         super().showEvent(event)
         self.list.scrollToItem(self.list.currentItem(), QListWidget.ScrollHint.PositionAtCenter)
+        (self.filter if self.filter.isVisibleTo(self) else self.list).setFocus()
 
     def _on_filtered(self) -> None:
         """A filter moves to its first matching compound, or to nothing, so Return never

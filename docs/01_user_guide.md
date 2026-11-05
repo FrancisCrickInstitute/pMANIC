@@ -10,9 +10,11 @@ use [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md).
 ## Step 1: Load Compound Definitions
 
 **Objective**   
+
 Initialise the analysis session by importing a library of target metabolites and their specific integration parameters.
 
 **File Requirements**   
+
 Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns listed below.
 
 *Note: Column headers are flexible. They are case-insensitive and ignore spaces or underscores (e.g., `Int Std Amount`, `int_std_amount`, and `IntStdAmount` are all treated as the same field).*
@@ -37,17 +39,21 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns l
 > **Tip:** To see a working template, download the `example_compound_list.xls` file from the repository.
 
 **Procedure**
+
 1.  Navigate to **File → Load Compounds/Parameter List**.
 2.  Select your prepared compound definition file from the file dialog.
 
 **Verification**
+
 Upon a successful import, the application provides immediate visual feedback:
+
 * The **Compound list** row at the top of the sidebar shows a green check and the number of compounds.
 * The **Compounds** list in the sidebar fills with the names of all imported compounds.
 
 *If any required columns are missing from your file, the import process will be cancelled and an alert will display the specific missing headers.*
 
 **Add Compound**  
+
 To add one compound without a spreadsheet, choose **File → Add Compound...** or right-click the compound list and choose **Add Compound...**. The form uses the same fields as a compound-list row for this session. Blank offsets and counts mean 0. Click **Add compound**. If a required field is missing, MANIC marks every missing field at once and keeps the form open. After the compound is added, the new name is selected in the list. If CDF samples are already loaded, MANIC extracts EICs for that compound by re-reading the original CDF files from the location they were first imported from. If those files have moved, the compound is still saved but has no chromatogram data; restore the files and widen an integration boundary to trigger re-extraction, or add compounds before importing raw data. A name that already exists, including a deleted compound, is rejected. Recover the deleted compound or choose a different name.
 
 ---
@@ -55,33 +61,41 @@ To add one compound without a spreadsheet, choose **File → Add Compound...** o
 ## Step 2: Import Mass Spectrometry Data
 
 **Objective**   
+
 Import raw experimental data files for processing. The application will extract Extracted Ion Chromatograms (EIC) for every compound defined in Step 1 and apply natural abundance corrections.
 
 **Prerequisites**   
+
 * **Compound Definitions Loaded:** You must complete [Step 1](#step-1-load-compound-definitions) first. The application requires the compound library to know which masses to extract.
 * **File Format:** ANDI/AIA NetCDF (`.cdf` in any case). Each file must provide `scan_acquisition_time`, `mass_values`, `intensity_values`, `scan_index`, `point_count`, and `total_intensity`.
 * **Conversion:** MANIC does not import vendor mass-spec files. Convert them to CDF in [OpenChrom](https://www.openchrom.net/) first.
 * **File Organization:** Put every CDF for the experiment (samples and MM files (standard mixture)) in one folder. MANIC scans that folder for `*.cdf` in any case.
 
 **Configuration Note**   
+
 The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) to bin detected masses.
+
 * To check or change this: Go to **Settings → General**, **Mass tolerance (Da)**, before or after loading data.
 * If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder.
 
 **Procedure**   
+
 1.  Navigate to **File → Load Raw Data (CDF)**.
 2.  In the dialog window, select the **Directory (Folder)** containing your CDF files.
     * *Note: You are selecting the folder itself, not individual files.*
 3.  Click **Select Folder** to begin the import.
 
 A progress bar will appear as the application:   
+
 1.  Reads CDF files.
 2.  Extracts ion chromatograms for each defined compound.
 3.  Stores EIC data in the local database.
 4.  Calculates and applies natural abundance corrections.
 
 **Verification**   
+
 Upon completion, verify the data loaded correctly:
+
 * The **Raw data** row at the top of the sidebar shows a green check and the number of samples.
 * Expand **Samples** in the sidebar to see the filenames of your imported samples.
 * Selecting a compound shows one plot per sample in the main view.
@@ -95,16 +109,20 @@ After the import finishes, MANIC opens a **Check your data setup** dialog. It sh
 **Changing an MM pattern.** Click **How do I change a pattern?** under the table for the short version. For a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. For a compound not in the list, use **File → Add Compound...**, which sets its pattern without reloading.
 
 **Objective**   
+
 Designate the reference compound used for normalization and quantification (MRRF calculation).
 
 **Prerequisites**   
+
 The selected compound must meet specific criteria in your compound definition file (from Step 1):
+
 * **Unlabeled:** `labelatoms` should be `0`.
 * **Sample Dose:** `int_std_amount` must be defined and `> 0`. This is the amount added to every experimental sample.
 * **Calibration Amount:** `amount_in_std_mix` must be defined and `> 0`. This is the concentration present in the standard mixture (MM) files.
 * **Universal Presence:** The compound must be detectable in all samples and standards.
 
 **Procedure**   
+
 1.  Click the **Internal standard** row at the top of the sidebar.
 2.  Choose your internal standard compound from the menu.
 3.  To remove a selection, open the same menu and choose **No Internal Standard**.
@@ -112,6 +130,7 @@ The selected compound must meet specific criteria in your compound definition fi
 You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. The **Internal standard** section of **Settings → General** names the chosen standard and sets its reference peak; click **Save** to apply a new reference peak.
 
 **Verification**
+
 * **Standard selected:** The **Internal standard** row shows the compound name.
 * **No standard:** The row shows **None**. An internal standard is optional.
 
@@ -122,10 +141,13 @@ The compound you are reviewing is highlighted in the **Compounds** list and name
 ## Step 4: Review Integration
 
 **Objective**   
+
 Visually verify that the integration window captures the correct peak for every sample and adjust parameters where necessary. This ensures quantitative accuracy by excluding noise and adjacent peaks while capturing the full metabolite signal.
 
 **The Main Graph View**   
+
 Upon selecting a compound, MANIC displays a grid of mini-plots, one for each sample ticked in the **Samples** section. The heading above the grid names the compound, its tR, and how many samples are shown or selected.
+
 * **Grey solid line:** The expected retention time (`tR`).
 * **Blue dashed lines:** The integration boundaries (`tR - loffset` and `tR + roffset`).
 * **Badges:**
@@ -140,12 +162,14 @@ Choose **View → Shared Y-Scale** to use one common intensity scale for all sam
 
 #### 1. Visual Inspection
 Scan the grid of plots. Look for:
+
 * **Peak Centering:** Is the peak centered on the black line? If retention times have shifted, you may need to adjust the `tR`.
 * **Peak Coverage:** Do the blue dashed lines fully bracket the peak without cutting off "tails" or including neighboring noise?
 * **Validation:** Pay attention to plots with a **Below threshold** badge. These indicate potential issues (low signal or missed peaks) that require manual review. Right-click the plot, or open the **Review** menu, and choose **Accept Peak (Below Threshold)** or **Mark Peak as Bad** to record your decision. With several plots selected, both commands act on the whole selection and name the count, for example **Mark 3 Peaks as Bad**. Choose the same command again to clear the decision.
 
 #### 2. Detailed Inspection (Optional)
 For ambiguous peaks, inspecting the raw data more closely might be helpful:
+
 1.  **Right-click** on any specific plot in the grid.
 2.  Select **Inspect *sample*...**. Double-clicking a plot, or pressing Return on the focused plot, does the same.
 3.  A window will open showing three synchronized views:
@@ -156,6 +180,7 @@ For ambiguous peaks, inspecting the raw data more closely might be helpful:
 
 #### 3. Selecting Samples to Adjust
 You can adjust integration parameters for all samples at once or for specific outliers.
+
 * **Edit All:** Right-click a plot and choose **Deselect All**. With nothing selected, **Apply** and **Reset** change every shown sample.
 * **Edit Specific Samples:** Click on individual plots to select them (they get a blue outline). You can also drag a box to select multiple. The **Peak window** section shows "Applies to N selected samples", or the sample's name for one. Changes apply *only* to the selection.
 * **Show Only Selected Samples:** Right-click a selected plot and choose this command to hide every other sample. The remaining tiles stay selected. If you right-click a plot that is not selected, the command uses that plot alone.
@@ -174,6 +199,7 @@ Click a plot so the grid has keyboard focus. Move the focus between plots with t
 Locate the **Peak window** section of the sidebar, below the compound list.
 
 On a short window, such as a laptop screen, the sidebar cannot show the Peak window and **Summary** together. It then shows two buttons, **Peak window** and **Summary**, in place of the section headings. Click one to show that section. The buttons go away when the window is tall enough for both sections.
+
 * **Left offset / Right offset:** Controls the width of the window. Increase these to capture wider peaks; decrease to exclude adjacent peaks.
 * **tR:** Shifts the center of the window. Use this to align the window with shifted peaks.
 
@@ -190,6 +216,7 @@ On a short window, such as a laptop screen, the sidebar cannot show the Peak win
 Sometimes a peak may shift so far that part of it is completely missing from the plot (cut off by the edge of the extracted data). You cannot integrate what isn't there.
 
 To fix this, you must widen the underlying data extraction window:
+
 1.  Locate the **tR window** field in the **Peak window** section.
 2.  Increase the value (e.g., from `0.2` to `0.4` or `0.5`).
 3.  Click **Apply window**. The line under the field names how many samples it re-extracts, for example **Re-extracts all 30 shown samples**.
@@ -202,6 +229,7 @@ A progress bar will appear as MANIC re-scans the raw CDF files to extract a wide
 
 #### 7. Resetting Overrides
 If you make a mistake or want to revert to the original library definitions:
+
 1.  Select the target plots.
 2.  Click the **Reset** button in the **Peak window** section.
 3.  This removes all session-specific overrides for those samples.
@@ -210,6 +238,7 @@ If you make a mistake or want to revert to the original library definitions:
 In unlabelled mode, Identity QC checks a qualifier ion only when it has an expected ratio and a tolerance. Expected ratios come only from the compound list, in the `Qualifier 1 Ratio` and `Qualifier 2 Ratio` columns (qualifier area / Q area). A missing tolerance does not need a reload: set it in **Settings → Qualifier Ratios**.
 
 To add an expected ratio:
+
 1.  Fill the compound's `Qualifier 1 Ratio` or `Qualifier 2 Ratio` cell in the compound list file and save the file.
 2.  Choose **File → Clear Session** and confirm.
 3.  Load the compound list, then the raw data, again.
@@ -221,6 +250,7 @@ Clear Session also removes the review work in the session: integration changes, 
 ## Step 4b: Managing Samples and Compounds
 
 **Objective**   
+
 Remove unwanted samples or compounds from your analysis without deleting the underlying data. This is useful for excluding failed injections, QC samples, or irrelevant metabolites from your final export.
 
 ### Deleting Items
@@ -228,6 +258,7 @@ Remove unwanted samples or compounds from your analysis without deleting the und
 You can delete samples or compounds directly from their respective list widgets.
 
 **Procedure**
+
 1.  Locate the **Samples** or **Compounds** list in the left sidebar. Expand **Samples** first if it is collapsed.
 2.  **For samples:** Select one or more items using `Ctrl` (Windows/Linux) or `Cmd` (Mac) + click.  
     **For compounds:** Select a single item (compounds use single-selection).
@@ -236,6 +267,7 @@ You can delete samples or compounds directly from their respective list widgets.
 5.  Confirm the deletion in the dialog that appears.
 
 **Important Notes**
+
 *   You cannot delete *all* samples or *all* compounds. At least one must remain.
 *   Deleted items are excluded from plots, calculations, and exports.
 *   Deletion is reversible. See below.
@@ -245,6 +277,7 @@ You can delete samples or compounds directly from their respective list widgets.
 Deleted items are not permanently removed. They are "soft deleted" and can be restored at any time during your session.
 
 **Procedure**
+
 1.  **Right-click** anywhere in the **Samples** or **Compounds** list.
 2.  Select **"Recover Deleted Samples..."** or **"Recover Deleted Compounds..."**.
     *   *This option is grayed out if no items have been deleted.*
@@ -262,10 +295,13 @@ When you export data, the changelog file will include a **"Deleted Items"** sect
 ## Step 5: Export Results
 
 **Objective**   
+
 Generate the final analytical report. This process calculates all results, applies MRRF calibration, and produces two files: a comprehensive Excel workbook and a detailed session changelog.
 
 **Prerequisites**   
+
 **Data Validity:** Ensure required metadata (especially `int_std_amount` and `amount_in_std_mix`) is present for calibrated compounds.
+
 * **Note on Standards:** While an Internal Standard is recommended for "nmol" results, you may proceed without one to export raw **Peak Areas**.
 
 **Procedure**   
@@ -274,6 +310,7 @@ Generate the final analytical report. This process calculates all results, appli
 2.  In **Export Data**, choose the integration method for this workbook:
     * **Time-based (recommended):** Peak areas use actual time units (intensity × minutes). This is the default.
     * **Legacy (MATLAB-compatible unit spacing):** Unit-spacing integration (sum of intensities). Use this only if you need to match numerical values from the legacy MATLAB tool (values will be about 100× larger).
+
     In labelled mode the same dialog has **Include % Carbons Labelled sheet**, off by default. Click **Choose Location…**.
 3.  In the file dialog, choose a name and location for your output file (e.g., `experiment_results.xlsx`) and click **Save** to begin processing.
 4. If no internal standard is selected, a **warning dialog** will appear explaining that results will be exported as unnormalized "Peak Area". Click **Yes** to proceed. 
@@ -281,11 +318,14 @@ Generate the final analytical report. This process calculates all results, appli
 > **Note on Processing:** MANIC will perform a final check to ensure natural isotope corrections have been applied. If not, a progress bar will appear as it calculates these corrections for all labeled compounds to ensure data integrity.
 
 **Output Files**   
+
 The export generates two files in your selected directory:
+
 1.  **Data File (`.xlsx`):** The multi-sheet workbook containing your results.
 2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, any deleted items excluded from export, and a table of all session-specific integration overrides. This serves as an audit trail for reproducibility.
 
 **Workbook Structure**   
+
 The Excel file contains five worksheets by default. A sixth sheet is optional.
 
 | Worksheet | Description |
@@ -298,6 +338,7 @@ The Excel file contains five worksheets by default. A sixth sheet is optional.
 | **% Carbons Labelled** (optional) | Off by default. Tick **Include % Carbons Labelled sheet** in **Export Data** to add the weighted average enrichment of the total carbon pool. |
 
 **Validation & Errors**   
+
 * **Invalid Peaks:** Cells corresponding to peaks that failed the minimum area validation (plots with a **Below threshold** badge) will be highlighted with a **light red background** in the Excel file.
 * **Abundance Errors:** If the internal standard is missing required calibration fields (`int_std_amount` or `amount_in_std_mix`), MANIC will prompt you to either **cancel** and fix the compound list, or **continue** in unnormalized **Peak Area** mode for that export.
 
@@ -315,6 +356,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
 
 ### Export Session
 **File → Export Session...**
+
 * **Function:** Creates a `.json` file containing your analytical method and a human-readable changelog.
 * **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, and the labelled internal-standard reference peak (M+N).
 * **What is NOT saved:** The raw mass spectrometry data (CDF content).
@@ -322,6 +364,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
 
 ### Import Session
 **File → Import Session...**
+
 * **Function:** Applies saved integration parameters and per-compound processing settings to the currently loaded data.
 * **Workflow:**
     1.  Load your Compound List (Step 1).
@@ -357,6 +400,7 @@ Right-click any plot in the main grid and select **Inspect *sample*...**, or dou
 
 ### Expanded Summary Plots
 The **Summary** section of the sidebar contains two charts: **Label incorporation** and **Total abundance**. In unlabelled mode, **Identity** replaces Label incorporation.
+
 * **Action:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
 * **Feature:** Both views name every sample on its axis. When a run has more samples than the sidebar chart has room for, the chart scrolls; selecting plots in the grid scrolls it to their bars.
 
@@ -372,6 +416,7 @@ Settings has a **General** page and a **Deconvolution** page; unlabelled mode ad
 
 ### Mass Tolerance
 **Settings → General**, **Extraction** section, **Mass tolerance (Da)**
+
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
 * **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder.
@@ -379,6 +424,7 @@ Settings has a **General** page and a **Deconvolution** page; unlabelled mode ad
 
 ### Integration
 **Settings → General**, **Integration** section
+
 * Two **Method** radios: **Time-based (recommended)** (default) and **Legacy**.
 * The choice changes on-screen peak areas only.
 * Export asks again in **Export Data**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
@@ -386,12 +432,14 @@ Settings has a **General** page and a **Deconvolution** page; unlabelled mode ad
 
 ### Minimum Peak Area
 **Settings → General**, **Peak validation** section, **Minimum area ratio**
+
 * **Default:** `0.005` (0.5%)
 * **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area get an amber **Below threshold** badge.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
 
 ### Baseline Correction
 The **Baseline correction** checkbox is in the **Peak window** section of the sidebar, under the **tR window** field. **Review → Baseline Correction** toggles it too.
+
 * **On (Default):** Subtracts a linear baseline from each peak area. A dashed line will appear on plots showing the fitted baseline.
 * **Off:** Uses the raw integrated area without baseline subtraction.
 * **Scope:** This is a per-compound setting. Toggling it affects all samples for the selected compound.
@@ -399,12 +447,14 @@ The **Baseline correction** checkbox is in the **Peak window** section of the si
 
 ### Y-axis scale
 Two commands in the **View** menu set how sample tiles scale. MANIC remembers the last choice.
+
 * **Shared Y-Scale** (Ctrl+Shift+Y, ⌘⇧Y on macOS): one intensity scale for every sample tile.
 * **Scale to Selected Peak** (Ctrl+Shift+P, ⌘⇧P on macOS): each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. Labelled mode only.
 * Only one can be on. Both off is the default. Each tile then autoscales to the tallest intensity in its extract.
 
 ### Chromatographic Peak Deconvolution
 **Settings → Deconvolution**
+
 * **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes around the expected retention time and selects the component nearest that time whose centre sits inside the dashed loffset/roffset window. This can separate overlapping peaks before area calculation.
 * **Scope:** This is a **per-compound** setting. Open **Settings → Deconvolution** with a compound selected; the chosen resolution level and fit type are saved for that compound and used by every sample that does not have its own override. A sample can override the curve fit from the plot right-click menu or from the **Per-sample curve fit** table on the same settings page. An override is shown on that tile's caption. See [Per-sample curve fit](Reference_Chromatographic_Peak_Deconvolution.md#per-sample-curve-fit).
@@ -430,6 +480,7 @@ Two commands in the **View** menu set how sample tiles scale. MANIC remembers th
 
 ### Natural Abundance Correction
 **Settings → General**, **Natural abundance** section
+
 * Checkbox: **Show corrected data**. Off by default.
 * **Function:** Controls what the main chromatogram plots and the Label Incorporation bars show.
     * Ticked: Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
@@ -445,16 +496,20 @@ Two commands in the **View** menu set how sample tiles scale. MANIC remembers th
 **File → Process External Data...**
 
 **Objective**
+
 Re-process results from the legacy MANIC tool (v3.3.0) or a previous MANIC export. The rebuild uses the current natural abundance correction and MRRF algorithms.
 
 **Use Case**
+
 Use this feature when you possess the exported "Raw Values" (integrated peak areas) from an old experiment but **do not** have the original raw CDF files (or do not wish to re-integrate them).
 
 **Prerequisites**
+
 1.  **Old Results File:** An Excel or CSV file containing a sheet/table of uncorrected peak areas (Raw Values).
 2.  **Compound List:** A valid compound definition file (see Step 1) that matches the metabolites in your old results. This is required to provide the molecular formulas and atom counts needed for the new correction math.
 
 **Procedure**
+
 1.  Choose **File → Process External Data...**.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**.
@@ -463,10 +518,13 @@ Use this feature when you possess the exported "Raw Values" (integrated peak are
 6.  In **Save Rebuilt Export**, choose the output workbook and save.
 
 **How It Works**
+
 MANIC reads the raw areas from the workbook, pairs them with the compound list, and writes five sheets: **Raw Values**, **Corrected Values**, **Isotope Ratio**, **% Label Incorporation**, and **Abundances**.
 
 > **⚠️ Scientific Limitation: Approximate Mode**
+>
 > Because the original raw data (CDF) is missing, MANIC cannot perform the standard "per-timepoint" correction. Instead, it applies a mathematical approximation to the **total integrated area**.
+>
 > * **Result:** The "Corrected Values" may differ slightly from a full re-analysis of raw CDFs.
 > * **Restriction:** You cannot adjust integration boundaries or view chromatograms in this mode.
 

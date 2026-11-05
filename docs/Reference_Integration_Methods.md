@@ -13,6 +13,7 @@ This is the standard, scientifically accurate method.
 
 ### How It Works
 It calculates the area using the **Trapezoidal Rule** with the actual retention time stamps from the raw data file.
+
 * **X-Axis:** Time (minutes)
 * **Y-Axis:** Intensity (counts)
 * **Resulting Unit:** Intensity $\times$ Minutes
@@ -36,6 +37,7 @@ This method is provided **solely** for backward compatibility with the legacy MA
 
 ### How It Works
 It calculates the area using the Trapezoidal Rule but ignores the time timestamps, assuming a fixed distance of `1` between every data point.   
+
 * **X-Axis:** Scan Index (unitless steps)
 * **Y-Axis:** Intensity (counts)
 * **Resulting Unit:** Intensity Sum (approximate)
@@ -63,5 +65,6 @@ Export asks again in **Export Data**. Those radios are **Time-based (recommended
 
 ### Boundary Handling (Technical Note)
 Both methods utilize the same "Strict Boundary" logic to determine which points are included in the sum:
+
 * Points typically must fall **strictly inside** the integration window boundaries (`tR - loffset` and `tR + roffset`).
 * Points exactly *on* the boundary line are generally excluded to prevent double-counting in adjacent windows.

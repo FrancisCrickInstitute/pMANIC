@@ -15,6 +15,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 * **Deconvolution:** When chromatographic peak deconvolution is on and every non-empty ion of the compound in that sample fitted, these areas come from the selected model curve. Empty ions get area 0. If any ion with real intensity failed to fit, plots show the raw scan traces and every non-empty ion of that pair uses those same raw in-window scans instead. Empty rows stay zero. Corrected Values use the same rule. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
 
 > **📖 Deep Dive:**
+>
 > Understand the mathematical difference between Time-Based and Legacy integration in **[Reference: Integration Methods](Reference_Integration_Methods.md)**.
 
 ---
@@ -27,9 +28,11 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 * **Use Case:** This is your primary dataset for relative quantification if you are not using an internal standard. It represents the true experimental label distribution.
 
 > **Why are some values small/zero?**
+>
 > The correction algorithm subtracts the "natural" contribution. If a peak is entirely due to natural background (unlabelled), the corrected value for heavier isotopologues will properly be zero.
 
 > **📖 Deep Dive:**
+>
 > Learn how the matrix-based correction algorithm works in **[Reference: Natural Isotope Correction](Reference_Natural_Isotope_Correction.md)**.
 
 ---
@@ -65,12 +68,16 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 * **Units:** Percentage (0 to 100%).
 * **Calculation:**
     1. Calculate weighted enrichment of the sample:
-       $$\text{Enrichment}_{sample} = \frac{\sum (i \times \text{Area}_i)}{N \times \sum \text{Area}_{total}} \times 100$$
+
+        $$\text{Enrichment}_{sample} = \frac{\sum (i \times \text{Area}_i)}{N \times \sum \text{Area}_{total}} \times 100$$
+
     2. Calculate weighted enrichment of MM files (standard mixture), averaged if there are several.
     3. Subtract the background:
-       $$\text{% Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
+
+        $$\%\ \text{Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
 
     Where:
+
     * $i$ is the isotopologue number (0, 1, 2...).
     * $N$ is the maximum number of labelable atoms in the molecule.
     * Area is the **Corrected Value** (NAC applied).
@@ -91,6 +98,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
     * `int_std_amount` and `amount_in_std_mix` must be defined in your Compound List.
 
 > **📖 Deep Dive:**
+>
 > For the full derivation of the formula and how MRRF slopes are calculated, see **[Reference: Abundance Calculation](Reference_Abundance_Calculation.md)**.
 
 ---
@@ -111,4 +119,5 @@ MANIC automatically validates every peak during export. You may see coloured cel
     * In the Abundances sheet "Units" row, a grey cell indicates the value is reported as `Relative`/`rel` rather than `nmol`.
 
 > **📖 Deep Dive:**
+>
 > See **[Reference: Peak Validation](Reference_Peak_Validation.md)** for details on threshold algorithms and how to adjust them.

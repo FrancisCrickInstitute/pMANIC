@@ -213,18 +213,18 @@ Typical practice:
    well-characterised samples.
 2. Use a robust central value (e.g. median) as `Qualifier N Ratio`.
 3. Set `Qualifier N Tolerance` as a **fraction of the expected ratio**.
-   MANIC accepts a ratio if
+    MANIC accepts a ratio if
 
-   \[
-   |\text{observed} - \text{expected}| \le
-   \begin{cases}
-   \text{tolerance} & \text{if expected} = 0 \\
-   |\text{expected}| \times \text{tolerance} & \text{otherwise}
-   \end{cases}
-   \]
+    \[
+    |\text{observed} - \text{expected}| \le
+    \begin{cases}
+    \text{tolerance} & \text{if expected} = 0 \\
+    |\text{expected}| \times \text{tolerance} & \text{otherwise}
+    \end{cases}
+    \]
 
-   Example: expected `0.40`, tolerance `0.25` → allowed range
-   \(0.40 \pm 0.10\) i.e. 0.30 to 0.50.
+    Example: expected `0.40`, tolerance `0.25` → allowed range
+    \(0.40 \pm 0.10\) i.e. 0.30 to 0.50.
 
 Regulatory guidance for pesticide residues often cites relative ion-ratio
 tolerances around ±30%; many metabolomics methods use similar or wider windows

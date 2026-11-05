@@ -36,6 +36,7 @@ $$\text{Labelled Signal}_{corr} = \sum_{i=1}^{N} \text{Area}_{M+i} - (\text{Rati
 $$\text{% Label Inc} = \frac{\text{Labelled Signal}_{corr}}{\text{Total Area}} \times 100$$
 
 **Where:**
+
 * **$\sum \text{Area}_{M+i}$**: The sum of all labelled isotopologues (M+1 to M+N).
 * **$\text{Ratio}_{MM}$**: The average ratio of $(\text{Labelled} / \text{M+0})$ found in the Standard Mixture files.
 * **$\text{Total Area}$**: The sum of all isotopologues (M+0 to M+N).
@@ -59,6 +60,7 @@ For each sample, calculate the weighted average enrichment on the **Natural Isot
 $$\text{Enrichment}_{sample} = \frac{\sum_{i=0}^{N} (i \times \text{Area}_{M+i})}{N \times \sum_{i=0}^{N} \text{Area}_{M+i}} \times 100$$
 
 **Where:**
+
 * **$i$**: The isotopologue number (number of labelled atoms).
     * M+0 has weight 0.
     * M+1 has weight 1.

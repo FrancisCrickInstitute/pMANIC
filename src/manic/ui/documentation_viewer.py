@@ -449,7 +449,6 @@ class DocumentationViewer(QDialog):
         - fenced_code: Code blocks with ``` syntax
         - codehilite: Syntax highlighting for code blocks
         - tables: GitHub-style tables
-        - nl2br: Convert newlines to <br> tags
         - sane_lists: Better list handling
         - toc: Table of contents support
         - md_in_html: Allow markdown inside HTML blocks
@@ -475,7 +474,6 @@ class DocumentationViewer(QDialog):
                     "markdown.extensions.fenced_code",  # ``` code blocks
                     "markdown.extensions.codehilite",   # Syntax highlighting
                     "markdown.extensions.tables",       # Explicit table support
-                    "markdown.extensions.nl2br",        # Newline to <br>
                     "markdown.extensions.sane_lists",   # Better list behavior
                     "markdown.extensions.toc",          # Table of contents
                     "markdown.extensions.md_in_html",   # Markdown in HTML blocks

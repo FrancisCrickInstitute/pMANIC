@@ -320,3 +320,20 @@ def test_the_abundance_popup_names_the_peak_area_it_plots(qapp, monkeypatch):
     assert titles == ["Peak area, sum of isotopologues (×10⁴)", "Q-ion peak area (×10⁴)"]
     widget.deleteLater()
 
+
+def test_the_label_key_reads_the_current_rows_percentages(qapp):
+    # Bottom to top, as the sidebar hands them over: "Bio_001" is the top row.
+    dialog = _ratios([[0.0, 0.0], [0.0004, 0.9996], [0.181, 0.819]], ["Bio_003", "Bio_002", "Bio_001"])
+    try:
+        dialog.show()
+        qapp.processEvents()
+        assert dialog.ion_legend.labels() == ["M+0", "M+1"]
+        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
+        assert dialog.ion_legend.labels() == ["M+0   18.1%", "M+1   81.9%"]
+        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
+        assert dialog.ion_legend.labels() == ["M+0   <0.1%", "M+1  100.0%"]
+        # A sample with no ratio has nothing to read; its row says why.
+        _hover(dialog, 2)
+        assert dialog.ion_legend.labels() == ["M+0", "M+1"]
+    finally:
+        dialog.deleteLater()

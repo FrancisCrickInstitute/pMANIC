@@ -104,6 +104,62 @@ class SummaryChartArea(QScrollArea):
             self.ensureVisible(0, int(y), 0, NAME_ROW_PX)
 
 
+class WholeRowsArea(QScrollArea):
+    """Rows that are never cut through: all of them when they fit, else one whole row
+    at a time, scrolled a row at a time."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        body = QWidget()
+        self.rows = QVBoxLayout(body)
+        self.rows.setContentsMargins(0, 0, 0, 0)
+        self.rows.setSpacing(8)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setWidget(body)
+        self.viewport().setAutoFillBackground(False)
+        body.setAutoFillBackground(False)
+        self._step = 0
+        self._at = 0
+        self.verticalScrollBar().valueChanged.connect(self._snap)
+
+    def _heights(self) -> list[int]:
+        rows = (self.rows.itemAt(i).widget() for i in range(self.rows.count()))
+        return [row.sizeHint().height() for row in rows if row is not None and not row.isHidden()]
+
+    def full_height(self) -> int:
+        heights = self._heights()
+        return sum(heights) + self.rows.spacing() * max(len(heights) - 1, 0)
+
+    def sizeHint(self) -> QSize:
+        return QSize(super().sizeHint().width(), self.full_height())
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(super().minimumSizeHint().width(), max(self._heights(), default=0))
+
+    def fit(self, room: int) -> None:
+        """Show every row if ``room`` holds them, else one at a time, each as tall as the tallest."""
+        tallest = max(self._heights(), default=0)
+        paged = room < self.full_height()
+        for index in range(self.rows.count()):
+            row = self.rows.itemAt(index).widget()
+            if row is not None:
+                row.setMinimumHeight(tallest if paged else 0)
+        self._step = tallest + self.rows.spacing() if paged else 0
+        self.setMaximumHeight(tallest if paged else self.full_height())
+        self._snap(self.verticalScrollBar().value())
+
+    def _snap(self, value: int) -> None:
+        bar = self.verticalScrollBar()
+        if not self._step or value % self._step == 0 or value == bar.maximum():
+            self._at = value
+            return
+        # Any scroll moves a whole row in its direction.
+        step = self._step if value > self._at else -self._step
+        bar.setValue(max(bar.minimum(), min(self._at + step, bar.maximum())))
+
+
 def divider() -> QFrame:
     line = QFrame()
     line.setProperty("role", "divider")

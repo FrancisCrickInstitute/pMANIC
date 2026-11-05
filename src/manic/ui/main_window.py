@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, Qt, QThread, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QDesktopServices,
@@ -13,7 +13,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -297,6 +296,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.load_cdf_action)
 
         self.open_recent_menu = file_menu.addMenu("Open Recent")
+        self.open_recent_menu.setToolTipsVisible(True)
         self.open_recent_menu.aboutToShow.connect(self._rebuild_open_recent_menu)
         self._rebuild_open_recent_menu()
 
@@ -430,6 +430,7 @@ class MainWindow(QMainWindow):
         self.toolbar.y_scale_policy_changed.connect(
             self.graph_view.set_y_scale_policy
         )
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy)
 
         # Clicking an Identity bar, or a row in a summary popup, highlights that sample's plot.
         for chart in (
@@ -456,19 +457,13 @@ class MainWindow(QMainWindow):
         self.start_panel.primary_button.setFocus()
 
     def _build_view_menu(self, menu_bar: QMenuBar) -> None:
-        """Display toggles mirror the sidebar checkboxes, which stay the source of truth."""
         view_menu = menu_bar.addMenu("View")
         self.view_menu = view_menu
-        self.display_actions: list[tuple[QAction, QCheckBox]] = []
-        menu_entries = {
-            "shared_yscale_checkbox": ("Shared Y-Scale", "Ctrl+Shift+Y"),
-            "scale_selected_peak_checkbox": ("Scale to Selected Peak", "Ctrl+Shift+P"),
-        }
-        for checkbox in self.toolbar.display_checkboxes():
-            view_menu.addAction(
-                self._mirror_checkbox(checkbox, *menu_entries[checkbox.objectName()])
-            )
-        view_menu.aboutToShow.connect(self._sync_display_actions)
+        view_menu.setToolTipsVisible(True)
+        shortcuts = {"Shared Y-Scale": "Ctrl+Shift+Y", "Scale to Selected Peak": "Ctrl+Shift+P"}
+        for action in self.toolbar.scale_actions():
+            action.setShortcut(QKeySequence(shortcuts[action.text()]))
+            view_menu.addAction(action)
 
         view_menu.addSeparator()
         self.find_compound_action = QAction("Find Compound", self)
@@ -505,20 +500,6 @@ class MainWindow(QMainWindow):
         self.show_all_samples_action = QAction("Show All Samples", self)
         self.show_all_samples_action.triggered.connect(self.show_all_samples)  # listed in Review
 
-    def _mirror_checkbox(self, checkbox: QCheckBox, text: str, shortcut: str) -> QAction:
-        """A menu action that toggles a sidebar checkbox and follows it."""
-        action = QAction(text, self)
-        action.setCheckable(True)
-        action.setChecked(checkbox.isChecked())
-        action.setShortcut(QKeySequence(shortcut))
-        action.setToolTip(checkbox.toolTip())
-        action.triggered.connect(
-            lambda checked: self._toggle_display(action, checkbox, checked)
-        )
-        checkbox.toggled.connect(action.setChecked)
-        self.display_actions.append((action, checkbox))
-        return action
-
     def _build_review_menu(self, menu_bar: QMenuBar) -> None:
         """The plot context menu's review commands, on the menu bar.
 
@@ -532,6 +513,15 @@ class MainWindow(QMainWindow):
             # The grid handles these keys itself; the menu only names them.
             action.setShortcut(QKeySequence(sequence))
             action.setShortcutContext(Qt.WidgetShortcut)
+            # macOS hides shortcuts in a menu it opens outside the menu bar.
+            action.setShortcutVisibleInContextMenu(True)
+
+        def verdict_key(action: QAction, key) -> None:
+            # A bare letter, so it acts only while the grid has focus, never in a text field.
+            action.setShortcut(QKeySequence(key))
+            action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            action.setShortcutVisibleInContextMenu(True)
+            self.graph_view.addAction(action)
 
         self.inspect_action = QAction("Inspect Sample...", self)
         grid_key(self.inspect_action, Qt.Key_Return)
@@ -563,6 +553,7 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.ACCEPTED)
             )
         )
+        verdict_key(self.accept_peak_action, Qt.Key_A)
         menu.addAction(self.accept_peak_action)
         self.reject_peak_action = QAction("Mark Peak as Bad", self)
         self.reject_peak_action.triggered.connect(
@@ -570,21 +561,28 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.REJECTED)
             )
         )
+        verdict_key(self.reject_peak_action, Qt.Key_B)
         menu.addAction(self.reject_peak_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
         menu.addSeparator()
-        # The Peak window section's own toggle, so it sits with the peak commands.
-        self.baseline_action = self._mirror_checkbox(
-            self.toolbar.baseline_checkbox, "Baseline Correction", "Ctrl+Shift+B"
-        )
+        # The Peak window's baseline toggle, so it sits with the peak commands.
+        baseline = self.toolbar.baseline_checkbox
+        self.baseline_action = QAction("Baseline Correction", self)
+        self.baseline_action.setCheckable(True)
+        self.baseline_action.setChecked(baseline.isChecked())
+        self.baseline_action.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        self.baseline_action.triggered.connect(lambda checked: baseline.setChecked(checked))
+        baseline.toggled.connect(self.baseline_action.setChecked)
         menu.addAction(self.baseline_action)
 
         menu.aboutToShow.connect(self._sync_review_menu)
         self.graph_view.selection_changed.connect(self._sync_review_menu)
+        # Arrow keys move the review lead without a selection change; the verdict
+        # keys check eligibility from the actions' enabled state.
+        self.graph_view.installEventFilter(self)
         self._sync_review_menu()
 
     def _sync_review_menu(self, *_args) -> None:
-        self._sync_display_actions()
         view = self.graph_view
         self.select_all_plots_action.setEnabled(view.has_plots())
         self.deselect_plots_action.setEnabled(bool(view.get_selected_samples()))
@@ -597,21 +595,16 @@ class MainWindow(QMainWindow):
             fit_menu=self.review_fit_menu,
         )
 
+    def eventFilter(self, watched, event):
+        if watched is self.graph_view and event.type() == QEvent.Type.KeyPress:
+            QTimer.singleShot(0, self._sync_review_menu)
+        return super().eventFilter(watched, event)
+
     def _with_review_lead(self, command) -> None:
         lead = self.graph_view.review_lead()
         if lead is not None:
             command(lead)
         self._sync_review_menu()
-
-    def _toggle_display(self, action: QAction, checkbox: QCheckBox, checked: bool):
-        if checkbox.isEnabled():
-            checkbox.setChecked(checked)
-        action.setChecked(checkbox.isChecked())
-
-    def _sync_display_actions(self) -> None:
-        for action, checkbox in self.display_actions:
-            action.setEnabled(checkbox.isEnabled())
-            action.setChecked(checkbox.isChecked())
 
     def _setup_status_bar(self) -> None:
         bar = self.statusBar()
@@ -857,39 +850,6 @@ class MainWindow(QMainWindow):
             and not export_running
         )
         self.new_session_action.setEnabled(not export_running)
-
-        # Add tooltips to disabled items
-        if self.compound_data_loaded:
-            self.load_compound_action.setToolTip(
-                "Compound data already loaded. Use 'Clear Session' to start over."
-            )
-        else:
-            self.load_compound_action.setToolTip(
-                "Load compound list and parameter data"
-            )
-
-        if not self.compound_data_loaded:
-            self.load_cdf_action.setToolTip(
-                "Load compound data first before loading raw data"
-            )
-        elif self.cdf_data_loaded:
-            self.load_cdf_action.setToolTip(
-                "Raw data already loaded. Use 'Clear Session' to start over."
-            )
-        else:
-            self.load_cdf_action.setToolTip("Load raw CDF data files")
-
-        # Import Session tooltips
-        if not self.compound_data_loaded:
-            self.import_session_action.setToolTip("Load compound data first")
-        elif not self.cdf_data_loaded:
-            self.import_session_action.setToolTip(
-                "Load CDF data before importing session"
-            )
-        else:
-            self.import_session_action.setToolTip(
-                "Import session-specific integration overrides"
-            )
 
         if self.settings_window is not None:
             self.settings_window.refresh()
@@ -1647,7 +1607,6 @@ class MainWindow(QMainWindow):
 
             # After refreshing plots, update the integration window to show the new values
             # Add a small delay to ensure the plot refresh is fully complete
-            from PySide6.QtCore import QTimer
 
             def update_integration_window():
                 current_selected = self.graph_view.get_selected_samples()
@@ -1686,7 +1645,6 @@ class MainWindow(QMainWindow):
             self.graph_view.refresh_plots_with_session_data(identity=identity)
 
             # After refreshing plots, update the integration window to show the default values
-            from PySide6.QtCore import QTimer
 
             def update_integration_window():
                 current_selected = self.graph_view.get_selected_samples()
@@ -1734,7 +1692,6 @@ class MainWindow(QMainWindow):
                 validation_data, identity=identity
             )
 
-            from PySide6.QtCore import QTimer
 
             def update_charts():
                 self._refresh_mode_charts(compound_name)
@@ -2065,29 +2022,14 @@ class MainWindow(QMainWindow):
             )
 
             if success:
-                # Show info about what was exported
-                # Extract base name to show directory structure
-                export_path = Path(file_path)
-                if export_path.suffix.lower() == ".json":
-                    base_name = export_path.stem
-                else:
-                    base_name = export_path.name
-                export_dir = export_path.parent / f"manic_export_{base_name}"
-
-                info_text = (
-                    f"Analytical session exported successfully!\n\n"
-                    f"Export Directory: {export_dir}\n\n"
-                    f"Files created:\n"
-                    f"• {base_name}.json - Machine-readable session data\n"
-                    f"• changelog.md - Human-readable summary\n\n"
-                    f"The export contains compound definitions and analysis parameters only. "
-                    f"To use this session, follow the 3-step import process described in the changelog."
+                # Where export_session_method writes, which is not where the user chose.
+                chosen = Path(file_path)
+                stem = chosen.stem if chosen.suffix.lower() == ".json" else chosen.name
+                written = chosen.parent / "manic_session_export" / f"{stem}.json"
+                self._show_export_toast(
+                    f"Exported {written.name} to {written.parent.name}", written.parent
                 )
-                msg_box = self._create_message_box(
-                    "information", "Session Export Successful", info_text
-                )
-                msg_box.exec()
-                logger.info(f"Session exported to {export_dir}")
+                logger.info(f"Session exported to {written}")
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -2592,7 +2534,7 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
-        self.toolbar.sync_selected_peak_checkbox(self.toolbar.get_selected_compound())
+        self.toolbar.sync_selected_peak_scale(self.toolbar.get_selected_compound())
         if replot:
             self._replot_current_selection()
 
@@ -2703,8 +2645,8 @@ class MainWindow(QMainWindow):
         confirm = self._create_message_box(
             "question",
             "Clear Session",
-            "This will clear all loaded data and reset the application.",
-            "All compound data, raw data, and session settings will be removed. This cannot be undone.",
+            "Clear the compound list, raw data, peak window edits and peak reviews?",
+            "This cannot be undone.",
         )
         clear_button = confirm.button(QMessageBox.Yes)
         clear_button.setText("Clear Session")
@@ -2810,13 +2752,7 @@ class MainWindow(QMainWindow):
                 # Close progress dialog
                 progress.close()
 
-                # Show success message
-                msg_box = self._create_message_box(
-                    "information",
-                    "Session Cleared",
-                    "All data has been cleared. You can now load new data.",
-                )
-                msg_box.exec()
+                show_status_toast(self.statusBar(), "Session cleared")
 
                 logger.info("Session cleared successfully")
 
@@ -2945,7 +2881,6 @@ class MainWindow(QMainWindow):
             )
 
             self._export_path = file_path
-            self._export_include_carbon = include_carbon_enrichment
             self._export_progress_dialog = progress_dialog
             self._export_thread = QThread(self)
             self._export_worker = ExportWorker(
@@ -2987,6 +2922,16 @@ class MainWindow(QMainWindow):
             )
             msg_box.exec()
 
+    def _show_export_toast(self, message: str, folder: Path) -> None:
+        show_status_toast(
+            self.statusBar(),
+            message,
+            action=(
+                "Show in Folder",
+                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))),
+            ),
+        )
+
     def _clear_export_thread(self):
         self._export_thread = None
 
@@ -2997,47 +2942,12 @@ class MainWindow(QMainWindow):
 
     def _export_finished(self, success: bool):
         self._close_export_dialog()
-        file_path = self._export_path
-        include_carbon_enrichment = self._export_include_carbon
         if success:
-            if self.analysis_mode is AnalysisMode.UNLABELLED:
-                sheet_list = [
-                    "• Raw Values - Quantifier ion areas",
-                    "• Abundances - Quantifier-only amounts",
-                    "• Qualifier QC - qualifier/Q ratio pass or review",
-                ]
-            else:
-                sheet_list = [
-                    "• Raw Values - Direct instrument signals",
-                    "• Corrected Values - Natural isotope corrected signals",
-                    "• Isotope Ratios - Normalized corrected values",
-                    "• % Label Incorporation - Experimental label percentages",
-                ]
-                if include_carbon_enrichment:
-                    sheet_list.append(
-                        "• % Carbons Labelled - Average fractional carbon enrichment"
-                    )
-                sheet_list.append(
-                    "• Abundances - Absolute metabolite concentrations"
-                )
-            sheet_count = len(sheet_list)
-            sheets_text = "\n".join(sheet_list)
-            msg_box = self._create_message_box(
-                "information",
-                "Data Export Successful",
-                f"Data exported successfully to:\n{file_path}\n\n"
-                f"The Excel file contains {sheet_count} worksheets:\n"
-                f"{sheets_text}",
-            )
-            msg_box.exec()
-            logger.info(f"Data exported successfully to {file_path}")
+            path = Path(self._export_path)
+            self._show_export_toast(f"Exported {path.name}", path.parent)
+            logger.info(f"Data exported successfully to {path}")
         else:
-            msg_box = self._create_message_box(
-                "information",
-                "Export Cancelled",
-                "Data export was cancelled.",
-            )
-            msg_box.exec()
+            show_status_toast(self.statusBar(), "Export cancelled")
             logger.info("Data export was cancelled")
         self._update_menu_states()
 

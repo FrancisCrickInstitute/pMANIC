@@ -157,7 +157,8 @@ class CompoundListWidget(QListWidget):
         """Show confirmation dialog before deleting compound"""
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Delete Compound")
-        msg_box.setText(f"Are you sure you want to delete compound '{compound_name}'?")
+        msg_box.setText(f"Delete {compound_name}?")
+        msg_box.setInformativeText("Recover Deleted Compounds brings it back.")
         msg_box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )

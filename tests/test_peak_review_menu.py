@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -270,6 +270,40 @@ def test_review_menu_names_its_targets_and_acts_on_them(qapp, monkeypatch, plot_
         focused = _review_menu(window)
         assert "Mark Peak as Bad" in focused and "Inspect B..." in focused
         assert not focused["Accept Peak (Below Threshold)"].isEnabled()
+    finally:
+        _close_popups()
+        window.close()
+
+
+def test_verdict_keys_act_from_the_grid_and_never_from_a_text_field(qapp, monkeypatch, plot_data):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    view = window.graph_view
+    view.peak_review_changed.disconnect(window.on_peak_review_changed)
+    try:
+        window.show()
+        reviews = _plot(view, {"A": FAIL, "B": PASS, "C": PASS})
+        review = _review_menu(window)
+        for name, key in (("Accept Peak (Below Threshold)", "A"), ("Mark Peak as Bad", "B")):
+            assert review[name].shortcut() == QKeySequence(key)
+            assert review[name].isShortcutVisibleInContextMenu()
+
+        window.workspace.setCurrentWidget(view)
+        window.activateWindow()
+        assert QTest.qWaitForWindowActive(window)
+        view.setFocus()
+        QTest.keyClick(view, Qt.Key_Right)  # focus A, the failed tile, with nothing selected
+        QApplication.processEvents()
+        QTest.keyClick(view, Qt.Key_A)
+        QTest.keyClick(view, Qt.Key_B)
+        assert reviews == [
+            ("Cmp", ["A"], PeakReview.ACCEPTED),
+            ("Cmp", ["A"], PeakReview.REJECTED),
+        ]
+
+        window.toolbar.compound_filter.setFocus()
+        QTest.keyClicks(window.toolbar.compound_filter, "ab")
+        assert window.toolbar.compound_filter.text() == "ab"
+        assert len(reviews) == 2
     finally:
         _close_popups()
         window.close()

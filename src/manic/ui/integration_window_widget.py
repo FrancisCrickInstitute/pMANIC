@@ -4,8 +4,8 @@ import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QValidator
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut, QValidator
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -22,6 +22,7 @@ from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
+from manic.ui.sidebar_widgets import WholeRowsArea
 from manic.ui.theme import set_style_property
 
 logger = logging.getLogger(__name__)
@@ -249,11 +250,18 @@ class IntegrationWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
+        # The offsets and the Reset/Apply that acts on them stay whole together;
+        # on a short sidebar the rows below show one at a time.
+        self.editor = QWidget()
+        editor_layout = QVBoxLayout(self.editor)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(8)
+
         self.scope_label = QLabel()
         self.scope_label.setObjectName("peakScope")
         self.scope_label.setProperty("role", "secondary")
         self.scope_label.setWordWrap(True)
-        layout.addWidget(self.scope_label)
+        editor_layout.addWidget(self.scope_label)
 
         fields = QGridLayout()
         fields.setContentsMargins(0, 0, 0, 0)
@@ -277,26 +285,30 @@ class IntegrationWindow(QWidget):
             edt.returnPressed.connect(self._on_apply_clicked)
             fields.addWidget(lbl, row, 0)
             fields.addWidget(edt, row, 1)
-        layout.addLayout(fields)
+        editor_layout.addLayout(fields)
 
-        # Reset and Apply; the sidebar pins this row when the fields scroll.
-        self.action_row = QWidget()
-        self.action_row.setObjectName("peakActions")
-        button_row = QHBoxLayout(self.action_row)
-        button_row.setContentsMargins(0, 0, 0, 0)
-        button_row.setSpacing(8)
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(8)
         self.restore_button = QPushButton("Reset")
         self.restore_button.setObjectName("RestoreButton")
         self.restore_button.setToolTip("Restore the compound's default peak window")
         self.restore_button.clicked.connect(self._on_restore_clicked)
-        button_row.addWidget(self.restore_button, 1)
+        action_row.addWidget(self.restore_button, 1)
 
         self.apply_button = QPushButton("Apply")
         self.apply_button.setObjectName("ApplyButton")
         self.apply_button.setProperty("variant", "primary")
         self.apply_button.clicked.connect(self._on_apply_clicked)
-        button_row.addWidget(self.apply_button, 2)
-        layout.addWidget(self.action_row)
+        apply_key = QKeySequence("Ctrl+Return")
+        self.apply_button.setToolTip(apply_key.toString(QKeySequence.SequenceFormat.NativeText))
+        for key in (apply_key, QKeySequence("Ctrl+Enter")):
+            QShortcut(
+                key, self, self.apply_button.click, Qt.ShortcutContext.WidgetWithChildrenShortcut
+            )
+        action_row.addWidget(self.apply_button, 2)
+        editor_layout.addLayout(action_row)
+        layout.addWidget(self.editor)
 
         # tR Window field for data regeneration
         tr_window_row = QHBoxLayout()
@@ -318,17 +330,51 @@ class IntegrationWindow(QWidget):
         tr_window_row.addWidget(tr_window_lbl)
         tr_window_row.addWidget(self.tr_window_edit, 1)
         tr_window_row.addWidget(self.regenerate_button)
-        window_group = QVBoxLayout()
-        window_group.setContentsMargins(0, 4, 0, 0)
-        window_group.setSpacing(4)
-        window_group.addLayout(tr_window_row)
+        window_group = QWidget()
+        window_layout = QVBoxLayout(window_group)
+        window_layout.setContentsMargins(0, 0, 0, 0)
+        window_layout.setSpacing(4)
+        window_layout.addLayout(tr_window_row)
         # Apply window ignores the selection, so it states its own scope.
         self.window_scope_label = QLabel()
         self.window_scope_label.setObjectName("windowScope")
         self.window_scope_label.setProperty("role", "hint")
         self.window_scope_label.setWordWrap(True)
-        window_group.addWidget(self.window_scope_label)
-        layout.addLayout(window_group)
+        window_layout.addWidget(self.window_scope_label)
+        self.more = WholeRowsArea()
+        self.more.rows.addWidget(window_group)
+        layout.addWidget(self.more)
+        layout.addStretch(1)
+
+    def _editor_height(self, width: int) -> int:
+        height = self.editor.heightForWidth(width)
+        return height if height >= 0 else self.editor.sizeHint().height()
+
+    def editor_height(self) -> int:
+        """The editor's height counting the scope line whether or not it shows,
+        so a selection never moves what sits around the Peak window."""
+        height = self._editor_height(self.width())
+        if self.scope_label.isHidden():
+            height += self.scope_label.fontMetrics().height() + self.editor.layout().spacing()
+        return height
+
+    def hasHeightForWidth(self) -> bool:
+        # A parent asks a layout for height-for-width, which would count the rows below
+        # at their last fitted height; the size hint counts every one.
+        return False
+
+    def sizeHint(self) -> QSize:
+        hint = super().sizeHint()
+        height = (
+            self._editor_height(self.width())
+            + self.layout().spacing()
+            + self.more.full_height()
+        )
+        return QSize(hint.width(), height)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.more.fit(self.height() - self.editor.height() - self.layout().spacing())
 
     def _format_number(self, value: float) -> str:
         if value == 0:
@@ -603,7 +649,7 @@ class IntegrationWindow(QWidget):
         self._update_apply_button_state()
 
     def _update_apply_button_state(self):
-        """State once, on the scope line, whom Apply and Reset change; Apply window states its own."""
+        """Name whom Apply and Reset change only when a selection narrows it; Apply window states its own."""
         selected = self._selected_samples
         targets = selected or self._all_samples
         for button in (self.apply_button, self.restore_button, self.regenerate_button):
@@ -611,8 +657,6 @@ class IntegrationWindow(QWidget):
         count = len(targets)
         if not self._current_compound:
             scope = "Select a compound to edit its peak window."
-        elif not targets:
-            scope = ""  # the canvas explains an empty grid
         elif selected:
             scope = (
                 f"Applies to {selected[0]}"
@@ -620,10 +664,10 @@ class IntegrationWindow(QWidget):
                 else f"Applies to {count} selected samples"
             )
         else:
-            scope = "Applies to all shown samples"
+            scope = ""  # all shown samples, the default; the canvas explains an empty grid
         self.scope_label.setText(scope)
         self.scope_label.setVisible(bool(scope))
-        set_style_property(self.scope_label, "state", "selected" if selected else "all")
+        set_style_property(self.scope_label, "state", "selected" if selected else None)
         shown = len(self._all_samples)
         self.window_scope_label.setText(
             f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"

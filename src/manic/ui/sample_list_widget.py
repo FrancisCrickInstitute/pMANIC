@@ -188,10 +188,11 @@ class SampleListWidget(QListWidget):
 
         if len(sample_names) == 1:
             msg_box.setWindowTitle("Delete Sample")
-            msg_box.setText(f"Are you sure you want to delete sample '{sample_names[0]}'?")
+            msg_box.setText(f"Delete {sample_names[0]}?")
+            msg_box.setInformativeText("Recover Deleted Samples brings it back.")
         else:
             msg_box.setWindowTitle("Delete Samples")
-            msg_box.setText(f"Are you sure you want to delete {len(sample_names)} samples?")
+            msg_box.setText(f"Delete {len(sample_names)} samples?")
             # Add list of samples in informative text
             sample_list = "\n".join(f"  - {name}" for name in sample_names[:10])
             if len(sample_names) > 10:

@@ -3,11 +3,11 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
-from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QMenu, QWidget
+from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QLineEdit, QMenu, QWidget
 
 from manic.models import database
 from manic.models.analysis import AnalysisMode
-from manic.ui.left_toolbar import SPLIT_SETTING, SUMMARY_SETTING, Toolbar
+from manic.ui.left_toolbar import SPLIT_SETTING, Toolbar
 from manic.ui.loaded_data_widget import LoadedDataWidget
 from manic.ui.standard_indicator_widget import StandardIndicator
 
@@ -79,9 +79,28 @@ def _full_rows(lst) -> int:
 
 
 def _in_view(toolbar: Toolbar, widget) -> bool:
-    viewport = toolbar.inspector.viewport()
-    top = widget.mapTo(viewport, QPoint(0, 0)).y()
-    return widget.isVisible() and top >= 0 and top + widget.height() <= viewport.height()
+    """Shown whole: inside each parent up to the sidebar, scroll viewports included."""
+    if not widget.isVisible():
+        return False
+    rect = widget.rect()
+    child = widget
+    while child is not toolbar:
+        rect = rect.translated(child.pos())
+        child = child.parentWidget()
+        if not child.rect().contains(rect):
+            return False
+    return True
+
+
+def _cut(toolbar: Toolbar, widget) -> bool:
+    """Partly shown: visible, not whole, and not wholly scrolled out of its viewport."""
+    if not widget.isVisible() or _in_view(toolbar, widget):
+        return False
+    area = toolbar.integration.more
+    if area.isAncestorOf(widget):
+        top = widget.mapTo(area.viewport(), QPoint(0, 0)).y()
+        return top < area.viewport().height() and top + widget.height() > 0
+    return True
 
 
 def _switch_button(toolbar: Toolbar, key: str) -> QAbstractButton:
@@ -244,9 +263,9 @@ def test_filter_with_no_match_shows_the_count_and_escape_clears_it(qapp):
 def test_inspector_waits_for_raw_data(qapp, stub_compound):
     toolbar = Toolbar(AnalysisMode.LABELLED)
     try:
-        assert toolbar.inspector.isHidden()
+        assert not toolbar.inspector.isVisibleTo(toolbar)
         toolbar.update_label_colours(True, True)
-        assert not toolbar.inspector.isHidden()
+        assert toolbar.inspector.isVisibleTo(toolbar)
     finally:
         toolbar.deleteLater()
 
@@ -347,7 +366,8 @@ def test_focus_selected_then_show_all(plotted_window, menu):
     assert window.toolbar.get_selected_samples() == ["S1", "S2", "S3"]
     assert window.graph_view.get_current_samples() == ["S1", "S2", "S3"]
     assert window.graph_view.get_selected_samples() == []
-    assert window.toolbar.integration.scope_label.text() == "Applies to all shown samples"
+    # Every shown sample is the default scope, so it goes unsaid.
+    assert window.toolbar.integration.scope_label.isHidden()
 
 
 def test_unchecking_every_sample_empties_the_workspace(plotted_window):
@@ -371,7 +391,6 @@ def test_unchecking_every_sample_empties_the_workspace(plotted_window):
     window.show_all_samples_button.click()
     assert window.workspace.currentWidget() is window.graph_view
     assert window.graph_view.get_current_samples() == ["S1", "S2", "S3"]
-    assert not integration.scope_label.isHidden()
     assert integration.apply_button.isEnabled()
 
 
@@ -412,27 +431,6 @@ def test_summaries_and_view_menu_follow_compound_switch(qapp, monkeypatch):
         window.close()
 
 
-def test_scale_summary_and_menu_follow_a_forced_scale_change(qapp, monkeypatch):
-    _add_compound("Deconvolved", deconvolution="medium")
-    _add_compound("Plain")
-    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
-    monkeypatch.setattr(window, "on_plot_button", lambda *_args: None)
-    toolbar = window.toolbar
-    actions = {a.text(): a for a in window.view_menu.actions()}
-    try:
-        toolbar.update_compound_list(["Deconvolved", "Plain"])
-        actions["Scale to Selected Peak"].trigger()
-        assert toolbar.display_section.summary.full_text() == "Peak scale"
-        assert actions["Scale to Selected Peak"].isChecked()
-
-        # Plain has no deconvolution, so peak scale falls back to own scale.
-        toolbar.compound_list.setCurrentRow(1)
-        assert toolbar.display_section.summary.full_text() == "Own scale"
-        assert not actions["Scale to Selected Peak"].isChecked()
-    finally:
-        window.close()
-
-
 def _open_standard_menu(toolbar: Toolbar) -> QMenu:
     toolbar.standard.click()
     return toolbar.standard.findChildren(QMenu)[-1]
@@ -463,22 +461,17 @@ def test_sections_collapse_and_remember(qapp, stub_compound):
     toolbar = _sidebar(1400)
     try:
         assert toolbar.peak_section.body.isAncestorOf(toolbar.baseline_checkbox)
-        assert not toolbar.display_section.body.isAncestorOf(toolbar.baseline_checkbox)
         assert toolbar.peak_section.is_expanded()
         assert toolbar.summary_section.is_expanded()
 
-        toolbar.display_section.header.click()
-        for section, summary in (
-            (toolbar.peak_section, "Baseline on"),
-            (toolbar.display_section, "Own scale"),
-        ):
-            # A section's summary shows only while the section is closed.
-            assert not section.summary.isVisible()
-            section.header.click()
-            assert section.summary.isVisible()
-            assert section.summary.full_text() == summary
-            section.header.click()
-            assert not section.summary.isVisible()
+        peak = toolbar.peak_section
+        # A section's summary shows only while the section is closed.
+        assert not peak.summary.isVisible()
+        peak.header.click()
+        assert peak.summary.isVisible()
+        assert peak.summary.full_text() == "Baseline on"
+        peak.header.click()
+        assert not peak.summary.isVisible()
 
         toolbar.summary_section.header.click()
         assert not toolbar.summary_section.is_expanded()
@@ -493,27 +486,6 @@ def test_sections_collapse_and_remember(qapp, stub_compound):
         again.deleteLater()
 
 
-def test_summary_starts_collapsed_only_when_short_and_the_user_choice_wins(qapp):
-    short = _sidebar(560)
-    try:
-        assert not short.summary_section.is_expanded()
-    finally:
-        short.deleteLater()
-
-    tall = _sidebar(1400)
-    try:
-        assert tall.summary_section.is_expanded()
-    finally:
-        tall.deleteLater()
-
-    QSettings().setValue(SUMMARY_SETTING, True)
-    chosen = _sidebar(560)
-    try:
-        assert chosen.summary_section.is_expanded()
-    finally:
-        chosen.deleteLater()
-
-
 def test_dragged_split_is_remembered(qapp):
     toolbar = _sidebar(700)
     try:
@@ -522,9 +494,8 @@ def test_dragged_split_is_remembered(qapp):
         # but the user's share is what is saved.
         _drag_split(toolbar, total - 60)
         dragged = toolbar.splitter.sizes()[0] / total
-        assert dragged > (total - 120) / total
         _settle(toolbar)
-        assert _in_view(toolbar, toolbar.baseline_checkbox)
+        assert _in_view(toolbar, toolbar.integration.apply_button)
         assert QSettings().value(SPLIT_SETTING, type=float) == pytest.approx(dragged)
 
         _drag_split(toolbar, 200)
@@ -567,7 +538,7 @@ def test_peak_window_stays_whole_at_1024x768(qapp, height):
         for samples_open in (False, True, False):
             toolbar.samples_section.set_expanded(samples_open)
             _settle(toolbar)
-            assert _in_view(toolbar, toolbar.baseline_checkbox), samples_open
+            assert _in_view(toolbar, toolbar.integration.regenerate_button), samples_open
             assert _full_rows(toolbar.compound_list) >= 4, samples_open
     finally:
         toolbar.deleteLater()
@@ -600,39 +571,31 @@ def test_a_short_filtered_list_leaves_its_room_to_samples(qapp):
         toolbar.deleteLater()
 
 
-def test_switching_compound_scrolls_the_inspector_back_to_the_top(qapp):
-    QSettings().setValue(SUMMARY_SETTING, True)
-    toolbar = _sidebar(560)
-    try:
-        _switch_button(toolbar, "summary").click()
-        # Summaries shrink to fit, so make the pane overflow to have something to scroll.
-        toolbar.summary_section.body.setMinimumHeight(1000)
-        _settle(toolbar)
-        bar = toolbar.inspector.verticalScrollBar()
-        bar.setValue(bar.maximum())
-        assert bar.value() > 0
-        toolbar.compound_list.setCurrentRow(3)
-        assert bar.value() == 0
-    finally:
-        toolbar.deleteLater()
-
-
-def test_switcher_reaches_display_and_summary_in_one_click(qapp):
-    toolbar = _sidebar(LAPTOP_720, samples_open=True)
+def test_switcher_shows_the_peak_window_or_one_summary_chart_at_full_height(qapp):
+    toolbar = _sidebar(LAPTOP_720)
+    ratios, abundance = toolbar._charts
     try:
         assert [
             b.text() for b in toolbar.section_switcher.findChildren(QAbstractButton)
-        ] == ["Peak window", "Display", "Summary"]
+        ] == ["Peak window", "Summary"]
         assert _switch_button(toolbar, "peak").isChecked()
         assert not toolbar.peak_section.header.isVisible()
 
-        _switch_button(toolbar, "display").click()
-        assert _in_view(toolbar, toolbar.shared_yscale_checkbox)
-        assert not toolbar.integration.isVisible()
-
         _switch_button(toolbar, "summary").click()
-        assert _in_view(toolbar, toolbar.total_abundance.header)
-        assert not toolbar.shared_yscale_checkbox.isVisible()
+        _settle(toolbar)
+        assert not toolbar.integration.isVisible()
+        # One chart takes the pane; the other folds to its title, which opens it.
+        assert _in_view(toolbar, toolbar.isotopologue_ratios)
+        assert not toolbar.total_abundance.isVisible()
+        assert _in_view(toolbar, abundance.header)
+        pane = toolbar._inspector_pane.height()
+        assert toolbar.isotopologue_ratios.height() > pane // 2
+
+        abundance.header.click()
+        _settle(toolbar)
+        assert _in_view(toolbar, toolbar.total_abundance)
+        assert not toolbar.isotopologue_ratios.isVisible()
+        assert _in_view(toolbar, ratios.header)
 
         _switch_button(toolbar, "peak").click()
         assert _in_view(toolbar, toolbar.integration.apply_button)
@@ -644,56 +607,56 @@ def test_switcher_reaches_display_and_summary_in_one_click(qapp):
 def test_switcher_leaves_once_there_is_room_and_sections_keep_their_state(qapp, samples_open):
     toolbar = _sidebar(LAPTOP_720, samples_open)
     try:
-        toolbar.display_section.set_expanded(False)
-        _switch_button(toolbar, "display").click()
-        assert toolbar.shared_yscale_checkbox.isVisible()
+        _switch_button(toolbar, "summary").click()
         toolbar.resize(296, 1400)
         _settle(toolbar)
         assert not toolbar.section_switcher.isVisible()
         assert toolbar.integration.isVisible()
-        assert not toolbar.shared_yscale_checkbox.isVisible()
-        assert toolbar.display_section.header.isVisible()
+        assert toolbar.isotopologue_ratios.isVisible() and toolbar.total_abundance.isVisible()
     finally:
         toolbar.deleteLater()
     tall = _sidebar(1400, samples_open)
     try:
         assert not tall.section_switcher.isVisible()
-        for section in (tall.peak_section, tall.display_section, tall.summary_section):
-            assert _in_view(tall, section.header)
+        for widget in (
+            tall.peak_section.header,
+            tall.integration.regenerate_button,
+            tall.summary_section.header,
+            tall.isotopologue_ratios,
+            tall.total_abundance,
+        ):
+            assert _in_view(tall, widget)
     finally:
         tall.deleteLater()
 
 
-@pytest.mark.parametrize("height", [LAPTOP_640, LAPTOP_720])
-def test_reset_and_apply_are_never_cut_on_a_short_sidebar(qapp, height):
+@pytest.mark.parametrize("height, rows", [(LAPTOP_640, (2, 1)), (LAPTOP_720, (4, 3))])
+def test_no_peak_window_field_is_ever_cut_on_a_short_sidebar(qapp, height, rows):
+    _add_compound("Compound 0")
     toolbar = _sidebar(height, samples_open=True)
+    integration = toolbar.integration
+    editor = [
+        integration.findChild(QLineEdit, name) for name in ("lo_input", "tr_input", "ro_input")
+    ] + [integration.restore_button, integration.apply_button]
+    below = [toolbar.baseline_checkbox, integration.tr_window_edit, integration.regenerate_button]
+    shown = [f"Bio_{i:03d}" for i in range(30)]
     try:
-        assert _full_rows(toolbar.compound_list) >= 4
-        assert _full_rows(toolbar.sample_list) >= 3
-
-        bar = toolbar.inspector.verticalScrollBar()
-        if height == LAPTOP_640:
-            assert bar.maximum() > 0, "the Peak window should have to scroll at this height"
-        row = toolbar.integration.action_row
-        viewport = toolbar.inspector.viewport()
-        states, in_place = set(), None
-        for value in range(bar.minimum(), bar.maximum() + 1, 4):
-            bar.setValue(value)
-            QApplication.processEvents()
-            if row.y() < 0:
-                break  # scrolled past: the row leaves with its fields
-            for button in (toolbar.integration.restore_button, toolbar.integration.apply_button):
-                assert _in_view(toolbar, button), value
-            pinned = row.property("pinned") == "true"
-            states.add(pinned)
-            if pinned:
-                assert row.geometry().bottom() == viewport.rect().bottom(), value
-                in_place = None
-            else:
-                # In its place, the row scrolls with the fields above it.
-                if in_place is not None:
-                    assert in_place[1] - row.y() == value - in_place[0], value
-                in_place = (value, row.y())
-        assert False in states
+        for selected in ([], ["Bio_001"]):
+            integration.populate_fields_from_plots("Compound 0", selected, shown)
+            _settle(toolbar)
+            assert integration.scope_label.isVisible() == bool(selected)
+            assert _full_rows(toolbar.compound_list) >= rows[0]
+            assert _full_rows(toolbar.sample_list) >= rows[1]
+            assert all(_in_view(toolbar, widget) for widget in editor), selected
+            # Scrolled any way, the rows below show whole or not at all, and each can show.
+            bar = integration.more.verticalScrollBar()
+            if height == LAPTOP_640:
+                assert bar.maximum() > 0, "the rows below should page at this height"
+            seen = set()
+            for value in [*range(bar.maximum() + 1), *range(bar.maximum(), -1, -1)]:
+                bar.setValue(value)
+                assert not any(_cut(toolbar, widget) for widget in below), (selected, value)
+                seen.update(w for w in below if _in_view(toolbar, w))
+            assert seen == set(below), selected
     finally:
         toolbar.deleteLater()

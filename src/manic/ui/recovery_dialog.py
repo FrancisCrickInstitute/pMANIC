@@ -70,7 +70,11 @@ class RecoveryDialog(QDialog):
         deleted = self._load_deleted()
         self.item_list.addItems(deleted)
         if deleted:
-            self.resize(420, 480)
+            # As tall as the names, up to twelve rows; a longer list scrolls.
+            rows = min(len(deleted), 12)
+            list_ = self.item_list
+            chrome = self.sizeHint().height() - list_.sizeHint().height()
+            self.resize(420, chrome + rows * list_.sizeHintForRow(0) + 2 * list_.frameWidth())
         else:
             # Nothing to restore: say so and offer only Close.
             self.title.setText(f"No deleted {self._noun}s")

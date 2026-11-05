@@ -38,3 +38,18 @@ def test_sample_recovery_shows_empty_state(qapp, monkeypatch):
         assert widget.isHidden()
     visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
     assert visible == ["Close"]
+
+
+def test_sample_recovery_fits_its_names_without_a_void(qapp, monkeypatch):
+    names = ["Bio_001", "Bio_002", "Bio_003"]
+    monkeypatch.setattr(sample_recovery_dialog, "get_deleted_samples", lambda: names)
+    dialog = SampleRecoveryDialog()
+    dialog.show()
+    qapp.processEvents()
+    try:
+        last = dialog.item_list.visualItemRect(dialog.item_list.item(2))
+        assert last.bottom() <= dialog.item_list.viewport().height()
+        # A fixed 480 px used to leave most of the dialog empty under a few names.
+        assert dialog.height() < 300
+    finally:
+        dialog.close()

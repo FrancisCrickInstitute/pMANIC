@@ -281,9 +281,9 @@ class GraphView(QWidget):
         )
         self.qc_key.hide()
         self._qc_key_wanted = False
-        # The Summary's Identity key says the same while it is open.
-        self.summary_button.toggled.connect(self._show_qc_key)
-        # Chips and the QC key wrap onto a second row instead of truncating.
+        # The Summary's Identity panel carries the key and the qualifier note while it is open.
+        self.summary_button.toggled.connect(self._show_qc_text)
+        # Legend entries and the QC key wrap onto a second row instead of truncating.
         self.channel_legend = ChannelChipRow(trailing=self.qc_key)
         legend_row = QHBoxLayout()
         legend_row.setContentsMargins(TILE_GAP + 2, 4, 6, 2)
@@ -532,7 +532,7 @@ class GraphView(QWidget):
         self._identity = identity
         note = qualifier_gap_note(identity) if identity is not None else None
         self.qc_note.setText(note or "")
-        self.qc_note.setVisible(note is not None)
+        self._show_qc_text()
 
         # Re-plotting the same compound (a fit or scale change) keeps selection and focus.
         same_compound = compound_name == self._current_compound
@@ -724,11 +724,13 @@ class GraphView(QWidget):
     def _hide_legend(self) -> None:
         self.channel_legend.hide()
         self._qc_key_wanted = False
-        self._show_qc_key()
-        self.qc_note.hide()
+        self.qc_note.clear()
+        self._show_qc_text()
 
-    def _show_qc_key(self, *_args) -> None:
-        self.qc_key.setVisible(self._qc_key_wanted and not self.summary_button.isChecked())
+    def _show_qc_text(self, *_args) -> None:
+        summary = self.summary_button.isChecked()
+        self.qc_key.setVisible(self._qc_key_wanted and not summary)
+        self.qc_note.setVisible(bool(self.qc_note.text()) and not summary)
 
     def _set_title(self, compound_name: str) -> None:
         self._tr_text = ""
@@ -758,7 +760,7 @@ class GraphView(QWidget):
                 ),
             )
             self._qc_key_wanted = unlabelled and multi_trace and len(channels) > 1
-            self._show_qc_key()
+            self._show_qc_text()
         except LookupError:
             self._hide_legend()
         except Exception:

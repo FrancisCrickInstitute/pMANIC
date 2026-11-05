@@ -233,23 +233,30 @@ def test_identity_popup_row_selects_the_sample_through_the_qc_widget(qapp):
 
 
 @pytest.mark.parametrize(
-    "qualifiers, note, chip",
+    "qualifiers, note, chip, panel",
     [
         (
             (_qualifier(1), _qualifier(2)),
             "Expected ratios come from the compound list's Qualifier Ratio columns. "
             "See Fix a missing qualifier ratio.",
             "Qualifier ion 1 m/z 101   no expected ratio",
+            "Qualifier 1 is not assessed: the compound list gives it no expected ratio. See Fix a missing qualifier ratio."
+            " "
+            "Qualifier 2 is not assessed: the compound list gives it no expected ratio. See Fix a missing qualifier ratio.",
         ),
         (
             (_qualifier(1, 0.4), _qualifier(2, 0.2)),
             "Set the missing tolerances in Settings › Qualifier ratios.",
             "Qualifier ion 1 m/z 101   expected 0.400  no tolerance",
+            "Qualifier 1 is not assessed: it has no tolerance. Set one in Settings › Qualifier ratios."
+            " "
+            "Qualifier 2 is not assessed: it has no tolerance. Set one in Settings › Qualifier ratios.",
         ),
         (
             (_qualifier(1, 0.4),),
             "Set the missing tolerances in Settings › Qualifier ratios.",
             "Qualifier ion 1 m/z 101   expected 0.400  no tolerance",
+            "Qualifier 1 is not assessed: it has no tolerance. Set one in Settings › Qualifier ratios.",
         ),
         (
             (_qualifier(1), _qualifier(2, 0.2)),
@@ -257,12 +264,20 @@ def test_identity_popup_row_selects_the_sample_through_the_qc_widget(qapp):
             "See Fix a missing qualifier ratio. "
             "Set the missing tolerances in Settings › Qualifier ratios.",
             "Qualifier ion 1 m/z 101   no expected ratio",
+            "Qualifier 1 is not assessed: the compound list gives it no expected ratio. See Fix a missing qualifier ratio."
+            " "
+            "Qualifier 2 is not assessed: it has no tolerance. Set one in Settings › Qualifier ratios.",
         ),
-        ((_qualifier(1, 0.4, 0.25), _qualifier(2)), None, None),
+        (
+            (_qualifier(1, 0.4, 0.25), _qualifier(2)),
+            None,
+            None,
+            "Qualifier 2 is not assessed: the compound list gives it no expected ratio. See Fix a missing qualifier ratio.",
+        ),
     ],
     ids=["no-ratios", "no-tolerances", "one-qualifier-no-tolerance", "one-of-each", "checkable"],
 )
-def test_compound_with_no_expected_ratios_says_so_instead_of_a_grey_grid(qapp, qualifiers, note, chip):
+def test_compound_with_no_expected_ratios_says_so_instead_of_a_grey_grid(qapp, qualifiers, note, chip, panel):
     identity = _identity(["MM_01", "MM_02"], qualifiers=qualifiers)
     dialog = ChartPopupDialog.for_identity(identity)
     widget = TargetedQcWidget()
@@ -271,15 +286,17 @@ def test_compound_with_no_expected_ratios_says_so_instead_of_a_grey_grid(qapp, q
         widget.update_results(identity)
         _settle(widget)
         grid = note is None
-        # The panel sits beside the grid's own note on the gap, so it names only the outcome.
-        for shown_note, scroll, key, text in (
-            (dialog.empty_note, dialog.findChild(QScrollArea), dialog.status_legend, note),
-            (widget.note, widget.findChild(QScrollArea), widget.key, "No qualifier can be assessed."),
+        assert dialog.empty_note.isVisible() is not grid
+        for scroll, key in (
+            (dialog.findChild(QScrollArea), dialog.status_legend),
+            (widget.findChild(QScrollArea), widget.key),
         ):
-            assert shown_note.isVisible() is not grid
             assert scroll.isVisible() is grid and key.isVisible() is grid
-            if not grid:
-                assert _plain(shown_note) == text
+        if not grid:
+            assert _plain(dialog.empty_note) == note
+        # The panel carries the grid's note on each unassessed qualifier while it is open.
+        assert widget.note.isVisible()
+        assert _plain(widget.note) == panel
         if not grid:
             assert dialog.ion_legend.labels()[1] == chip
             # The quantifier and each qualifier the method has; no chip for an absent one.

@@ -406,6 +406,11 @@ def test_a_qualifier_the_method_cannot_check_is_one_header_note_not_a_badge_per_
         "Sample_01": [], "Sample_04_ratio_fail": ["QC fail"], "Sample_05": [],
     }
     assert grid.qc_note.isVisibleTo(grid)
+    # While the Summary is open, its Identity panel carries the note instead.
+    grid.summary_button.setChecked(True)
+    assert not grid.qc_note.isVisibleTo(grid)
+    grid.summary_button.setChecked(False)
+    assert grid.qc_note.isVisibleTo(grid)
     assert QTextDocumentFragment.fromHtml(grid.qc_note.text()).toPlainText().replace("\xa0", " ") == (
         "Qualifier 2 is not assessed: the compound list gives it no expected ratio. "
         "See Fix a missing qualifier ratio."

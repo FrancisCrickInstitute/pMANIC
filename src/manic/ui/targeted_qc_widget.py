@@ -139,14 +139,13 @@ class TargetedQcWidget(QWidget):
         # With room to spare the rows grow, like the Peak area bars beside them.
         self._scroll.setMaximumHeight(identity_chart_height(len(identity.samples), ROOMY_ROW_PX))
         self.columns.set_axis("", identity_column_headers(identity.channels, detail=False))
-        note = identity_unassessed_note(identity)
-        if note is not None and qualifier_gap_note(identity) is not None:
-            # The note above the grid, always beside this panel, says why and how to fix it.
-            note = "No qualifier can be assessed."
+        assessed = identity_unassessed_note(identity) is None
+        # The grid hides its own note on the gap while this panel is open.
+        note = qualifier_gap_note(identity) or identity_unassessed_note(identity)
         self.note.setText(note or "")
         self.note.setVisible(note is not None)
-        self._scroll.setVisible(note is None)
-        self.columns.setVisible(note is None)
+        self._scroll.setVisible(assessed)
+        self.columns.setVisible(assessed)
         self._connect_cell_signals()
         self._fit_names()
         self._paint_highlight()
@@ -160,7 +159,7 @@ class TargetedQcWidget(QWidget):
         )
         self.key.setText(identity_key_html(identity))
         self.key.setToolTip(IDENTITY_KEY_TOOLTIP)
-        self.key.setVisible(note is None)
+        self.key.setVisible(assessed)
         self._cap_height()
 
     def _cap_height(self) -> None:

@@ -65,7 +65,7 @@ Import raw experimental data files for processing. The application will extract 
 
 **Configuration Note**   
 The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) to bin detected masses.
-* To check or change this: Go to **Settings → Mass Tolerance** before or after loading data.
+* To check or change this: Go to **Settings → General**, **Mass tolerance (Da)**, before or after loading data.
 * If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder.
 
 **Procedure**   
@@ -109,7 +109,7 @@ The selected compound must meet specific criteria in your compound definition fi
 2.  Choose your internal standard compound from the menu.
 3.  To remove a selection, open the same menu and choose **No Internal Standard**.
 
-You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. **Settings → Internal Standard** names the chosen standard and sets its reference peak; click **Save** to apply a new reference peak.
+You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. The **Internal standard** section of **Settings → General** names the chosen standard and sets its reference peak; click **Save** to apply a new reference peak.
 
 **Verification**
 * **Standard selected:** The **Internal standard** row shows the compound name.
@@ -130,11 +130,11 @@ Upon selecting a compound, MANIC displays a grid of mini-plots, one for each sam
 * **Blue dashed lines:** The integration boundaries (`tR - loffset` and `tR + roffset`).
 * **Badges:**
     * **No badge:** Good peak (area is above threshold).
-    * **Below threshold** (amber badge and amber tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Settings → Peak Validation**.
+    * **Below threshold** (amber badge and amber tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Minimum area ratio** in **Settings → General**.
     * **Accepted** (green badge) or **Marked bad** (red badge): You reviewed a weak peak from the **Review** menu or the plot right-click menu.
 * **Blue outline:** The plot is selected for editing.
 
-Tick **Shared y-scale** in the **Display** section of the sidebar, or choose **View → Shared Y-Scale**, to use one common intensity scale for all sample tiles. Untick it to let each tile autoscale to its own tallest peak.
+Choose **View → Shared Y-Scale** to use one common intensity scale for all sample tiles. Choose it again to let each tile autoscale to its own tallest peak.
 
 **Procedure**
 
@@ -156,8 +156,8 @@ For ambiguous peaks, inspecting the raw data more closely might be helpful:
 
 #### 3. Selecting Samples to Adjust
 You can adjust integration parameters for all samples at once or for specific outliers.
-* **Edit All:** Right-click a plot and choose **Deselect All**. The **Peak window** section will show "Applies to all N samples". Changes will apply globally.
-* **Edit Specific Samples:** Click on individual plots to select them (they get a blue outline). You can also drag a box to select multiple. The **Peak window** section will show "Applies to N selected samples". Changes apply *only* to the selection.
+* **Edit All:** Right-click a plot and choose **Deselect All**. With nothing selected, **Apply** and **Reset** change every shown sample.
+* **Edit Specific Samples:** Click on individual plots to select them (they get a blue outline). You can also drag a box to select multiple. The **Peak window** section shows "Applies to N selected samples", or the sample's name for one. Changes apply *only* to the selection.
 * **Show Only Selected Samples:** Right-click a selected plot and choose this command to hide every other sample. The remaining tiles stay selected. If you right-click a plot that is not selected, the command uses that plot alone.
 * **Show All Samples:** Right-click and choose this command to show every sample again with no plots selected, the same as when you first load a compound.
 * **Samples list:** Untick a sample in the **Samples** section of the sidebar to hide its plot, and tick it to show it again. Type in **Filter samples** to narrow the list. While a filter is set, the section heading reads **k shown · n match**.
@@ -173,7 +173,7 @@ Click a plot so the grid has keyboard focus. Move the focus between plots with t
 #### 4. Adjusting Boundaries (Peak window)
 Locate the **Peak window** section of the sidebar, below the compound list.
 
-On a short window, such as a laptop screen, the sidebar cannot show the Peak window, **Display** and **Summary** together. It then shows three buttons, **Peak window**, **Display** and **Summary**, in place of the section headings. Click one to show that section. The buttons go away when the window is tall enough for all three sections.
+On a short window, such as a laptop screen, the sidebar cannot show the Peak window and **Summary** together. It then shows two buttons, **Peak window** and **Summary**, in place of the section headings. Click one to show that section. The buttons go away when the window is tall enough for both sections.
 * **Left offset / Right offset:** Controls the width of the window. Increase these to capture wider peaks; decrease to exclude adjacent peaks.
 * **tR:** Shifts the center of the window. Use this to align the window with shifted peaks.
 
@@ -336,7 +336,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
 ### Plot right-click menu
 Right-click a plot for these commands. The **Review** menu in the menu bar offers the same review commands with the same labels and counts.
 
-* **Select All**
+* **Select All Plots**
 * **Deselect All**
 * **Select Only This Sample**
 * **Show Only Selected Samples**
@@ -368,26 +368,24 @@ On Windows, **Settings...** is in the **File** menu, and **Documentation**, **Ch
 
 **Shortcuts.** **Settings...** is Ctrl+, (Preferences on macOS). **Documentation** is F1 (HelpContents).
 
-**Qualifier Ratios** is unlabelled-only. **Natural Abundance** and **Internal Standard** are labelled-only. The natural-abundance preview (**Preview natural-abundance-corrected data in plots**) is off by default.
-
-These settings control the global behavior of the application.
+Settings has a **General** page and a **Deconvolution** page; unlabelled mode adds **Qualifier Ratios**. On **General**, the **Internal standard** and **Natural abundance** sections are labelled-only. **Save** writes the page's changed values and **Revert** discards them. A dot in the page list marks a page with unsaved changes.
 
 ### Mass Tolerance
-**Settings → Mass Tolerance**
+**Settings → General**, **Extraction** section, **Mass tolerance (Da)**
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
 * **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder.
 * **Deep Dive:** 📖 [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Integration
-**Settings → Integration**
-* Two radios: **Time-based (recommended)** (default) and **Legacy**.
+**Settings → General**, **Integration** section
+* Two **Method** radios: **Time-based (recommended)** (default) and **Legacy**.
 * The choice changes on-screen peak areas only.
 * Export asks again in **Export Data**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
 * **Deep Dive:** 📖 [Compare Integration Methods](Reference_Integration_Methods.md)
 
 ### Minimum Peak Area
-**Settings → Peak Validation**
+**Settings → General**, **Peak validation** section, **Minimum area ratio**
 * **Default:** `0.005` (0.5%)
 * **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area get an amber **Below threshold** badge.
 * **Deep Dive:** 📖 [Understanding Peak Validation](Reference_Peak_Validation.md)
@@ -400,10 +398,10 @@ The **Baseline correction** checkbox is in the **Peak window** section of the si
 * **Deep Dive:** 📖 [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Y-axis scale
-Two ticks sit in the **Display** section of the sidebar, under the Peak window. On a short window, click the **Display** button in the sidebar to show them.
-* **Shared y-scale:** one intensity scale for every sample tile.
-* **Scale to selected peak:** each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. This tick is labelled-only.
-* The ticks cannot both be on. Both off is the default. Each tile then autoscales to the tallest intensity in its extract.
+Two commands in the **View** menu set how sample tiles scale. MANIC remembers the last choice.
+* **Shared Y-Scale** (Ctrl+Shift+Y, ⌘⇧Y on macOS): one intensity scale for every sample tile.
+* **Scale to Selected Peak** (Ctrl+Shift+P, ⌘⇧P on macOS): each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. Labelled mode only.
+* Only one can be on. Both off is the default. Each tile then autoscales to the tallest intensity in its extract.
 
 ### Chromatographic Peak Deconvolution
 **Settings → Deconvolution**
@@ -431,8 +429,8 @@ Two ticks sit in the **Display** section of the sidebar, under the Peak window. 
 * **Deep Dive:** 📖 [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction
-**Settings → Natural Abundance**
-* Checkbox: **Preview natural-abundance-corrected data in plots**. Off by default.
+**Settings → General**, **Natural abundance** section
+* Checkbox: **Show corrected data**. Off by default.
 * **Function:** Controls what the main chromatogram plots and the Label Incorporation bars show.
     * Ticked: Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * Unticked: Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
@@ -491,7 +489,7 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 
 ## Glossary
 
-**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. **Settings → Internal Standard** shows the same name.
+**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. The **Internal standard** section of **Settings → General** shows the same name.
 
 **MM files (standard mixture).** Sample files that match the compound-list `mmfiles` pattern. MANIC uses them for MRRF and background correction.
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import ceil
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
@@ -79,7 +80,7 @@ def _summary_text(report: list[MmFileStatus]) -> str:
 
 
 class _MmFileTable(QTableWidget):
-    """Opens showing up to eight rows; never fewer than four, so a short screen scrolls the dialog."""
+    """Opens showing up to eight rows; a short screen trims it to no fewer than four."""
 
     preferred_height = 0
 
@@ -228,10 +229,29 @@ class PostLoadChecklistDialog(QDialog):
 
     def _fit_to_screen(self) -> None:
         """As tall as the body, or as the screen allows; the body scrolls above the buttons."""
+        self._fit_table_height()
         width = max(self.width(), self.minimumWidth())
-        chrome = self.sizeHint().height() - self.scroll.sizeHint().height()
-        body = self.body.layout().totalHeightForWidth(width - 2 * MARGIN)
-        resize_to_screen(self, width, chrome + body)
+        resize_to_screen(self, width, self._chrome_height() + self._body_height(width))
+
+    def _chrome_height(self) -> int:
+        return self.sizeHint().height() - self.scroll.sizeHint().height()
+
+    def _body_height(self, width: int) -> int:
+        return self.body.layout().totalHeightForWidth(width - 2 * MARGIN)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # A short dialog trims the MM table, down to four rows, before the body
+        # scrolls, so the disclosure under the table stays in view.
+        self._fit_table_height()
+        overflow = self._chrome_height() + self._body_height(self.width()) - self.height()
+        if overflow > 0:
+            table = self.mm_file_table
+            row_h = table.verticalHeader().defaultSectionSize()
+            table.preferred_height = max(
+                table.minimumHeight(), table.preferred_height - ceil(overflow / row_h) * row_h
+            )
+        self.mm_file_table.updateGeometry()
 
     def _show_change_pattern_steps(self, shown: bool) -> None:
         arrow = "▾" if shown else "▸"
@@ -314,7 +334,6 @@ class PostLoadChecklistDialog(QDialog):
         table.resizeColumnToContents(0)
         table.setColumnWidth(0, min(table.columnWidth(0) + 16, 200))
         table.setColumnWidth(1, pattern_width)
-        self._fit_table_height()
 
     def _fit_table_height(self) -> None:
         table = self.mm_file_table

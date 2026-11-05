@@ -53,14 +53,14 @@ In the final results workbook (specifically the **Abundances** sheet):
 
 You can adjust the strictness of this check in the settings.
 
-**Settings → Peak Validation**
+**Settings → General**, **Peak validation** section, **Minimum area ratio**
 
 Optionally, if your internal standard is labelled, you can choose which isotopologue peak is used as the reference peak:
 
-**Settings → Internal Standard**
+**Settings → General**, **Internal standard** section, **Reference peak**
 
 * **Default:** `0.005` (0.5%)
-* **Range:** `0.001` to `1.0` (the **Settings → Peak Validation** spin box)
+* **Range:** `0` to `1.0`. `0` turns the check off.
 * **Usage:**
     * Increase this value (e.g., to `0.05`) to be stricter and flag more peaks.
     * Decrease this value (e.g., to `0.001`) to accept weaker signals.

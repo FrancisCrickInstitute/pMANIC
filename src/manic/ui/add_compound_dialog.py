@@ -413,8 +413,8 @@ class AddCompoundDialog(QDialog):
                 self._watch(field)
         layout.addLayout(grid)
         note = hint_label(
-            "A qualifier without a ratio and tolerance is left unassessed in "
-            "identity QC. Tolerance is a fraction of the ratio (0.25 = ±25%)."
+            "A qualifier without a ratio and tolerance is not assessed in "
+            "Identity QC. Tolerance is a fraction of the ratio (0.25 = ±25%)."
         )
         note.setContentsMargins(FORM_LABEL_WIDTH + 16, 0, 0, 0)
         layout.addWidget(note)

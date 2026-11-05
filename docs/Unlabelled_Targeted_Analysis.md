@@ -273,9 +273,9 @@ Natural-abundance correction is **not** applied in this mode.
 1. Select a compound and the samples of interest.
 2. Inspect the EIC tiles and the **Identity** chart in the left sidebar.
 3. Adjust tR or offsets in the **Peak window** section where peaks have
-   drifted, then click **Apply to N samples**.
-4. Use **Shared y-scale** if you want one intensity scale across all sample
-   tiles. Off: each tile autoscales to its own tallest peak.
+   drifted, then click **Apply**.
+4. Choose **View → Shared Y-Scale** if you want one intensity scale across all
+   sample tiles. Off: each tile autoscales to its own tallest peak.
 
 ### Step E. Export
 

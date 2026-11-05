@@ -1,7 +1,7 @@
 from unittest import mock
 
 import pytest
-from PySide6.QtWidgets import QDoubleSpinBox
+from PySide6.QtWidgets import QDoubleSpinBox, QScrollArea
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
@@ -12,22 +12,17 @@ from manic.ui.dialog_kit import MARKED_ROLE
 from manic.ui.main_window import MainWindow
 from manic.ui.settings_window import (
     DeconvolutionPage,
-    InternalStandardPage,
-    MassTolerancePage,
-    PeakValidationPage,
+    IntegrationSection,
+    InternalStandardSection,
+    MassToleranceSection,
+    NaturalAbundanceSection,
+    PeakValidationSection,
     QualifierRatioPage,
 )
 
 from conftest import _make_window
 
-LABELLED_TITLES = [
-    "Mass Tolerance",
-    "Peak Validation",
-    "Integration",
-    "Natural Abundance",
-    "Internal Standard",
-    "Deconvolution",
-]
+LABELLED_TITLES = ["General", "Deconvolution"]
 
 
 def _page_titles(settings_window) -> list[str]:
@@ -95,19 +90,14 @@ def test_labelled_settings_open_with_no_data(labelled_window):
     assert settings.isVisible()
     assert _page_titles(settings) == LABELLED_TITLES
 
-    mass = settings.page_named("Mass Tolerance")
-    assert isinstance(mass, MassTolerancePage)
-    assert mass.spin.isEnabled()
-
-    _select_page(settings, "Internal Standard")
-    internal = settings.page_named("Internal Standard")
-    assert isinstance(internal, InternalStandardPage)
+    assert settings.findChild(MassToleranceSection).spin.isEnabled()
+    internal = settings.findChild(InternalStandardSection)
     assert not internal.combo.isEnabled()
     assert internal.standard_label.text() == "None"
-    assert (
-        settings.hint_label.text()
-        == "Choose an internal standard in the sidebar to set its reference peak."
+    assert internal.reference_hint.text() == (
+        "Choose an internal standard in the sidebar to set its reference peak."
     )
+    assert settings.hint_label.text() == ""
 
     _select_page(settings, "Deconvolution")
     deconvolution = settings.page_named("Deconvolution")
@@ -214,8 +204,7 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
 def test_mass_tolerance_save_writes_literal_value(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    _select_page(settings, "Mass Tolerance")
-    page = settings.page_named("Mass Tolerance")
+    page = settings.findChild(MassToleranceSection)
     assert labelled_window.mass_tolerance == 0.2
 
     page.spin.setValue(0.35)
@@ -230,14 +219,12 @@ def test_mass_tolerance_save_writes_literal_value(labelled_window):
 def test_peak_validation_keeps_unsaved_edit_across_pages(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    _select_page(settings, "Peak Validation")
-    page = settings.page_named("Peak Validation")
-    assert isinstance(page, PeakValidationPage)
+    page = settings.findChild(PeakValidationSection)
     assert page.spin.value() == DEFAULT_MIN_PEAK_HEIGHT_RATIO
 
     page.spin.setValue(0.123)
-    _select_page(settings, "Mass Tolerance")
-    _select_page(settings, "Peak Validation")
+    _select_page(settings, "Deconvolution")
+    _select_page(settings, "General")
     assert page.spin.value() == 0.123
     assert settings.save_button.isEnabled()
 
@@ -247,37 +234,40 @@ def test_peak_validation_keeps_unsaved_edit_across_pages(labelled_window):
 
 
 def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
+    _insert_compound("Alanine")
+    labelled_window.compound_data_loaded = True
+    labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    settings.page_named("Mass Tolerance").spin.setValue(0.35)
+    settings.findChild(MassToleranceSection).spin.setValue(0.35)
     assert settings.save_button.isEnabled()
     assert settings.hint_label.text() == ""
     assert not settings.pending_label.isVisible()
-    settings.page_named("Peak Validation").spin.setValue(0.123)
-    _select_page(settings, "Integration")
+    settings.findChild(PeakValidationSection).spin.setValue(0.123)
+    _select_page(settings, "Deconvolution")
+    settings.page_named("Deconvolution").level_combo.setCurrentIndex(0)
 
     marked = [
         settings.page_list.item(row).text()
         for row in range(settings.page_list.count())
         if settings.page_list.item(row).data(MARKED_ROLE)
     ]
-    assert marked == ["Mass Tolerance", "Peak Validation"]
+    assert marked == ["General", "Deconvolution"]
     assert settings.isWindowModified()
     assert settings.pending_label.isVisible()
-    assert "Mass Tolerance" in settings.pending_label.text()
-    assert not settings.save_button.isEnabled()
+    assert "General" in settings.pending_label.text()
 
     settings.pending_label.linkActivated.emit("0")
-    assert settings.page_list.currentItem().text() == "Mass Tolerance"
+    assert settings.page_list.currentItem().text() == "General"
     assert settings.pending_label.text().count("<a ") == 1
-    assert "Peak Validation" in settings.pending_label.text()
+    assert "Deconvolution" in settings.pending_label.text()
     settings.save_button.click()
     assert labelled_window.mass_tolerance == 0.35
-    assert labelled_window.min_peak_height_ratio == 0.005
+    assert labelled_window.min_peak_height_ratio == 0.123
     assert not settings.page_list.item(0).data(MARKED_ROLE)
     assert settings.page_list.item(1).data(MARKED_ROLE)
 
-    _select_page(settings, "Peak Validation")
+    _select_page(settings, "Deconvolution")
     settings.reset_button.click()
     assert not settings.isWindowModified()
     assert not settings.pending_label.isVisible()
@@ -286,8 +276,7 @@ def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
 def test_legacy_radio_save_enables_legacy_integration(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    _select_page(settings, "Integration")
-    page = settings.page_named("Integration")
+    page = settings.findChild(IntegrationSection)
     assert labelled_window.use_legacy_integration is False
 
     page.legacy_radio.setChecked(True)
@@ -309,8 +298,7 @@ def test_gear_button_and_menu_action_open_settings(labelled_window):
 def test_natural_abundance_save_propagates_preview_flag(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    _select_page(settings, "Natural Abundance")
-    page = settings.page_named("Natural Abundance")
+    page = settings.findChild(NaturalAbundanceSection)
     assert labelled_window.graph_view.use_corrected is False
 
     page.preview_check.setChecked(True)
@@ -364,8 +352,7 @@ def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window
     labelled_window.toolbar.on_internal_standard_selected("Norvaline")
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
-    _select_page(settings, "Internal Standard")
-    page = settings.page_named("Internal Standard")
+    page = settings.findChild(InternalStandardSection)
     assert page.combo.isEnabled()
     assert page.combo.count() == 4
     page.combo.setCurrentIndex(2)
@@ -467,10 +454,12 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     _insert_compound("Norvaline", label_atoms=2)
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Alanine", "Norvaline"])
-    labelled_window.open_settings_page("Internal Standard")
+    labelled_window.open_settings_page("General")
     settings = labelled_window.settings_window
-    page = settings.page_named("Internal Standard")
+    page = settings.findChild(InternalStandardSection)
     assert page.standard_label.text() == "None"
+    # An unsaved edit elsewhere on the page must not freeze the standard's name.
+    settings.findChild(MassToleranceSection).spin.setValue(0.35)
     assert not page.combo.isEnabled()
 
     labelled_window.toolbar.on_internal_standard_selected("Norvaline")
@@ -491,6 +480,7 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
 
     labelled_window.toolbar.on_internal_standard_cleared()
     assert page.standard_label.text() == "None"
+    assert settings.findChild(MassToleranceSection).spin.value() == 0.35
 
 
 def test_changing_the_standard_drops_an_unsaved_reference_peak(labelled_window):
@@ -499,12 +489,13 @@ def test_changing_the_standard_drops_an_unsaved_reference_peak(labelled_window):
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Norvaline", "Leucine"])
     labelled_window.toolbar.on_internal_standard_selected("Norvaline")
-    labelled_window.open_settings_page("Internal Standard")
+    labelled_window.open_settings_page("General")
     settings = labelled_window.settings_window
-    page = settings.page_named("Internal Standard")
+    page = settings.findChild(InternalStandardSection)
     page.combo.setCurrentIndex(2)
 
     labelled_window.toolbar.on_internal_standard_selected("Leucine")
+    assert not settings.save_button.isEnabled()
     settings.save_button.click()
 
     assert page.combo.currentText() == "M+0"
@@ -570,4 +561,29 @@ def test_check_for_updates_does_not_start_a_second_worker_while_one_runs(
         window.check_updates_action.trigger()
         assert _StuckWorker.instances == 1
     finally:
+        window.close()
+
+
+def test_settings_grows_to_show_override_rows_without_scrolling(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
+    try:
+        _insert_unlabelled_target()
+        window.compound_data_loaded = True
+        window.toolbar.update_compound_list(["Target"], selected_name="Target")
+        window.open_settings_window()
+        settings = window.settings_window
+        scroll = settings.findChild(QScrollArea, "settingsPageScroll")
+        monkeypatch.setattr(window.graph_view, "get_selected_samples", lambda: ["S1", "S2"])
+
+        _select_page(settings, "Deconvolution")
+        settings.refresh()
+        qapp.processEvents()
+
+        assert settings.page_named("Deconvolution").sample_fit_table.isVisible()
+        assert not scroll.verticalScrollBar().isVisible()
+    finally:
+        if window.settings_window is not None:
+            window.settings_window.close()
         window.close()

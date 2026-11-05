@@ -18,10 +18,21 @@ Click a plot first so the grid has keyboard focus.
 | Return | Inspect the focused plot (same as double-click) |
 | Esc | Deselect all plots |
 | Ctrl+A (⌘A on macOS) | Select all plots |
+| A | Accept a Below threshold peak, or clear the acceptance |
+| B | Mark the peak as bad, or clear the mark |
+
+With plots selected, the **Review** commands and the A and B keys act on the whole selection, and the menu names the count, for example **Mark 3 Peaks as Bad**.
+
+Other shortcuts:
+
+| Key | Action |
+| --- | --- |
 | Ctrl+[ and Ctrl+] (⌘[ and ⌘] on macOS) | Previous and next compound |
 | Ctrl+F (⌘F on macOS) | Find a compound |
-
-With plots selected, the **Review** commands act on the whole selection and name the count, for example **Mark 3 Peaks as Bad**.
+| Ctrl+Return (⌘Return on macOS) | **Apply** the Peak window, while one of its fields has focus |
+| Ctrl+Shift+B (⌘⇧B on macOS) | Turn **Baseline Correction** on or off |
+| Ctrl+Shift+Y (⌘⇧Y on macOS) | Turn **View → Shared Y-Scale** on or off |
+| Ctrl+Shift+P (⌘⇧P on macOS) | Turn **View → Scale to Selected Peak** on or off |
 
 For the labelled workflow, see [User Guide](01_user_guide.md).
 For targeted profiling, see [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md).

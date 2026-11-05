@@ -54,7 +54,7 @@ $$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times 1$$
 
 ## Configuration
 
-**Settings → Integration** has two radios.
+**Settings → General**, **Integration** section, has two **Method** radios.
 
 * **Time-based (recommended)** (default): uses time-based integration on screen.
 * **Legacy**: uses unit-spacing integration on screen.

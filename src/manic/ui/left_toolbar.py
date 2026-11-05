@@ -302,7 +302,8 @@ class Toolbar(QWidget):
         window = self.integration.tr_window_edit.text().strip()
         state = "On" if self.baseline_checkbox.isChecked() else "Off"
         if self.integration.has_window_draft():
-            summary = f"{state} · not applied"
+            # The edit outranks the baseline state, which the folded row has no room for.
+            summary = f"{window} min, not applied"
         else:
             summary = f"{state} · {window} min" if window else state
         self.integration.more.summary.setText(summary)

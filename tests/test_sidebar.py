@@ -797,6 +797,31 @@ def _hover_text(widget, point: QPoint) -> str:
     return text
 
 
+def test_a_folded_window_edit_shows_its_value_and_its_state(qapp):
+    before = qapp.styleSheet()
+    apply_app_stylesheet(qapp)
+    _add_compound("Compound 0")
+    toolbar = _sidebar(LAPTOP_640, samples_open=True)
+    integration = toolbar.integration
+    summary = integration.more.summary
+    try:
+        integration.populate_tr_window_field("Compound 0")
+        _settle(toolbar)
+        assert integration.more.header.isVisible()
+        integration.tr_window_edit.selectAll()
+        QTest.keyClicks(integration.tr_window_edit, "0.37")
+        _settle(toolbar)
+        assert summary.full_text() == "0.37 min, not applied"
+        assert summary.text().startswith("0.37 min")
+        # Cut short, the summary shows whole on hover.
+        summary.resize(40, summary.height())
+        assert summary.text() != summary.full_text()
+        assert _hover_text(summary, QPoint(5, 5)) == "0.37 min, not applied"
+    finally:
+        toolbar.deleteLater()
+        qapp.setStyleSheet(before)
+
+
 def test_long_names_keep_whole_rows_and_show_in_full_on_hover(qapp):
     compound = "N-acetyl-L-aspartyl-L-glutamic acid bis-tert-butyldimethylsilyl derivative"
     samples = [

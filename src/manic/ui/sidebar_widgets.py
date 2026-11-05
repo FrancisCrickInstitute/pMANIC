@@ -352,12 +352,13 @@ class CollapsibleSection(QWidget):
         self._title = QLabel(title) if sub else section_heading(title)
         if sub:
             self._title.setProperty("role", "hint")
-        self.summary = ElidedLabel()
+        # A cut summary shows in full on hover; a click on it still reaches the heading.
+        self.summary = ElidedLabel(hover=True)
         self.summary.setProperty("role", "hint")
         self.summary.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
-        for child in (self._chevron, self._title, self.summary):
+        for child in (self._chevron, self._title):
             child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         row.addWidget(self._chevron)
         row.addWidget(self._title)

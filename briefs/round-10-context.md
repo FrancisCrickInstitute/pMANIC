@@ -17,6 +17,8 @@ Round 10 (re-rating). Commit `4119119` on `feat/ui-ux-overhaul`.
     `offscreen-dark-2560x1410/` are rendered on a virtual 2560x1410 screen with Qt's
     offscreen platform (fonts and widgets real; no native menu bar). Optimise your
     judgement for this size first; laptop sizes must still work.
+    To drive it live at 2560 yourself: `QT_QPA_PLATFORM="offscreen:configfile=<NOTES>/briefs/screen2560.json"`
+    with `--size 2560x1410` (offscreen renders to images; it does not open a window).
   - Local macOS on a 14" MacBook (1512x949 available; the 1600x1000 request is
     clamped): `mac-light/`, `mac-dark/`.
   - Local macOS at `QT_SCALE_FACTOR=1.5` (screen 1008x633 logical, harsher than a

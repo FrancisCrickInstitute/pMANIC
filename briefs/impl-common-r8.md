@@ -2,7 +2,7 @@
 
 You are one of three parallel implementers fixing review findings for the MANIC
 desktop app (PySide6, GC-MS analysis). Two reviewers rate the app on a frozen
-rubric; target 8/10 average. Round 5 scored 8.25 (Sol 8.3, Opus 8.2); the user wants 10. The
+rubric. Round 5 scored 8.25 (Sol 8.3, Opus 8.2); the user wants 10. The
 weakest factors are F5 feedback, F7 data visualisation and F9 taste.
 Your brief names your files and findings.
 
@@ -11,13 +11,13 @@ Your brief names your files and findings.
   and design system. Its last section, "Taste, not AI slop", is binding and
   includes the redundancy rule (the user considers repetition generally bad).
 - `/Users/couttsj/Documents/_code/pMANIC-notes/rubric.md`, especially the F9 anchors.
-- The round 4 reports: `/Users/couttsj/Documents/_code/pMANIC-notes/reviews/round-5/sol-review.md`
+- The round 5 reports: `/Users/couttsj/Documents/_code/pMANIC-notes/reviews/round-5/sol-review.md`
   and `opus-report.md` (same folder). The round-4 redundancy audit
   `/Users/couttsj/Documents/_code/pMANIC-notes/reviews/round-4/redundancy-audit-sol.md`
   is already applied; do not reintroduce anything it removed.
   Screenshots they cite are in `/Users/couttsj/Documents/_code/pMANIC-notes/reviews/round-5/shots/`;
-  `extra/` and `supplement/` paths are under `/Users/couttsj/Documents/_code/uiux-scratch/review-r5-*/`
-  and `/Users/couttsj/Documents/_code/uiux-scratch/redundancy-audit-sol/`.
+  `extra/`, `supplement/`, `flows/` and `diagnostic/` paths are under `/Users/couttsj/Documents/_code/uiux-scratch/review-r5-*/`
+  (`review-r5-sol` or `review-r5-opus`, matching the report).
   Do not edit anything in pMANIC-notes.
 
 ## Where you work

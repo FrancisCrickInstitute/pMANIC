@@ -858,22 +858,33 @@ def _fit_shape_candidate(
         return center_array, shape_matrix
 
     def solve_linear(
-        shape_matrix: np.ndarray, enforce_nonneg: bool = False
+        shape_matrix: np.ndarray, enforce_nonneg: bool = False, normal=None
     ) -> tuple[np.ndarray, np.ndarray]:
         # Cheap unconstrained solve via the tiny (1+K)x(1+K) normal equations.
         # During optimization this runs on every residual evaluation, so it must
         # be fast; non-negativity is only enforced once on the final fit, where a
         # per-channel NNLS cleans up any channel with a negative coefficient.
-        design, gram = _normal_equations(shape_matrix, ones, ridge)
+        design, gram = normal or _normal_equations(shape_matrix, ones, ridge)
         coef = np.linalg.solve(gram, design.T @ y.T)
         if enforce_nonneg:
             for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
                 coef[:, channel], _ = nnls(design, y[channel])
         return coef[0], coef[1:].T
 
+    # least_squares asks for the Jacobian at the point whose residual it just
+    # evaluated, so the residual keeps its shapes and normal equations for it.
+    last_evaluation: dict = {}
+
     def residual(values: np.ndarray) -> np.ndarray:
-        _, shape_matrix = shapes_from(values, sort=False)
-        intercept, weights = solve_linear(shape_matrix)
+        values_matrix = np.asarray(values, dtype=np.float64).reshape(
+            component_count, param_count
+        )
+        raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
+        shape_matrix = _normalize_rows(raw)
+        normal = _normal_equations(shape_matrix, ones, ridge)
+        last_evaluation.clear()
+        last_evaluation[values_matrix.tobytes()] = (raw, shape_matrix, normal)
+        intercept, weights = solve_linear(shape_matrix, normal=normal)
         total = intercept[:, None] + weights @ shape_matrix
         return ((total - y) / channel_scale[:, None]).ravel()
 
@@ -882,7 +893,14 @@ def _fit_shape_candidate(
             component_count, param_count
         )
         return _variable_projection_jacobian(
-            x_rel, shape_model, values_matrix, y, ones, ridge, channel_scale
+            x_rel,
+            shape_model,
+            values_matrix,
+            y,
+            ones,
+            ridge,
+            channel_scale,
+            evaluated=last_evaluation.get(values_matrix.tobytes()),
         )
 
     try:
@@ -1222,10 +1240,18 @@ def _component_shapes(
 
 
 def _component_shape_gradients(
-    x_rel: np.ndarray, shape_model: PeakShapeModel, values_matrix: np.ndarray
+    x_rel: np.ndarray,
+    shape_model: PeakShapeModel,
+    values_matrix: np.ndarray,
+    raw: np.ndarray | None = None,
+    shapes: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Normalized shapes (K, n) and their derivatives (K, p, n)."""
-    raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
+    """Normalized shapes (K, n) and their derivatives (K, p, n).
+
+    ``raw`` and ``shapes`` may be passed when already computed at ``values_matrix``.
+    """
+    if raw is None:
+        raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
     center = values_matrix[:, 0, None]
     if shape_model == "gaussian":
         sigma = values_matrix[:, 1, None]
@@ -1255,7 +1281,8 @@ def _component_shape_gradients(
             axis=1,
         )
 
-    shapes = _normalize_rows(raw)
+    if shapes is None:
+        shapes = _normalize_rows(raw)
     max_shapes = np.max(raw, axis=1)
     valid = (max_shapes > 0) & np.isfinite(max_shapes)
     max_gradients = np.take_along_axis(
@@ -1283,6 +1310,7 @@ def _variable_projection_jacobian(
     ones: np.ndarray,
     ridge: np.ndarray,
     channel_scale: np.ndarray,
+    evaluated: tuple | None = None,
 ) -> np.ndarray:
     """Golub-Pereyra derivative of the variable-projection residual.
 
@@ -1292,8 +1320,14 @@ def _variable_projection_jacobian(
     """
     component_count, param_count = values_matrix.shape
     channels, points = y.shape
-    shapes, gradients = _component_shape_gradients(x_rel, shape_model, values_matrix)
-    design, gram = _normal_equations(shapes, ones, ridge)
+    if evaluated is None:
+        shapes, gradients = _component_shape_gradients(x_rel, shape_model, values_matrix)
+        design, gram = _normal_equations(shapes, ones, ridge)
+    else:
+        raw, shapes, (design, gram) = evaluated
+        shapes, gradients = _component_shape_gradients(
+            x_rel, shape_model, values_matrix, raw=raw, shapes=shapes
+        )
     gram_inv_design_t = np.linalg.solve(gram, design.T)
     coef = gram_inv_design_t @ y.T
     residual = y.T - design @ coef

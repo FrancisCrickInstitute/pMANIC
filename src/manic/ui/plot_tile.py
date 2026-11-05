@@ -81,10 +81,8 @@ def tile_badges(
         outcome = qualifier_outcome(replace(identity.qc, qualifier_ratios=checked))
         if outcome in _QC_BADGES:
             text, tone = _QC_BADGES[outcome]
-            detail = "\n".join(identity.qc.reasons)
-            badges.append(
-                TileBadge(text, tone, f"Qualifier QC: {outcome.value}" + (f"\n{detail}" if detail else ""))
-            )
+            # The badge names the outcome; its tooltip gives only the reasons.
+            badges.append(TileBadge(text, tone, "\n".join(identity.qc.reasons)))
     return badges
 
 

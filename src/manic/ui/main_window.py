@@ -68,7 +68,9 @@ from manic.models.session_export import (
     validate_method_file,
 )
 from manic.processors.chromatographic_peak_deconvolution import (
+    DEFAULT_DECONVOLUTION_FIT_TYPE,
     DEFAULT_DECONVOLUTION_LEVEL,
+    DEFAULT_NOISE_GATE,
     normalize_fit_type,
     normalize_noise_gate,
     normalize_stringency,
@@ -116,6 +118,9 @@ SUMMARY_WIDTH_SETTING = "view/summary_width"
 # Until the user opens or closes it, the Summary starts closed in a narrower window,
 # so the grid keeps its columns.
 SUMMARY_MIN_WINDOW_WIDTH = 1200
+DEFAULT_DECONVOLUTION = (
+    DEFAULT_DECONVOLUTION_LEVEL, DEFAULT_DECONVOLUTION_FIT_TYPE, DEFAULT_NOISE_GATE
+)
 COMPOUND_LIST_SUFFIXES = {".csv", ".xls", ".xlsx"}
 
 
@@ -2569,12 +2574,12 @@ class MainWindow(QMainWindow):
         self, compound_name: str | None
     ) -> tuple[str, str, str]:
         if not compound_name:
-            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
+            return DEFAULT_DECONVOLUTION
         try:
             compound = read_compound_with_session(compound_name)
         except LookupError:
             # The toolbar can still name a compound that was just deleted.
-            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
+            return DEFAULT_DECONVOLUTION
         return (
             normalize_stringency(compound.deconvolution_level),
             normalize_fit_type(compound.deconvolution_fit_type),
@@ -2727,14 +2732,12 @@ class MainWindow(QMainWindow):
         return True
 
     def _deconvolution_indicator_text(self, compound_name: str | None) -> str:
-        """Plain-words status-bar text for the selected compound's deconvolution."""
+        """Status-bar text for the selected compound's deconvolution, empty at the defaults."""
         if not compound_name:
             return ""
-        try:
-            compound = read_compound_with_session(compound_name)
-        except Exception:
+        level, fit, gate = settings = self.deconvolution_settings(compound_name)
+        if settings == DEFAULT_DECONVOLUTION:
             return ""
-        level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
         if level == "off":
             return "Deconvolution off"
         fit_labels = {
@@ -2743,14 +2746,7 @@ class MainWindow(QMainWindow):
             "bi_gaussian": "bi-Gaussian peaks",
             "emg": "EMG peaks",
         }
-        fit = fit_labels.get(
-            normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto")),
-            "automatic peak shape",
-        )
-        gate = normalize_noise_gate(
-            getattr(compound, "deconvolution_noise_gate", "balanced")
-        )
-        return f"Deconvolution level {level} · {fit} · {gate} noise gate"
+        return f"Deconvolution level {level} · {fit_labels.get(fit, fit)} · {gate} noise gate"
 
     def update_deconvolution_indicator(self, compound_name: str | None) -> None:
         """Refresh the status-bar deconvolution indicator for the given compound."""

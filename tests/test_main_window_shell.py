@@ -310,10 +310,11 @@ def test_deconvolution_status_opens_its_settings_page(qapp, monkeypatch):
         window._refresh_shell()
 
         status = window.deconvolution_indicator_label
+        # At the defaults the status bar stays quiet; a departure names itself.
+        assert status.isHidden()
+        window.apply_deconvolution("Pyruvate", "2", "emg", "balanced", False, replot=False)
         assert not status.isHidden()
-        assert status.text() == (
-            "Deconvolution level 4 · automatic peak shape · balanced noise gate"
-        )
+        assert status.text() == "Deconvolution level 2 · EMG peaks · balanced noise gate"
 
         status.click()
         settings = window.settings_window
@@ -322,7 +323,7 @@ def test_deconvolution_status_opens_its_settings_page(qapp, monkeypatch):
         page = settings.findChild(DeconvolutionPage)
         assert page.isVisible()
         assert page.compound_label.text() == "Compound: Pyruvate"
-        assert page.level_combo.currentText() == "Level 4 (default)"
+        assert page.level_combo.currentText() == "Level 2"
     finally:
         if window.settings_window is not None:
             window.settings_window.close()

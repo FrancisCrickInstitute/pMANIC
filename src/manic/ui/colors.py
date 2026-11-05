@@ -84,24 +84,37 @@ class VerdictColours:
     text: QColor  # badge text
 
 
+def _mix(under: QColor, over: QColor, opacity: float) -> QColor:
+    """``over`` laid on ``under`` at ``opacity``, as an opaque colour."""
+    return QColor.fromRgbF(
+        *(u + (o - u) * opacity for u, o in zip(under.getRgbF()[:3], over.getRgbF()[:3]))
+    )
+
+
+def _readable(colour: QColor, background: QColor, *, lighter: bool) -> QColor:
+    """``colour`` moved darker (or lighter) in its own hue until it reads at 4.5:1."""
+    hue, sat, lightness, _ = colour.getHslF()
+    while contrast(colour, background) < 4.5 and 0.0 < lightness < 1.0:
+        lightness = min(1.0, lightness + 0.01) if lighter else max(0.0, lightness - 0.01)
+        colour = QColor.fromHslF(hue, sat * (0.85 if not lighter else 1.0), lightness).toRgb()
+    return colour
+
+
 def _verdict_scheme(fill: str) -> tuple[VerdictColours, VerdictColours]:
     """(light, dark) colours for a workbook verdict fill, keeping its hue.
 
-    Light cards take the workbook fill itself, so the grid and the exported sheet
-    agree; the badge is that hue darkened to 4.5:1 against it, with white text.
-    Dark cards take a dim shade of the hue, and the badge is the workbook fill
-    with the darkened hue as its text.
+    The card is the workbook fill laid over the card surface as a soft wash (main
+    painted it at about half opacity); the badge is a pastel pill of the fill with
+    its own hue, deepened or lightened, as text.
     """
-    light = QColor(fill)
-    hue, sat, lightness, _ = light.getHslF()
-    deep = light
-    while contrast(deep, light) < 4.5:
-        lightness -= 0.01
-        deep = QColor.fromHslF(hue, sat * 0.7, lightness).toRgb()
-    dim = QColor.fromHslF(hue, min(sat * 0.4, 0.25), 0.22).toRgb()
+    wash = QColor(fill)
+    light_surface, dark_surface = QColor(theme.LIGHT["surface"]), QColor(theme.DARK["surface"])
+    light_card = _mix(light_surface, wash, 0.45)
+    dark_card = _mix(dark_surface, wash, 0.16)
+    dark_pill = _mix(dark_surface, wash, 0.28)
     return (
-        VerdictColours(light, deep, QColor(theme.LIGHT["on_accent"])),
-        VerdictColours(dim, light, deep),
+        VerdictColours(light_card, wash, _readable(wash, wash, lighter=False)),
+        VerdictColours(dark_card, dark_pill, _readable(wash, dark_pill, lighter=True)),
     )
 
 

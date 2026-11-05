@@ -970,6 +970,10 @@ class SettingsWindow(QDialog):
             self.hint_label.setText("")
         self.reset_button.setEnabled(dirty)
         self.save_button.setEnabled(dirty and editable)
+        # A page that applies on choice has nothing to save.
+        applies_at_once = isinstance(page, AppearancePage)
+        self.reset_button.setHidden(applies_at_once)
+        self.save_button.setHidden(applies_at_once)
         self._update_pending()
 
     def _update_pending(self) -> None:

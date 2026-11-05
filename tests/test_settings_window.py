@@ -332,10 +332,12 @@ def test_appearance_switches_at_once_and_is_never_unsaved(
     combo.setCurrentIndex(combo.findText("Dark"))
     assert theme.is_dark()
     assert _window_colour(qapp) == theme.DARK["bg"].lower()
-    assert not settings.save_button.isEnabled()
+    # It applies on choice, so its page offers no Save or Revert.
+    assert settings.save_button.isHidden() and settings.reset_button.isHidden()
 
     # Revert undoes the page's unsaved edits, not the scheme the user just chose.
     _select_page(settings, "Extraction")
+    assert not settings.save_button.isHidden()
     settings.findChild(ExtractionPage).spin.setValue(0.5)
     settings.reset_button.click()
     assert theme.is_dark()

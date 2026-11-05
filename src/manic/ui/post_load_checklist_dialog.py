@@ -26,6 +26,7 @@ from manic.models.mm_file_check import MmFileStatus
 from manic.ui import theme
 from manic.ui.combo_box import ComboBox
 from manic.ui.dialog_kit import (
+    BUTTON_GAP,
     MARGIN,
     SECTION_SPACING,
     description_label,
@@ -248,6 +249,7 @@ class PostLoadChecklistDialog(QDialog):
         # Unchanged, the dialog has one way out; Apply and discard appear once a
         # different standard is staged.
         self.buttons = QDialogButtonBox()
+        self.buttons.layout().setSpacing(BUTTON_GAP)
         self.primary_button = self.buttons.addButton("Continue", QDialogButtonBox.AcceptRole)
         self.primary_button.setDefault(True)
         set_style_property(self.primary_button, "variant", "primary")

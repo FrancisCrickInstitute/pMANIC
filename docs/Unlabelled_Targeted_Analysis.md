@@ -271,7 +271,7 @@ Natural-abundance correction is **not** applied in this mode.
 ### Step D. Review compounds
 
 1. Select a compound and the samples of interest.
-2. Inspect the EIC tiles and the **Identity** chart in the left sidebar.
+2. Inspect the EIC tiles and the **Identity** chart in the **Summary** panel on the right.
 3. Adjust tR or offsets in the **Peak window** section where peaks have
    drifted, then click **Apply**.
 4. Choose **View → Shared Y-Scale** if you want one intensity scale across all

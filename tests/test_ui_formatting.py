@@ -38,6 +38,7 @@ from manic.ui.integration_window_widget import (
     IntegrationWindow,
     toolbar_decimal_text_is_allowed,
 )
+from manic.ui.summary_panel import SummaryPanel
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
@@ -62,33 +63,31 @@ def integration_window(qapp):
     window.deleteLater()
 
 
-def test_unlabelled_toolbar_shows_abundance_under_identity(qapp):
+def test_unlabelled_summary_shows_abundance_under_identity(qapp):
+    panel = SummaryPanel(AnalysisMode.UNLABELLED)
     toolbar = Toolbar(AnalysisMode.UNLABELLED)
     try:
-        assert toolbar.isotopologue_ratios.isHidden()
-        assert not toolbar.total_abundance.isHidden()
-        assert not toolbar.targeted_qc.isHidden()
-        layout = toolbar.summary_section.body.layout()
-        identity_index = layout.indexOf(toolbar.targeted_qc.parentWidget())
-        abundance_index = layout.indexOf(toolbar.total_abundance.parentWidget())
-        assert 0 <= identity_index < abundance_index
+        assert panel.isotopologue_ratios.isHidden()
+        assert not panel.total_abundance.isHidden()
+        assert not panel.targeted_qc.isHidden()
+        layout = panel.layout()
+        assert 0 <= layout.indexOf(panel.targeted_qc) < layout.indexOf(panel.total_abundance)
         assert toolbar.integration.findChild(QLabel, "reference_rt_note") is None
     finally:
+        panel.deleteLater()
         toolbar.deleteLater()
 
 
-def test_labelled_toolbar_keeps_abundance_under_ratios(qapp):
-    toolbar = Toolbar(AnalysisMode.LABELLED)
+def test_labelled_summary_keeps_abundance_under_ratios(qapp):
+    panel = SummaryPanel(AnalysisMode.LABELLED)
     try:
-        assert not toolbar.isotopologue_ratios.isHidden()
-        assert not toolbar.total_abundance.isHidden()
-        assert toolbar.targeted_qc.isHidden()
-        layout = toolbar.summary_section.body.layout()
-        ratio_index = layout.indexOf(toolbar.isotopologue_ratios.parentWidget())
-        abundance_index = layout.indexOf(toolbar.total_abundance.parentWidget())
-        assert 0 <= ratio_index < abundance_index
+        assert not panel.isotopologue_ratios.isHidden()
+        assert not panel.total_abundance.isHidden()
+        assert panel.targeted_qc.isHidden()
+        layout = panel.layout()
+        assert 0 <= layout.indexOf(panel.isotopologue_ratios) < layout.indexOf(panel.total_abundance)
     finally:
-        toolbar.deleteLater()
+        panel.deleteLater()
 
 
 def test_y_scale_options_labelled_only_and_exclusive(qapp):

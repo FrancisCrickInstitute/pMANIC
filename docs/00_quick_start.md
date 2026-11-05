@@ -4,7 +4,7 @@
 2. Choose **File → Load Compounds/Parameter List** and select your spreadsheet.
 3. Choose **File → Load Raw Data (CDF)** and select the folder of ANDI/AIA NetCDF files.
 4. In **Check your data setup**, confirm the internal standard and which MM files (standard mixture) matched. Click **Continue**, or **Apply** if you chose a different internal standard. If a pattern is wrong, the dialog names your compound list file, and **How do I change a pattern?** opens the steps to reload it.
-5. Select a compound and review its sample plots. Click a plot to select it, or use the keys below. The **Review** menu in the menu bar holds every review command: **Inspect *sample*...**, the selection commands, **Accept Peak (Below Threshold)**, **Mark Peak as Bad** and **Curve Fit**. Right-clicking a plot opens the same commands.
+5. Select a compound and review its sample plots. The **Summary** panel on the right charts the compound across every sample. Click a plot to select it, or use the keys below. The **Review** menu in the menu bar holds every review command: **Inspect *sample*...**, the selection commands, **Accept Peak (Below Threshold)**, **Mark Peak as Bad** and **Curve Fit**. Right-clicking a plot opens the same commands.
 6. Choose **File → Export Data...**. Pick **Time-based (recommended)** or **Legacy (MATLAB-compatible unit spacing)**. In labelled mode, tick **Include % Carbons Labelled sheet** only if you want that sheet. Click **Choose Location…** and save the workbook.
 
 ## Review from the keyboard
@@ -32,8 +32,12 @@ Other shortcuts:
 | Ctrl+F | Find a compound |
 | Ctrl+Return | **Apply** the Peak window, while one of its fields has focus |
 | Ctrl+Shift+B | Turn **Baseline Correction** on or off |
-| Ctrl+Shift+Y | Turn **View → Shared Y-Scale** on or off |
-| Ctrl+Shift+P | Turn **View → Scale to Selected Peak** on or off |
+| Ctrl+Shift+Y | Turn **Shared Y** (**View → Shared Y-Scale**) on or off |
+| Ctrl+Shift+P | Turn **Scale to peak** (**View → Scale to Selected Peak**) on or off |
+| Ctrl+Alt+S | **View → Show Sidebar** |
+| Ctrl+Alt+R | **View → Show Summary** |
+
+No CDF files? **Rebuild an export without CDF files…** on the start screen (**File → Process External Data...**) rebuilds an export from an old Raw Values workbook.
 
 For the labelled workflow, see [User Guide](01_user_guide.md).
 For targeted profiling, see [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md).

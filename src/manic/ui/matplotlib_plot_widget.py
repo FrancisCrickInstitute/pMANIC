@@ -16,6 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QVBoxLayout, QWidget
 
 from manic.ui import theme
+from manic.ui.icon_button import segmented
 from manic.ui.theme import COLORS
 
 from manic.constants import (
@@ -132,8 +133,7 @@ STEM_HEADROOM = 1.05
 # Space under a legend for the axis multiplier, in logical px.
 LEGEND_LIFT_PX = 20
 
-# The detailed view's small toggles, in the grid's segmented-control shape. A pair
-# joins into one control with SEGMENT_QSS and object names segmentLeft/segmentRight.
+# The detailed view's lone small buttons; a pair that is one choice is segmented().
 TOGGLE_QSS = """
 QToolButton {
     font-size: 11px; color: @text_secondary;
@@ -145,14 +145,6 @@ QToolButton:checked {
     color: @text; background: @accent_soft; border-color: @accent;
     font-weight: 600;
 }
-"""
-
-
-SEGMENT_QSS = """
-QToolButton#segmentLeft {
-    border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none;
-}
-QToolButton#segmentRight { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 """
 
 
@@ -172,12 +164,8 @@ class CompactNavigationToolbar(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        theme.style(
-            self,
-            TOGGLE_QSS + SEGMENT_QSS,
-        )
-
         self.home_btn = QToolButton()
+        theme.style(self.home_btn, TOGGLE_QSS)
         self.home_btn.setText("↻ Reset all")
         self.home_btn.setToolTip(
             "Return all three charts to their opening view. Double-click a chart to reset only that chart."
@@ -185,25 +173,18 @@ class CompactNavigationToolbar(QWidget):
         self.home_btn.clicked.connect(self._reset_view)
         layout.addWidget(self.home_btn)
 
-        modes = QHBoxLayout()
-        modes.setContentsMargins(0, 0, 0, 0)
-        modes.setSpacing(0)
         self.pan_btn = QToolButton()
-        self.pan_btn.setObjectName("segmentLeft")
         self.pan_btn.setText("Pan")
         self.pan_btn.setToolTip("Drag any chart to pan it")
         self.pan_btn.setCheckable(True)
         self.pan_btn.clicked.connect(self._on_pan)
-        modes.addWidget(self.pan_btn)
 
         self.zoom_btn = QToolButton()
-        self.zoom_btn.setObjectName("segmentRight")
         self.zoom_btn.setText("Zoom")
         self.zoom_btn.setToolTip("Drag a rectangle on any chart to zoom it")
         self.zoom_btn.setCheckable(True)
         self.zoom_btn.clicked.connect(self._on_zoom)
-        modes.addWidget(self.zoom_btn)
-        layout.addLayout(modes)
+        layout.addWidget(segmented(self.pan_btn, self.zoom_btn))
 
         self.setMaximumHeight(TOOLBAR_MAX_HEIGHT)
 

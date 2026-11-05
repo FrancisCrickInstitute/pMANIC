@@ -30,6 +30,7 @@ from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.ui.combo_box import ComboBox
 from manic.ui.dialog_kit import (
+    BUTTON_GAP,
     FORM_LABEL_WIDTH,
     MARKED_ROLE,
     SECTION_SPACING,
@@ -916,6 +917,7 @@ class SettingsWindow(QDialog):
         self.save_button.setEnabled(False)
         self.save_button.clicked.connect(self._save_current)
         buttons = QDialogButtonBox()
+        buttons.layout().setSpacing(BUTTON_GAP)
         buttons.addButton(self.save_button, QDialogButtonBox.AcceptRole)
         buttons.addButton(self.reset_button, QDialogButtonBox.RejectRole)
         footer.addWidget(buttons, alignment=Qt.AlignBottom)

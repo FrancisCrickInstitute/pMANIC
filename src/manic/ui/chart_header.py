@@ -1,10 +1,10 @@
-"""Title row for the sidebar summary charts, with a visible enlarge button."""
+"""Title row for the summary charts, with a visible enlarge button."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QSize, Qt
 from PySide6.QtGui import QFont, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from manic.ui import theme
 from manic.ui.chart_style import text_style, ui_font
@@ -62,6 +62,7 @@ class ChartHeader(QWidget):
         layout.addWidget(self.detail)
         layout.addStretch()
         layout.addWidget(self.expand_button)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
     def set_has_data(self, has_data: bool, detail: str = "") -> None:
         self.expand_button.setEnabled(has_data)

@@ -306,7 +306,7 @@ def test_natural_abundance_save_propagates_preview_flag(labelled_window):
     settings.save_button.click()
     assert labelled_window.preview_nat_abundance is True
     assert labelled_window.graph_view.use_corrected is True
-    assert labelled_window.toolbar.isotopologue_ratios.use_corrected is True
+    assert labelled_window.summary.isotopologue_ratios.use_corrected is True
 
 
 def test_deconvolution_page_unlocks_for_selected_compound_and_saves(labelled_window):

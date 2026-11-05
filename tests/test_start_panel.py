@@ -67,3 +67,20 @@ def test_long_recent_folder_elides_in_the_middle_and_explains_on_hover(qapp, tmp
         assert short not in [label.toolTip() for label in _shown_labels(panel)]
     finally:
         panel.deleteLater()
+
+
+def test_start_screen_link_opens_process_external_data(qapp, monkeypatch):
+    from manic.ui.update_old_data_dialog import UpdateOldDataDialog
+
+    opened = []
+    monkeypatch.setattr(UpdateOldDataDialog, "exec", lambda self: opened.append(self) or 0)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    try:
+        links = {
+            button.text(): button
+            for button in window.start_panel.findChildren(QPushButton, "startFooterLink")
+        }
+        links["Rebuild an export without CDF files…"].click()
+        assert len(opened) == 1
+    finally:
+        window.close()

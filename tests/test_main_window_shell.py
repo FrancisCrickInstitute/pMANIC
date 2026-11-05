@@ -1,12 +1,14 @@
 import pytest
-from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
-from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
+from PySide6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QUrl
+from PySide6.QtGui import QAction, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QToolButton
 
 from manic.io.compounds_import import CompoundRow, insert_compound
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.processors.tile_y_scale import YScalePolicy
+from manic.ui.main_window import SIDEBAR_OPEN_SETTING, SUMMARY_OPEN_SETTING
+from manic.ui.plot_tile import DENSITY_MIN_TILE, TILE_GAP
 from manic.ui.settings_window import DeconvolutionPage
 
 from conftest import _make_window
@@ -53,6 +55,37 @@ def test_view_menu_scale_choice_is_exclusive_and_remembered(qapp, monkeypatch):
         again.close()
 
 
+@pytest.mark.parametrize("mode", [AnalysisMode.LABELLED, AnalysisMode.UNLABELLED])
+def test_header_y_scale_toggles_and_the_view_menu_follow_each_other(qapp, monkeypatch, mode):
+    window = _make_window(monkeypatch, mode)
+    view = window.graph_view
+    shared, peak = view.shared_y_button, view.peak_scale_button
+    actions = {a.text(): a for a in window.view_menu.actions()}
+    try:
+        window.show()
+        assert shared.isVisibleTo(view)
+        key = QKeySequence("Ctrl+Shift+Y").toString(QKeySequence.SequenceFormat.NativeText)
+        assert f"Shared Y-Scale ({key})" in shared.toolTip()
+
+        shared.click()
+        assert view._y_scale_policy is YScalePolicy.SHARED_EXTRACT
+        assert actions["Shared Y-Scale"].isChecked()
+        actions["Shared Y-Scale"].trigger()
+        assert view._y_scale_policy is YScalePolicy.PER_TILE_EXTRACT
+        assert not shared.isChecked()
+
+        assert peak.isVisibleTo(view) == (mode is AnalysisMode.LABELLED)
+        if mode is AnalysisMode.LABELLED:
+            actions["Scale to Selected Peak"].trigger()
+            assert peak.isChecked() and not shared.isChecked()
+            assert view._y_scale_policy is YScalePolicy.PER_TILE_SELECTED_PEAK
+            shared.click()
+            assert not actions["Scale to Selected Peak"].isChecked()
+            assert view._y_scale_policy is YScalePolicy.SHARED_EXTRACT
+    finally:
+        window.close()
+
+
 def test_view_menu_density_follows_the_header_switch(qapp, monkeypatch):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
@@ -67,6 +100,122 @@ def test_view_menu_density_follows_the_header_switch(qapp, monkeypatch):
         assert comfortable.isChecked() and not compact.isChecked()
     finally:
         window.close()
+
+
+def _grid_window(monkeypatch, width: int):
+    """A shown window at ``width`` whose workspace shows the plot grid."""
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    window.resize(width, 800)
+    window.show()
+    QApplication.processEvents()
+    window.cdf_data_loaded = True
+    window._refresh_shell()
+    QApplication.processEvents()
+    return window
+
+
+def test_summary_opens_from_the_view_menu_or_the_grid_header_and_is_remembered(qapp, monkeypatch):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    window.resize(1400, 800)
+    window.show()
+    QApplication.processEvents()
+    action, button = window.show_summary_action, window.graph_view.summary_button
+    try:
+        # Nothing to summarise before the grid shows.
+        assert window.summary.isHidden()
+        window.cdf_data_loaded = True
+        window._refresh_shell()
+        assert window.summary.isVisible() and action.isChecked() and button.isChecked()
+
+        button.click()
+        assert window.summary.isHidden() and not action.isChecked()
+        assert QSettings().value(SUMMARY_OPEN_SETTING, type=bool) is False
+        action.trigger()
+        assert window.summary.isVisible() and button.isChecked()
+
+        # Dragged 60 px wider, as the splitter handle does.
+        sidebar, workspace, _ = window.splitter.sizes()
+        window.splitter.moveSplitter(sidebar + workspace + window.splitter.handleWidth() - 60, 2)
+        width = window.summary.width()
+        assert width > 300
+    finally:
+        window.close()
+
+    again = _grid_window(monkeypatch, 1400)
+    try:
+        assert again.summary.isVisible() and again.summary.width() == width
+        again.show_summary_action.trigger()
+    finally:
+        again.close()
+    closed = _grid_window(monkeypatch, 1400)
+    try:
+        assert closed.summary.isHidden() and not closed.graph_view.summary_button.isChecked()
+    finally:
+        closed.close()
+
+
+def test_sidebar_hides_from_the_view_menu_or_the_grid_header_and_keeps_its_width(qapp, monkeypatch):
+    window = _grid_window(monkeypatch, 1400)
+    action, button = window.show_sidebar_action, window.graph_view.sidebar_button
+    try:
+        assert action.shortcut() == QKeySequence("Ctrl+Alt+S")
+        assert window.show_summary_action.shortcut() == QKeySequence("Ctrl+Alt+R")
+        shortcuts = [
+            key.toString()
+            for a in window.findChildren(QAction)
+            for key in a.shortcuts()
+            if not key.isEmpty()
+        ]
+        assert len(shortcuts) == len(set(shortcuts))
+        assert window.toolbar.isVisible() and button.isChecked()
+        window.splitter.moveSplitter(340, 1)
+        grid = window.graph_view.width()
+
+        button.click()
+        QApplication.processEvents()
+        assert window.toolbar.isHidden() and not action.isChecked()
+        assert window.graph_view.width() > grid
+        assert QSettings().value(SIDEBAR_OPEN_SETTING, type=bool) is False
+        # Finding a compound needs the list, so it brings the sidebar back.
+        window.find_compound_action.trigger()
+        assert window.toolbar.isVisible() and button.isChecked()
+        assert window.toolbar.width() == 340
+
+        action.trigger()
+    finally:
+        window.close()
+    again = _grid_window(monkeypatch, 1400)
+    try:
+        assert again.toolbar.isHidden() and not again.graph_view.sidebar_button.isChecked()
+        again.show_sidebar_action.trigger()
+        assert again.toolbar.width() == 340
+    finally:
+        again.close()
+
+
+def test_a_narrow_window_starts_with_the_summary_closed_and_keeps_two_columns(qapp, monkeypatch):
+    window = _grid_window(monkeypatch, 1024)
+    try:
+        assert window.summary.isHidden() and not window.show_summary_action.isChecked()
+        window.show_summary_action.trigger()
+        QApplication.processEvents()
+        assert window.summary.isVisible()
+        two_columns = 2 * DENSITY_MIN_TILE["comfortable"][0] + TILE_GAP
+        assert window.graph_view._grid_viewport()[0] >= two_columns
+        # Short of room, the header keeps every control whole, on a second row if need be.
+        view = window.graph_view
+        for button in (view.shared_y_button, view.peak_scale_button, view.summary_button):
+            corner = button.mapTo(view, button.rect().bottomRight())
+            assert button.isVisible() and 0 < corner.x() < view.width()
+        assert window.toolbar.width() >= window.toolbar.minimumWidth()
+    finally:
+        window.close()
+    # Opening it in a narrow window was a choice; the next one keeps it.
+    again = _grid_window(monkeypatch, 1024)
+    try:
+        assert again.summary.isVisible()
+    finally:
+        again.close()
 
 
 def test_drop_zone_lights_only_for_a_drop_the_window_takes(qapp, monkeypatch, tmp_path):

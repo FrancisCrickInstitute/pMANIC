@@ -23,7 +23,6 @@ from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import PinnedAxis, value_axis_ticks
 from manic.ui.chart_style import abundance_scale, scale_text, set_nice_ticks, style_axis, style_chart
 from manic.ui.sidebar_widgets import (
-    SUMMARY_CHART_MAX_HEIGHT,
     SummaryChartArea,
     fit_category_names,
 )
@@ -92,7 +91,8 @@ class TotalAbundanceWidget(QWidget):
         self._highlighted: set[str] = set()
         theme.notifier.changed.connect(self._paint_highlight)
 
-        self.setMaximumHeight(SUMMARY_CHART_MAX_HEIGHT)
+        # No taller than its rows, so the panel stacks the next chart right under it.
+        layout.setSizeConstraint(QVBoxLayout.SetMinAndMaxSize)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self._current_compound: str = ""

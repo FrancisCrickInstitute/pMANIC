@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QVBoxLayout
 
 from manic.__version__ import APP_NAME, __version__
-from manic.ui.dialog_kit import MARGIN, description_label, hint_label, style_dialog
+from manic.ui.dialog_kit import BUTTON_GAP, MARGIN, description_label, hint_label, style_dialog
 from manic.ui.logo import LogoLabel
 
 
@@ -31,6 +31,7 @@ class AboutDialog(QDialog):
 
         # Close is neutral: an About box has no primary action.
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.layout().setSpacing(BUTTON_GAP)
         buttons.rejected.connect(self.reject)
         buttons.button(QDialogButtonBox.StandardButton.Close).setAutoDefault(False)
         layout.addWidget(buttons)

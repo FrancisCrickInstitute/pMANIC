@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QStatusBar, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QStatusBar, QWidget
+
+from manic.ui.sidebar_widgets import ElidedLabel
+
+# Room the toast leaves at each end of the status bar.
+TOAST_MARGIN = 8
 
 
 class ToastNotification(QWidget):
@@ -14,6 +19,7 @@ class ToastNotification(QWidget):
         *,
         timeout_ms: int = 6000,
         action: tuple[str, Callable[[], None]] | None = None,
+        hover: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("toastNotification")
@@ -23,7 +29,8 @@ class ToastNotification(QWidget):
         layout.setContentsMargins(10, 2, 6, 2)
         layout.setSpacing(6)
 
-        self._label = QLabel(message)
+        # A long file name gives up its middle; the buttons always keep their room.
+        self._label = ElidedLabel(message, mode=Qt.TextElideMode.ElideMiddle, hover=hover or True)
         self._label.setObjectName("toastLabel")
 
         self._close_button = QPushButton("×")
@@ -60,10 +67,13 @@ class _KeepCentred(QObject):
 
 
 def _centre(toast: ToastNotification, bar: QStatusBar) -> None:
-    toast.adjustSize()
+    label = toast._label
+    # The label takes no width of its own in the layout; ask for its whole text.
+    natural = toast.sizeHint().width() + label.fontMetrics().horizontalAdvance(label.full_text()) + 2
+    width = min(natural, bar.width() - 2 * TOAST_MARGIN)
     height = min(toast.sizeHint().height(), bar.height() - 4)
-    toast.resize(toast.sizeHint().width(), height)
-    toast.move((bar.width() - toast.width()) // 2, (bar.height() - height) // 2)
+    toast.resize(width, height)
+    toast.move((bar.width() - width) // 2, (bar.height() - height) // 2)
 
 
 def show_status_toast(
@@ -71,11 +81,17 @@ def show_status_toast(
     message: str,
     timeout_ms: int = 7000,
     action: tuple[str, Callable[[], None]] | None = None,
+    hover: str | None = None,
 ) -> ToastNotification:
-    """A short-lived message centred in the status bar, so it never covers a plot."""
+    """A short-lived message centred in the status bar, so it never covers a plot.
+
+    A message too long for the bar is cut in the middle and shown whole, or as
+    ``hover``, under the pointer."""
     for old in bar.findChildren(ToastNotification):
         old.close()
-    toast = ToastNotification(message, parent=bar, timeout_ms=timeout_ms, action=action)
+    toast = ToastNotification(
+        message, parent=bar, timeout_ms=timeout_ms, action=action, hover=hover
+    )
     toast.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     _KeepCentred(toast, bar)
     _centre(toast, bar)

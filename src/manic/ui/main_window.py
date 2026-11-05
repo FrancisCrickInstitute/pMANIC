@@ -2029,7 +2029,7 @@ class MainWindow(QMainWindow):
                 stem = chosen.stem if chosen.suffix.lower() == ".json" else chosen.name
                 written = chosen.parent / "manic_session_export" / f"{stem}.json"
                 self._show_export_toast(
-                    f"Exported {written.name} to {written.parent.name}", written.parent
+                    f"Exported {written.name} to {written.parent.name}", written
                 )
                 logger.info(f"Session exported to {written}")
             else:
@@ -2922,14 +2922,15 @@ class MainWindow(QMainWindow):
             )
             msg_box.exec()
 
-    def _show_export_toast(self, message: str, folder: Path) -> None:
+    def _show_export_toast(self, message: str, written: Path) -> None:
         show_status_toast(
             self.statusBar(),
             message,
             action=(
                 "Show in Folder",
-                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))),
+                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(written.parent))),
             ),
+            hover=str(written),
         )
 
     def _clear_export_thread(self):
@@ -2944,7 +2945,7 @@ class MainWindow(QMainWindow):
         self._close_export_dialog()
         if success:
             path = Path(self._export_path)
-            self._show_export_toast(f"Exported {path.name}", path.parent)
+            self._show_export_toast(f"Exported {path.name}", path)
             logger.info(f"Data exported successfully to {path}")
         else:
             show_status_toast(self.statusBar(), "Export cancelled")

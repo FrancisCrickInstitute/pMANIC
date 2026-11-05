@@ -1,7 +1,7 @@
 import pytest
 from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 
 from manic.io.compounds_import import CompoundRow, insert_compound
 from manic.models.analysis import AnalysisMode
@@ -236,5 +236,29 @@ def test_destructive_confirmations_default_to_cancel(qapp, monkeypatch, tmp_path
         assert text == "Import week3.json?"
         assert sorted(buttons) == ["Cancel", "Import Overrides"] and default == "Cancel"
         assert "?" not in info
+    finally:
+        window.close()
+
+
+def test_long_session_name_toast_stays_inside_the_window(qapp, monkeypatch, tmp_path):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    chosen = tmp_path / f"{'labelled-pyruvate-lactate-review-' * 3}final.json"
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getSaveFileName", lambda *a, **k: (str(chosen), "")
+    )
+    try:
+        window.resize(1008, 633)
+        window.show()
+        window.export_method()
+        QApplication.processEvents()
+        bar = window.statusBar()
+        toast = _toast(window)
+        assert bar.rect().contains(toast.geometry())
+        for button in (toast.action_button, toast.findChild(QPushButton, "toastCloseButton")):
+            assert button.isVisible() and toast.rect().contains(button.geometry())
+        label = toast.findChild(QLabel, "toastLabel")
+        written = tmp_path / "manic_session_export" / chosen.name
+        assert "…" in label.text() and label.text().endswith("manic_session_export")
+        assert label.toolTip() == str(written)
     finally:
         window.close()

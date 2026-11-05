@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from manic.ui import theme
-from manic.ui.chart_popup_dialog import ChartPopupDialog
+from manic.ui.chart_popup_dialog import ChartPopupDialog, bar_value_text
 
 # The sidebar charts hand popups their samples bottom to top.
 SIDEBAR_ORDER = ["Std_MM_02", "Bio_002", "Bio_001"]
@@ -77,6 +77,8 @@ def test_both_popups_read_top_down_in_grid_order_with_values_paired(qapp):
         assert (by_name["A"], by_name["C"], by_name["D"]) == (0.91, 0.0, 1.13)
         assert low.row_names() == ["D", "C", "B", "A"]
         assert _value_labels(low) == ["1.13", "—", "<0.01", "0.91"]
+        # A NaN abundance cannot reach a drawn row (it breaks the axis scale first).
+        assert bar_value_text(float("nan")) == "—"
     finally:
         for dialog in (abundance, ratios, low):
             dialog.deleteLater()

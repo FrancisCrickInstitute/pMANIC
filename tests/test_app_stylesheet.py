@@ -81,16 +81,21 @@ def test_rendered_text_focus_rings_and_status_marks_reach_wcag_contrast_in_both_
     apply_color_scheme(qapp, dark)
 
     for variant in ("primary", "danger"):
-        button = QPushButton("Apply")
-        button.setProperty("variant", variant)
-        button.resize(120, 28)
-        button.show()
-        qapp.processEvents()
-        image = button.grab().toImage()
-        button.close()
-        fill = image.pixelColor(6, image.height() // 2)
-        label = _best_contrast(image.copy(30, 6, 60, 16), fill)
-        assert label >= 4.5, (variant, fill.name(), label)
+        for pressed in (False, True):
+            button = QPushButton("Apply")
+            button.setProperty("variant", variant)
+            button.resize(120, 28)
+            button.show()
+            button.setDown(pressed)
+            qapp.processEvents()
+            image = button.grab().toImage()
+            button.close()
+            fill = image.pixelColor(6, image.height() // 2)
+            label = _best_contrast(image.copy(30, 6, 60, 16), fill)
+            assert label >= 4.5, (variant, pressed, fill.name(), label)
+    # Offscreen Qt never paints :hover, so the hover fills are checked as the stylesheet sets them.
+    for hover_fill in ("accent_fill_hover", "danger_fill_hover"):
+        assert theme.contrast(theme.color("on_accent"), theme.color(hover_fill)) >= 4.5, hover_fill
 
     # Small secondary text, as a real dialog draws it.
     dialog = UpdateOldDataDialog()

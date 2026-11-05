@@ -203,6 +203,14 @@ def test_checklist_names_the_loaded_compound_list_and_opens_it(qapp, tmp_path):
     ]
     dialog.close()
 
+    unknown = PostLoadChecklistDialog(["Alanine"], None, report, None)
+    assert unknown.findChild(QLabel, "compoundListFile").text() == (
+        "Compound list: the file you loaded"
+    )
+    assert unknown.findChild(QPushButton, "openCompoundListButton") is None
+    assert unknown.findChild(QPushButton, "showCompoundListFolderButton") is None
+    unknown.close()
+
 
 # 680x640 is the dialog capped on a 150% 1280x800 laptop; 680x540 on an 800x600 screen.
 @pytest.mark.parametrize("height", [640, 540, 420, 300])

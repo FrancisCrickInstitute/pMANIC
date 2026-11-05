@@ -374,12 +374,16 @@ def test_internal_standard_reference_peak_saves_selected_isotope(labelled_window
     assert labelled_window.internal_standard_reference_isotope == 2
 
 
-def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window, monkeypatch):
+@pytest.mark.parametrize("existing", [None, "emg"])
+def test_deconvolution_page_saves_per_sample_override_and_clear(
+    labelled_window, monkeypatch, existing
+):
     _insert_compound("Alanine")
     with database.get_connection() as conn:
         conn.execute("INSERT INTO samples (sample_name) VALUES ('S1')")
         conn.execute("INSERT INTO samples (sample_name) VALUES ('S2')")
-    set_sample_fit_type("Alanine", ["S1"], "emg")
+    if existing:
+        set_sample_fit_type("Alanine", ["S1"], existing)
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
     monkeypatch.setattr(
@@ -397,7 +401,7 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     _select_page(settings, "Deconvolution")
     page = settings.page_named("Deconvolution")
     table = page.sample_fit_table
-    assert _row_values(page) == {"S1": "emg", "S2": None}
+    assert _row_values(page) == {"S1": existing, "S2": None}
     assert [index.row() for index in table.selectionModel().selectedRows()] == [0, 1]
     assert page.bulk_fit_button.text() == "Set fit for 2 selected ▾"
     assert not page.empty_overrides_label.isVisible()
@@ -412,12 +416,12 @@ def test_deconvolution_page_saves_per_sample_override_and_clear(labelled_window,
     assert page.remove_all_button.isVisible()
 
     s1_combo = _override_row_combo(page, "S1")
-    s1_combo.setCurrentIndex(s1_combo.findData("emg"))
+    s1_combo.setCurrentIndex(s1_combo.findData("bi_gaussian"))
     s2_combo = _override_row_combo(page, "S2")
     s2_combo.setCurrentIndex(s2_combo.findData(None))
     assert not page.remove_all_button.isVisible()
     settings.save_button.click()
-    assert get_sample_fit_types("Alanine") == {("Alanine", "S1"): "emg"}
+    assert get_sample_fit_types("Alanine") == {("Alanine", "S1"): "bi_gaussian"}
     assert replots == [1, 1]
 
     _override_row_combo(page, "S2").setCurrentIndex(

@@ -675,6 +675,8 @@ def test_reset_and_apply_are_never_cut_on_a_short_sidebar(qapp, height):
         if height == LAPTOP_640:
             assert bar.maximum() > 0, "the Peak window should have to scroll at this height"
         row = toolbar.integration.action_row
+        viewport = toolbar.inspector.viewport()
+        states, in_place = set(), None
         for value in range(bar.minimum(), bar.maximum() + 1, 4):
             bar.setValue(value)
             QApplication.processEvents()
@@ -682,5 +684,16 @@ def test_reset_and_apply_are_never_cut_on_a_short_sidebar(qapp, height):
                 break  # scrolled past: the row leaves with its fields
             for button in (toolbar.integration.restore_button, toolbar.integration.apply_button):
                 assert _in_view(toolbar, button), value
+            pinned = row.property("pinned") == "true"
+            states.add(pinned)
+            if pinned:
+                assert row.geometry().bottom() == viewport.rect().bottom(), value
+                in_place = None
+            else:
+                # In its place, the row scrolls with the fields above it.
+                if in_place is not None:
+                    assert in_place[1] - row.y() == value - in_place[0], value
+                in_place = (value, row.y())
+        assert False in states
     finally:
         toolbar.deleteLater()

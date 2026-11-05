@@ -27,6 +27,7 @@ from manic.validation.unlabelled_identity import (
 
 Q_ION = IonChannel(217.0, IonRole.QUANTIFIER)
 V1 = IonChannel(147.0, IonRole.QUALIFIER, ordinal=1, expected_ratio=0.4, ratio_tolerance=0.25)
+V2 = IonChannel(73.0, IonRole.QUALIFIER, ordinal=2, expected_ratio=0.2, ratio_tolerance=0.25)
 LONG = [f"Sample_{i:02d}" for i in range(30)]
 
 
@@ -169,6 +170,20 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
             "Counts are qualifier cells: one per sample for each qualifier ion.\n"
             "No verdict (grey): 3 absent, 0 not assessed, 0 unavailable."
         )
+
+        configured = ChartPopupDialog.for_identity(
+            _identity(["S1", "S2"], failed=("S2",), qualifiers=(V1, V2))
+        )
+        _settle(configured, 820, 400)
+        assert [text for text, _x in configured.pinned_axis.tick_positions()] == [
+            "Qualifier 1\nm/z 147   expected 0.400  ±25%",
+            "Qualifier 2\nm/z 73   expected 0.200  ±25%",
+        ]
+        assert _rows(configured.chart) == {
+            "S1": [("✓", green, surface), ("✓", green, surface)],
+            "S2": [("✕", red, surface), ("✕", red, surface)],
+        }
+        configured.deleteLater()
     finally:
         dialog.deleteLater()
         widget.deleteLater()
@@ -204,15 +219,20 @@ def test_identity_popup_row_selects_the_sample_through_the_qc_widget(qapp):
         QTest.keyClick(QApplication.focusWidget(), Qt.Key_Up)
         QTest.keyClick(QApplication.focusWidget(), Qt.Key_Enter)
 
+    # Closes a popup the keys never reached, so a failure cannot hang the run.
+    watchdog = QTimer()
+    watchdog.setSingleShot(True)
+    watchdog.timeout.connect(lambda: QApplication.activeModalWidget().reject())
     try:
         widget.update_results(_identity(["S1", "S2"], failed=("S2",)))
         QTimer.singleShot(0, drive)
-        QTimer.singleShot(5000, lambda: QApplication.activeModalWidget() and QApplication.activeModalWidget().reject())
+        watchdog.start(5000)
         widget.header.expand_button.click()
         assert seen["rows"] == ["S1", "S2"]
         assert activated == ["S2"]
         assert not seen["dialog"].isVisible()
     finally:
+        watchdog.stop()
         widget.deleteLater()
 
 

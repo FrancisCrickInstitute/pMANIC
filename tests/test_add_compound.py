@@ -356,18 +356,19 @@ def test_editing_one_field_clears_only_its_own_error(qapp):
     assert name.placeholderText() == ""
     assert quantifier.placeholderText() == ""
 
-    QTest.keyClicks(name, "Pyruvate")
+    QTest.keyClicks(dialog.quantifier_mz, "273")
     assert _shown_errors(dialog) == [
+        "Enter a compound name.",
         "Enter tR.",
-        "Enter the quantifier ion m/z.",
         "Enter the qualifier ion 1 m/z.",
     ]
-    assert name.placeholderText() == "Required, e.g. Pyruvate"
-    assert quantifier.placeholderText() == ""
+    assert _flagged(dialog) == {"compound_name", "retention_time", "qualifier1_mz"}
+    assert name.placeholderText() == ""
 
-    QTest.keyClicks(dialog.quantifier_mz, "273")
+    QTest.keyClicks(name, "Pyruvate")
     assert _shown_errors(dialog) == ["Enter tR.", "Enter the qualifier ion 1 m/z."]
     assert _flagged(dialog) == {"retention_time", "qualifier1_mz"}
+    assert name.placeholderText() == "Required, e.g. Pyruvate"
     assert dialog.isVisible()
     dialog.close()
 

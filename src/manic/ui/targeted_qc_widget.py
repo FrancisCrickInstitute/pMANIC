@@ -157,7 +157,7 @@ class TargetedQcWidget(QWidget):
         self.header.set_has_data(
             True, f"{failed} sample{'s' if failed != 1 else ''} failed" if failed else ""
         )
-        self.key.setText(identity_key_html(identity))
+        self.key.setText(identity_key_html(identity, swatches=False))
         self.key.setToolTip(IDENTITY_KEY_TOOLTIP)
         self.key.setVisible(assessed)
         self._cap_height()

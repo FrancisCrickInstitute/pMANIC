@@ -297,7 +297,8 @@ class GraphView(QWidget):
         )
         self.qc_key.hide()
         self._qc_key_wanted = False
-        # The Summary's Identity panel carries the key and the qualifier note while it is open.
+        # The key stays beside the traces it colours; the Summary's Identity panel carries
+        # the qualifier note while it is open.
         self.summary_button.toggled.connect(self._show_qc_text)
         # Legend entries and the QC key wrap onto a second row instead of truncating.
         self.channel_legend = ChannelChipRow(trailing=self.qc_key)
@@ -748,9 +749,8 @@ class GraphView(QWidget):
         self._show_qc_text()
 
     def _show_qc_text(self, *_args) -> None:
-        summary = self.summary_button.isChecked()
-        self.qc_key.setVisible(self._qc_key_wanted and not summary)
-        self.qc_note.setVisible(bool(self.qc_note.text()) and not summary)
+        self.qc_key.setVisible(self._qc_key_wanted)
+        self.qc_note.setVisible(bool(self.qc_note.text()) and not self.summary_button.isChecked())
 
     def _set_title(self, compound_name: str) -> None:
         self._tr_text = ""

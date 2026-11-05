@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QDesktopServices,
@@ -2284,6 +2284,9 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")
+
+    def choose_internal_standard(self, global_pos: QPoint) -> None:
+        self.toolbar.show_internal_standard_menu(global_pos)
 
     def open_settings_window(self) -> None:
         if self.settings_window is None:

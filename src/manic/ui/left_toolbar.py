@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import List, NamedTuple
 
-from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -694,7 +694,7 @@ class Toolbar(QWidget):
         self.sample_list.shown_changed.connect(self._refresh_data_state)
         self.compound_filter.filtered.connect(self._refresh_data_state)
         self.sample_filter.filtered.connect(self._refresh_data_state)
-        self.standard.clicked.connect(self._show_internal_standard_menu)
+        self.standard.clicked.connect(lambda: self.show_internal_standard_menu())
 
     def focus_compound_filter(self) -> None:
         self.compound_filter.setFocus()
@@ -714,7 +714,8 @@ class Toolbar(QWidget):
         if later:
             self.compound_list.setCurrentRow(later[0] if step > 0 else later[-1])
 
-    def _show_internal_standard_menu(self) -> None:
+    def show_internal_standard_menu(self, global_pos: QPoint | None = None) -> None:
+        """The one internal standard chooser: under the sidebar row, or at ``global_pos``."""
         menu = QMenu(self.standard)
         menu.setStyleSheet(f'QMenu::indicator:checked {{ image: url("{_menu_check_image()}"); }}')
         # One exclusive group, so the current choice (or none) carries the check.
@@ -737,7 +738,7 @@ class Toolbar(QWidget):
         if current is not None:
             clear.triggered.connect(self.on_internal_standard_cleared)
         menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        menu.popup(self.standard.mapToGlobal(self.standard.rect().bottomLeft()))
+        menu.popup(global_pos or self.standard.mapToGlobal(self.standard.rect().bottomLeft()))
 
     # --- Signal Handlers ---
     def on_samples_selection_changed(self):

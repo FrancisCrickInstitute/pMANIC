@@ -27,6 +27,9 @@ class CompoundListWidget(QListWidget):
         self.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.setMinimumHeight(72)
         self.setUniformItemSizes(True)
+        # Long names share a prefix, so their ends tell them apart; hover shows all of it.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.itemSelectionChanged.connect(self._center_current_item)
@@ -65,7 +68,9 @@ class CompoundListWidget(QListWidget):
             self._show_empty()
         else:
             for c in compounds:
-                self.addItem(QListWidgetItem(c))
+                item = QListWidgetItem(c)
+                item.setToolTip(c)
+                self.addItem(item)
             if selected_name and selected_name in compounds:
                 self.setCurrentRow(compounds.index(selected_name))
                 self._pending_selection_index = None

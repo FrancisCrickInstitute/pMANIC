@@ -29,6 +29,9 @@ class SampleListWidget(QListWidget):
         self.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.setMinimumHeight(72)
         self.setUniformItemSizes(True)
+        # Long names share a prefix, so their ends tell them apart; hover shows all of it.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.itemChanged.connect(self.shown_changed)
@@ -54,6 +57,7 @@ class SampleListWidget(QListWidget):
                 self._show_empty()
             for name in samples:
                 item = QListWidgetItem(name)
+                item.setToolTip(name)
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 item.setCheckState(Qt.CheckState.Checked)
                 self.addItem(item)

@@ -56,7 +56,7 @@ Every sheet of the results workbook fills a peak's cells by its status:
 
 You can adjust the strictness of this check in the settings.
 
-**Settings → General**, **Peak validation** section, **Minimum area ratio**
+**Settings → Peak validation**, **Minimum area ratio**
 
 * **Default:** `0.005` (0.5%)
 * **Range:** `0` to `1.0`. `0` turns the check off.
@@ -66,4 +66,4 @@ You can adjust the strictness of this check in the settings.
 
 If your internal standard is labelled, you can choose which isotopologue peak is the reference peak:
 
-**Settings → General**, **Internal standard** section, **Reference peak**
+**Settings → Internal standard**, **Reference peak**

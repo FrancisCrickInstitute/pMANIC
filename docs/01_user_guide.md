@@ -65,7 +65,7 @@ To add one compound without a spreadsheet, choose **File → Add Compound...** o
 
 The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) to bin detected masses.
 
-* To check or change this: Go to **Settings → General**, **Mass tolerance (Da)**, before or after loading data.
+* To check or change this: Go to **Settings → Extraction**, **Mass tolerance (Da)**, before or after loading data.
 * If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder.
 
 **Procedure**   
@@ -111,7 +111,7 @@ The internal standard is the reference compound for normalization and quantifica
 2.  Type to filter the list, then click the compound or press Return. Compounds without both amounts are listed last, under **No amount: exports peak areas**.
 3.  To remove a selection, open the same list and choose **No internal standard**.
 
-You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. The **Internal standard** section of **Settings → General** names the chosen standard and sets its reference peak; click **Save** to apply a new reference peak.
+You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. **Settings → Internal standard** names the chosen standard and sets its reference peak; click **Save** to apply a new reference peak.
 
 **Verification**
 
@@ -126,13 +126,13 @@ The compound you are reviewing is highlighted in the **Compounds** list and name
 
 **The Main Graph View**   
 
-Selecting a compound shows a grid of mini-plots, one for each sample ticked in the **Samples** section. The heading above the grid names the compound and its tR. Once you select plots it adds how many, for example **3 of 30 selected**. The **Samples** heading in the sidebar counts the samples shown.
+Selecting a compound shows a grid of mini-plots, one for each sample ticked in the **Samples** section. The plots shrink to keep every sample on screen; with more samples than fit at a readable size, the grid scrolls. The heading above the grid names the compound and its tR. Once you select plots it adds how many, for example **3 of 30 selected**. The **Samples** heading in the sidebar counts the samples shown.
 
 * **Grey solid line:** The expected retention time (`tR`).
 * **Blue dashed lines:** The integration boundaries (`tR - loffset` and `tR + roffset`).
 * **Badges** (coloured like the exported workbook's cells):
     * **No badge:** Good peak (area is above threshold).
-    * **Below threshold** (light red badge and tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Minimum area ratio** in **Settings → General**.
+    * **Below threshold** (light red badge and tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Minimum area ratio** in **Settings → Peak validation**.
     * **Accepted** (light purple) or **Marked bad** (tan): You reviewed a weak peak from the **Review** menu or the plot right-click menu.
 * **Blue outline:** The plot is selected for editing.
 
@@ -215,7 +215,7 @@ If you make a mistake or want to revert to the original library definitions:
 3.  This removes all session-specific overrides for those samples.
 
 ### Fix a missing qualifier ratio
-In unlabelled mode, Identity QC checks a qualifier ion only when it has an expected ratio and a tolerance. Expected ratios come only from the compound list, in the `Qualifier 1 Ratio` and `Qualifier 2 Ratio` columns (qualifier area / Q area). A missing tolerance does not need a reload: set it in **Settings → Qualifier Ratios**.
+In unlabelled mode, Identity QC checks a qualifier ion only when it has an expected ratio and a tolerance. Expected ratios come only from the compound list, in the `Qualifier 1 Ratio` and `Qualifier 2 Ratio` columns (qualifier area / Q area). A missing tolerance does not need a reload: set it in **Settings → Qualifier ratios**.
 
 To add an expected ratio:
 
@@ -389,12 +389,12 @@ On Windows, **Settings...** is in the **File** menu, and **Documentation**, **Ch
 
 **Shortcuts.** **Settings...** is Ctrl+, and **Documentation** is F1. On macOS they are ⌘, and ⌘?.
 
-Settings has a **General** page and a **Deconvolution** page; unlabelled mode adds **Qualifier Ratios**. On **General**, the **Internal standard** and **Natural abundance** sections are labelled-only. **Save** writes the page's changed values and **Revert** discards them. A dot in the page list marks a page with unsaved changes.
+Settings has one page per topic: **Appearance**, then **Extraction**, **Integration**, **Internal standard**, **Peak validation**, **Natural abundance** and **Deconvolution**. **Internal standard** and **Natural abundance** are labelled-only; unlabelled mode adds **Qualifier ratios**. **Save** writes the changed values on the page you are on and **Revert** discards them. A dot in the page list marks a page with unsaved changes.
 
-**Appearance** at the top of **General** sets the **Theme**: **System** (default) follows the OS light or dark mode, **Light** and **Dark** override it. It applies as soon as you choose it, without Save, and MANIC remembers it.
+**Settings → Appearance** sets the **Theme**: **System** (default) follows the OS light or dark mode, **Light** and **Dark** override it. It applies as soon as you choose it, without Save, and MANIC remembers it.
 
 ### Mass Tolerance
-**Settings → General**, **Extraction** section, **Mass tolerance (Da)**
+**Settings → Extraction**, **Mass tolerance (Da)**
 
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
@@ -402,7 +402,7 @@ Settings has a **General** page and a **Deconvolution** page; unlabelled mode ad
 * **Reference:** [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Integration
-**Settings → General**, **Integration** section
+**Settings → Integration**
 
 * Two **Method** radios: **Time-based (recommended)** (default) and **Legacy**.
 * The choice changes on-screen peak areas only.
@@ -410,7 +410,7 @@ Settings has a **General** page and a **Deconvolution** page; unlabelled mode ad
 * **Reference:** [Compare Integration Methods](Reference_Integration_Methods.md)
 
 ### Minimum Peak Area
-**Settings → General**, **Peak validation** section, **Minimum area ratio**
+**Settings → Peak validation**, **Minimum area ratio**
 
 * **Default:** `0.005` (0.5%)
 * **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area get a light red **Below threshold** badge.
@@ -425,7 +425,7 @@ The **Baseline correction** checkbox is in the **Peak window** section of the si
 * **Reference:** [Baseline Correction Algorithm](Reference_Baseline_Correction.md)
 
 ### Y-axis scale
-Two toggles beside **Compact** and **Comfortable** in the grid header, **Shared Y** and **Scale to peak**, set how sample tiles scale. The **View** menu has the same commands. MANIC remembers the last choice.
+Two toggles in the grid header, **Shared Y** and **Scale to peak**, set how sample tiles scale. The **View** menu has the same commands. MANIC remembers the last choice.
 
 * **Shared Y** / **View → Shared Y-Scale** (Ctrl+Shift+Y, ⌘⇧Y on macOS): one intensity scale for every sample tile.
 * **Scale to peak** / **View → Scale to Selected Peak** (Ctrl+Shift+P, ⌘⇧P on macOS): each tile uses that sample's selected deconvolution component (the peak nearest tR). Other peaks in the extract may clip. Labelled mode only.
@@ -458,7 +458,7 @@ Two toggles beside **Compact** and **Comfortable** in the grid header, **Shared 
 * **Reference:** [Chromatographic Peak Deconvolution](Reference_Chromatographic_Peak_Deconvolution.md)
 
 ### Natural Abundance Correction
-**Settings → General**, **Natural abundance** section
+**Settings → Natural abundance**
 
 * Checkbox: **Show corrected data**. Off by default.
 * **Function:** Controls what the main chromatogram plots and the Label incorporation bars show.
@@ -520,7 +520,7 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 
 ## Glossary
 
-**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. The **Internal standard** section of **Settings → General** shows the same name.
+**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. **Settings → Internal standard** shows the same name.
 
 **MM files (standard mixture).** Sample files that match the compound-list `mmfiles` pattern. MANIC uses them for MRRF and background correction.
 

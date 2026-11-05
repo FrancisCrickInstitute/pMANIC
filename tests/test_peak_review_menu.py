@@ -126,13 +126,13 @@ def test_apply_peak_verdicts_styles_tiles(scheme, grid):
 def test_accept_enabled_only_on_failed_or_accepted_tiles(grid):
     _plot(grid, VERDICTS)
     grid.select_samples(["C"])
-    for sample, enabled, reject in (
-        ("A", True, "Mark Peak as Bad"),
-        ("B", False, "Clear Bad Mark"),
-        ("C", False, "Mark Peak as Bad"),
+    for sample, accept, reject in (
+        ("A", "Accept A (Below Threshold)", "Mark A as Bad"),
+        ("B", "Accept Peak (Below Threshold)", "Clear Bad Mark (B)"),
+        ("C", "Accept Peak (Below Threshold)", "Mark C as Bad"),
     ):
         actions = _context_menu(grid, sample)
-        assert actions["Accept Peak (Below Threshold)"].isEnabled() is enabled
+        assert actions[accept].isEnabled() is (sample == "A")
         assert actions[reject].isEnabled()
 
 
@@ -140,14 +140,14 @@ def test_accept_emits_review_for_clicked_tile(grid):
     reviews = _plot(grid, VERDICTS)
     grid.select_samples(["B", "C"])
     actions = _context_menu(grid, "A")
-    assert {"Mark Peak as Bad", "Curve Fit"} <= actions.keys()
-    actions["Accept Peak (Below Threshold)"].trigger()
+    assert {"Mark A as Bad", "Curve Fit"} <= actions.keys()
+    actions["Accept A (Below Threshold)"].trigger()
     assert reviews == [("Cmp", ["A"], PeakReview.ACCEPTED)]
 
 
 def test_clear_bad_mark_clears_the_review(grid):
     reviews = _plot(grid, VERDICTS)
-    _context_menu(grid, "B")["Clear Bad Mark"].trigger()
+    _context_menu(grid, "B")["Clear Bad Mark (B)"].trigger()
     assert reviews == [("Cmp", ["B"], None)]
 
 
@@ -194,8 +194,8 @@ def test_show_only_selected_uses_clicked_tile_when_not_in_selection(grid):
     ("verdicts", "accept_text", "accepted"),
     [
         # Mixed: only the not-yet-accepted eligible peak is accepted; nothing is cleared.
-        ((ACCEPTED, FAIL), "Accept Peak (Below Threshold)", (["Low2"], PeakReview.ACCEPTED)),
-        ((REJECTED, FAIL), "Accept Peak (Below Threshold)", (["Low2"], PeakReview.ACCEPTED)),
+        ((ACCEPTED, FAIL), "Accept Low2 (Below Threshold)", (["Low2"], PeakReview.ACCEPTED)),
+        ((REJECTED, FAIL), "Accept Low2 (Below Threshold)", (["Low2"], PeakReview.ACCEPTED)),
         ((FAIL, FAIL), "Accept 2 Peaks (Below Threshold)", (["Low1", "Low2"], PeakReview.ACCEPTED)),
         ((ACCEPTED, ACCEPTED), "Clear Acceptance (2 Peaks)", (["Low1", "Low2"], None)),
     ],
@@ -248,7 +248,7 @@ def test_review_menu_names_its_targets_and_acts_on_them(qapp, monkeypatch, plot_
         expected = {
             "Inspect A...": True,
             "Show Only 2 Selected Samples": True,
-            "Accept Peak (Below Threshold)": True,
+            "Accept A (Below Threshold)": True,
             "Mark 2 Peaks as Bad": True,
             "Curve Fit for 2 Samples": True,
         }
@@ -261,49 +261,123 @@ def test_review_menu_names_its_targets_and_acts_on_them(qapp, monkeypatch, plot_
         review["Mark 2 Peaks as Bad"].trigger()
         context["Mark 2 Peaks as Bad"].trigger()
         assert reviews == [("Cmp", ["A", "B"], PeakReview.REJECTED)] * 2
-        review["Accept Peak (Below Threshold)"].trigger()
+        review["Accept A (Below Threshold)"].trigger()
         assert reviews[-1] == ("Cmp", ["A"], PeakReview.ACCEPTED)
 
         QTest.keyClick(view, Qt.Key_Escape)
         QTest.keyClick(view, Qt.Key_Right)
         QTest.keyClick(view, Qt.Key_Right)
         focused = _review_menu(window)
-        assert "Mark Peak as Bad" in focused and "Inspect B..." in focused
+        assert "Mark B as Bad" in focused and "Inspect B..." in focused
         assert not focused["Accept Peak (Below Threshold)"].isEnabled()
     finally:
         _close_popups()
         window.close()
 
 
-def test_verdict_keys_act_from_the_grid_and_never_from_a_text_field(qapp, monkeypatch, plot_data):
+def _review_window(monkeypatch, verdicts):
+    """A shown, active window whose grid plots ``verdicts``; the reviews it emits."""
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     view = window.graph_view
     view.peak_review_changed.disconnect(window.on_peak_review_changed)
+    window.show()
+    reviews = _plot(view, verdicts)
+    window.workspace.setCurrentWidget(view)
+    window.activateWindow()
+    assert QTest.qWaitForWindowActive(window)
+    return window, reviews
+
+
+def test_review_keys_reach_the_grid_from_the_sidebar_lists_but_not_a_text_field(
+    qapp, monkeypatch, plot_data
+):
+    window, reviews = _review_window(monkeypatch, {"A": FAIL, "B": PASS, "C": FAIL})
+    view, toolbar = window.graph_view, window.toolbar
     try:
-        window.show()
-        reviews = _plot(view, {"A": FAIL, "B": PASS, "C": PASS})
         review = _review_menu(window)
-        for name, key in (("Accept Peak (Below Threshold)", "A"), ("Mark Peak as Bad", "B")):
+        for name, key in (
+            ("Next Flagged Sample", "N"),
+            ("Previous Flagged Sample", "Shift+N"),
+            ("Accept Peak (Below Threshold)", "A"),
+            ("Mark Peak as Bad", "B"),
+        ):
             assert review[name].shortcut() == QKeySequence(key)
             assert review[name].isShortcutVisibleInContextMenu()
+        # Names that type-ahead would jump to on N, A or B.
+        toolbar.compound_selected.disconnect(window.on_compound_selected)
+        toolbar.update_compound_list(["Alanine", "Bio", "Cmp", "nor-Leucine"], "Cmp")
+        samples = toolbar.sample_list
+        samples.blockSignals(True)
+        toolbar.update_sample_list(["A", "B", "C", "N"])
+        samples.setCurrentRow(3)
+        window.show_samples_action.setChecked(True)
+        compounds = toolbar.compound_list
 
-        window.workspace.setCurrentWidget(view)
-        window.activateWindow()
-        assert QTest.qWaitForWindowActive(window)
-        view.setFocus()
-        QTest.keyClick(view, Qt.Key_Right)  # focus A, the failed tile, with nothing selected
-        QApplication.processEvents()
-        QTest.keyClick(view, Qt.Key_A)
-        QTest.keyClick(view, Qt.Key_B)
+        compounds.setFocus()
+        QTest.keyClick(compounds, Qt.Key_N)
+        assert view.hasFocus() and view.get_selected_samples() == ["A"]
+        compounds.setFocus()
+        QTest.keyClick(compounds, Qt.Key_A)
+        samples.setFocus()
+        QTest.keyClick(samples, Qt.Key_B)
+        QTest.keyClick(samples, Qt.Key_N, Qt.ShiftModifier)
+        assert compounds.currentItem().text() == "Cmp" and samples.currentRow() == 3
         assert reviews == [
             ("Cmp", ["A"], PeakReview.ACCEPTED),
             ("Cmp", ["A"], PeakReview.REJECTED),
         ]
+        assert view.get_selected_samples() == ["C"]
 
-        window.toolbar.compound_filter.setFocus()
-        QTest.keyClicks(window.toolbar.compound_filter, "ab")
-        assert window.toolbar.compound_filter.text() == "ab"
-        assert len(reviews) == 2
+        compounds.setFocus()
+        QTest.keyClick(compounds, Qt.Key_Down)
+        assert compounds.currentItem().text() == "nor-Leucine"
+
+        toolbar.compound_filter.setFocus()
+        QTest.keyClicks(toolbar.compound_filter, "nab")
+        assert toolbar.compound_filter.text() == "nab"
+        assert len(reviews) == 2 and view.get_selected_samples() == ["C"]
+    finally:
+        _close_popups()
+        window.close()
+
+
+def test_n_makes_the_flagged_tile_the_one_target_of_a_and_b(qapp, monkeypatch, plot_data):
+    window, reviews = _review_window(monkeypatch, {"A": PASS, "B": PASS, "C": FAIL, "D": FAIL})
+    view = window.graph_view
+    try:
+        # Nothing focused or selected yet: N alone must enable the verdict commands.
+        QTest.keyClick(view, Qt.Key_N)
+        review = _review_menu(window)
+        assert review["Accept C (Below Threshold)"].isEnabled()
+        assert review["Mark C as Bad"].isEnabled()
+
+        view.select_samples(["A", "B"])
+        QTest.keyClick(view, Qt.Key_N)
+        assert view.get_selected_samples() == ["D"]
+        review = _review_menu(window)
+        assert "Inspect D..." in review and review["Mark D as Bad"].isEnabled()
+        QTest.keyClick(view, Qt.Key_B)
+        assert reviews == [("Cmp", ["D"], PeakReview.REJECTED)]
+    finally:
+        _close_popups()
+        window.close()
+
+
+def test_n_with_nothing_to_review_says_so(qapp, monkeypatch, plot_data):
+    from manic.ui.toast_notification import ToastNotification
+
+    window, _ = _review_window(monkeypatch, {"A": PASS, "B": ACCEPTED, "C": REJECTED})
+    view = window.graph_view
+    try:
+        review = _review_menu(window)
+        assert not review["Next Flagged Sample"].isEnabled()
+        assert not review["Previous Flagged Sample"].isEnabled()
+        QTest.keyClick(view, Qt.Key_N)
+        [toast] = window.statusBar().findChildren(ToastNotification)
+        assert toast.findChild(QLabel, "toastLabel").text() == "No plots need review in Cmp"
+
+        view.apply_peak_verdicts({"A": FAIL})
+        assert _review_menu(window)["Next Flagged Sample"].isEnabled()
     finally:
         _close_popups()
         window.close()

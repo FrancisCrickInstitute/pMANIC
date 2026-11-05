@@ -15,6 +15,7 @@ from manic.models.analysis import IonChannel, IonRole
 from manic.ui import theme
 from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.colors import QUALIFIER_PASS_TINT, QUALIFIER_RED
+from manic.ui.sidebar_widgets import ROOMY_ROW_PX
 from manic.ui.targeted_qc_widget import TargetedQcWidget
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -340,8 +341,8 @@ def test_one_sample_leaves_no_band_below_it(qapp):
         _settle(host, 260, 800)
         _settle(dialog, 820, 400)
         assert widget.height() - widget.key.geometry().bottom() <= 8
-        # A slim strip, not a slab.
-        assert widget.chart_view.height() == 18
+        # A roomy row with space to spare, but a strip, not a slab.
+        assert widget.chart_view.height() == ROOMY_ROW_PX
         assert dialog.chart_view.height() == 24 and dialog.chart_view.y() == 0
         # The column headers sit above the scrolled rows, not inside them.
         for header, owner in ((dialog.pinned_axis, dialog), (widget.columns, widget)):

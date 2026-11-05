@@ -34,7 +34,7 @@ from manic.ui.identity_chart import (
     show_identity_tooltip,
 )
 from manic.ui import theme
-from manic.ui.sidebar_widgets import SUMMARY_SHORT_ROWS, fit_category_names
+from manic.ui.sidebar_widgets import ROOMY_ROW_PX, SUMMARY_SHORT_ROWS, fit_category_names
 from manic.ui.theme import color
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
@@ -133,10 +133,11 @@ class TargetedQcWidget(QWidget):
         self._identity = identity
         self._binding = add_identity_grid(self.chart, identity.samples)
         height = identity_chart_height(len(identity.samples), IDENTITY_ROW)
-        self.chart_view.setFixedHeight(height)
+        self.chart_view.setMinimumHeight(height)
         short = identity_chart_height(SUMMARY_SHORT_ROWS, IDENTITY_ROW)
         self._scroll.setMinimumHeight(min(height, short))
-        self._scroll.setMaximumHeight(height)
+        # With room to spare the rows grow, like the Peak area bars beside them.
+        self._scroll.setMaximumHeight(identity_chart_height(len(identity.samples), ROOMY_ROW_PX))
         self.columns.set_axis("", identity_column_headers(identity.channels, detail=False))
         note = identity_unassessed_note(identity)
         if note is not None and qualifier_gap_note(identity) is not None:

@@ -513,8 +513,7 @@ class MatplotlibPlotWidget(QWidget):
             "columnspacing": 1.2,
         }
         renderer = self.canvas.get_renderer()
-        figure_width = self.figure.bbox.width
-        logical = self.canvas.get_width_height()[0] / figure_width
+        logical = self.canvas.get_width_height()[0] / self.figure.bbox.width
 
         def px(artist):
             return artist.get_window_extent(renderer).width * logical
@@ -522,7 +521,8 @@ class MatplotlibPlotWidget(QWidget):
         legend = self.ax.legend(handles, labels, ncol=len(labels), **style)
         font_px = PLOT_LABEL_FONTSIZE * PLOT_DPI / 72
         spacing = style["columnspacing"] * font_px
-        entry = max(px(text) for text in legend.get_texts()) + (1.6 + 0.8) * font_px + spacing
+        # Each entry is its handle, matplotlib's default 0.8 em text pad, its text and a gap.
+        entry = max(px(text) for text in legend.get_texts()) + (style["handlelength"] + 0.8) * font_px + spacing
         columns = max(1, min(len(labels), int((width + spacing) // entry)))
         rows = -(-len(labels) // columns)
         # Matplotlib fills columns top to bottom; reorder so entries read across, M+0 first.
@@ -728,7 +728,7 @@ class MatplotlibPlotWidget(QWidget):
                 color=COLORS["text_secondary"], linewidth=PLOT_GUIDELINE_WIDTH,
                 transform=offset_copy(self.ax.transData, fig=self.figure, y=3, units="points"),
             )[0]
-            # Above the bracket, over the tallest bar, clear of every stem.
+            # Centred above the bracket, which sits over the tallest bar, so on no stem.
             label = self._peak_label(
                 f"{own[named[0]]}…{own[named[-1]]}", (left + right) / 2, top, own=True, rise=6
             )

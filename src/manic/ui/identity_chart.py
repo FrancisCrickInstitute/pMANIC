@@ -51,6 +51,7 @@ def identity_cells(sample: IdentitySampleAssessment) -> list[QualifierAssessment
     """One cell per qualifier the method has; a slot for an absent ion is no cell."""
     return [q for q in sample.qualifiers if q.status is not QualifierStatus.ABSENT]
 
+
 STATUS_LABELS = {
     QualifierStatus.VALIDATED: "Validated",
     QualifierStatus.FAILED: "Failed",

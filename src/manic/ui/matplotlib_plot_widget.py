@@ -120,6 +120,7 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
 logger = logging.getLogger(__name__)
 
 STEM_HEADROOM = 1.18
+CLUSTER_HEADROOM = 1.4
 # Space under a legend for the axis multiplier, in logical px.
 LEGEND_LIFT_PX = 20
 
@@ -437,7 +438,8 @@ class MatplotlibPlotWidget(QWidget):
             x_data, y_data = self._last_stem_data
             inside = y_data[(x_data >= low) & (x_data <= high)]
             if inside.size:
-                self.ax.set_ylim(0, float(inside.max()) * STEM_HEADROOM)
+                # Room above the tallest bar for the cluster's bracket and name.
+                self.ax.set_ylim(0, float(inside.max()) * CLUSTER_HEADROOM)
 
     def add_vertical_line(
         self,

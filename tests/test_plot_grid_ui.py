@@ -218,6 +218,31 @@ def test_a_long_compound_name_is_cut_in_the_middle_and_keeps_the_tr_in_view(grid
     assert grid.selection_summary.text() == "tR 7.09"
 
 
+def test_a_narrow_header_keeps_one_row_with_the_scale_toggles_in_a_menu(grid, qapp, rts):
+    grid.plot_compound("Pyruvate", ["S1", "S2"])
+    grid.show()
+    for width, folded in ((900, False), (520, True)):
+        grid.resize(width, 400)
+        qapp.processEvents()
+        assert grid.scale_menu_button.isVisibleTo(grid) is folded
+        assert grid.shared_y_button.isVisibleTo(grid) is not folded
+        row = grid._header_row
+        middles = {
+            row.itemAt(i).widget().geometry().center().y()
+            for i in range(row.count())
+            if row.itemAt(i).widget() is not None and row.itemAt(i).widget().isVisible()
+        }
+        assert max(middles) - min(middles) <= 1
+    menu = grid.scale_menu_button.menu()
+    menu.aboutToShow.emit()
+    shared = next(action for action in menu.actions() if action.text() == "Shared Y")
+    assert not shared.isChecked()
+    shared.trigger()
+    assert grid.shared_y_button.isChecked()
+    menu.aboutToShow.emit()
+    assert shared.isChecked()
+
+
 def test_chip_row_wraps_before_truncating_a_chip(qapp):
     host = QWidget()
     layout = QVBoxLayout(host)

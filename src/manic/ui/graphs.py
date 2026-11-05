@@ -250,9 +250,28 @@ class GraphView(QWidget):
         for button in (self.shared_y_button, self.peak_scale_button):
             button.setCheckable(True)
             button.setFocusPolicy(Qt.TabFocus)
-        # The plots' view controls; on a narrow grid they take a row of their own.
         self._view_controls = segmented(self.shared_y_button, self.peak_scale_button)
         header.addWidget(self._view_controls)
+        # On a narrow grid the two fold into one Scale menu, so the header keeps one row.
+        self.scale_menu_button = QToolButton()
+        self.scale_menu_button.setObjectName("scaleMenuButton")
+        self.scale_menu_button.setText("Scale")
+        self.scale_menu_button.setToolTip("Plot y-scale")
+        self.scale_menu_button.setPopupMode(QToolButton.InstantPopup)
+        self.scale_menu_button.setFocusPolicy(Qt.TabFocus)
+        scale_menu = QMenu(self.scale_menu_button)
+        scale_menu.setToolTipsVisible(True)
+        self._scale_choices = []
+        for button in (self.shared_y_button, self.peak_scale_button):
+            action = scale_menu.addAction(button.text())
+            action.setCheckable(True)
+            action.triggered.connect(button.click)
+            self._scale_choices.append((action, button))
+        scale_menu.aboutToShow.connect(self._sync_scale_menu)
+        self.scale_menu_button.setMenu(scale_menu)
+        self._scale_menu = segmented(self.scale_menu_button)
+        self._scale_menu.hide()
+        header.addWidget(self._scale_menu)
         self._header_row = header
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
         self.settings_button.clicked.connect(self.settings_requested.emit)
@@ -260,10 +279,6 @@ class GraphView(QWidget):
             self._header_button(button)
             header.addWidget(button)
         outer_layout.addLayout(header)
-        self._controls_row = QHBoxLayout()
-        self._controls_row.setContentsMargins(6, 4, 6, 0)
-        self._controls_row.addStretch(1)
-        outer_layout.addLayout(self._controls_row)
 
         self.qc_key = QLabel()
         self.qc_key.setTextFormat(Qt.RichText)
@@ -1993,21 +2008,18 @@ class GraphView(QWidget):
         self._resize_timer.start(60)
 
     def minimumSizeHint(self) -> QSize:
-        # The header reflows (see _fit_header), so only the grid's two columns bound the width.
+        # The header folds its scale toggles (see _fit_header), so only the grid's two columns bound the width.
         return QSize(self.minimumWidth(), super().minimumSizeHint().height())
 
     def _fit_header(self) -> None:
-        """One header row while every control fits at full width, else the view controls
-        drop to a row below, right-aligned, so none is cut or hidden."""
+        """The two scale toggles while the header row fits them whole, else the Scale menu."""
         row = self._header_row
+        folding = (self.selection_summary, self._view_controls, self._scale_menu)
         shown = [
-            row.itemAt(i).widget()
-            for i in range(row.count())
-            if row.itemAt(i).widget() not in (None, self.selection_summary)
-            and not row.itemAt(i).widget().isHidden()
+            widget
+            for widget in (row.itemAt(i).widget() for i in range(row.count()))
+            if widget is not None and widget not in folding and not widget.isHidden()
         ]
-        if self._view_controls not in shown:
-            shown.append(self._view_controls)
         margins = row.contentsMargins()
         # Room for a whole selection line at any count, so it never elides or moves them.
         summary = self.selection_summary.fontMetrics().horizontalAdvance(
@@ -2017,16 +2029,20 @@ class GraphView(QWidget):
             margins.left()
             + margins.right()
             + sum(widget.sizeHint().width() for widget in shown)
+            + self._view_controls.sizeHint().width()
             + summary
-            + row.spacing() * len(shown)
+            + row.spacing() * (len(shown) + 1)
         )
-        home = row if need <= self.width() else self._controls_row
-        if home.indexOf(self._view_controls) >= 0:
-            return
-        if home is row:
-            row.insertWidget(row.indexOf(self.selection_summary) + 1, self._view_controls)
-        else:
-            home.addWidget(self._view_controls)
+        wide = need <= self.width()
+        self._view_controls.setVisible(wide)
+        self._scale_menu.setVisible(not wide)
+
+    def _sync_scale_menu(self) -> None:
+        for action, button in self._scale_choices:
+            action.setVisible(not button.isHidden())
+            action.setEnabled(button.isEnabled())
+            action.setChecked(button.isChecked())
+            action.setToolTip(button.toolTip())
 
     def _update_graph_sizes(self) -> None:
         self._place_tiles()

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
-from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
+from PySide6.QtGui import QAccessible, QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QLineEdit, QMenu, QWidget
 
 from manic.models import database
@@ -646,6 +646,9 @@ def test_short_sidebar_keeps_the_editor_whole_and_folds_the_rows_below_behind_th
                 continue
             assert not any(widget.isVisible() for widget in below)
             assert "Baseline, tR window" in [label.text() for label in heading.findChildren(QLabel)]
+            assert QAccessible.queryAccessibleInterface(heading).text(QAccessible.Name) == (
+                "Baseline, tR window"
+            )
 
             # Opened, every row shows whole in the same sidebar; the lists give up rows.
             heading.click()

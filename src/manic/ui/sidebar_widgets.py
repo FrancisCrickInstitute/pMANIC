@@ -301,6 +301,8 @@ class CollapsibleSection(QWidget):
 
         self.header = QPushButton()
         self.header.setProperty("role", "sectionToggle")
+        # Its text lives in child labels, which a screen reader does not read as the button's name.
+        self.header.setAccessibleName(title)
         self.header.setCursor(Qt.CursorShape.PointingHandCursor)
         row = QHBoxLayout(self.header)
         row.setContentsMargins(0, 0, 2, 0)

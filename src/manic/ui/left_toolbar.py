@@ -2,7 +2,7 @@ import logging
 from collections.abc import Iterable
 from typing import List, NamedTuple
 
-from PySide6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -240,11 +240,15 @@ class Toolbar(QWidget):
         main_layout.addWidget(inspector_content)
         main_layout.addStretch(0)
 
-        self.setMinimumWidth(256)
         # A wider sidebar only pads its rows; the grid makes better use of the room.
         self.setMaximumWidth(480)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._refresh_data_state()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        # As wide as its rows need, so a squeezed window never cuts a label or a value.
+        hint = super().minimumSizeHint()
+        return QSize(max(hint.width(), 256), hint.height())
 
     def _build_scale_actions(self) -> None:
         """The plots' y-scale choices, which the View menu lists; the last choice is remembered."""

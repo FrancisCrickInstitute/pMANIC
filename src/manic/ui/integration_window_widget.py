@@ -347,6 +347,11 @@ class IntegrationWindow(QWidget):
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
         self.tr_window_edit.setToolTip(tr_window_lbl.toolTip())
+        # Room for a window such as 0.125 whole (with the style's 8 px padding a side):
+        # a cut-off number reads as another value.
+        self.tr_window_edit.setMinimumWidth(
+            self.tr_window_edit.fontMetrics().horizontalAdvance("0.125") + 2 * 8 + 8
+        )
         tr_window_lbl.setBuddy(self.tr_window_edit)
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
         # Enable Enter key to trigger regeneration (same as clicking Apply window)

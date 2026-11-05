@@ -182,6 +182,15 @@ class ElidedLabel(QLabel):
     def full_text(self) -> str:
         return self._full
 
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        # The full text: a layout that has the room shows it whole.
+        hint = super().sizeHint()
+        return QSize(hint.width() + self.fontMetrics().horizontalAdvance(self._full)
+                     - self.fontMetrics().horizontalAdvance(self.text()), hint.height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        return QSize(0, super().minimumSizeHint().height())
+
     def resizeEvent(self, event):
         self._elide()
         super().resizeEvent(event)
@@ -208,7 +217,9 @@ class StatusRow(QPushButton):
         layout.setSpacing(8)
         self._icon = QLabel()
         self._icon.setFixedSize(14, 14)
-        self._title = QLabel(title)
+        # Short of room the title elides, but the sidebar keeps the room it needs whole.
+        self._title = ElidedLabel(title)
+        self._title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self._value = ElidedLabel()
         self._value.setObjectName("statusValue")
         self._value.setAlignment(
@@ -221,6 +232,13 @@ class StatusRow(QPushButton):
         layout.addWidget(self._value, 1)
         self.setFixedHeight(26)
         self.set_state("blocked", "")
+
+    def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        # A button sizes to its own text; this one's text is its child labels.
+        return QSize(self.layout().sizeHint().width(), 26)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt override)
+        return self.sizeHint()
         theme.notifier.changed.connect(self._on_theme_changed)
 
     def _on_theme_changed(self, _remap: dict) -> None:
@@ -233,7 +251,8 @@ class StatusRow(QPushButton):
         set_style_property(self._value, "state", state)
         # The labels inside a button are not read out, and the tick is an icon only.
         spoken = value or ("done" if state == "done" else "")
-        self.setAccessibleName(f"{self._title.text()}: {spoken}" if spoken else self._title.text())
+        title = self._title.full_text()
+        self.setAccessibleName(f"{title}: {spoken}" if spoken else title)
 
 
 class FilterField(QLineEdit):

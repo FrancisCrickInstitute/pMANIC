@@ -1,6 +1,7 @@
 """Matplotlib plot widget for the detailed view, with a shared pan/zoom toolbar."""
 
 import logging
+from collections.abc import Sequence
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -118,6 +119,13 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _channel_stem(x_data: np.ndarray, y_data: np.ndarray, mz: float) -> int | None:
+    """The tallest stem within 0.5 of ``mz``: channels sit 1 Da apart, and a
+    centroided scan can hold a trace stem nearer the nominal mass than the peak."""
+    near = np.flatnonzero(np.abs(x_data - mz) <= 0.5)
+    return int(near[np.argmax(y_data[near])]) if near.size else None
 
 # Above the tallest stem in view; each peak label then gets the room it needs on top.
 STEM_HEADROOM = 1.05
@@ -393,6 +401,7 @@ class MatplotlibPlotWidget(QWidget):
         y_data: np.ndarray,
         color: str = "darkblue",
         width: int = PLOT_STEM_WIDTH,
+        highlight: Sequence[tuple[float, str]] = (),
     ):
         """
         Plot vertical lines from zero (stem plot) for MS data.
@@ -402,6 +411,7 @@ class MatplotlibPlotWidget(QWidget):
             y_data: Y coordinates (intensities)
             color: Line color
             width: Line width
+            highlight: (m/z, color) pairs; the stem within 0.5 of each m/z takes its color
         """
         try:
             x_data = np.asarray(x_data, dtype=np.float64)
@@ -422,7 +432,12 @@ class MatplotlibPlotWidget(QWidget):
 
             markerline.set_color(color)
             markerline.set_markersize(0)  # Hide markers
-            stemlines.set_color(color)
+            colors = [color] * len(x_data)
+            for mz, own_color in highlight:
+                index = _channel_stem(x_data, y_data, mz)
+                if index is not None:
+                    colors[index] = own_color
+            stemlines.set_color(colors)
             stemlines.set_linewidth(width)
 
             x_min, x_max = float(x_data.min()), float(x_data.max())
@@ -741,11 +756,9 @@ class MatplotlibPlotWidget(QWidget):
         names = list(own_names) if own_names is not None else [None] * len(own_mz)
         own: dict[int, str | None] = {}
         for mz, name in zip(own_mz, names):
-            nearest = int(np.argmin(np.abs(x_data - mz)))
-            # Channels sit 1 Da apart: half that finds a channel's peak
-            # without taking its neighbour's.
-            if abs(x_data[nearest] - mz) <= 0.5 and y_data[nearest] >= floor and nearest not in own:
-                own[nearest] = name
+            index = _channel_stem(x_data, y_data, mz)
+            if index is not None and y_data[index] >= floor and index not in own:
+                own[index] = name
         others = [
             int(index) for index in np.argsort(y_data)[::-1]
             if y_data[index] >= floor and index not in own

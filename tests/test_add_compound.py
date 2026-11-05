@@ -343,6 +343,23 @@ def test_empty_unlabelled_submit_flags_every_required_field(qapp):
         "quantifier_mz",
         "qualifier1_mz",
     }
+
+    def top(widget) -> int:
+        return widget.mapTo(dialog, QPoint(0, 0)).y()
+
+    def error(text: str) -> QLabel:
+        return next(
+            label
+            for label in dialog.findChildren(QLabel)
+            if label.property("role") == "error" and label.text() == text
+        )
+
+    # Each ion's error sits under its own row, not below the last one.
+    qapp.processEvents()
+    quantifier_error = error("Enter the quantifier ion m/z.")
+    assert top(dialog.quantifier_mz) < top(quantifier_error) < top(dialog.qualifier1_mz)
+    qualifier_error = error("Enter the qualifier ion 1 m/z.")
+    assert top(dialog.qualifier1_mz) < top(qualifier_error) < top(dialog.qualifier2_mz)
     dialog.close()
 
 

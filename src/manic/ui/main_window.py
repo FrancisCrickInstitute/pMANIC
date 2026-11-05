@@ -296,6 +296,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.load_cdf_action)
 
         self.open_recent_menu = file_menu.addMenu("Open Recent")
+        self.open_recent_menu.setToolTipsVisible(True)
         self.open_recent_menu.aboutToShow.connect(self._rebuild_open_recent_menu)
         self._rebuild_open_recent_menu()
 
@@ -849,39 +850,6 @@ class MainWindow(QMainWindow):
             and not export_running
         )
         self.new_session_action.setEnabled(not export_running)
-
-        # Add tooltips to disabled items
-        if self.compound_data_loaded:
-            self.load_compound_action.setToolTip(
-                "Compound data already loaded. Use 'Clear Session' to start over."
-            )
-        else:
-            self.load_compound_action.setToolTip(
-                "Load compound list and parameter data"
-            )
-
-        if not self.compound_data_loaded:
-            self.load_cdf_action.setToolTip(
-                "Load compound data first before loading raw data"
-            )
-        elif self.cdf_data_loaded:
-            self.load_cdf_action.setToolTip(
-                "Raw data already loaded. Use 'Clear Session' to start over."
-            )
-        else:
-            self.load_cdf_action.setToolTip("Load raw CDF data files")
-
-        # Import Session tooltips
-        if not self.compound_data_loaded:
-            self.import_session_action.setToolTip("Load compound data first")
-        elif not self.cdf_data_loaded:
-            self.import_session_action.setToolTip(
-                "Load CDF data before importing session"
-            )
-        else:
-            self.import_session_action.setToolTip(
-                "Import session-specific integration overrides"
-            )
 
         if self.settings_window is not None:
             self.settings_window.refresh()

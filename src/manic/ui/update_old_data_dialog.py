@@ -89,7 +89,9 @@ class UpdateOldDataDialog(QDialog):
         self.standard_picker = StandardPicker([], None, set())
         self.standard_picker.setEnabled(False)
         form_row(form, "Internal standard", self.standard_picker)
-        form_row(form, "", hint_label("Lists the compounds once you choose a compounds file."))
+        self._standard_hint = hint_label("Lists the compounds once you choose a compounds file.")
+        form_row(form, "", self._standard_hint)
+        self._form = form
         layout.addLayout(form)
 
         layout.addSpacing(16)
@@ -128,6 +130,7 @@ class UpdateOldDataDialog(QDialog):
             }
             self.standard_picker.set_names(names, lacking)
             self.standard_picker.setEnabled(bool(names))
+            self._form.setRowVisible(self._standard_hint, not names)
             self._update_ok()
 
     def _browse_raw(self):

@@ -42,8 +42,11 @@ def test_standard_is_chosen_from_the_compounds_file(qapp, tmp_path, monkeypatch)
     dialog.show()
     picker = dialog.standard_picker
     assert not picker.isEnabled()
+    hint = dialog._standard_hint
+    assert hint.isVisible()
     dialog._browse_compounds()
     assert picker.isEnabled()
+    assert not hint.isVisible()
     assert picker.currentText() == "No internal standard"
 
     picker.showPopup()

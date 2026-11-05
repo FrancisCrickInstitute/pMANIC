@@ -315,7 +315,6 @@ class IntegrationWindow(QWidget):
         action_row.setSpacing(8)
         self.restore_button = QPushButton("Reset")
         self.restore_button.setObjectName("RestoreButton")
-        self.restore_button.setToolTip("Restore the compound's default peak window")
         self.restore_button.clicked.connect(self._on_restore_clicked)
         action_row.addWidget(self.restore_button, 1)
 
@@ -324,7 +323,7 @@ class IntegrationWindow(QWidget):
         self.apply_button.setProperty("variant", "primary")
         self.apply_button.clicked.connect(self._on_apply_clicked)
         apply_key = QKeySequence("Ctrl+Return")
-        self.apply_button.setToolTip(apply_key.toString(QKeySequence.SequenceFormat.NativeText))
+        self._apply_key_text = apply_key.toString(QKeySequence.SequenceFormat.NativeText)
         for key in (apply_key, QKeySequence("Ctrl+Enter")):
             QShortcut(
                 key, self, self.apply_button.click, Qt.ShortcutContext.WidgetWithChildrenShortcut
@@ -696,8 +695,8 @@ class IntegrationWindow(QWidget):
         self._update_apply_button_state()
 
     def _update_apply_button_state(self, *_args):
-        """Name whom Apply and Reset change only when a selection narrows it; an unapplied
-        edit says so. Apply window states its own."""
+        """Name whom Apply and Reset change: a selection in the caption, all shown samples
+        (the default) on hover. An unapplied edit says so. Apply window states its own."""
         selected = self._selected_samples
         targets = selected or self._all_samples
         for button in (self.apply_button, self.restore_button, self.regenerate_button):
@@ -723,6 +722,14 @@ class IntegrationWindow(QWidget):
             "state",
             "edited" if edited else "selected" if selected else None,
         )
+        if selected:
+            self.apply_button.setToolTip(self._apply_key_text)
+            self.restore_button.setToolTip("Restore the compound's default peak window")
+        else:
+            self.apply_button.setToolTip(f"Apply to all shown samples ({self._apply_key_text})")
+            self.restore_button.setToolTip(
+                "Restore all shown samples to the compound's default peak window"
+            )
         shown = len(self._all_samples)
         self.window_scope_label.setText(
             f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"

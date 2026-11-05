@@ -179,6 +179,7 @@ class PostLoadChecklistDialog(QDialog):
 
         self.mm_file_table = _MmFileTable(0, 3)
         self.mm_file_table.setObjectName("mmFileTable")
+        self.mm_file_table.setAccessibleName("Standard mixture (MM) files")
         self.mm_file_table.setHorizontalHeaderLabels(
             ["Compound", "MM pattern", "Matched files"]
         )
@@ -191,8 +192,10 @@ class PostLoadChecklistDialog(QDialog):
         self.mm_file_table.setTextElideMode(Qt.ElideMiddle)
         self.mm_file_table.setWordWrap(False)
         self.mm_file_table.setShowGrid(False)
-        self.mm_file_table.setSelectionMode(QAbstractItemView.NoSelection)
-        self.mm_file_table.setFocusPolicy(Qt.NoFocus)
+        # Read-only, but reachable: Tab in, arrows move a row at a time.
+        self.mm_file_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.mm_file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.mm_file_table.setTabKeyNavigation(False)
         self.mm_file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.mm_file_table.verticalHeader().setDefaultSectionSize(30)
         self.mm_file_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -352,9 +355,11 @@ class PostLoadChecklistDialog(QDialog):
             values = (status.compound_name, pattern, _matched_cell_text(status))
             for column, text in enumerate(values):
                 item = QTableWidgetItem(text)
-                item.setFlags(Qt.ItemIsEnabled)
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 if tooltips[column]:
                     item.setToolTip(tooltips[column])
+                    # A screen reader reads the whole value, not the elided cell.
+                    item.setData(Qt.AccessibleTextRole, tooltips[column])
                 if column == 2:
                     item.setIcon(status_icon(matched))
                     if not matched:

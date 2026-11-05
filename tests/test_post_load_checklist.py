@@ -357,3 +357,24 @@ def test_check_setup_action_requires_loaded_data(qapp, empty_db, monkeypatch):
     finally:
         _close_window(window)
 
+
+def test_mm_table_is_reachable_by_keyboard_and_stays_read_only(qapp, tmp_path):
+    dialog = _long_dialog(tmp_path)
+    try:
+        dialog.show()
+        dialog.activateWindow()
+        _settle()
+        dialog.standard_picker.setFocus()
+        QTest.keyClick(dialog.standard_picker, Qt.Key_Tab)
+        table = dialog.mm_file_table
+        assert table.hasFocus()
+        QTest.keyClick(table, Qt.Key_Down)
+        QTest.keyClick(table, Qt.Key_PageDown)
+        assert table.currentRow() > 1
+        assert table.selectionModel().selectedRows()[0].row() == table.currentRow()
+        QTest.keyClick(table, Qt.Key_F2)
+        assert table.state() != QTableWidget.EditingState
+        QTest.keyClick(table, Qt.Key_Tab)
+        assert not table.hasFocus()
+    finally:
+        dialog.close()

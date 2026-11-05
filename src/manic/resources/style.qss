@@ -486,6 +486,11 @@ QTableCornerButton::section {
     border: none;
 }
 
+/* Read-only but focusable, so focus shows on its frame. */
+QTableWidget#mmFileTable:focus {
+    border: 1px solid @accent;
+}
+
 /* ---------- Group boxes and tabs ---------- */
 
 QGroupBox {

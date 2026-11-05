@@ -508,6 +508,29 @@ def test_form_never_overlaps_and_scrolls_on_a_short_screen(qapp, mode):
     dialog.close()
 
 
+@pytest.mark.parametrize("mode", list(AnalysisMode))
+def test_a_short_form_never_cuts_a_heading_or_field_at_its_edge(qapp, mode):
+    dialog = AddCompoundDialog(analysis_mode=mode)
+    dialog.show()
+    scroll = dialog.findChild(QScrollArea)
+    form = scroll.widget()
+    cut = []
+    for height in range(360, 600, 6):
+        dialog.resize(640, height)
+        for _ in range(3):
+            qapp.processEvents()
+        edge = scroll.verticalScrollBar().value() + scroll.viewport().height()
+        cut += [
+            (height, widget.text() if isinstance(widget, QLabel) else type(widget).__name__)
+            for widget in form.findChildren(QLabel) + form.findChildren(QAbstractSpinBox)
+            + form.findChildren(QLineEdit)
+            if widget.isVisible()
+            and widget.mapTo(form, QPoint()).y() < edge < widget.mapTo(form, QPoint()).y() + widget.height()
+        ]
+    assert cut == []
+    dialog.close()
+
+
 def test_taken_compound_names_includes_soft_deleted(empty_db):
     insert_compound(_labelled_row())
     assert soft_delete_compound("Pyruvate")

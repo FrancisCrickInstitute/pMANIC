@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from pydantic import ValidationError
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
 from PySide6.QtGui import QDoubleValidator, QValidator
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
@@ -71,6 +72,37 @@ class _BlankZeroSpinBox(_BlankZero, QDoubleSpinBox):
 
 class _BlankZeroIntSpinBox(_BlankZero, QSpinBox):
     pass
+
+
+class _WholeRowScroll(QScrollArea):
+    """Ends its view above a label or field it would cut, so no heading shows in half."""
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self, self._snap)
+
+    def eventFilter(self, watched, event):
+        # The form places its rows after this filter sees its resize, so look once it has.
+        if watched is self.widget() and event.type() == QEvent.Type.Resize:
+            QTimer.singleShot(0, self, self._snap)
+        return super().eventFilter(watched, event)
+
+    def _snap(self) -> None:
+        form = self.widget()
+        bottom = self.verticalScrollBar().value() + self.height()
+        cut = bottom
+        if form.sizeHint().height() > self.height():
+            leaves = [
+                (top, top + leaf.height())
+                for leaf in form.findChildren(QWidget)
+                if isinstance(leaf, (QLabel, QLineEdit, QAbstractSpinBox))
+                and leaf.isVisibleTo(form)
+                for top in (leaf.mapTo(form, QPoint(0, 0)).y(),)
+            ]
+            while straddling := [top for top, end in leaves if top < cut < end]:
+                cut = min(straddling)
+        if self.viewportMargins().bottom() != bottom - cut:
+            self.setViewportMargins(0, 0, 0, bottom - cut)
 
 
 class AddCompoundDialog(QDialog):
@@ -158,7 +190,7 @@ class AddCompoundDialog(QDialog):
 
         layout.addStretch()
 
-        scroll = QScrollArea()
+        scroll = _WholeRowScroll()
         scroll.setObjectName("addCompoundScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)

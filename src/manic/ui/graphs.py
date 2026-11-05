@@ -192,6 +192,13 @@ def _show_shortcut(action, sequence) -> None:
     action.setShortcutVisibleInContextMenu(True)
 
 
+class _ScaleMenuButton(QToolButton):
+    """Checked while a scale toggle is on; only its menu changes the scale."""
+
+    def nextCheckState(self) -> None:
+        pass
+
+
 class GraphView(QWidget):
     """
     Re-implements the old grid-of-charts look with pyqtgraph,
@@ -253,10 +260,9 @@ class GraphView(QWidget):
         self._view_controls = segmented(self.shared_y_button, self.peak_scale_button)
         header.addWidget(self._view_controls)
         # On a narrow grid the two fold into one Scale menu, so the header keeps one row.
-        self.scale_menu_button = QToolButton()
+        self.scale_menu_button = _ScaleMenuButton()
         self.scale_menu_button.setObjectName("scaleMenuButton")
-        self.scale_menu_button.setText("Scale")
-        self.scale_menu_button.setToolTip("Plot y-scale")
+        self.scale_menu_button.setCheckable(True)
         self.scale_menu_button.setPopupMode(QToolButton.InstantPopup)
         self.scale_menu_button.setFocusPolicy(Qt.TabFocus)
         scale_menu = QMenu(self.scale_menu_button)
@@ -267,6 +273,8 @@ class GraphView(QWidget):
             action.setCheckable(True)
             action.triggered.connect(button.click)
             self._scale_choices.append((action, button))
+            button.toggled.connect(self._sync_scale_menu)
+        self._sync_scale_menu()
         scale_menu.aboutToShow.connect(self._sync_scale_menu)
         self.scale_menu_button.setMenu(scale_menu)
         self._scale_menu = segmented(self.scale_menu_button)
@@ -297,7 +305,8 @@ class GraphView(QWidget):
         )
         self.qc_key.hide()
         self._qc_key_wanted = False
-        # The Summary's Identity panel carries the key and the qualifier note while it is open.
+        # The key stays beside the traces it colours; the Summary's Identity panel carries
+        # the qualifier note while it is open.
         self.summary_button.toggled.connect(self._show_qc_text)
         # Legend entries and the QC key wrap onto a second row instead of truncating.
         self.channel_legend = ChannelChipRow(trailing=self.qc_key)
@@ -748,9 +757,8 @@ class GraphView(QWidget):
         self._show_qc_text()
 
     def _show_qc_text(self, *_args) -> None:
-        summary = self.summary_button.isChecked()
-        self.qc_key.setVisible(self._qc_key_wanted and not summary)
-        self.qc_note.setVisible(bool(self.qc_note.text()) and not summary)
+        self.qc_key.setVisible(self._qc_key_wanted)
+        self.qc_note.setVisible(bool(self.qc_note.text()) and not self.summary_button.isChecked())
 
     def _set_title(self, compound_name: str) -> None:
         self._tr_text = ""
@@ -2037,12 +2045,19 @@ class GraphView(QWidget):
         self._view_controls.setVisible(wide)
         self._scale_menu.setVisible(not wide)
 
-    def _sync_scale_menu(self) -> None:
+    def _sync_scale_menu(self, *_args) -> None:
+        """The menu mirrors the toggles; its button names the one that is on."""
         for action, button in self._scale_choices:
             action.setVisible(not button.isHidden())
             action.setEnabled(button.isEnabled())
             action.setChecked(button.isChecked())
             action.setToolTip(button.toolTip())
+        active = next((b.text() for _a, b in self._scale_choices if b.isChecked()), None)
+        self.scale_menu_button.setText(active or "Scale")
+        self.scale_menu_button.setChecked(active is not None)
+        self.scale_menu_button.setToolTip(
+            f"Plot y-scale: {active or 'each plot to its own range'}"
+        )
 
     def _update_graph_sizes(self) -> None:
         self._place_tiles()

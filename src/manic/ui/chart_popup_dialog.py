@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from manic.models.analysis import IonRole
 from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
+from manic.ui.chart_header import HeaderName
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
     abundance_scale,
@@ -85,7 +86,9 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
     return counts
 
 
-def identity_key_html(identity: IdentityAssessmentSet) -> str:
+def identity_key_html(identity: IdentityAssessmentSet, *, swatches: bool = True) -> str:
+    """Each state's cell mark, name and count. ``swatches`` adds its colour, for a chart
+    with no QC key of its own nearby (the grid's key names the colours beside the Summary)."""
     counts = identity_status_counts(identity)
     present = {q.status for sample in identity.samples for q in identity_cells(sample)}
     # Every grey cell's mark, so the key accounts for each mark in the grid.
@@ -101,16 +104,12 @@ def identity_key_html(identity: IdentityAssessmentSet) -> str:
         (QUALIFIER_GREY, grey_marks, "Not assessed"),
     ):
         mark = f"{mark.replace(' ', '&nbsp;')}&nbsp;" if mark else ""
-        parts.append(
-            f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;{mark}{name}'
-            f"&nbsp;<b>{counts[name]}</b>"
-        )
+        swatch = f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;' if swatches else ""
+        parts.append(f"{swatch}{mark}{name}&nbsp;<b>{counts[name]}</b>")
     # Counts are cells, not samples; the unit leads so it is read first.
-    unit = "Qualifier cells&nbsp;"
+    unit, gap = ("Qualifier cells&nbsp;", " ") if swatches else ("Qualifier cells", "&nbsp;&nbsp; ")
     # Each entry stays whole, so a narrow key wraps between entries.
-    return " ".join(
-        f'<span style="white-space:nowrap">{part}</span>' for part in (unit, *parts)
-    )
+    return gap.join(f'<span style="white-space:nowrap">{part}</span>' for part in (unit, *parts))
 
 
 IDENTITY_KEY_TOOLTIP = "Counts are qualifier cells: one per sample for each qualifier ion."
@@ -339,7 +338,7 @@ class ChartPopupDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        self.compound_title = QLabel(compound_name or title)
+        self.compound_title = HeaderName(compound_name or title, min_chars=12)
         theme.style(self.compound_title, text_style("text", FONT_SIZE_TITLE, 600))
         count = len(self.sample_names)
         # An abundance popup's axis title already names its quantity.

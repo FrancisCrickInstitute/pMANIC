@@ -12,9 +12,9 @@ from PySide6.QtCharts import (
     QValueAxis,
     QXYSeries,
 )
-from PySide6.QtCore import QMargins, Qt
+from PySide6.QtCore import QMargins, QPointF, Qt
 from PySide6.QtGui import QBrush, QFont, QFontMetricsF, QPen
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QGraphicsSimpleTextItem
 
 from manic.ui.theme import color, remap_color
 
@@ -133,9 +133,34 @@ def fit_name_font(chart: QChart, axis: QAbstractAxis) -> None:
     rows = axis.count()
     if not rows:
         return
-    px = min(max(int(chart.plotArea().height() / rows / 2), AXIS_LABEL_PX), CAPTION_PX)
+    px = min(max(int(chart.plotArea().height() / rows * 0.6), AXIS_LABEL_PX), CAPTION_PX)
     if axis.labelsFont().pixelSize() != px:
         axis.setLabelsFont(ui_font(px))
+
+
+def place_row_notes(
+    chart: QChart, notes: list[QGraphicsSimpleTextItem], texts: dict[int, str]
+) -> None:
+    """Replace ``notes`` with ``texts`` at the start of their bar rows (0 is the bottom bar).
+
+    A row with no visible bar says why ("—", "0", "<0.01") in the sample names' font.
+    """
+    for note in notes:
+        if note.scene() is not None:
+            note.scene().removeItem(note)
+    notes.clear()
+    names = chart.axes(Qt.Vertical)
+    if not chart.series() or not names:
+        return
+    series = chart.series()[0]
+    for row, text in texts.items():
+        note = QGraphicsSimpleTextItem(text, chart)
+        note.setFont(names[0].labelsFont())
+        note.setBrush(color("text_secondary"))
+        note.setZValue(10)
+        start = chart.mapToPosition(QPointF(0, row), series)
+        note.setPos(start.x() + 4, start.y() - note.boundingRect().height() / 2)
+        notes.append(note)
 
 
 def style_chart(chart: QChart, margins: QMargins = QMargins(0, 0, 0, 0)) -> None:

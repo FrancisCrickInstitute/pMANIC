@@ -32,7 +32,7 @@ from manic.processors.display_deconvolution import integrated_display_areas
 from . import theme
 from .chart_header import ChartHeader
 from .chart_popup_dialog import PinnedAxis, missing_ratio_note, value_axis_ticks
-from .chart_style import AXIS_LABEL_PX, fit_name_font, style_axis, style_chart, ui_font
+from .chart_style import fit_name_font, place_row_notes, style_axis, style_chart
 from .colors import label_colors
 from .sidebar_widgets import (
     SummaryChartArea,
@@ -246,21 +246,7 @@ class IsotopologueRatioWidget(QWidget):
         return [i for i, row in enumerate(self._current_ratios) if not np.nansum(row) > 0]
 
     def _place_dashes(self, *_args) -> None:
-        for dash in self._dashes:
-            if dash.scene() is not None:
-                dash.scene().removeItem(dash)
-        self._dashes = []
-        if not self.chart.series():
-            return
-        series = self.chart.series()[0]
-        for i in self.empty_rows():
-            dash = QGraphicsSimpleTextItem("—", self.chart)
-            dash.setFont(ui_font(AXIS_LABEL_PX))
-            dash.setBrush(color("text_secondary"))
-            dash.setZValue(10)
-            centre = self.chart.mapToPosition(QPointF(0, i), series)
-            dash.setPos(centre.x() + 4, centre.y() - dash.boundingRect().height() / 2)
-            self._dashes.append(dash)
+        place_row_notes(self.chart, self._dashes, dict.fromkeys(self.empty_rows(), "—"))
 
     def row_at(self, viewport_pos) -> int | None:
         """The bar row (0 is the bottom bar) under a chart-view position."""

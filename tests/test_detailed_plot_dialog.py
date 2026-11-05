@@ -301,6 +301,21 @@ def test_the_arrows_step_through_the_samples_in_grid_order(qapp, monkeypatch):
         dialog.deleteLater()
 
 
+def test_the_header_names_a_sample_s_fit_override_as_its_grid_caption_does(qapp, monkeypatch):
+    from manic.models.sample_fit_type import set_sample_fit_type
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
+    set_sample_fit_type("Pyruvate", ["B"], "gaussian")
+    dialog = DetailedPlotDialog("Pyruvate", "A", samples=["A", "B"])
+    try:
+        assert dialog.sample_label.full_text() == "in A"
+        dialog.step_sample(1)
+        assert dialog.sample_label.full_text() == "in B  ·  Gaussian"
+    finally:
+        dialog.deleteLater()
+
+
 @pytest.mark.parametrize("size", [(880, 520), (921, 581)])
 def test_all_three_charts_fit_a_small_window_without_scrolling(qapp, dialog, size):
     from PySide6.QtWidgets import QScrollArea

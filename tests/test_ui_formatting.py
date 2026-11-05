@@ -704,11 +704,9 @@ def test_channel_legend_unlabelled_chips_show_line_style_not_status_colour(
         assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
         assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
         assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DashDotLine)
-        # The Summary's Identity legend is the QC key while the Summary is open.
+        # The QC key stays beside the traces it colours while the Summary is open.
         assert not view.qc_key.isHidden()
         view.summary_button.setChecked(True)
-        assert view.qc_key.isHidden()
-        view.summary_button.setChecked(False)
         assert not view.qc_key.isHidden()
     finally:
         view.deleteLater()

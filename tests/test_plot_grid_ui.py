@@ -1,8 +1,9 @@
+import math
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QFontMetricsF, QTextDocumentFragment
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
@@ -20,6 +21,7 @@ from manic.ui.plot_tile import (
     LARGE_TILE,
     MIN_TILE,
     PEAK_BADGES,
+    TILE_GAP,
     PlotTile,
     grid_columns,
     tile_badges,
@@ -233,12 +235,21 @@ def test_a_narrow_header_keeps_one_row_with_the_scale_toggles_in_a_menu(grid, qa
             if row.itemAt(i).widget() is not None and row.itemAt(i).widget().isVisible()
         }
         assert max(middles) - min(middles) <= 1
-    menu = grid.scale_menu_button.menu()
+    button = grid.scale_menu_button
+    assert (button.text(), button.isChecked()) == ("Scale", False)
+    menu = button.menu()
     menu.aboutToShow.emit()
     shared = next(action for action in menu.actions() if action.text() == "Shared Y")
     assert not shared.isChecked()
     shared.trigger()
     assert grid.shared_y_button.isChecked()
+    # The folded button names the scale in use, as the unfolded toggle would show it.
+    assert (button.text(), button.isChecked()) == ("Shared Y", True)
+    assert button.toolTip() == "Plot y-scale: Shared Y"
+    # Pressing it (as assistive tech does) only opens the menu.
+    QTimer.singleShot(50, button.menu().close)
+    button.click()
+    assert button.isChecked() and grid.shared_y_button.isChecked()
     menu.aboutToShow.emit()
     assert shared.isChecked()
 
@@ -356,7 +367,25 @@ def _show_grid_with_viewport(grid, qapp, samples: int, width: int, height: int) 
     viewport_w, viewport_h = grid._grid_viewport()
     grid.resize(grid.width() + width - viewport_w, grid.height() + height - viewport_h)
     # The grid re-lays its tiles shortly after a resize, and again if a scroll bar shows.
-    QTest.qWait(400)
+    for _ in range(500):
+        if grid._grid_viewport()[1] == height and _laid_out(grid):
+            return
+        QTest.qWait(10)
+    raise AssertionError("the grid never finished laying out its tiles")
+
+
+def _laid_out(grid) -> bool:
+    """The tiles have the size the grid's shape gives its current viewport."""
+    if grid._resize_timer.isActive():
+        return False
+    cols, row_height = grid._grid_shape
+    rows = math.ceil(len(grid._current_plots) / cols)
+    width, height = grid._grid_viewport()
+    tile = grid._current_plots[0].parent()
+    return (
+        abs(tile.width() - (width - TILE_GAP * (cols - 1)) / cols) <= 1
+        and abs(tile.height() - (row_height or (height - TILE_GAP * (rows - 1)) / rows)) <= 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -379,6 +408,38 @@ def test_tiles_fit_the_2560_screen_or_scroll_at_the_large_size(
     assert tile.text_size() == text_size
     assert tile.width() >= MIN_TILE[0] and tile.height() >= MIN_TILE[1]
     assert (grid._scroll.verticalScrollBar().maximum() > 0) == (samples == 200)
+
+
+def test_time_ticks_settle_at_every_tile_width(grid, qapp):
+    # At some width the chosen step once moved the plot edge enough to flip the step
+    # back, forever, freezing the app (ccc9554f). One row of three tiles, 1 px at a time
+    # from the narrowest the grid keeps in a row to 260 px.
+    _show_grid_with_viewport(grid, qapp, 3, 480, 130)
+    extra = grid.width() - grid._grid_viewport()[0]
+    views = list(_plots(grid).values())
+    axes = [view.chart().axes(Qt.Horizontal)[0] for view in views]
+    changes = []
+
+    def count(_area):
+        changes.append(1)
+        if len(changes) == 50 * len(views):
+            for view in views:
+                view.chart().plotAreaChanged.disconnect()
+
+    for view in views:
+        view.chart().plotAreaChanged.connect(count)
+    for tile in range(150, 261):
+        changes.clear()
+        grid.resize(extra + 3 * tile + 30, grid.height())
+        QTest.qWait(70)
+        first = [axis.tickInterval() for axis in axes]
+        fired = []
+        QTimer.singleShot(0, lambda: fired.append(True))
+        QTest.qWait(100)
+        settled = fired and [axis.tickInterval() for axis in axes] == first
+        assert settled and len(changes) < 50 * len(views), (
+            f"ticks never settled at {views[0].width()} px"
+        )
 
 
 def test_tiles_too_small_to_judge_a_peak_scroll_at_the_large_size_instead(grid, qapp):
@@ -600,3 +661,4 @@ def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, samples, tile
 def test_icon_buttons_have_accessible_names(grid):
     assert grid.settings_button.accessibleName() == "Settings"
     assert ChartHeader("Peak area").expand_button.accessibleName() == "Enlarge peak area chart"
+

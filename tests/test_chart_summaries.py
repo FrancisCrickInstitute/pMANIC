@@ -186,11 +186,11 @@ def test_the_enlarged_abundance_chart_keeps_the_grid_selection(qapp, monkeypatch
             dialog.deleteLater()
 
 
-@pytest.mark.parametrize("count, scrolls", [(30, True), (3, False)])
+@pytest.mark.parametrize("count, height, scrolls", [(30, 330, True), (30, 720, False), (3, 330, False)])
 @pytest.mark.parametrize("make", [_abundance, _ratios])
-def test_thirty_samples_are_named_on_readable_rows_that_scroll(qapp, make, count, scrolls):
+def test_thirty_samples_are_named_on_readable_rows_that_scroll(qapp, make, count, height, scrolls):
     names = NAMES[:count]
-    widget = _shown(make(names))
+    widget = _shown(make(names), height)
     try:
         axis = widget.chart.axes(Qt.Vertical)[0]
         assert axis.labelsVisible()
@@ -199,9 +199,10 @@ def test_thirty_samples_are_named_on_readable_rows_that_scroll(qapp, make, count
         row = widget.chart.plotArea().height() / count
         assert row >= QFontMetrics(axis.labelsFont()).height()
         assert (widget.chart_area.verticalScrollBar().maximum() > 0) is scrolls
-        # Roomy rows carry larger names, up to the plot caption size.
+        # Roomy rows carry larger names, up to the plot caption size; 30 rows on a
+        # 27" monitor's panel (about 20 px each) read at 12 px.
         px = axis.labelsFont().pixelSize()
-        assert px == AXIS_LABEL_PX if scrolls else AXIS_LABEL_PX < px <= CAPTION_PX
+        assert px == AXIS_LABEL_PX if scrolls else AXIS_LABEL_PX + 2 <= px <= CAPTION_PX
     finally:
         widget.deleteLater()
 
@@ -305,6 +306,24 @@ def test_a_sample_with_no_ratio_shows_a_dash_and_explains_on_hover(qapp, monkeyp
         assert _hover(widget, "Bio_018", monkeypatch)[-1] == (
             "Bio_018\nNo ratio: this sample has no integrated peak area for this compound."
         )
+    finally:
+        widget.deleteLater()
+
+
+def _row_notes(widget) -> dict[str, str]:
+    """Each row note's sample and text."""
+    return {
+        _category(widget, item.pos() + item.boundingRect().center()): item.text()
+        for item in widget.chart.childItems()
+        if isinstance(item, QGraphicsSimpleTextItem) and item.isVisible()
+    }
+
+
+def test_a_peak_area_too_small_to_draw_reads_as_its_popup_value(qapp):
+    names = ["S1", "S2", "S3", "S4"]
+    widget = _shown(_abundance(names, [2e6, 0.0, float("nan"), 2e3]), 300)
+    try:
+        assert _row_notes(widget) == {"S2": "0", "S3": "—", "S4": "<0.01"}
     finally:
         widget.deleteLater()
 

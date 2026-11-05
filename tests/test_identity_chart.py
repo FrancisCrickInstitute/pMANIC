@@ -164,8 +164,11 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1"]
 
         assert widget.header.detail.text() == "2 samples failed"
-        key = "Qualifier cells  ■ ✓ Validated 1 ■ ✕ Failed 2 ■ Not assessed 0"
-        assert _plain(widget.key) == _plain(dialog.status_legend) == key
+        # The grid's QC key names the colours beside the Summary; the popup has its own.
+        assert _plain(widget.key) == "Qualifier cells   ✓ Validated 1   ✕ Failed 2   Not assessed 0"
+        assert _plain(dialog.status_legend) == (
+            "Qualifier cells  ■ ✓ Validated 1 ■ ✕ Failed 2 ■ Not assessed 0"
+        )
 
         configured = ChartPopupDialog.for_identity(
             _identity(["S1", "S2"], failed=("S2",), qualifiers=(V1, V2))
@@ -400,7 +403,7 @@ def test_long_sidebar_names_shorten_to_fit_instead_of_running_off(qapp):
         axis = widget.chart.axes(Qt.Vertical)[0]
         shown = list(reversed(axis.categories()))
         assert shown[0] == "MM_01" and len(set(shown)) == 3
-        assert shown[1].startswith("Sampl") and shown[1].endswith("fail") and "…" in shown[1]
+        assert shown[1].startswith("Samp") and shown[1].endswith("fail") and "…" in shown[1]
         metrics = QFontMetrics(axis.labelsFont())
         assert max(metrics.horizontalAdvance(n) for n in shown) <= widget.chart_view.width() * 0.4
         # Clicking the shortened row still selects the full sample name.

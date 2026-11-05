@@ -324,16 +324,21 @@ def _show_grid_with_viewport(grid, qapp, samples: int, width: int, height: int) 
 
 @pytest.mark.parametrize(
     ("samples", "shape", "text_size"),
-    [(30, (6, 0), (11, 13)), (96, (10, 0), (10, 12)), (200, (13, MIN_TILE[1]), (10, 12))],
+    [(30, (6, 0), (11, 13)), (96, (10, 0), (10, 12)), (200, (7, None), (11, 13))],
     ids=["30-large-tiles", "96-fit", "200-scroll"],
 )
-def test_tiles_fill_the_2560_screen_and_scroll_only_below_the_smallest(
+def test_tiles_fit_the_2560_screen_or_scroll_at_the_large_size(
     grid, qapp, samples, shape, text_size
 ):
     # The grid viewport of a 2560x1410 window with both side panels open.
     _show_grid_with_viewport(grid, qapp, samples, 1856, 1279)
     tile = _plots(grid)["S0"].parent()
-    assert grid._grid_shape == shape
+    columns, row_height = grid._grid_shape
+    assert columns == shape[0]
+    if shape[1] is None:  # scrolling: large tiles, not the smallest that would fit
+        assert row_height >= LARGE_TILE[1]
+    else:
+        assert row_height == shape[1]
     assert tile.text_size() == text_size
     assert tile.width() >= MIN_TILE[0] and tile.height() >= MIN_TILE[1]
     assert (grid._scroll.verticalScrollBar().maximum() > 0) == (samples == 200)
@@ -521,11 +526,11 @@ def test_chip_tooltip_appears_only_when_the_label_is_cut(qapp):
 
 
 @pytest.mark.parametrize(
-    ("samples", "tile"), [(30, MIN_TILE), (4, LARGE_TILE)], ids=["small-text", "large-text"]
+    ("samples", "tile"), [(4, MIN_TILE), (4, LARGE_TILE)], ids=["small-text", "large-text"]
 )
 def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, samples, tile):
     # Four tiles at the narrowest width for their text size fill the row.
-    _show_grid_with_viewport(grid, qapp, samples, 4 * tile[0] + 3 * 8, tile[1] + 4)
+    _show_grid_with_viewport(grid, qapp, samples, 4 * tile[0] + 3 * 8, tile[1] + 20)
     plot = _plots(grid)["S0"]
     assert plot.parent().width() <= tile[0]
     assert plot.parent().text_size() == ((11, 13) if tile == LARGE_TILE else (10, 12))

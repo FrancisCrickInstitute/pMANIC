@@ -654,13 +654,17 @@ class GraphView(QWidget):
         )
 
     def _place_tiles(self, force: bool = False) -> None:
-        """Lay the current tiles out as large as fits every one on screen, scrolling
-        only below the smallest readable tile, with text sized to the tiles."""
+        """Lay the current tiles out as large as fits every one on screen; when even the
+        smallest readable tiles cannot all fit, scroll at the large size instead."""
         tiles = [plot.parent() for plot in self._current_plots]
         width, height = self._grid_viewport()
         shape = grid_columns(
             len(tiles), width, height, min_width=MIN_TILE[0], min_height=MIN_TILE[1]
         )
+        if shape[1]:  # Scrolling anyway, so small tiles buy no overview: scroll large ones.
+            shape = grid_columns(
+                len(tiles), width, height, min_width=LARGE_TILE[0], min_height=LARGE_TILE[1]
+            )
         cols, row_height = shape
         rows = math.ceil(len(tiles) / cols) if tiles else 0
         text_size = tile_text_size(

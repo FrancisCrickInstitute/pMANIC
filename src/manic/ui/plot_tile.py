@@ -25,10 +25,9 @@ from manic.validation.unlabelled_identity import (
 TILE_GAP = 8
 TILE_ASPECT = 1.45
 
-# Tiles shrink to keep every sample on screen, down to this readable (width, height);
-# past that the grid scrolls at this size.
+# Tiles shrink to keep every sample on screen, down to this readable (width, height).
 MIN_TILE = (130, 95)
-# Tiles at least this big get the larger axis and caption text.
+# Tiles at least this big get the larger text; a grid that must scroll uses this size.
 LARGE_TILE = (230, 165)
 
 
@@ -39,8 +38,8 @@ def tile_text_size(width: float, height: float) -> tuple[int, int]:
     return AXIS_LABEL_PX, 12
 
 # Tile colour means the peak verdict, as in the exported workbook: Below threshold
-# red, Accepted purple, Marked bad tan (colors.verdict_colours, a solid badge on a
-# tinted card). Qualifier QC never tints the card; its badges are soft pills of
+# red, Accepted purple, Marked bad tan (colors.verdict_colours, a pastel pill on a
+# soft wash). Qualifier QC never tints the card; its badges are soft pills of
 # (text, fill) per tone, so they never read as a verdict.
 _QC_TONES = {
     "danger": ("danger", "danger_soft"),

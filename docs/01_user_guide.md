@@ -374,8 +374,10 @@ Right-click any plot in the main grid and select **Inspect *sample*...**, or dou
 * **Total Ion Chromatogram (TIC):** The global chromatogram for the sample, useful for checking if a peak shifted relative to major markers.
 * **Mass Spectrum:** The actual mass spectrum at the peak's retention time. Use this to confirm the spectral fingerprint matches your metabolite.
 
+Use the **‹ ›** buttons in the header, or the left and right arrow keys, to move to the previous or next sample in grid order without closing the window.
+
 ### Expanded Summary Plots
-The **Summary** section of the sidebar contains two charts: **Label incorporation** and **Total abundance**. In unlabelled mode, **Identity** replaces Label incorporation.
+The **Summary** section of the sidebar contains two charts: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
 
 * **Action:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
 * **Feature:** Both views name every sample on its axis. When a run has more samples than the sidebar chart has room for, the chart scrolls; selecting plots in the grid scrolls it to their bars.

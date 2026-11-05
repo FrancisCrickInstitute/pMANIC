@@ -21,7 +21,7 @@ from manic.utils.paths import resource_path
 from .sidebar_widgets import FilterField
 
 NO_STANDARD = "No internal standard"
-# Heads the compounds the export cannot calibrate with, as the sidebar's note words it.
+# Heads the compounds the export cannot calibrate with.
 NO_AMOUNT = "No amount: exports peak areas"
 NO_MATCH = "No matching compounds"
 VISIBLE_ROWS = 10

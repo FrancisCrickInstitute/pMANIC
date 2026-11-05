@@ -51,7 +51,7 @@ def test_standard_is_chosen_from_the_compounds_file(qapp, tmp_path, monkeypatch)
 
     picker.showPopup()
     chooser = picker.findChildren(StandardChooser)[-1]
-    rows = [chooser.list.item(r).text() for r in range(chooser.list.count())]
+    rows = [chooser.list.item(r).text() for r in range(chooser.list.count()) if not chooser.list.isRowHidden(r)]
     assert rows == ["No internal standard", "scyllo-Ins", "No amount: exports peak areas", "Alanine"]
     QTest.keyClicks(chooser.filter, "scy")
     QTest.keyClick(chooser.filter, Qt.Key_Return)

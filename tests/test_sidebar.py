@@ -256,6 +256,10 @@ def test_data_rows_report_load_state_without_counts_or_links(qapp):
     rows.update_status(True, True)
     assert raw.text() == ""
     assert raw.property("state") == "done"
+    assert [
+        QAccessible.queryAccessibleInterface(row).text(QAccessible.Text.Name)
+        for row in (rows.compounds_row, rows.raw_data_row)
+    ] == ["Compound list: done", "Raw data: done"]
 
 
 def test_compound_filter_narrows_list_and_enter_picks_first_match(qapp, stub_compound):

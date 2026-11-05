@@ -229,6 +229,9 @@ class StatusRow(QPushButton):
         self._icon.setPixmap(status_pixmap(state))
         self._value.setText(value)
         set_style_property(self._value, "state", state)
+        # The labels inside a button are not read out, and the tick is an icon only.
+        spoken = value or ("done" if state == "done" else "")
+        self.setAccessibleName(f"{self._title.text()}: {spoken}" if spoken else self._title.text())
 
 
 class FilterField(QLineEdit):

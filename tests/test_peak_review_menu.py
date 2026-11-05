@@ -381,7 +381,7 @@ def test_n_with_nothing_to_review_says_so(qapp, monkeypatch, plot_data):
         assert not review["Previous Flagged Sample"].isEnabled()
         QTest.keyClick(view, Qt.Key_N)
         [toast] = window.statusBar().findChildren(ToastNotification)
-        assert toast.findChild(QLabel, "toastLabel").text() == "No plots need review in Cmp"
+        assert toast.findChild(QLabel, "toastLabel").text() == "No flagged plots in Cmp"
 
         view.apply_peak_verdicts({"A": FAIL})
         assert _review_menu(window)["Next Flagged Sample"].isEnabled()

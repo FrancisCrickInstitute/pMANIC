@@ -632,7 +632,7 @@ class MainWindow(QMainWindow):
         view = self.graph_view
         if not view.focus_flagged(step) and view.has_plots():
             show_status_toast(
-                self.statusBar(), f"No plots need review in {view.get_current_compound()}"
+                self.statusBar(), f"No flagged plots in {view.get_current_compound()}"
             )
 
     def _trigger_review(self, action: QAction) -> None:

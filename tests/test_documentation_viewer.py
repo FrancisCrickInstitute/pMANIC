@@ -182,3 +182,25 @@ def test_a_guide_link_opens_its_page_at_the_section(viewer, docs_dir):
     viewer.web_view.page().runJavaScript("location.hash", 0, hashes.append)
     assert _wait(lambda: hashes)
     assert hashes == ["#fix-a-missing-qualifier-ratio"]
+
+
+def test_find_steps_through_matches_and_esc_closes_only_the_find_bar(viewer, docs_dir):
+    (docs_dir / "00_quick_start.md").write_text(
+        "# Quick Start\n\nA peak.\n\nAnother peak.\n\nThe last peak.\n", encoding="utf-8"
+    )
+    viewer.open()
+    assert _wait(viewer.is_rendered)
+    viewer.activateWindow()
+    assert QTest.qWaitForWindowActive(viewer)
+    QTest.keyClick(viewer.page_list, Qt.Key_F, Qt.ControlModifier)
+    assert viewer.find_bar.isVisible() and viewer.find_field.hasFocus()
+    QTest.keyClicks(viewer.find_field, "peak")
+    assert _wait(lambda: viewer.find_count.text() == "1 of 3")
+    QTest.keyClick(viewer.find_field, Qt.Key_Return)
+    assert _wait(lambda: viewer.find_count.text() == "2 of 3")
+    QTest.keyClick(viewer.find_field, Qt.Key_Return, Qt.ShiftModifier)
+    assert _wait(lambda: viewer.find_count.text() == "1 of 3")
+    QTest.keyClicks(viewer.find_field, "s")
+    assert _wait(lambda: viewer.find_count.text() == "No matches")
+    QTest.keyClick(viewer.find_field, Qt.Key_Escape)
+    assert not viewer.find_bar.isVisible() and viewer.isVisible()

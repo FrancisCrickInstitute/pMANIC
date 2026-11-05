@@ -4,9 +4,10 @@ import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut, QValidator
 from PySide6.QtWidgets import (
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -37,6 +38,8 @@ def toolbar_decimal_text_is_allowed(text: str) -> bool:
 
 
 PEAK_FIELDS = ("lo_input", "tr_input", "ro_input")
+# Non-breaking, so a wrapped caption never strands "·" or "not" at a line end.
+NOT_APPLIED = "\u00a0·\u00a0not\u00a0applied"
 
 
 def _field_value(text: str) -> str:
@@ -207,6 +210,9 @@ class IntegrationWindow(QWidget):
     # Signal emitted when restore button is clicked and session data is cleared
     session_data_restored = Signal(str, list)  # compound_name, sample_names
 
+    # The fields, the selection or an unapplied edit changed.
+    state_changed = Signal()
+
     # Signal emitted when regenerate button is clicked (for future implementation)
     data_regeneration_requested = Signal(
         str, float, list, object
@@ -236,6 +242,10 @@ class IntegrationWindow(QWidget):
         # What the peak fields last loaded, and each target's unapplied edit until Apply or Reset.
         self._loaded: Dict[str, str] = {}
         self._drafts: Dict[Tuple[str, Tuple[str, ...]], Dict[str, str]] = {}
+        # The tR window is per compound, whatever the selection, so its draft is too.
+        self._window_compound = ""
+        self._loaded_window = ""
+        self._window_drafts: Dict[str, str] = {}
 
         self._build_ui()
         self._update_apply_button_state()
@@ -255,17 +265,10 @@ class IntegrationWindow(QWidget):
     ):
         """Show a message using the main window's styled message box helper."""
         main_window = self._get_main_window()
-        if main_window and hasattr(main_window, "_create_message_box"):
-            create_box = getattr(main_window, "_create_message_box")
-            msg_box = create_box(msg_type, title, text, informative_text, self)
-            return msg_box.exec()
+        if main_window:
+            main_window._create_message_box(msg_type, title, text, informative_text, self).exec()
         else:
-            # Fallback to standard message box if main window not found
-            if msg_type == "question":
-                return QMessageBox.question(self, title, text)
-            else:
-                getattr(QMessageBox, msg_type)(self, title, text)
-                return None
+            getattr(QMessageBox, msg_type)(self, title, text)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -320,7 +323,6 @@ class IntegrationWindow(QWidget):
 
         self.apply_button = QPushButton("Apply")
         self.apply_button.setObjectName("ApplyButton")
-        self.apply_button.setProperty("variant", "primary")
         self.apply_button.clicked.connect(self._on_apply_clicked)
         apply_key = QKeySequence("Ctrl+Return")
         self._apply_key_text = apply_key.toString(QKeySequence.SequenceFormat.NativeText)
@@ -345,6 +347,7 @@ class IntegrationWindow(QWidget):
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
         # Enable Enter key to trigger regeneration (same as clicking Apply window)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
+        self.tr_window_edit.textEdited.connect(self._update_apply_button_state)
         self.regenerate_button = QPushButton("Apply window")
         self.regenerate_button.setObjectName("RegenerateButton")
         self.regenerate_button.setToolTip("Ignores the plot selection")
@@ -372,10 +375,50 @@ class IntegrationWindow(QWidget):
         # heading that names them, so the editor above stays whole.
         self.more = CollapsibleSection("Baseline, tR window", rows, sub=True)
         self.more.set_headless(True)
-        self.more.toggled.connect(self.more.summary.setHidden)
-        self.more.summary.setHidden(self.more.is_expanded())
         layout.addWidget(self.more)
         layout.addStretch(1)
+        # Folded, the rows open beside the sidebar, so the lists keep their rows.
+        self._popover = QFrame(self, Qt.WindowType.Popup)
+        self._popover.setObjectName("lowerPopover")
+        self._popover.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)
+        QVBoxLayout(self._popover).setContentsMargins(12, 10, 12, 10)
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self._popover, self._popover.close)
+        self._popover.installEventFilter(self)
+        self.more.toggled.connect(self._open_popover)
+
+    def set_folded(self, folded: bool) -> None:
+        """Fold the rows below the editor behind their heading, where they open in the
+        popover, or show them as plain rows."""
+        rows = self.more.body
+        home = self._popover if folded else self.more
+        if rows.parentWidget() is not home:
+            self._popover.close()
+            rows.setMinimumWidth(0)
+            rows.setMaximumWidth(16777215)
+            home.layout().addWidget(rows)
+        self.more.set_headless(not folded)
+
+    def _open_popover(self, expanded: bool) -> None:
+        if not expanded or self.more.header.isHidden():
+            return
+        rows = self.more.body
+        rows.setFixedWidth(self.width())  # wraps as it does in the sidebar
+        # Settle the wrapped hint at that width before measuring.
+        self._popover.layout().activate()
+        self._popover.resize(self._popover.sizeHint())
+        heading = self.more.header
+        # Past the sidebar's edge, its bottom level with the heading's.
+        corner = heading.mapToGlobal(QPoint(heading.width() + 24, heading.height()))
+        screen = heading.screen().availableGeometry()
+        top = max(corner.y() - self._popover.height(), screen.top())
+        self._popover.move(min(corner.x(), screen.right() - self._popover.width()), top)
+        self._popover.show()
+        rows.focusNextChild()
+
+    def eventFilter(self, watched, event):
+        if watched is self._popover and event.type() == QEvent.Type.Hide:
+            self.more.set_expanded(False)
+        return super().eventFilter(watched, event)
 
     def _editor_height(self, width: int) -> int:
         height = self.editor.heightForWidth(width)
@@ -395,13 +438,11 @@ class IntegrationWindow(QWidget):
         return False
 
     def lower_height(self, whole: bool) -> int:
-        """Height of the rows below the editor: all of them as plain rows, or as they show
-        now, folded behind their heading open or closed as the user left it."""
-        rows = self.more.body.sizeHint().height()
+        """Height of the rows below the editor: all of them as plain rows, or their heading
+        once folded (they open in a popover)."""
         if whole or self.more.header.isHidden():
-            return rows
-        heading = self.more.header.minimumHeight()
-        return heading + (self.more.layout().spacing() + rows if self.more.is_expanded() else 0)
+            return self.more.body.sizeHint().height()
+        return self.more.header.minimumHeight()
 
     def sizeHint(self) -> QSize:
         hint = super().sizeHint()
@@ -444,11 +485,18 @@ class IntegrationWindow(QWidget):
                 compound_data = read_compound(compound_name)
                 tr_window_value = getattr(compound_data, "tr_window", 0.2)
 
-            tr_window_field = self.findChild(QLineEdit, "tr_window_input")
-            if tr_window_field:
-                tr_window_field.setText(self._format_number(tr_window_value))
-
-
+            field = self.tr_window_edit
+            if self.has_window_draft():
+                self._window_drafts[self._window_compound] = field.text()
+            else:
+                self._window_drafts.pop(self._window_compound, None)
+            field.setText(self._format_number(tr_window_value))
+            self._window_compound = compound_name
+            self._loaded_window = field.text()
+            draft = self._window_drafts.pop(compound_name, None)
+            if draft is not None and _field_value(draft) != _field_value(self._loaded_window):
+                field.setText(draft)
+            self._update_apply_button_state()
         except Exception as e:
             logger.exception("Error populating tR window field: %s", e)
 
@@ -457,8 +505,11 @@ class IntegrationWindow(QWidget):
         if compound_dict is None:
             # A cleared session leaves no edit to come back to.
             self._clear_fields()
+            self.tr_window_edit.clear()
             self._drafts.clear()
+            self._window_drafts.clear()
             self._loaded = self._field_texts()
+            self._loaded_window = ""
             self._update_apply_button_state()
             return
 
@@ -478,11 +529,9 @@ class IntegrationWindow(QWidget):
                     line_edit.setText("")
 
     def _clear_fields(self):
-        """Clear all line edit fields"""
-        for obj_name in ["lo_input", "tr_input", "ro_input", "tr_window_input"]:
-            line_edit = self.findChild(QLineEdit, obj_name)
-            if line_edit:
-                line_edit.clear()
+        """Clear the peak fields; the tR window has its own loader and draft."""
+        for obj_name in PEAK_FIELDS:
+            self.findChild(QLineEdit, obj_name).clear()
 
     def _field_texts(self) -> Dict[str, str]:
         return {name: self.findChild(QLineEdit, name).text() for name in PEAK_FIELDS}
@@ -492,6 +541,11 @@ class IntegrationWindow(QWidget):
 
     def _has_draft(self) -> bool:
         return bool(self._current_compound) and _differs(self._field_texts(), self._loaded)
+
+    def has_window_draft(self) -> bool:
+        return bool(self._window_compound) and _field_value(
+            self.tr_window_edit.text()
+        ) != _field_value(self._loaded_window)
 
     def populate_fields_from_plots(
         self, compound_name: str, selected_samples: list, all_samples: Optional[list] = None
@@ -710,8 +764,10 @@ class IntegrationWindow(QWidget):
         else:
             scope = ""  # all shown samples, the default; the canvas explains an empty grid
         if edited:
-            scope = f"{scope} · not applied" if scope else "Not applied"
+            scope = f"{scope}{NOT_APPLIED}" if scope else "Not applied"
         self.scope_label.setText(scope)
+        # Primary only while there is an edit to apply; still enabled to re-apply a mixed selection.
+        set_style_property(self.apply_button, "variant", "primary" if edited else None)
         self.scope_label.setVisible(bool(scope))
         set_style_property(
             self.scope_label,
@@ -727,10 +783,14 @@ class IntegrationWindow(QWidget):
                 "Restore all shown samples to the compound's default peak window"
             )
         shown = len(self._all_samples)
+        window_edited = self.has_window_draft()
         self.window_scope_label.setText(
             f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
+            + (NOT_APPLIED if window_edited else "")
         )
         self.window_scope_label.setVisible(bool(self._current_compound and shown))
+        set_style_property(self.window_scope_label, "state", "edited" if window_edited else None)
+        self.state_changed.emit()
 
     def _get_samples_needing_reload(
         self,
@@ -1002,19 +1062,21 @@ class IntegrationWindow(QWidget):
             )
             return
 
-        # Confirm restore action
         sample_count = len(samples_to_restore)
-        if self._selected_samples:
-            if sample_count == 1:
-                message = f"Restore {samples_to_restore[0]} to default values?"
-            else:
-                message = f"Restore {sample_count} selected samples to default values?"
+        if not self._selected_samples:
+            target = f"all {sample_count} shown samples"
+        elif sample_count == 1:
+            target = samples_to_restore[0]
         else:
-            message = f"Restore all {sample_count} samples to default values?"
-
-        reply = self._show_message("question", "Confirm Restore", message)
-
-        if reply == QMessageBox.StandardButton.Yes:
+            target = f"{sample_count} selected samples"
+        main_window = self._get_main_window()
+        if main_window is not None and main_window._confirm(
+            "Reset Peak Window",
+            f"Reset {target} to the compound's default peak window?",
+            "",
+            "Reset Peak Window",
+            self,
+        ):
             # Reset discards the unapplied edit along with the stored one.
             self._drafts.pop(self._draft_key(), None)
             self._loaded = self._field_texts()

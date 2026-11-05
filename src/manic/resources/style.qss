@@ -830,13 +830,19 @@ QLabel#statusValue[state="blocked"] {
     color: @text_tertiary;
 }
 
+/* A chosen standard export cannot calibrate with. */
+QLabel#standardNote {
+    color: @warning;
+}
+
 QLabel#peakScope[state="selected"] {
     color: @accent;
     font-weight: 500;
 }
 
 /* Typed but not applied: attention, not a verdict. */
-QLabel#peakScope[state="edited"] {
+QLabel#peakScope[state="edited"],
+QLabel#windowScope[state="edited"] {
     color: @warning;
     font-weight: 500;
 }
@@ -915,6 +921,12 @@ QDialog#settingsWindow QScrollArea > QWidget,
 QDialog#settingsWindow QStackedWidget,
 QDialog#settingsWindow QStackedWidget > QWidget {
     background-color: transparent;
+}
+
+/* The Peak window's folded rows, opened beside the sidebar. A popup window is opaque, so square. */
+QFrame#lowerPopover {
+    background-color: @surface;
+    border: 1px solid @border_strong;
 }
 
 /* The inspector's section switcher on a short sidebar: same shape as the grid's density switch. */

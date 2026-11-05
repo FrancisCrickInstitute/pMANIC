@@ -1,5 +1,5 @@
 import pytest
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog
 
 import manic.ui.main_window as main_window_module
 from manic.models.analysis import AnalysisMode
@@ -23,7 +23,7 @@ def test_export_asks_for_options_before_the_location(qapp, monkeypatch):
 
     monkeypatch.setattr(ExportOptionsDialog, "exec", options_exec)
     monkeypatch.setattr(main_window_module.QFileDialog, "getSaveFileName", save_name)
-    monkeypatch.setattr(window, "_show_question_dialog", lambda *a: QMessageBox.No)
+    monkeypatch.setattr(window, "_confirm", lambda *a: False)
     try:
         assert window.use_legacy_integration is False
         window.export_data()

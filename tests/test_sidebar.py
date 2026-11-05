@@ -2,7 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
-from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
+from PySide6.QtTest import QTest
+from PySide6.QtGui import QAccessible, QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QLineEdit, QMenu, QWidget
 
 from manic.models import database
@@ -182,6 +183,39 @@ def test_internal_standard_row_is_optional_until_chosen(qapp):
     assert row.internal_standard is None
     assert value.text() == "None"
     assert value.property("state") == "optional"
+
+
+@pytest.mark.parametrize(
+    "mode, needs_mix", [(AnalysisMode.LABELLED, True), (AnalysisMode.UNLABELLED, False)]
+)
+def test_a_standard_without_an_amount_says_how_it_will_export(qapp, mode, needs_mix):
+    note = "No amount: exports peak areas"
+    with database.get_connection() as conn:
+        for name, amount, mix in (
+            ("Palatinose", None, 1.0),
+            ("Norvaline", 2.0, None),
+            ("Scyllo", 2.0, 1.0),
+        ):
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+                "mass0, label_atoms, int_std_amount, amount_in_std_mix) "
+                "VALUES (?, 1.0, 0.1, 0.1, 217.0, 0, ?, ?)",
+                (name, amount, mix),
+            )
+    toolbar = Toolbar(mode)
+    try:
+        toolbar.update_compound_list(["Palatinose", "Norvaline", "Scyllo"])
+        shown = {}
+        for name in ("Palatinose", "Norvaline", "Scyllo"):
+            menu = _open_standard_menu(toolbar)
+            next(a for a in menu.actions() if a.text() == name).trigger()
+            menu.close()
+            shown[name] = None if toolbar.standard.note.isHidden() else toolbar.standard.note.text()
+        assert shown == {"Palatinose": note, "Norvaline": note if needs_mix else None, "Scyllo": None}
+        toolbar.on_internal_standard_cleared()
+        assert toolbar.standard.note.isHidden()
+    finally:
+        toolbar.deleteLater()
 
 
 def test_data_rows_report_load_state_without_counts_or_links(qapp):
@@ -446,6 +480,20 @@ def test_internal_standard_menu_checks_the_current_choice(qapp):
         toolbar.deleteLater()
 
 
+def test_settings_opens_the_same_standard_menu_where_it_asks(qapp, monkeypatch):
+    window = _make_window(monkeypatch)
+    try:
+        window.toolbar.update_compound_list(["Alanine", "Glycine"])
+        window.choose_internal_standard(QPoint(120, 90))
+        menu = window.toolbar.standard.findChildren(QMenu)[-1]
+        assert menu.pos() == QPoint(120, 90)
+        next(a for a in menu.actions() if a.text() == "Glycine").trigger()
+        menu.close()
+        assert _value(window.toolbar.standard).text() == "Glycine"
+    finally:
+        window.close()
+
+
 def test_sections_collapse_and_remember(qapp, stub_compound):
     toolbar = _sidebar(1400)
     try:
@@ -619,6 +667,36 @@ def test_switcher_leaves_once_there_is_room_and_sections_keep_their_state(qapp, 
         tall.deleteLater()
 
 
+def test_a_shrinking_compound_list_keeps_the_current_compound_in_view(qapp):
+    toolbar = _sidebar(1400, samples_open=True)
+    compounds = toolbar.compound_list
+    try:
+        compounds.setCurrentRow(40)
+        toolbar.resize(296, 560)
+        _settle(toolbar)
+        row = compounds.visualItemRect(compounds.currentItem())
+        assert compounds.viewport().rect().contains(row)
+    finally:
+        toolbar.deleteLater()
+
+
+def test_a_caption_or_note_takes_its_line_from_the_lists_not_the_window(qapp):
+    # Just tall enough for the lists' hard rows beside the folded Peak window.
+    _add_compound("Compound 0")
+    toolbar = _sidebar(560, samples_open=True)
+    integration = toolbar.integration
+    try:
+        integration.populate_fields_from_plots("Compound 0", ["Bio_001"], ["Bio_001", "Bio_002"])
+        toolbar.on_internal_standard_selected("Compound 0")  # no amount: its note shows
+        _settle(toolbar)
+        assert integration.scope_label.isVisible() and toolbar.standard.note.isVisible()
+        assert toolbar.minimumSizeHint().height() <= 560
+        assert _full_rows(toolbar.compound_list) >= 1 and _full_rows(toolbar.sample_list) >= 1
+        assert _in_view(toolbar, integration.apply_button)
+    finally:
+        toolbar.deleteLater()
+
+
 @pytest.mark.parametrize("height, folded", [(LAPTOP_640, True), (LAPTOP_720, False)])
 def test_short_sidebar_keeps_the_editor_whole_and_folds_the_rows_below_behind_their_names(
     qapp, height, folded
@@ -646,16 +724,22 @@ def test_short_sidebar_keeps_the_editor_whole_and_folds_the_rows_below_behind_th
                 continue
             assert not any(widget.isVisible() for widget in below)
             assert "Baseline, tR window" in [label.text() for label in heading.findChildren(QLabel)]
+            assert QAccessible.queryAccessibleInterface(heading).text(QAccessible.Name) == (
+                "Baseline, tR window"
+            )
 
-            # Opened, every row shows whole in the same sidebar; the lists give up rows.
+            # Opened, the rows show whole beside the sidebar; the lists and editor keep theirs.
             heading.click()
             _settle(toolbar)
-            assert toolbar.height() == height
-            assert heading.isVisible()
-            assert all(_in_view(toolbar, widget) for widget in editor + below), selected
-            heading.click()
+            popover = toolbar.baseline_checkbox.window()
+            assert popover is not toolbar.window() and popover.isVisible()
+            assert all(widget.isVisible() for widget in below), selected
+            assert popover.geometry().left() >= toolbar.mapToGlobal(toolbar.rect().topRight()).x()
+            assert _full_rows(toolbar.sample_list) >= 3
+            assert all(_in_view(toolbar, widget) for widget in editor), selected
+            QTest.keyClick(popover, Qt.Key_Escape)
             _settle(toolbar)
             assert not any(widget.isVisible() for widget in below)
-            assert _full_rows(toolbar.sample_list) >= 3
+            assert not heading.parentWidget().is_expanded()
     finally:
         toolbar.deleteLater()

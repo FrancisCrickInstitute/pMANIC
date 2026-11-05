@@ -4,9 +4,10 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt, QThread, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QDesktopServices,
     QIcon,
     QKeySequence,
@@ -207,19 +208,13 @@ class MainWindow(QMainWindow):
         """Handle the result of the update check."""
         self._show_update_check_toast(success, has_update, latest_version)
 
-        if has_update:
-            msg = self._create_message_box(
-                "information",
-                "New Version Available",
-                f"A new version of MANIC is available (v{latest_version}).",
-                "Would you like to view the release page to download it?",
-            )
-            # Add Yes/No buttons manually since _create_message_box is generic
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg.setDefaultButton(QMessageBox.Yes)
-
-            if msg.exec() == QMessageBox.Yes:
-                QDesktopServices.openUrl(QUrl(url))
+        if has_update and self._confirm(
+            "New Version Available",
+            f"MANIC v{latest_version} is available.",
+            "",
+            "View Release Page",
+        ):
+            QDesktopServices.openUrl(QUrl(url))
 
     def _show_update_check_toast(
         self,
@@ -468,6 +463,20 @@ class MainWindow(QMainWindow):
         view_menu = menu_bar.addMenu("View")
         self.view_menu = view_menu
         view_menu.setToolTipsVisible(True)
+        # The grid header's density switch, for the keyboard.
+        density = QActionGroup(view_menu)
+        for key, text in (("compact", "Compact"), ("comfortable", "Comfortable")):
+            action = density.addAction(text)
+            action.setCheckable(True)
+            action.setData(key)
+            action.triggered.connect(lambda _checked=False, k=key: self.graph_view.set_density(k))
+            view_menu.addAction(action)
+        view_menu.aboutToShow.connect(
+            lambda: next(
+                a for a in density.actions() if a.data() == self.graph_view.density()
+            ).setChecked(True)
+        )
+        view_menu.addSeparator()
         shortcuts = {"Shared Y-Scale": "Ctrl+Shift+Y", "Scale to Selected Peak": "Ctrl+Shift+P"}
         for action in self.toolbar.scale_actions():
             action.setShortcut(QKeySequence(shortcuts[action.text()]))
@@ -524,7 +533,7 @@ class MainWindow(QMainWindow):
             # macOS hides shortcuts in a menu it opens outside the menu bar.
             action.setShortcutVisibleInContextMenu(True)
 
-        def verdict_key(action: QAction, key) -> None:
+        def letter_key(action: QAction, key) -> None:
             # A bare letter, so it acts only while the grid has focus, never in a text field.
             action.setShortcut(QKeySequence(key))
             action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
@@ -555,13 +564,22 @@ class MainWindow(QMainWindow):
         menu.addAction(self.show_all_samples_action)
         menu.addSeparator()
 
+        # The review loop: reach the next flagged sample, then judge it.
+        self.next_flagged_action = QAction("Next Flagged Sample", self)
+        self.next_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(1))
+        letter_key(self.next_flagged_action, Qt.Key_N)
+        menu.addAction(self.next_flagged_action)
+        self.previous_flagged_action = QAction("Previous Flagged Sample", self)
+        self.previous_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(-1))
+        letter_key(self.previous_flagged_action, Qt.SHIFT | Qt.Key_N)
+        menu.addAction(self.previous_flagged_action)
         self.accept_peak_action = QAction("Accept Peak (Below Threshold)", self)
         self.accept_peak_action.triggered.connect(
             lambda: self._with_review_lead(
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.ACCEPTED)
             )
         )
-        verdict_key(self.accept_peak_action, Qt.Key_A)
+        letter_key(self.accept_peak_action, Qt.Key_A)
         menu.addAction(self.accept_peak_action)
         self.reject_peak_action = QAction("Mark Peak as Bad", self)
         self.reject_peak_action.triggered.connect(
@@ -569,7 +587,7 @@ class MainWindow(QMainWindow):
                 lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.REJECTED)
             )
         )
-        verdict_key(self.reject_peak_action, Qt.Key_B)
+        letter_key(self.reject_peak_action, Qt.Key_B)
         menu.addAction(self.reject_peak_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
         menu.addSeparator()
@@ -593,7 +611,12 @@ class MainWindow(QMainWindow):
 
     def _sync_review_menu(self, *_args) -> None:
         view = self.graph_view
-        self.select_all_plots_action.setEnabled(view.has_plots())
+        for action in (
+            self.select_all_plots_action,
+            self.next_flagged_action,
+            self.previous_flagged_action,
+        ):
+            action.setEnabled(view.has_plots())
         self.deselect_plots_action.setEnabled(bool(view.get_selected_samples()))
         view.update_review_actions(
             view.review_lead(),
@@ -766,21 +789,16 @@ class MainWindow(QMainWindow):
 
         return msg_box
 
-    def _show_question_dialog(
-        self,
-        title: str,
-        text: str,
-        informative_text: str = "",
-        parent=None,
-        default_button=None,
-    ) -> int:
-        """Show a question dialog and return the result (QMessageBox.Yes or QMessageBox.No)."""
-        msg_box = self._create_message_box(
-            "question", title, text, informative_text, parent
-        )
-        if default_button is not None:
-            msg_box.setDefaultButton(default_button)
-        return msg_box.exec()
+    def _confirm(
+        self, title: str, text: str, informative_text: str, verb: str, parent=None
+    ) -> bool:
+        """Ask before acting: the button names the action, and Return cancels."""
+        box = self._create_message_box("question", title, text, informative_text, parent)
+        box.setStandardButtons(QMessageBox.Cancel)
+        act = box.addButton(verb, QMessageBox.AcceptRole)
+        box.setDefaultButton(QMessageBox.Cancel)
+        box.exec()
+        return box.clickedButton() is act
 
     def _show_message(
         self, msg_type: str, title: str, text: str, informative_text: str = ""
@@ -904,13 +922,13 @@ class MainWindow(QMainWindow):
             return
 
         if self.compound_data_loaded or self.cdf_data_loaded:
-            reply = self._show_question_dialog(
+            if not self._confirm(
                 "New Analysis Session",
                 "Starting a new session will clear all loaded data.",
                 "Compound data, raw data, and results in this session will be "
                 "removed. Export anything you want to keep first.",
-            )
-            if reply != QMessageBox.Yes:
+                "Start New Session",
+            ):
                 return
 
         if preset_mode is not None:
@@ -960,12 +978,7 @@ class MainWindow(QMainWindow):
                     "An import or reload is still running. Quitting now leaves "
                     "the database partly written."
                 )
-            reply = self._show_question_dialog(
-                "Quit MANIC?",
-                quit_text,
-                default_button=QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
+            if not self._confirm("Quit MANIC?", quit_text, "", "Quit"):
                 event.ignore()
                 return
             if running == "_export_thread":
@@ -974,12 +987,12 @@ class MainWindow(QMainWindow):
                 if self._export_thread is not None:
                     self._export_thread.wait()
         elif self.compound_data_loaded or self.cdf_data_loaded:
-            reply = self._show_question_dialog(
+            if not self._confirm(
                 "Quit MANIC?",
                 "This session is not saved. Use File > Export Method... to keep the compound settings before quitting.",
-                default_button=QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
+                "",
+                "Quit",
+            ):
                 event.ignore()
                 return
         event.accept()
@@ -2118,18 +2131,13 @@ class MainWindow(QMainWindow):
             if has_overrides:
                 info_lines.append("Any existing session overrides will be replaced.")
             if has_deletion_data:
-                info_lines.append("Compound and sample deletion states will be synchronized.")
-            confirm = self._create_message_box(
-                "question",
+                info_lines.append("Deleted compounds and samples will match the file.")
+            if not self._confirm(
                 "Import Session Overrides",
                 f"Import {Path(file_path).name}?",
                 "\n".join(info_lines),
-            )
-            confirm.setStandardButtons(QMessageBox.Cancel)
-            import_button = confirm.addButton("Import Overrides", QMessageBox.AcceptRole)
-            confirm.setDefaultButton(QMessageBox.Cancel)
-            confirm.exec()
-            if confirm.clickedButton() is not import_button:
+                "Import Overrides",
+            ):
                 return
 
             # Import the session overrides
@@ -2299,6 +2307,9 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")
+
+    def choose_internal_standard(self, global_pos: QPoint) -> None:
+        self.toolbar.show_internal_standard_menu(global_pos)
 
     def open_settings_window(self) -> None:
         if self.settings_window is None:
@@ -2824,17 +2835,17 @@ class MainWindow(QMainWindow):
             internal_standard_for_export = internal_standard
 
             if not internal_standard:
-                reply = self._show_question_dialog(
+                if not self._confirm(
                     "No Internal Standard Selected",
-                    "You have not selected an internal standard. Proceed with export?",
+                    "You have not selected an internal standard. Export anyway?",
                     (
                         "Results will contain quantifier-ion peak areas."
                         if self.analysis_mode is AnalysisMode.UNLABELLED
                         else "Abundance values will represent 'Peak Area' "
                         "(sum of corrected isotopologues)."
                     ),
-                )
-                if reply != QMessageBox.Yes:
+                    "Export",
+                ):
                     return
             elif self.analysis_mode is AnalysisMode.LABELLED:
                 ok, problems = validate_internal_standard_metadata(
@@ -2843,11 +2854,11 @@ class MainWindow(QMainWindow):
                 )
                 if not ok:
                     problems_text = "\n".join(f"• {p}" for p in problems)
-                    reply = self._show_question_dialog(
+                    if not self._confirm(
                         "Internal Standard Metadata Missing",
                         (
                             f"Internal standard '{internal_standard}' is missing required metadata. "
-                            "Proceed with export in Peak Area mode instead?"
+                            "Export peak areas instead?"
                         ),
                         (
                             "Fix the compound list and re-import to enable calibrated Abundances.\n\n"
@@ -2855,8 +2866,8 @@ class MainWindow(QMainWindow):
                             f"{problems_text}\n\n"
                             "If you continue, MANIC will export without an internal standard."
                         ),
-                    )
-                    if reply != QMessageBox.Yes:
+                        "Export Peak Areas",
+                    ):
                         return
                     internal_standard_for_export = None
 

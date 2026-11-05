@@ -9,6 +9,11 @@ from manic.models.analysis import AnalysisMode
 from manic.ui.integration_window_widget import IntegrationWindow
 
 
+def _caption(label) -> str:
+    """A caption as it reads: its non-breaking spaces are spaces."""
+    return label.text().replace("\u00a0", " ")
+
+
 def test_apply_window_states_that_it_re_extracts_every_shown_sample(qapp, monkeypatch):
     with database.get_connection() as conn:
         conn.execute(
@@ -24,13 +29,13 @@ def test_apply_window_states_that_it_re_extracts_every_shown_sample(qapp, monkey
     shown = ["S1", "S2", "S3"]
     try:
         integration.populate_fields_from_plots("Alanine", [], shown)
-        assert integration.window_scope_label.text() == "Re-extracts all 3 shown samples"
+        assert _caption(integration.window_scope_label) == "Re-extracts all 3 shown samples"
         assert integration.apply_button.toolTip().startswith("Apply to all shown samples")
 
         integration.populate_fields_from_plots("Alanine", ["S2"], shown)
-        assert integration.scope_label.text() == "Applies to S2"
+        assert _caption(integration.scope_label) == "Applies to S2"
         assert integration.apply_button.text() == "Apply"
-        assert integration.window_scope_label.text() == "Re-extracts all 3 shown samples"
+        assert _caption(integration.window_scope_label) == "Re-extracts all 3 shown samples"
 
         integration.tr_window_edit.setText("0.5")
         integration.regenerate_button.click()
@@ -86,15 +91,17 @@ def test_an_unapplied_edit_comes_back_with_its_compound_and_says_so(qapp, monkey
     shown = ["S1", "S2"]
     try:
         integration.populate_fields_from_plots("Alanine", ["S2"], shown)
+        assert integration.apply_button.property("variant") is None
         left.selectAll()
         QTest.keyClicks(left, "0.05")
-        assert integration.scope_label.text() == "Applies to S2 · not applied"
+        assert _caption(integration.scope_label) == "Applies to S2 · not applied"
+        assert integration.apply_button.property("variant") == "primary"
 
         integration.populate_fields_from_plots("Glycine", ["S2"], shown)
-        assert (left.text(), integration.scope_label.text()) == ("0.2", "Applies to S2")
+        assert (left.text(), _caption(integration.scope_label)) == ("0.2", "Applies to S2")
 
         integration.populate_fields_from_plots("Alanine", ["S2"], shown)
-        assert (left.text(), integration.scope_label.text()) == (
+        assert (left.text(), _caption(integration.scope_label)) == (
             "0.05",
             "Applies to S2 · not applied",
         )
@@ -102,6 +109,46 @@ def test_an_unapplied_edit_comes_back_with_its_compound_and_says_so(qapp, monkey
         # Applied, the app shows the stored window again: the same value, no longer a draft.
         integration.apply_button.click()
         integration.populate_fields_from_plots("Alanine", ["S2"], shown)
-        assert (left.text(), integration.scope_label.text()) == ("0.05", "Applies to S2")
+        assert (left.text(), _caption(integration.scope_label)) == ("0.05", "Applies to S2")
+    finally:
+        integration.deleteLater()
+
+
+def test_an_unapplied_tr_window_comes_back_with_its_compound_and_says_so(qapp, monkeypatch):
+    with database.get_connection() as conn:
+        for name in ("Alanine", "Glycine"):
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+                "mass0, label_atoms) VALUES (?, 1.0, 0.1, 0.1, 217.0, 0)",
+                (name,),
+            )
+    integration = IntegrationWindow(AnalysisMode.LABELLED)
+    monkeypatch.setattr(
+        integration, "_show_message", lambda *a, **k: pytest.fail(f"message box: {a}")
+    )
+    window = integration.tr_window_edit
+    shown = ["S1", "S2"]
+
+    def show(compound):
+        integration.populate_fields_from_plots(compound, [], shown)
+        integration.populate_tr_window_field(compound)
+
+    try:
+        show("Alanine")
+        window.selectAll()
+        QTest.keyClicks(window, "0.37")
+        assert _caption(integration.window_scope_label) == "Re-extracts all 2 shown samples · not applied"
+
+        show("Glycine")
+        assert (window.text(), _caption(integration.window_scope_label)) == (
+            "0.2",
+            "Re-extracts all 2 shown samples",
+        )
+
+        show("Alanine")
+        assert (window.text(), _caption(integration.window_scope_label)) == (
+            "0.37",
+            "Re-extracts all 2 shown samples · not applied",
+        )
     finally:
         integration.deleteLater()

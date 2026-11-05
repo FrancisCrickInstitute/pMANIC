@@ -830,6 +830,11 @@ QLabel#statusValue[state="blocked"] {
     color: @text_tertiary;
 }
 
+/* A chosen standard export cannot calibrate with. */
+QLabel#standardNote {
+    color: @warning;
+}
+
 QLabel#peakScope[state="selected"] {
     color: @accent;
     font-weight: 500;

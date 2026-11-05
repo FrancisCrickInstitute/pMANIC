@@ -184,6 +184,42 @@ def test_internal_standard_row_is_optional_until_chosen(qapp):
     assert value.property("state") == "optional"
 
 
+@pytest.mark.parametrize(
+    "mode, needs_mix, note",
+    [
+        (AnalysisMode.LABELLED, True, "No amount: abundances export as peak areas"),
+        (AnalysisMode.UNLABELLED, False, "No amount: results export as peak areas"),
+    ],
+)
+def test_a_standard_without_an_amount_says_how_it_will_export(qapp, mode, needs_mix, note):
+    with database.get_connection() as conn:
+        for name, amount, mix in (
+            ("Palatinose", None, 1.0),
+            ("Norvaline", 2.0, None),
+            ("Scyllo", 2.0, 1.0),
+        ):
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+                "mass0, label_atoms, int_std_amount, amount_in_std_mix) "
+                "VALUES (?, 1.0, 0.1, 0.1, 217.0, 0, ?, ?)",
+                (name, amount, mix),
+            )
+    toolbar = Toolbar(mode)
+    try:
+        toolbar.update_compound_list(["Palatinose", "Norvaline", "Scyllo"])
+        shown = {}
+        for name in ("Palatinose", "Norvaline", "Scyllo"):
+            menu = _open_standard_menu(toolbar)
+            next(a for a in menu.actions() if a.text() == name).trigger()
+            menu.close()
+            shown[name] = None if toolbar.standard.note.isHidden() else toolbar.standard.note.text()
+        assert shown == {"Palatinose": note, "Norvaline": note if needs_mix else None, "Scyllo": None}
+        toolbar.on_internal_standard_cleared()
+        assert toolbar.standard.note.isHidden()
+    finally:
+        toolbar.deleteLater()
+
+
 def test_data_rows_report_load_state_without_counts_or_links(qapp):
     rows = LoadedDataWidget()
     compounds, raw = _value(rows.compounds_row), _value(rows.raw_data_row)

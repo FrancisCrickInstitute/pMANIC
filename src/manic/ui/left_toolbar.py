@@ -154,8 +154,11 @@ class Toolbar(QWidget):
         header_layout.addWidget(mode_label)
         self.loaded_data = LoadedDataWidget()
         header_layout.addWidget(self.loaded_data)
-        self.standard = StandardIndicator()
+        self.standard = StandardIndicator(self.analysis_mode)
         header_layout.addWidget(self.standard)
+        # Under the row's title: the row's padding and icon, then its spacing.
+        self.standard.note.setContentsMargins(28, 0, 6, 2)
+        header_layout.addWidget(self.standard.note)
 
         # Browse: compounds, then samples.
         browse = QWidget()

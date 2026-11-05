@@ -132,8 +132,9 @@ STEM_HEADROOM = 1.05
 # Space under a legend for the axis multiplier, in logical px.
 LEGEND_LIFT_PX = 20
 
-# The detailed view's small toggles, in the grid's segmented-control shape.
-_TOGGLE_QSS = """
+# The detailed view's small toggles, in the grid's segmented-control shape. A pair
+# joins into one control with SEGMENT_QSS and object names segmentLeft/segmentRight.
+TOGGLE_QSS = """
 QToolButton {
     font-size: 11px; color: @text_secondary;
     background: @surface; border: 1px solid @border_strong;
@@ -144,6 +145,14 @@ QToolButton:checked {
     color: @text; background: @accent_soft; border-color: @accent;
     font-weight: 600;
 }
+"""
+
+
+SEGMENT_QSS = """
+QToolButton#segmentLeft {
+    border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none;
+}
+QToolButton#segmentRight { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 """
 
 
@@ -165,16 +174,7 @@ class CompactNavigationToolbar(QWidget):
 
         theme.style(
             self,
-            _TOGGLE_QSS
-            + """
-            QToolButton#chartPan {
-                border-top-right-radius: 0; border-bottom-right-radius: 0;
-                border-right: none;
-            }
-            QToolButton#chartZoom {
-                border-top-left-radius: 0; border-bottom-left-radius: 0;
-            }
-            """,
+            TOGGLE_QSS + SEGMENT_QSS,
         )
 
         self.home_btn = QToolButton()
@@ -189,7 +189,7 @@ class CompactNavigationToolbar(QWidget):
         modes.setContentsMargins(0, 0, 0, 0)
         modes.setSpacing(0)
         self.pan_btn = QToolButton()
-        self.pan_btn.setObjectName("chartPan")
+        self.pan_btn.setObjectName("segmentLeft")
         self.pan_btn.setText("Pan")
         self.pan_btn.setToolTip("Drag any chart to pan it")
         self.pan_btn.setCheckable(True)
@@ -197,7 +197,7 @@ class CompactNavigationToolbar(QWidget):
         modes.addWidget(self.pan_btn)
 
         self.zoom_btn = QToolButton()
-        self.zoom_btn.setObjectName("chartZoom")
+        self.zoom_btn.setObjectName("segmentRight")
         self.zoom_btn.setText("Zoom")
         self.zoom_btn.setToolTip("Drag a rectangle on any chart to zoom it")
         self.zoom_btn.setCheckable(True)
@@ -316,6 +316,9 @@ class MatplotlibPlotWidget(QWidget):
         self._reset_peak_labels()
         self._legend_entries = None
         self._fitted_ylim = None
+        self._last_stem_data = None
+        if self.full_scan_button is not None:
+            self.full_scan_button.hide()
         self._set_axes_title(self.title)
         self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
@@ -469,16 +472,17 @@ class MatplotlibPlotWidget(QWidget):
         if self._last_stem_data is None:
             return
         self._home_x = (low, high)
-        self._fit_stems(low, high)
         if self.full_scan_button is None:
             button = QToolButton(self.canvas)
             button.setText("Full scan")
             button.setCheckable(True)
             button.setToolTip(f"Show the whole scan; the chart opens on m/z {low:.0f}–{high:.0f}")
-            theme.style(button, _TOGGLE_QSS)
+            theme.style(button, TOGGLE_QSS)
             button.toggled.connect(self._show_full_scan)
             self.full_scan_button = button
-            button.show()
+        # Stepping to another sample keeps the scan as the user last set it.
+        self._show_full_scan(self.full_scan_button.isChecked())
+        self.full_scan_button.show()
 
     def _show_full_scan(self, full: bool) -> None:
         self._fit_stems(*(self._full_x if full else self._home_x))

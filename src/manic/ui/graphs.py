@@ -1176,7 +1176,8 @@ class GraphView(QWidget):
                 sample_name=sample_name,
                 parent=self,
                 use_corrected=self.use_corrected,
-                identity=self._sample_identity(sample_name),
+                samples=[plot.sample_name for plot in self._current_plots],
+                identity_for=self._sample_identity,
             )
             dialog.exec()
 

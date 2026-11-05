@@ -743,6 +743,29 @@ def test_short_sidebar_keeps_the_editor_whole_and_folds_the_rows_below_behind_th
         toolbar.deleteLater()
 
 
+def test_a_pending_edit_on_a_150_percent_laptop_leaves_samples_two_rows(qapp):
+    # The sidebar of a 1008x633 window with a pending edit, row heights from the stylesheet.
+    before = qapp.styleSheet()
+    apply_app_stylesheet(qapp)
+    _add_compound("Compound 0")
+    toolbar = _sidebar(604, samples_open=True)
+    integration = toolbar.integration
+    left = integration.findChild(QLineEdit, "lo_input")
+    try:
+        integration.populate_fields_from_plots("Compound 0", [], [f"Bio_{i:03d}" for i in range(30)])
+        left.selectAll()
+        QTest.keyClicks(left, "0.15")
+        _settle(toolbar)
+        assert integration.scope_label.text() == "All 30 shown\u00a0·\u00a0not\u00a0applied"
+        assert _full_rows(toolbar.compound_list) >= 3
+        assert _full_rows(toolbar.sample_list) >= 2
+        editor = [integration.findChild(QLineEdit, n) for n in ("lo_input", "tr_input", "ro_input")]
+        assert all(_in_view(toolbar, w) for w in editor + [integration.apply_button])
+    finally:
+        toolbar.deleteLater()
+        qapp.setStyleSheet(before)
+
+
 def test_clearing_a_filter_on_a_short_list_keeps_the_current_compound_in_view(qapp):
     toolbar = Toolbar(AnalysisMode.LABELLED)
     names = ["Pyruvate", "Lactate", "Alanine", "Oxalate", "Valine", "Urea", "Glycine", "Serine"]

@@ -45,6 +45,9 @@ BROWSE_TIERS = ((1, 1), (3, 1), (3, 3), (4, 3), (6, 4))
 BROWSE_FOLD_ROWS = 3
 # Room past the last tier goes compounds:samples in this ratio, up to each one's rows.
 BROWSE_WEIGHTS = (3, 2)
+# The margin each side of the line above the Peak window, and what it is once folded: on a
+# 150% laptop that is the room for a second Samples row beside a pending edit.
+INSPECTOR_GAP, FOLDED_GAP = 12, 8
 Y_SCALE_SETTING = "view/y_scale_policy"
 
 
@@ -130,7 +133,7 @@ class Toolbar(QWidget):
         browse = QWidget()
         browse.setObjectName("sidebarBrowse")
         browse_layout = QVBoxLayout(browse)
-        browse_layout.setContentsMargins(16, 14, 16, 12)
+        browse_layout.setContentsMargins(16, 14, 16, INSPECTOR_GAP)
         browse_layout.setSpacing(8)
 
         compounds_heading = QHBoxLayout()
@@ -175,7 +178,7 @@ class Toolbar(QWidget):
         inspector_content.setObjectName("sidebarInspector")
         inspector_content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         inspector_layout = QVBoxLayout(inspector_content)
-        inspector_layout.setContentsMargins(16, 12, 16, 4)
+        inspector_layout.setContentsMargins(16, INSPECTOR_GAP, 16, 4)
         inspector_layout.setSpacing(0)
         # Programmatic checkbox updates set this so they refresh summaries and
         # menus through toggled without committing anything.
@@ -455,13 +458,20 @@ class Toolbar(QWidget):
         """The Peak window takes the height it needs under the lists, folding the rows below
         its editor rather than leave the lists short of BROWSE_FOLD_ROWS; they share the rest."""
         lists = self._browse_lists()
-        chrome = self._browse.minimumSizeHint().height() - sum(
+        # Measured as if unfolded, so folding never undoes its own reason.
+        trimmed = INSPECTOR_GAP - self._browse.layout().contentsMargins().bottom()
+        chrome = self._browse.minimumSizeHint().height() + trimmed - sum(
             item.widget.minimumHeight() for item in lists
         )
         browse = room = self.height() - self._header.height()
         if self._raw_loaded:
             rows = sum(self._rows_height(item.widget, BROWSE_FOLD_ROWS) for item in lists)
-            self.integration.set_folded(room - self._peak_height(whole=True) < chrome + rows)
+            folded = room - self._peak_height(whole=True) - trimmed < chrome + rows
+            self.integration.set_folded(folded)
+            gap = FOLDED_GAP if folded else INSPECTOR_GAP
+            self._browse.layout().setContentsMargins(16, 14, 16, gap)
+            self.inspector.layout().setContentsMargins(16, gap, 16, 4)
+            chrome -= INSPECTOR_GAP - gap
             need = self._peak_height(whole=False)
             # The hidden scope line's room goes to the lists before they drop below their rows.
             editor = self.integration.editor

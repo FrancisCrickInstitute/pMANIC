@@ -346,27 +346,36 @@ def checklist(tour: Tour) -> None:
     dialog.close()
 
 
-def grab_popup(tour: Tour, show) -> None:
-    # macOS closes a popup at once when another app has focus, as with parallel tours.
-    tour.window.raise_()
-    tour.window.activateWindow()
-    tour.pump(0.2)
-    opened: list[QMenu] = []
-    original_popup = QMenu.popup
-    QMenu.popup = lambda menu, *a, **k: (opened.append(menu), original_popup(menu, *a, **k))[1]
-    try:
-        show()
-    finally:
-        QMenu.popup = original_popup
-    # popup() is asynchronous; grab it now in case it closes before the step ends.
-    tour.pump(0.3)
-    popup = QApplication.activePopupWidget() or (opened[-1] if opened else None)
-    if popup is None:
-        raise RuntimeError("menu did not open")
-    if not shiboken6.isValid(popup):
-        raise RuntimeError("menu closed before capture: the window lost focus")
-    tour.save(popup, "__menu")
-    popup.close()
+def grab_popup(tour: Tour, show, *, attempts: int = 2) -> None:
+    for attempt in range(1, attempts + 1):
+        # A popup closes at once when its window is not active (another app took focus,
+        # or Windows refused the activation); raise the window and try again.
+        tour.window.raise_()
+        tour.window.activateWindow()
+        tour.pump(0.2)
+        opened: list[QMenu] = []
+        original_popup = QMenu.popup
+        QMenu.popup = lambda menu, *a, **k: (opened.append(menu), original_popup(menu, *a, **k))[1]
+        try:
+            show()
+        finally:
+            QMenu.popup = original_popup
+        # popup() is asynchronous; grab it now in case it closes before the step ends.
+        tour.pump(0.3)
+        popup = QApplication.activePopupWidget() or (opened[-1] if opened else None)
+        if popup is None:
+            raise RuntimeError("menu did not open")
+        if shiboken6.isValid(popup):
+            tour.save(popup, "__menu")
+            popup.close()
+            return
+        active = QApplication.activeWindow() is tour.window
+        if attempt == attempts:
+            raise RuntimeError(
+                f"menu closed before capture ({attempts} tries); "
+                f"main window active: {active}"
+            )
+        print(f"  popup closed before capture, main window active: {active}; retrying")
 
 
 def tour_steps(tour: Tour) -> None:

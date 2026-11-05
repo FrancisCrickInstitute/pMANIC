@@ -74,6 +74,9 @@ def set_dark(dark: bool, plot_area: QColor) -> dict[str, str]:
         new = _legible_on(light, plot_area) if dark else light
         remap[qcolor.name()] = new.name()
         qcolor.setRgb(new.rgb())
+    tint = _pass_tint(plot_area)
+    remap[QUALIFIER_PASS_TINT.name()] = tint.name()
+    QUALIFIER_PASS_TINT.setRgb(tint.rgb())
     return remap
 
 
@@ -89,6 +92,14 @@ def _mix(under: QColor, over: QColor, opacity: float) -> QColor:
     return QColor.fromRgbF(
         *(u + (o - u) * opacity for u, o in zip(under.getRgbF()[:3], over.getRgbF()[:3]))
     )
+
+
+def _pass_tint(surface: QColor) -> QColor:
+    return _mix(surface, QUALIFIER_GREEN, 0.2)
+
+
+# An Identity cell that passed: a soft wash, so the rarer failures stand out.
+QUALIFIER_PASS_TINT = _pass_tint(QColor(theme.LIGHT["surface"]))
 
 
 def _readable(colour: QColor, background: QColor, *, lighter: bool) -> QColor:

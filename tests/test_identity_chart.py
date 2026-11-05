@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from manic.models.analysis import IonChannel, IonRole
 from manic.ui import theme
 from manic.ui.chart_popup_dialog import ChartPopupDialog
-from manic.ui.colors import QUALIFIER_GREEN, QUALIFIER_RED
+from manic.ui.colors import QUALIFIER_PASS_TINT, QUALIFIER_RED
 from manic.ui.targeted_qc_widget import TargetedQcWidget
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -139,11 +139,11 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         _settle(dialog, 820, 400)
         widget.update_results(identity)
         _settle(widget)
-        green, red = QUALIFIER_GREEN.name(), QUALIFIER_RED.name()
+        passed, red = QUALIFIER_PASS_TINT.name(), QUALIFIER_RED.name()
         surface = theme.color("surface").name()
         # Qualifier 2 is not in the method, so it has no column.
         expected = {
-            "S1": [("✓", green, surface)],
+            "S1": [("✓", passed, surface)],
             "S2": [("✕", red, surface)],
             "S3": [("✕", red, surface)],
         }
@@ -175,7 +175,7 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
             "Qualifier 2\nm/z 73   expected 0.200  ±25%",
         ]
         assert _rows(configured.chart) == {
-            "S1": [("✓", green, surface), ("✓", green, surface)],
+            "S1": [("✓", passed, surface), ("✓", passed, surface)],
             "S2": [("✕", red, surface), ("✕", red, surface)],
         }
         configured.deleteLater()

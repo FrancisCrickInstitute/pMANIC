@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -32,6 +33,14 @@ def empty_db(tmp_path, monkeypatch):
     with database.get_connection() as conn:
         conn.executescript(SCHEMA.read_text(encoding="utf-8"))
     return db_path
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path):
+    """Every QSettings() starts empty, in an INI file under the test's tmp_path."""
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path / "settings"))
+    QSettings().clear()
 
 
 def _make_window(monkeypatch, mode=None):

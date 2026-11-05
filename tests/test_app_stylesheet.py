@@ -1,53 +1,120 @@
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QPushButton
+import pytest
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QColor, QImage
+from PySide6.QtWidgets import QLabel, QPushButton
 
+from manic.ui import theme
 from manic.ui.analysis_mode_dialog import AnalysisModeDialog
-from manic.ui.theme import COLORS
-from manic.utils.utils import apply_app_stylesheet
+from manic.ui.dialog_kit import status_icon
+from manic.ui.update_old_data_dialog import UpdateOldDataDialog
+from manic.utils.utils import apply_app_stylesheet, apply_color_scheme
 
-STYLED_DEFAULT_BUTTON = QColor(COLORS["accent_fill"])
+
+@pytest.fixture
+def restore_light_scheme(qapp):
+    yield
+    apply_color_scheme(qapp, False)
+    qapp.setStyleSheet("")
 
 
-def _default_button_fill(dialog: AnalysisModeDialog) -> QColor:
+def _default_button_fill(dialog: AnalysisModeDialog) -> str:
     button = next(b for b in dialog.findChildren(QPushButton) if b.isDefault())
     image = button.grab().toImage()
     # Sample the fill beside the label, not the centred text.
-    return image.pixelColor(4, image.height() // 2)
+    return image.pixelColor(4, image.height() // 2).name()
 
 
-def test_parentless_dialog_is_styled_once_stylesheet_is_app_wide(qapp):
-    try:
-        unstyled = AnalysisModeDialog()
-        unstyled.show()
-        qapp.processEvents()
-        assert _default_button_fill(unstyled) != STYLED_DEFAULT_BUTTON
-
-        apply_app_stylesheet(qapp)
-        styled = AnalysisModeDialog()
-        styled.show()
-        qapp.processEvents()
-        assert _default_button_fill(styled) == STYLED_DEFAULT_BUTTON
-    finally:
-        qapp.setStyleSheet("")
+def _best_contrast(image: QImage, against: QColor) -> float:
+    """The strongest contrast any pixel of ``image`` makes with ``against``."""
+    return max(
+        theme.contrast(image.pixelColor(x, y), against)
+        for x in range(image.width())
+        for y in range(image.height())
+    )
 
 
-def test_logo_drops_its_white_background_and_inks_in_the_active_text_colour(qapp):
+def test_parentless_dialog_is_styled_once_stylesheet_is_app_wide(qapp, restore_light_scheme):
+    unstyled = AnalysisModeDialog()
+    unstyled.show()
+    qapp.processEvents()
+    assert _default_button_fill(unstyled) != "#2f6feb"
+
+    apply_app_stylesheet(qapp)
+    apply_color_scheme(qapp, False)
+    styled = AnalysisModeDialog()
+    styled.show()
+    qapp.processEvents()
+    assert _default_button_fill(styled) == "#2f6feb"
+
+    apply_color_scheme(qapp, True)
+    dark = AnalysisModeDialog()
+    dark.show()
+    qapp.processEvents()
+    assert _default_button_fill(dark) == "#1967eb"
+    for dialog in (unstyled, styled, dark):
+        dialog.close()
+
+
+def test_logo_drops_its_white_background_and_inks_in_the_active_text_colour(
+    qapp, restore_light_scheme
+):
     from manic.ui.logo import LogoLabel
-    from manic.utils.utils import apply_color_scheme
 
     def pixel(label: LogoLabel, x: int, y: int) -> QColor:
         return label.pixmap().toImage().pixelColor(x, y)
 
-    try:
-        apply_color_scheme(qapp, False)
-        logo = LogoLabel(446)  # the artwork's own height, so pixels map 1:1
-        assert pixel(logo, 0, 0).alpha() == 0
-        assert pixel(logo, 548, 64).name() == "#1b1f24"
-        assert pixel(logo, 83, 167).name() == "#22b573"
+    apply_color_scheme(qapp, False)
+    logo = LogoLabel(446)  # the artwork's own height, so pixels map 1:1
+    assert pixel(logo, 0, 0).alpha() == 0
+    assert pixel(logo, 548, 64).name() == "#1b1f24"
+    assert pixel(logo, 83, 167).name() == "#22b573"
 
-        apply_color_scheme(qapp, True)
-        assert pixel(logo, 548, 64).name() == "#e6e8eb"
-        assert pixel(logo, 83, 167).name() == "#22b573"
-    finally:
-        apply_color_scheme(qapp, False)
-        qapp.setStyleSheet("")
+    apply_color_scheme(qapp, True)
+    assert pixel(logo, 548, 64).name() == "#e6e8eb"
+    assert pixel(logo, 83, 167).name() == "#22b573"
+
+
+@pytest.mark.parametrize("dark", [False, True], ids=["light", "dark"])
+def test_rendered_text_focus_rings_and_status_marks_reach_wcag_contrast_in_both_schemes(
+    qapp, restore_light_scheme, dark
+):
+    apply_color_scheme(qapp, dark)
+
+    for variant in ("primary", "danger"):
+        button = QPushButton("Apply")
+        button.setProperty("variant", variant)
+        button.resize(120, 28)
+        button.show()
+        qapp.processEvents()
+        image = button.grab().toImage()
+        button.close()
+        fill = image.pixelColor(6, image.height() // 2)
+        label = _best_contrast(image.copy(30, 6, 60, 16), fill)
+        assert label >= 4.5, (variant, fill.name(), label)
+
+    # Small secondary text, as a real dialog draws it.
+    dialog = UpdateOldDataDialog()
+    dialog.show()
+    qapp.processEvents()
+    hint = next(label for label in dialog.findChildren(QLabel) if label.text().startswith("Lists"))
+    image = dialog.grab(QRect(hint.mapTo(dialog, QPoint(0, 0)), hint.size())).toImage()
+    dialog.close()
+    ground = image.pixelColor(image.width() - 2, image.height() // 2)
+    assert _best_contrast(image, ground) >= 4.5, ground.name()
+
+    # Focus rings and status-icon marks are non-text, so 3:1.
+    button = QPushButton("Apply")
+    button.resize(120, 28)
+    button.show()
+    button.activateWindow()
+    button.setFocus(Qt.OtherFocusReason)
+    qapp.processEvents()
+    image = button.grab().toImage()
+    button.close()
+    ring = image.pixelColor(60, 0)
+    assert theme.contrast(ring, image.pixelColor(60, 3)) >= 3, ring.name()
+
+    for passed in (True, False):
+        icon = status_icon(passed).pixmap(28, 28).toImage()
+        disc = icon.pixelColor(4, 14)
+        assert _best_contrast(icon.copy(6, 6, 16, 16), disc) >= 3, passed

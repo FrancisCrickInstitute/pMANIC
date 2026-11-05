@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import functools
+
 from PySide6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, Signal
 from PySide6.QtGui import (
+    QAccessible,
+    QAccessibleActionInterface,
+    QAccessibleStateChangeEvent,
     QFont,
     QFontMetrics,
     QKeySequence,
@@ -13,6 +18,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QAccessibleWidget,
     QApplication,
     QFrame,
     QHBoxLayout,
@@ -277,6 +283,45 @@ class FilterField(QLineEdit):
         super().keyPressEvent(event)
 
 
+class _SectionToggleAccessible(QAccessibleWidget):
+    """A section heading as a screen reader should hear it: a button that is expanded or
+    collapsed. Qt's own button interface has no disclosure state."""
+
+    def __init__(self, header: QPushButton):
+        super().__init__(header, QAccessible.Role.Button)
+
+    def state(self):
+        state = super().state()
+        expanded = bool(self.widget().property("expanded"))
+        state.expandable = True
+        state.expanded = expanded
+        state.collapsed = not expanded
+        return state
+
+    def actionNames(self):  # noqa: N802 (Qt override)
+        return [QAccessibleActionInterface.pressAction(), *super().actionNames()]
+
+    def doAction(self, name):  # noqa: N802 (Qt override)
+        if name == QAccessibleActionInterface.pressAction():
+            self.widget().click()
+        else:
+            super().doAction(name)
+
+
+def _section_toggle_accessible(_key: str, obj) -> QAccessibleWidget | None:
+    if isinstance(obj, QPushButton) and obj.property("role") == "sectionToggle":
+        # Qt's cache keeps only the C++ side; the heading keeps the Python side alive with it.
+        obj.accessible_interface = _SectionToggleAccessible(obj)
+        return obj.accessible_interface
+    return None
+
+
+@functools.cache
+def _install_section_toggle_accessible() -> None:
+    # Qt drops a factory installed before the QApplication exists, so the first section does it.
+    QAccessible.installFactory(_section_toggle_accessible)
+
+
 class CollapsibleSection(QWidget):
     """A section whose heading row toggles its body; the heading shows a summary.
 
@@ -302,6 +347,7 @@ class CollapsibleSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4 if sub else 8)
 
+        _install_section_toggle_accessible()
         self.header = QPushButton()
         self.header.setProperty("role", "sectionToggle")
         # Its text lives in child labels, which a screen reader does not read as the button's name.
@@ -348,6 +394,10 @@ class CollapsibleSection(QWidget):
         if expanded == self._expanded:
             return
         self._expanded = expanded
+        self.header.setProperty("expanded", expanded)
+        changed = QAccessible.State()
+        changed.expanded = changed.collapsed = True
+        QAccessible.updateAccessibility(QAccessibleStateChangeEvent(self.header, changed))
         self._chevron.setText("▾" if expanded else "▸")
         self.body.setVisible(expanded or self._headless)
         self.header.setToolTip("Collapse" if expanded else "Expand")

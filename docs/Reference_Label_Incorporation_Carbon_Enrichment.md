@@ -1,7 +1,5 @@
 # Reference: Label Incorporation & Carbon Enrichment
 
-## Overview
-
 MANIC produces two distinct metrics to quantify isotopic labelling. While they are related, they answer different biological questions:
 
 1.  **% Label Incorporation:** Answers the binary question *"How much of the pool contains **any** label?"*
@@ -17,7 +15,7 @@ In addition to that theoretical correction, both metrics rely on **Empirical Bac
 
 Before calculating either metric, MANIC establishes a "base level" using the files defined in the `mm_files` column.
 
-Even after theoretical natural isotope correction, "unlabelled" standards (MM files) often show a small residual amount of "labelled" signal due to instrument noise. MANIC calculates the average background signal in the MM files and subtracts it from the biological samples to ensure that unlabelled controls report as **0%**.
+Even after theoretical natural isotope correction, "unlabelled" standards (MM files) often show a small residual amount of "labelled" signal, from impurities in the standard, imperfect natural abundance constants, or instrument noise and baseline integration error. MANIC calculates the average background in the MM files and subtracts it from the biological samples so that unlabelled controls report as **0%**.
 
 > **Note:** If no MM files are defined for a compound, the base level defaults to 0.
 
@@ -49,10 +47,6 @@ The result is clamped to **0%** if the subtraction results in a negative number.
 
 The **% Carbons Labelled** is a metric that quantifies the *excess* isotopic labelling within a metabolite pool, relative to the Standard Mixture (MM) background.
 
-### The Calculation
-
-The calculation is performed in two steps:
-
 ### Step 1: Calculate Weighted Enrichment
 
 For each sample, calculate the weighted average enrichment on the **Natural Isotope Abundance Corrected** data:
@@ -73,8 +67,6 @@ $$\text{Enrichment}_{sample} = \frac{\sum_{i=0}^{N} (i \times \text{Area}_{M+i})
 Calculate the same enrichment for all Standard Mixture (MM) files, average them, then subtract:
 
 $$\text{% Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
-
-The result is clamped to 0 to prevent negative values.
 
 ---
 

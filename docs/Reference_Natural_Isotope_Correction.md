@@ -1,6 +1,5 @@
 # Reference: Natural Isotope Correction
 
-## Overview
 In mass spectrometry, the signal for a biological molecule is spread across multiple mass channels due to the natural presence of heavy isotopes (¹³C ≈ 1.1%, ¹⁵N ≈ 0.4%, ³⁷Cl ≈ 24%, ⁸¹Br ≈ 49%, and others).   
 
 For example, even a completely unlabelled metabolite will produce a signal at **M+0** (100%), **M+1** (~6%), and **M+2** (~0.5%).   
@@ -108,11 +107,9 @@ A key feature of MANIC (compared to the legacy v3.3.0 tool) is that this correct
 
 This provides higher accuracy because it prevents baseline noise or interfering peaks at specific timepoints from skewing the global correction.
 
-The envelope that enters this correction must be the same kind of measurement on every ion. If chromatographic peak deconvolution fitted every non-empty ion of a compound in a sample, correction runs on the dense selected curves. Empty ions contribute zeros. If any ion with real intensity failed to fit, correction runs on the raw in-window scans for every non-empty ion of that pair. Empty rows stay zero. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
+The envelope that enters this correction must be the same kind of measurement on every ion: the dense selected curves when chromatographic peak deconvolution fitted every non-empty ion, otherwise the raw in-window scans. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans), and [One fit for display and integration](Reference_Chromatographic_Peak_Deconvolution.md#one-fit-for-display-and-integration) for how baseline correction fits in.
 
-The **Show corrected data** preview (**Settings → General**, **Natural abundance** section) uses that same order on screen. It fits the raw traces, then corrects that measurement for the tiles when the compound has a correction formula and labelled atoms. Otherwise, the plot keeps the raw fitted view. Preview draws corrected values at the acquisition scan times. When deconvolution selects a fitted component, preview also retains a faint raw EIC for context. Peaks outside the selected component remain visible in that context but do not enter correction or integration. Time-based Label Incorporation bars and the Corrected Values sheet use the same raw fit and integration path, so the spreadsheet number is the bar number. Legacy export remains scan-point based and uses different units. The toggle does not write `eic_corrected`. Export still fills that table when you export.
-
-When the dense-curve path is used with baseline correction on, the curve and the baseline ends are corrected separately: the area from the dense grid, the straight-line ends from the isolated component at the real scan times. See [One fit for display and integration](Reference_Chromatographic_Peak_Deconvolution.md#one-fit-for-display-and-integration).
+The **Show corrected data** preview (**Settings → General**, **Natural abundance** section) uses that same order on screen; [Natural Abundance Correction preview](Reference_Chromatographic_Peak_Deconvolution.md#natural-abundance-correction-preview) describes what it draws. Time-based Label Incorporation bars and the Corrected Values sheet use the same raw fit and integration path, so the spreadsheet number is the bar number. Legacy export remains scan-point based and uses different units. The toggle does not write `eic_corrected`. Export still fills that table when you export.
 
 ---
 
@@ -136,19 +133,4 @@ The algorithm enforces a non-negativity constraint. If noise causes the mathemat
 
 ## 5. Empirical Background Correction (MM Files)
 
-In addition to the theoretical matrix correction described above, MANIC applies an **Empirical Background Correction** to the final "% Label Incorporation" and "% Carbon Labelled" results. MM files (standard mixture) supply that background.
-
-### Why is this needed?
-Even after theoretical correction, unlabelled MM files (standard mixture) often show a small residual amount of labelled signal due to:
-
-* Impurities in the standard.
-* Imperfections in the theoretical natural abundance constants.
-* Instrument noise or baseline integration errors.
-
-### How it works
-1.  **Calculate Base Level:** MANIC scans all files matching the `mm_files` pattern for a compound. It calculates the average ratio of **Corrected Labelled / Corrected M+0** in these standards.
-2.  **Subtract Base Level:** This "Background Ratio" is subtracted from the labeled/unlabeled ratio of every biological sample before the final "% Label Incorporation" & "% Carbon Labelled" is calculated.
-
-$$\text{Label Signal}_{final} = \text{Label Signal}_{raw} - (\text{Ratio}_{background} \times \text{M+0 Signal}_{sample})$$
-
-*Note: This correction specifically affects the **% Label Incorporation** & **% Carbon Labelled** sheets. The **Corrected Values** sheet reports the raw corrected intensities ($x$) before this background subtraction.*
+MM files (standard mixture) also supply an empirical background that MANIC subtracts from **% Label Incorporation** and **% Carbons Labelled**. See [Empirical Background Correction](Reference_Label_Incorporation_Carbon_Enrichment.md#1-empirical-background-correction). The **Corrected Values** sheet reports the corrected intensities ($x$) before that subtraction.

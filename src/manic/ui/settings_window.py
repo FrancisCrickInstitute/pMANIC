@@ -401,7 +401,7 @@ class InternalStandardSection(SettingsPage):
         form = form_layout()
         self.setLayout(form)
         # Shown here because the reference peak below belongs to it. Choose opens the
-        # sidebar's own menu, so there is one chooser.
+        # sidebar's own chooser, so there is only one.
         self.standard_label = QLabel()
         self.standard_label.setObjectName("internalStandardName")
         self.choose_button = QPushButton("Choose…")

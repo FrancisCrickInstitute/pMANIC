@@ -1,6 +1,5 @@
 # Reference: Abundance Calculation & MRRF
 
-## Overview
 The **Abundances** sheet in the final export reports the absolute amount of each metabolite in your samples (in nanomoles), relative ratios, or raw peak areas depending on your configuration.
 
 This quantification typically relies on an **Internal Standard (IS)** to normalize for instrument variability and a **Metabolite Response Ratio Factor (MRRF)** to correct for ionization efficiency.
@@ -26,7 +25,7 @@ $$
 $$
 
 ### Path C: Peak Area
-Used when **No Internal Standard** is selected. This reports the raw integrated signal.
+Used when **No Internal Standard** is selected. This reports the sum of corrected isotopologue areas, and the units in the Excel header read **"Peak Area"**.
 
 $$
 \text{Abundance}_{area} = \text{Area}_{total}
@@ -83,12 +82,12 @@ If your internal standard is labelled, you can change this in:
 
 Choose the internal standard itself from the sidebar **Internal standard** row. Changing the internal standard compound resets the reference peak back to **M+0**.
 
-## 3. Data Requirements
+## 4. Data Requirements
 
 | Column | Requirement | Usage in Formula |
 | :--- | :--- | :--- |
 | `int_std_amount` | **Sample Dose.** | Used as Amount_{IS} for normal samples. The value is used as written. There is no unit conversion. The **Abundances** sheet labels the result nmol. |
-| `amount_in_std_mix` | **Calibration Dose.** | Used to calculate MRRF. The value is used as written. There is no unit conversion. If 0 or missing, the metabolite uses Relative mode. |
+| `amount_in_std_mix` | **Calibration Dose.** | Used to calculate MRRF. The value is used as written. There is no unit conversion. |
 
 ### Dynamic Amount Switching
 MANIC is "context-aware" regarding the Internal Standard amount:
@@ -101,16 +100,10 @@ This ensures that if you verify your standard files in the "Abundances" sheet, t
 
 ---
 
-## 4. Special Cases
+## 5. Special Cases
 
 ### The Internal Standard Itself
 In the Abundances sheet, the row for the Internal Standard compound does not undergo calculation. Instead, it simply reports the **Known Amount** (`int_std_amount` or `amount_in_std_mix`) to confirm what value was used for that sample.
-
-### No Internal Standard Selected
-If you clear the internal standard selection, MANIC will export the sum of corrected isotopologue areas for all compounds. The units in the Excel header will automatically change to **"Peak Area"**.
-
-### Missing Calibration
-If a metabolite has no `amount_in_std_mix` defined, it is treated as **Relative**. It is normalized to the Internal Standard signal but is not scaled by an MRRF.
 
 ### No matching MM files (standard mixture)
 If a compound has no `mm_files` pattern, or the pattern matches no loaded samples, or the MRRF inputs are incomplete, MANIC sets MRRF to 1.0. A compound whose MRRF could not be computed is reported as Relative.

@@ -1,11 +1,9 @@
 import logging
-import tempfile
 from collections.abc import Iterable
-from pathlib import Path
 from typing import List, NamedTuple
 
 from PySide6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -13,7 +11,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
-    QMenu,
     QSizePolicy,
     QSplitter,
     QToolButton,
@@ -27,8 +24,6 @@ from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
 )
 from manic.processors.tile_y_scale import YScalePolicy, available_y_scale_policies
-from manic.ui import theme
-from manic.utils.paths import resource_path
 
 from .compound_list_widget import CompoundListWidget
 from .integration_window_widget import IntegrationWindow
@@ -43,7 +38,8 @@ from .sidebar_widgets import (
     section_heading,
     shortcut_text,
 )
-from .standard_indicator_widget import StandardIndicator
+from .standard_chooser import StandardChooser
+from .standard_indicator_widget import StandardIndicator, lacking_amount
 from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
 
@@ -52,10 +48,11 @@ logger = logging.getLogger(__name__)
 # The lists give rows to the Peak window down to BROWSE_HARD_ROWS each (compounds,
 # samples) for its editor and folded rows, and down to BROWSE_KEEP_ROWS for the rest
 # of it. Then they grow to BROWSE_MIN_ROWS and together this share of the sidebar.
-BROWSE_HARD_ROWS = (2, 3)
-# Short of those, they give rows up in this order, so Samples keeps three as long as it can:
-# down to one compound and three samples, then to one row each.
-BROWSE_LAST_ROWS = ((1, 1), (1, 3))
+BROWSE_HARD_ROWS = (3, 3)
+# Short of those, they give rows up in this order, so Compounds keeps three as long as it
+# can (Samples has its own filter, and the grid shows what is checked): down to three
+# compounds and one sample, then to one row each.
+BROWSE_LAST_ROWS = ((1, 1), (3, 1))
 BROWSE_KEEP_ROWS = (4, 3)
 BROWSE_MIN_ROWS = (6, 4)
 BROWSE_MIN_SHARE = 0.45
@@ -76,16 +73,6 @@ class _BrowseList(NamedTuple):
     floor: int  # height of the rows it keeps while the Peak window fits
     full: int  # height of every row the filter leaves
     weight: int
-
-
-def _menu_check_image() -> str:
-    """The app's checkmark in the text colour, for a menu tick; macOS draws its own jagged."""
-    colour = theme.color("text").name()
-    path = Path(tempfile.gettempdir()) / f"manic-menu-check-{colour[1:]}.svg"
-    if not path.exists():
-        svg = Path(resource_path("resources", "checkmark.svg")).read_text()
-        path.write_text(svg.replace('fill="white"', f'fill="{colour}"'))
-    return path.as_posix()
 
 
 def _deconvolution_on(compound_name: str) -> bool:
@@ -730,29 +717,21 @@ class Toolbar(QWidget):
 
     def show_internal_standard_menu(self, global_pos: QPoint | None = None) -> None:
         """The one internal standard chooser: under the sidebar row, or at ``global_pos``."""
-        menu = QMenu(self.standard)
-        menu.setStyleSheet(f'QMenu::indicator:checked {{ image: url("{_menu_check_image()}"); }}')
-        # One exclusive group, so the current choice (or none) carries the check.
-        choices = QActionGroup(menu)
-        current = self.standard.internal_standard
         names = self.compound_list.real_names()
-        if not names:
-            menu.addAction("Load a Compound List First").setEnabled(False)
-        for name in names:
-            action = choices.addAction(menu.addAction(name))
-            action.setCheckable(True)
-            action.setChecked(name == current)
-            action.triggered.connect(
-                lambda _checked=False, n=name: self.on_internal_standard_selected(n)
-            )
-        menu.addSeparator()
-        clear = choices.addAction(menu.addAction("No Internal Standard"))
-        clear.setCheckable(True)
-        clear.setChecked(current is None)
-        if current is not None:
-            clear.triggered.connect(self.on_internal_standard_cleared)
-        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        menu.popup(global_pos or self.standard.mapToGlobal(self.standard.rect().bottomLeft()))
+        chooser = StandardChooser(
+            names,
+            self.standard.internal_standard,
+            lacking_amount(names, self.analysis_mode),
+            self.standard,
+        )
+        chooser.chosen.connect(self._on_standard_chosen)
+        chooser.popup(global_pos or self.standard.mapToGlobal(self.standard.rect().bottomLeft()))
+
+    def _on_standard_chosen(self, name: str | None) -> None:
+        if name is not None:
+            self.on_internal_standard_selected(name)
+        elif self.standard.internal_standard is not None:
+            self.on_internal_standard_cleared()
 
     # --- Signal Handlers ---
     def on_samples_selection_changed(self):

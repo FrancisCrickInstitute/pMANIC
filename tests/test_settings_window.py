@@ -1,7 +1,9 @@
 from unittest import mock
 
 import pytest
-from PySide6.QtWidgets import QDoubleSpinBox, QMenu, QScrollArea
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QDoubleSpinBox, QScrollArea
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
@@ -10,6 +12,7 @@ from manic.models.sample_fit_type import get_sample_fit_types, set_sample_fit_ty
 import manic.ui.main_window as main_window_module
 from manic.ui.dialog_kit import MARKED_ROLE
 from manic.ui.main_window import MainWindow
+from manic.ui.standard_chooser import StandardChooser
 from manic.ui.settings_window import (
     DeconvolutionPage,
     IntegrationSection,
@@ -480,7 +483,7 @@ def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
     assert settings.findChild(MassToleranceSection).spin.value() == 0.35
 
 
-def test_choose_opens_the_sidebar_standard_menu_under_the_button(labelled_window):
+def test_choose_opens_the_sidebar_standard_chooser_under_the_button(labelled_window):
     _insert_compound("Norvaline", label_atoms=2)
     labelled_window.compound_data_loaded = True
     labelled_window.toolbar.update_compound_list(["Norvaline"])
@@ -490,10 +493,10 @@ def test_choose_opens_the_sidebar_standard_menu_under_the_button(labelled_window
 
     button.click()
 
-    menu = labelled_window.toolbar.standard.findChildren(QMenu)[-1]
-    assert menu.pos() == button.mapToGlobal(button.rect().bottomLeft())
-    next(a for a in menu.actions() if a.text() == "Norvaline").trigger()
-    menu.close()
+    chooser = labelled_window.toolbar.standard.findChildren(StandardChooser)[-1]
+    assert chooser.pos() == button.mapToGlobal(button.rect().bottomLeft())
+    QTest.keyClicks(chooser.filter, "norv")
+    QTest.keyClick(chooser.filter, Qt.Key_Return)
     assert page.standard_label.text() == "Norvaline"
     assert page.combo.isEnabled()
 

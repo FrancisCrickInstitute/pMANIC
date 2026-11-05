@@ -309,6 +309,7 @@ class IntegrationWindow(QWidget):
             # Enable Enter key to trigger apply (same as clicking Apply button)
             edt.returnPressed.connect(self._on_apply_clicked)
             edt.textEdited.connect(self._update_apply_button_state)
+            lbl.setBuddy(edt)  # names the field for a screen reader
             fields.addWidget(lbl, row, 0)
             fields.addWidget(edt, row, 1)
         editor_layout.addLayout(fields)
@@ -344,6 +345,7 @@ class IntegrationWindow(QWidget):
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
         self.tr_window_edit.setToolTip(tr_window_lbl.toolTip())
+        tr_window_lbl.setBuddy(self.tr_window_edit)
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
         # Enable Enter key to trigger regeneration (same as clicking Apply window)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
@@ -761,10 +763,12 @@ class IntegrationWindow(QWidget):
                 if count == 1
                 else f"Applies to {count} selected samples"
             )
+        elif edited:
+            scope = f"Applies to all {count} shown {'sample' if count == 1 else 'samples'}"
         else:
             scope = ""  # all shown samples, the default; the canvas explains an empty grid
         if edited:
-            scope = f"{scope}{NOT_APPLIED}" if scope else "Not applied"
+            scope += NOT_APPLIED
         self.scope_label.setText(scope)
         # Primary only while there is an edit to apply; still enabled to re-apply a mixed selection.
         set_style_property(self.apply_button, "variant", "primary" if edited else None)
@@ -790,6 +794,9 @@ class IntegrationWindow(QWidget):
         )
         self.window_scope_label.setVisible(bool(self._current_compound and shown))
         set_style_property(self.window_scope_label, "state", "edited" if window_edited else None)
+        set_style_property(
+            self.regenerate_button, "variant", "primary" if window_edited else None
+        )
         self.state_changed.emit()
 
     def _get_samples_needing_reload(

@@ -3,14 +3,16 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtGui import QAccessible, QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
+from PySide6.QtGui import QAccessible, QAccessibleActionInterface, QContextMenuEvent, QKeyEvent, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import QAbstractButton, QApplication, QLabel, QLineEdit, QMenu, QWidget
 
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.ui.left_toolbar import SPLIT_SETTING, Toolbar
 from manic.ui.loaded_data_widget import LoadedDataWidget
+from manic.ui.standard_chooser import StandardChooser
 from manic.ui.standard_indicator_widget import StandardIndicator
+from manic.utils.utils import apply_app_stylesheet
 
 from conftest import _make_window
 
@@ -205,11 +207,18 @@ def test_a_standard_without_an_amount_says_how_it_will_export(qapp, mode, needs_
     toolbar = Toolbar(mode)
     try:
         toolbar.update_compound_list(["Palatinose", "Norvaline", "Scyllo"])
+        calibrated = ["Scyllo"] if needs_mix else ["Norvaline", "Scyllo"]
+        chooser = _open_chooser(toolbar)
+        assert _shown_rows(chooser) == [
+            "No internal standard",
+            *calibrated,
+            "No amount: exports peak areas",
+            *(["Palatinose", "Norvaline"] if needs_mix else ["Palatinose"]),
+        ]
+        chooser.close()
         shown = {}
         for name in ("Palatinose", "Norvaline", "Scyllo"):
-            menu = _open_standard_menu(toolbar)
-            next(a for a in menu.actions() if a.text() == name).trigger()
-            menu.close()
+            _choose_standard(toolbar, name)
             shown[name] = None if toolbar.standard.note.isHidden() else toolbar.standard.note.text()
         assert shown == {"Palatinose": note, "Norvaline": note if needs_mix else None, "Scyllo": None}
         toolbar.on_internal_standard_cleared()
@@ -454,28 +463,60 @@ def test_summaries_and_view_menu_follow_compound_switch(qapp, monkeypatch):
         window.close()
 
 
-def _open_standard_menu(toolbar: Toolbar) -> QMenu:
+def _open_chooser(toolbar: Toolbar) -> StandardChooser:
     toolbar.standard.click()
-    return toolbar.standard.findChildren(QMenu)[-1]
+    return toolbar.standard.findChildren(StandardChooser)[-1]
 
 
-def test_internal_standard_menu_checks_the_current_choice(qapp):
+def _shown_rows(chooser: StandardChooser) -> list[str]:
+    rows = chooser.list
+    return [rows.item(r).text() for r in range(rows.count()) if not rows.isRowHidden(r)]
+
+
+def _choose_standard(toolbar: Toolbar, typed: str) -> None:
+    chooser = _open_chooser(toolbar)
+    QTest.keyClicks(chooser.filter, typed)
+    QTest.keyClick(chooser.filter, Qt.Key_Return)
+
+
+def test_internal_standard_chooser_works_from_the_keyboard(qapp):
     toolbar = Toolbar(AnalysisMode.LABELLED)
     try:
-        toolbar.update_compound_list(["Alanine", "Glycine"])
-        menu = _open_standard_menu(toolbar)
-        assert [a.text() for a in menu.actions() if a.isChecked()] == ["No Internal Standard"]
-        groups = {a.actionGroup() for a in menu.actions() if a.isCheckable()}
-        assert len(groups) == 1 and next(iter(groups)).isExclusive()
-
-        next(a for a in menu.actions() if a.text() == "Glycine").trigger()
-        menu.close()
-        assert toolbar.get_internal_standard() == "Glycine"
+        toolbar.update_compound_list(["Alanine", "Glycine", "Norvaline"])
+        chooser = _open_chooser(toolbar)
+        assert chooser.list.currentItem().text() == "No internal standard"
+        # "in" also matches No internal standard; Return takes the first compound.
+        QTest.keyClicks(chooser.filter, "in")
+        assert _shown_rows(chooser) == [
+            "No internal standard",
+            "No amount: exports peak areas",
+            "Alanine",
+            "Glycine",
+            "Norvaline",
+        ]
+        QTest.keyClick(chooser.filter, Qt.Key_Down)
+        QTest.keyClick(chooser.filter, Qt.Key_Return)
+        assert not chooser.isVisible()
         assert _value(toolbar.standard).text() == "Glycine"
 
-        menu = _open_standard_menu(toolbar)
-        assert [a.text() for a in menu.actions() if a.isChecked()] == ["Glycine"]
-        menu.close()
+        chooser = _open_chooser(toolbar)
+        assert chooser.list.currentItem().text() == "Glycine"
+        QTest.keyClicks(chooser.filter, "xyz")
+        assert _shown_rows(chooser) == ["No internal standard"]
+        QTest.keyClick(chooser.filter, Qt.Key_Return)  # no match: nothing to choose
+        assert chooser.isVisible()
+        QTest.keyClick(chooser.filter, Qt.Key_Escape)  # clears the filter
+        assert chooser.isVisible() and chooser.list.currentItem().text() == "Glycine"
+        QTest.keyClick(chooser.filter, Qt.Key_Escape)
+        assert not chooser.isVisible()
+        assert toolbar.get_internal_standard() == "Glycine"
+
+        chooser = _open_chooser(toolbar)
+        for _ in range(3):  # past Alanine and the heading
+            QTest.keyClick(chooser.filter, Qt.Key_Up)
+        QTest.keyClick(chooser.filter, Qt.Key_Return)
+        assert toolbar.get_internal_standard() is None
+        assert _value(toolbar.standard).text() == "None"
     finally:
         toolbar.deleteLater()
 
@@ -496,8 +537,14 @@ def test_sections_collapse_and_remember(qapp, stub_compound):
         peak.header.click()
         assert not peak.summary.isVisible()
 
-        toolbar.summary_section.header.click()
+        # A screen reader hears the heading as open or closed, and can press it.
+        heading = QAccessible.queryAccessibleInterface(toolbar.summary_section.header)
+        state = heading.state()
+        assert (state.expandable, state.expanded, state.collapsed) == (True, True, False)
+        heading.actionInterface().doAction(QAccessibleActionInterface.pressAction())
         assert not toolbar.summary_section.is_expanded()
+        state = heading.state()
+        assert (state.expanded, state.collapsed) == (False, True)
     finally:
         toolbar.deleteLater()
 
@@ -551,6 +598,19 @@ def test_laptop_lists_keep_four_compounds_and_three_samples_with_samples_open(
         assert toolbar.section_switcher.isVisible()
     finally:
         toolbar.deleteLater()
+
+
+def test_short_of_room_samples_give_up_rows_before_compounds_drop_below_three(qapp):
+    # Row heights come from the app stylesheet, as in the app.
+    before = qapp.styleSheet()
+    apply_app_stylesheet(qapp)
+    toolbar = _sidebar(600, samples_open=True)
+    try:
+        assert _full_rows(toolbar.compound_list) >= 3
+        assert _full_rows(toolbar.sample_list) >= 1
+    finally:
+        toolbar.deleteLater()
+        qapp.setStyleSheet(before)
 
 
 # 680 is about the sidebar of a 1024x768 window with a taller menu bar.

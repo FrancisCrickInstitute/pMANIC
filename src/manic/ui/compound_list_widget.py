@@ -48,6 +48,12 @@ class CompoundListWidget(QListWidget):
             return
         self.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # A short sidebar can leave one row: it shows the compound on screen.
+        if event.size().height() < event.oldSize().height():
+            self._center_current_item()
+
     def update_compounds(
         self, compounds: List[str], selected_name: str | None = None
     ):

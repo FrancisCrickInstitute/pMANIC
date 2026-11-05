@@ -667,6 +667,19 @@ def test_switcher_leaves_once_there_is_room_and_sections_keep_their_state(qapp, 
         tall.deleteLater()
 
 
+def test_a_shrinking_compound_list_keeps_the_current_compound_in_view(qapp):
+    toolbar = _sidebar(1400, samples_open=True)
+    compounds = toolbar.compound_list
+    try:
+        compounds.setCurrentRow(40)
+        toolbar.resize(296, 560)
+        _settle(toolbar)
+        row = compounds.visualItemRect(compounds.currentItem())
+        assert compounds.viewport().rect().contains(row)
+    finally:
+        toolbar.deleteLater()
+
+
 def test_a_caption_or_note_takes_its_line_from_the_lists_not_the_window(qapp):
     # Just tall enough for the lists' hard rows beside the folded Peak window.
     _add_compound("Compound 0")

@@ -12,8 +12,9 @@ from PySide6.QtCharts import (
     QChart,
     QValueAxis,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QLineEdit
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
 import numpy as np
 from types import SimpleNamespace
 
@@ -267,7 +268,20 @@ def test_identity_chart_click_emits_sample_name(qapp):
     widget.sample_activated.connect(activated.append)
     try:
         widget.update_results(identity)
-        widget._binding.bar_sets[0].clicked.emit(0)
+        widget.resize(300, 200)
+        widget.show()
+        for _ in range(5):
+            qapp.processEvents()
+        # Anywhere on the row, its name included, as on the Peak area bars beside it.
+        chart, viewport = widget.chart, widget.chart_view.viewport()
+        name_x = chart.plotArea().left() - 10
+        row_y = chart.mapToPosition(QPointF(0, 0), chart.series()[0]).y()
+        pos = QPointF(widget.chart_view.mapFromScene(chart.mapToScene(QPointF(name_x, row_y))))
+        for kind in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+            QApplication.sendEvent(
+                viewport,
+                QMouseEvent(kind, pos, viewport.mapToGlobal(pos), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier),
+            )
         assert activated == ["S1"]
     finally:
         widget.deleteLater()

@@ -97,20 +97,25 @@ def _rows_in_view(widget) -> list[str]:
     ]
 
 
+def _mouse(widget, name, kind=QEvent.MouseMove) -> None:
+    """A mouse event halfway along a sample's first bar segment (its row's start if empty)."""
+    series = widget.chart.series()[0]
+    index = list(widget.chart.axes(Qt.Vertical)[0].categories()).index(name)
+    point = widget.chart.mapToPosition(QPointF(series.barSets()[0].at(index) / 2, index), series)
+    pos = QPointF(widget.chart_view.mapFromScene(widget.chart.mapToScene(point)))
+    viewport = widget.chart_view.viewport()
+    button = Qt.NoButton if kind == QEvent.MouseMove else Qt.LeftButton
+    QApplication.sendEvent(
+        viewport,
+        QMouseEvent(kind, pos, viewport.mapToGlobal(pos), button, button, Qt.NoModifier),
+    )
+
+
 def _hover(widget, name, monkeypatch) -> list[str]:
     """Move the mouse onto a sample's bar; the tooltips that shows."""
     shown = []
     monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_args: shown.append(text))
-    series = widget.chart.series()[0]
-    index = list(widget.chart.axes(Qt.Vertical)[0].categories()).index(name)
-    # Halfway along the first bar segment.
-    point = widget.chart.mapToPosition(QPointF(series.barSets()[0].at(index) / 2, index), series)
-    pos = QPointF(widget.chart_view.mapFromScene(widget.chart.mapToScene(point)))
-    viewport = widget.chart_view.viewport()
-    QApplication.sendEvent(
-        viewport,
-        QMouseEvent(QEvent.MouseMove, pos, viewport.mapToGlobal(pos), Qt.NoButton, Qt.NoButton, Qt.NoModifier),
-    )
+    _mouse(widget, name)
     return shown
 
 
@@ -319,11 +324,33 @@ def _row_notes(widget) -> dict[str, str]:
     }
 
 
-def test_a_peak_area_too_small_to_draw_reads_as_its_popup_value(qapp):
+def test_a_peak_area_too_small_to_draw_reads_as_its_popup_value(qapp, monkeypatch):
     names = ["S1", "S2", "S3", "S4"]
     widget = _shown(_abundance(names, [2e6, 0.0, float("nan"), 2e3]), 300)
     try:
         assert _row_notes(widget) == {"S2": "0", "S3": "—", "S4": "<0.01"}
+        # Hover answers by row, so an empty or tiny bar names its sample like the rest.
+        assert _hover(widget, "S2", monkeypatch)[-1] == "S2\nPeak area  0"
+        assert _hover(widget, "S3", monkeypatch)[-1] == "S3\nPeak area  —"
+        assert _hover(widget, "S4", monkeypatch)[-1] == "S4\nPeak area  2e+03"
+    finally:
+        widget.deleteLater()
+
+
+@pytest.mark.parametrize("make", [_abundance, _ratios])
+def test_a_click_on_a_summary_row_selects_its_sample(qapp, make):
+    names = ["S1", "S2", "S3"]
+    widget = make(names)
+    if make is _abundance:
+        widget.update_abundance_from_data("Alanine", _eics(names), np.asarray([3e6, 0.0, 1e6]))
+    _shown(widget, 300)
+    activated = []
+    widget.sample_activated.connect(activated.append)
+    try:
+        for name in ("S3", "S2"):
+            _mouse(widget, name, QEvent.MouseButtonPress)
+            _mouse(widget, name, QEvent.MouseButtonRelease)
+        assert activated == ["S3", "S2"]
     finally:
         widget.deleteLater()
 
@@ -360,8 +387,7 @@ def test_a_summary_hover_tooltip_has_its_own_opaque_background(qapp, make):
     widget = make(["S1", "S2"])
     try:
         _shown(widget)
-        bar_set = next(s for series in widget.chart.series() for s in series.barSets())
-        bar_set.hovered.emit(True, 0)
+        _mouse(widget, "S1")
         qapp.processEvents()
         chart_tip = _tip_background()
         QToolTip.hideText()

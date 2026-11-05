@@ -34,6 +34,7 @@ from manic.ui.chart_header import HeaderName
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
     abundance_scale,
+    bar_row_at,
     fit_category_names,
     scale_text,
     set_nice_ticks,
@@ -698,16 +699,8 @@ class ChartPopupDialog(QDialog):
             self.chart_view.setFocus(Qt.OtherFocusReason)
 
     def _row_at(self, viewport_pos) -> int | None:
-        series = self.chart.series()
-        if not series:
-            return None
-        point = self.chart.mapFromScene(self.chart_view.mapToScene(viewport_pos))
-        area = self.chart.plotArea()
-        if not (area.top() <= point.y() <= area.bottom()) or point.x() > area.right():
-            return None
-        category = round(self.chart.mapToValue(point, series[0]).y())
-        rows = len(self.row_names())
-        return rows - 1 - category if 0 <= category < rows else None
+        category = bar_row_at(self.chart, self.chart_view, viewport_pos)
+        return None if category is None else len(self.row_names()) - 1 - category
 
     def set_current_row(self, row: int | None) -> None:
         self._current_row = row

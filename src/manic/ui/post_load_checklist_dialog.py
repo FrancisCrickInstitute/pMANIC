@@ -37,6 +37,7 @@ from manic.ui.dialog_kit import (
     title_label,
     window_title,
 )
+from manic.ui.standard_chooser import NO_STANDARD, StandardChooser
 from manic.ui.theme import set_style_property
 
 _STATE_ORDER = {"unset": 0, "no_match": 1, "matched": 2}
@@ -79,6 +80,42 @@ def _summary_text(report: list[MmFileStatus]) -> str:
     return summary
 
 
+class StandardPicker(ComboBox):
+    """Shows the chosen internal standard and opens the searchable chooser, as the
+    sidebar does, in place of a plain list."""
+
+    changed = Signal()
+
+    def __init__(
+        self, names: list[str], current: str | None, lacking: set[str], parent=None
+    ):
+        super().__init__(parent)
+        self.setObjectName("internalStandardPicker")
+        self.setAccessibleName("Internal standard")
+        self.set_names(names, lacking, current)
+
+    def set_names(self, names: list[str], lacking: set[str], current: str | None = None) -> None:
+        self._names, self._lacking = names, lacking
+        self._show(current if current in names else None)
+
+    def standard(self) -> str | None:
+        return self.currentData()
+
+    def _show(self, name: str | None) -> None:
+        self.clear()
+        self.addItem(name or NO_STANDARD, name)
+
+    def showPopup(self) -> None:
+        chooser = StandardChooser(self._names, self.standard(), self._lacking, self)
+        chooser.chosen.connect(self._on_chosen)
+        chooser.popup(self.mapToGlobal(self.rect().bottomLeft()))
+
+    def _on_chosen(self, name: str | None) -> None:
+        if name != self.standard():
+            self._show(name)
+            self.changed.emit()
+
+
 class _MmFileTable(QTableWidget):
     """Opens showing up to eight rows; a short screen trims it to no fewer than four."""
 
@@ -99,6 +136,7 @@ class PostLoadChecklistDialog(QDialog):
         parent: QWidget | None = None,
         *,
         compound_list_path: str | None = None,
+        lacking: set[str] = frozenset(),
     ):
         super().__init__(parent)
         self.setObjectName("postLoadChecklistDialog")
@@ -123,16 +161,10 @@ class PostLoadChecklistDialog(QDialog):
         layout.addSpacing(SECTION_SPACING - 8)
         layout.addWidget(section_label("Internal standard"))
         self._initial_internal_standard = current_internal_standard
-        self.internal_standard_combo = ComboBox()
-        self.internal_standard_combo.setObjectName("internalStandardCombo")
-        self.internal_standard_combo.addItem("No internal standard", None)
-        for name in compound_names:
-            self.internal_standard_combo.addItem(name, name)
-        if current_internal_standard:
-            index = self.internal_standard_combo.findText(current_internal_standard)
-            if index >= 0:
-                self.internal_standard_combo.setCurrentIndex(index)
-        layout.addWidget(self.internal_standard_combo)
+        self.standard_picker = StandardPicker(
+            compound_names, current_internal_standard, lacking
+        )
+        layout.addWidget(self.standard_picker)
         layout.addWidget(
             hint_label(
                 "Weak peaks get an amber Below threshold badge only when an "
@@ -223,7 +255,7 @@ class PostLoadChecklistDialog(QDialog):
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         outer.addWidget(self.buttons)
-        self.internal_standard_combo.currentIndexChanged.connect(self._sync_buttons)
+        self.standard_picker.changed.connect(self._sync_buttons)
         self._sync_buttons()
         self._fit_to_screen()
 
@@ -293,10 +325,7 @@ class PostLoadChecklistDialog(QDialog):
         return row
 
     def selected_internal_standard(self) -> str | None:
-        value = self.internal_standard_combo.currentData()
-        if value is None:
-            return None
-        return str(value)
+        return self.standard_picker.standard()
 
     def _sync_buttons(self) -> None:
         changed = self.selected_internal_standard() != self._initial_internal_standard

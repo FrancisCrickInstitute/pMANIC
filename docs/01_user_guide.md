@@ -109,7 +109,7 @@ The selected compound must meet specific criteria in your compound definition fi
 2.  Choose your internal standard compound from the menu.
 3.  To remove a selection, open the same menu and choose **No Internal Standard**.
 
-You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. **Settings → Internal Standard** has the same choice next to the reference peak; click **Save this page** to apply it.
+You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. **Settings → Internal Standard** names the chosen standard and sets its reference peak; click **Save** to apply a new reference peak.
 
 **Verification**
 * **Standard selected:** The **Internal standard** row shows the compound name.
@@ -481,7 +481,7 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 
 ## Glossary
 
-**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. **Settings → Internal Standard** offers the same choice.
+**Internal standard.** The compound chosen from the sidebar **Internal standard** row or with **Select as Internal Standard**. The row shows that name. With no selection it shows **None**. **Settings → Internal Standard** shows the same name.
 
 **MM files (standard mixture).** Sample files that match the compound-list `mmfiles` pattern. MANIC uses them for MRRF and background correction.
 

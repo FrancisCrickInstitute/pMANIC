@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from manic.io.compound_reader import read_compound
 from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.ui.combo_box import ComboBox
@@ -414,94 +413,66 @@ class InternalStandardPage(SettingsPage):
 
     def __init__(self, host, parent: QWidget | None = None) -> None:
         super().__init__(host, parent)
+        self._standard: str | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        layout.addWidget(
-            description_label(
-                "The reference peak is the internal standard's isotopologue used for "
-                "peak validation, abundance normalization and MRRF calculations."
-            )
-        )
-
         form = form_layout()
-        self.standard_combo = ComboBox()
-        self.standard_combo.setObjectName("internalStandardChoiceCombo")
-        self.standard_combo.currentIndexChanged.connect(self._on_standard_changed)
-        self._inputs.append(self.standard_combo)
-        form_row(form, "Internal standard", self.standard_combo)
+        # Chosen in the sidebar, the compound menu or the setup checklist; shown here
+        # because the reference peak below belongs to it.
+        self.standard_label = QLabel()
+        self.standard_label.setObjectName("internalStandardName")
+        form_row(form, "Internal standard", self.standard_label)
 
         self.combo = ComboBox()
         self.combo.setObjectName("internalStandardCombo")
         self.combo.setMaximumWidth(_NUMBER_FIELD_WIDTH)
         self.combo.currentIndexChanged.connect(self._mark_dirty)
         self._inputs.append(self.combo)
-        form_row(form, "Reference peak", self.combo)
+        form_row(
+            form,
+            "Reference peak",
+            with_help(
+                self.combo,
+                "The internal standard's isotopologue used for peak validation, "
+                "abundance normalization and MRRF calculations.",
+            ),
+        )
         self.reference_hint = hint_label("")
         form_row(form, "", self.reference_hint)
         layout.addLayout(form)
         layout.addStretch()
 
-    def _compound_names(self) -> list[str]:
-        return self.host.compound_names()
-
     def editable(self) -> tuple[bool, str]:
-        if not self._compound_names():
-            return False, "Load a compound list to choose an internal standard."
+        if not self.host.internal_standard_name():
+            return False, "Choose an internal standard in the sidebar to set its reference peak."
         return True, ""
 
     def set_inputs_enabled(self, enabled: bool) -> None:
         super().set_inputs_enabled(enabled)
         self.combo.setEnabled(enabled and self.combo.count() > 1)
 
-    def _label_atoms(self, name: str | None) -> int:
-        if not name:
-            return 0
-        if name == self.host.internal_standard_name():
-            return self.host.internal_standard_label_atoms()
-        try:
-            return max(int(read_compound(name).label_atoms or 0), 0)
-        except LookupError:
-            return 0
-
-    def _fill_reference(self, name: str | None, current: int) -> None:
-        label_atoms = self._label_atoms(name)
+    def load(self) -> None:
+        self._standard = self.host.internal_standard_name()
+        self.standard_label.setText(self._standard or "None")
+        label_atoms = self.host.internal_standard_label_atoms()
+        current = self.host.internal_standard_reference_isotope
         with QSignalBlocker(self.combo):
             self.combo.clear()
             for idx in range(label_atoms + 1):
                 self.combo.addItem(f"M+{idx}", idx)
             self.combo.setCurrentIndex(current if 0 <= current <= label_atoms else 0)
-        no_labels = bool(name) and label_atoms == 0
+        no_labels = bool(self._standard) and label_atoms == 0
         self.reference_hint.setText(
-            f"{name} has no label atoms, so only M+0 can be the reference peak."
+            f"{self._standard} has no label atoms, so only M+0 can be the reference peak."
             if no_labels
             else ""
         )
         self.reference_hint.setVisible(no_labels)
-        self.combo.setEnabled(self.standard_combo.isEnabled() and label_atoms > 0)
-
-    def _on_standard_changed(self, _index: int) -> None:
-        # A different standard starts at M+0, as it does when chosen in the sidebar.
-        self._fill_reference(self.standard_combo.currentData(), 0)
-        self._mark_dirty()
-
-    def load(self) -> None:
-        name = self.host.internal_standard_name()
-        with QSignalBlocker(self.standard_combo):
-            self.standard_combo.clear()
-            self.standard_combo.addItem("No internal standard", None)
-            for compound in self._compound_names():
-                self.standard_combo.addItem(compound, compound)
-            index = self.standard_combo.findData(name) if name else 0
-            self.standard_combo.setCurrentIndex(max(index, 0))
-        self._fill_reference(name, self.host.internal_standard_reference_isotope)
         self._clear_dirty()
 
     def save(self) -> None:
-        chosen = self.standard_combo.currentData()
-        if chosen != self.host.internal_standard_name():
-            self.host.apply_internal_standard(chosen)
         self.host.apply_internal_standard_reference_isotope(self.combo.currentData() or 0)
 
 

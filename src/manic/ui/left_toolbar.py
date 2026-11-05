@@ -50,9 +50,11 @@ from .total_abundance_widget import TotalAbundanceWidget
 logger = logging.getLogger(__name__)
 
 # The lists give rows to the Peak window down to BROWSE_HARD_ROWS each (compounds,
-# samples) for its editor, and down to BROWSE_KEEP_ROWS for the rest of it. Then they
-# grow to BROWSE_MIN_ROWS and together this share of the sidebar.
-BROWSE_HARD_ROWS = (2, 1)
+# samples) for its editor and folded rows, down to BROWSE_OPEN_ROWS once the user opens
+# those rows, and down to BROWSE_KEEP_ROWS for the rest of it. Then they grow to
+# BROWSE_MIN_ROWS and together this share of the sidebar.
+BROWSE_HARD_ROWS = (2, 3)
+BROWSE_OPEN_ROWS = (1, 1)
 BROWSE_KEEP_ROWS = (4, 3)
 BROWSE_MIN_ROWS = (6, 4)
 BROWSE_MIN_SHARE = 0.45
@@ -219,7 +221,7 @@ class Toolbar(QWidget):
             "and subtracts the area under this baseline from the peak area."
         )
         self.baseline_checkbox.stateChanged.connect(self._on_baseline_checkbox_toggled)
-        self.integration.more.rows.insertWidget(0, self.baseline_checkbox)
+        self.integration.more.body.layout().insertWidget(0, self.baseline_checkbox)
 
         self.peak_section = CollapsibleSection(
             "Peak window",
@@ -231,6 +233,7 @@ class Toolbar(QWidget):
         self.integration.findChild(QLineEdit, "tr_input").textChanged.connect(
             self._refresh_peak_summary
         )
+        self.integration.tr_window_edit.textChanged.connect(self._refresh_peak_summary)
         self._refresh_peak_summary()
         inspector_layout.addWidget(self.peak_section)
         # An open section's own controls show its state, so the heading summary is for a closed one.
@@ -277,7 +280,8 @@ class Toolbar(QWidget):
             self.integration.findChild(QLineEdit, "ro_input"), self.integration.restore_button
         )
         QWidget.setTabOrder(self.integration.restore_button, self.integration.apply_button)
-        QWidget.setTabOrder(self.integration.apply_button, self.baseline_checkbox)
+        QWidget.setTabOrder(self.integration.apply_button, self.integration.more.header)
+        QWidget.setTabOrder(self.integration.more.header, self.baseline_checkbox)
         QWidget.setTabOrder(self.baseline_checkbox, self.integration.tr_window_edit)
 
         # On a short sidebar this stands in for the section headings: one section at a time.
@@ -327,6 +331,8 @@ class Toolbar(QWidget):
         self._fit_timer.setSingleShot(True)
         self._fit_timer.timeout.connect(self.fit_inspector)
         inspector_content.installEventFilter(self)
+        # At once, so the lists yield their rows before the window would grow for the opened rows.
+        self.integration.more.toggled.connect(self.fit_inspector)
         for section in (self.samples_section, self.peak_section, self.summary_section):
             section.toggled.connect(self._fit_timer.start)
 
@@ -389,6 +395,9 @@ class Toolbar(QWidget):
         baseline = "Baseline on" if self.baseline_checkbox.isChecked() else "No baseline"
         tr = self.integration.findChild(QLineEdit, "tr_input").text().strip()
         self.peak_section.summary.setText(f"tR {tr} · {baseline}" if tr else baseline)
+        window = self.integration.tr_window_edit.text().strip()
+        state = "On" if self.baseline_checkbox.isChecked() else "Off"
+        self.integration.more.summary.setText(f"{state} · {window} min" if window else state)
 
     def _set_checked_quietly(self, checkbox: QCheckBox, checked: bool) -> None:
         """Show a state that is already committed: summaries and menus follow, nothing is saved."""
@@ -461,6 +470,9 @@ class Toolbar(QWidget):
 
     def _browse_lists(self) -> list[_BrowseList]:
         lists = (self.compound_list, self.sample_list)
+        more = self.integration.more
+        opened = more.is_expanded() and not more.header.isHidden()
+        hard_rows = BROWSE_OPEN_ROWS if opened else BROWSE_HARD_ROWS
         return [
             _BrowseList(
                 lst,
@@ -471,7 +483,7 @@ class Toolbar(QWidget):
                 weight,
             )
             for lst, hard, keep, floor, weight in zip(
-                lists, BROWSE_HARD_ROWS, BROWSE_KEEP_ROWS, BROWSE_MIN_ROWS, BROWSE_WEIGHTS
+                lists, hard_rows, BROWSE_KEEP_ROWS, BROWSE_MIN_ROWS, BROWSE_WEIGHTS
             )
             if lst.isVisibleTo(self)
         ]
@@ -519,9 +531,14 @@ class Toolbar(QWidget):
             height = max(height - frame, 0) // row * row + frame
             item.widget.setMinimumHeight(min(item.hard, height) or 1)
             item.widget.setMaximumHeight(height)
+        # Set here as well, one level under the splitter like the inspector's floor: Qt reads
+        # a list's new floor through each layout in turn, too late when the inspector's rises.
+        self.splitter.widget(0).setMinimumHeight(
+            chrome + sum(item.widget.minimumHeight() for item in lists)
+        )
 
     def _peak_height(self, compact: bool, whole: bool) -> int:
-        """Inspector height for the Peak window: its editor and first row below, or all of it."""
+        """Inspector height for the Peak window: its editor and the folded rows below, or all of it."""
         margins = self.inspector.layout().contentsMargins()
         height = margins.top() + margins.bottom()
         section = self.peak_section
@@ -532,12 +549,11 @@ class Toolbar(QWidget):
             if not section.is_expanded():
                 return height
             height += section.layout().spacing()
-        more = self.integration.more
         return (
             height
             + self.integration.editor_height()
             + self.integration.layout().spacing()
-            + (more.full_height() if whole else more.minimumSizeHint().height())
+            + self.integration.lower_height(whole)
         )
 
     def _full_inspector_height(self) -> int:
@@ -603,7 +619,8 @@ class Toolbar(QWidget):
         # Below the stacked sections' own minimum the switcher takes over, so that minimum
         # must never hold the window open.
         integration = self.integration
-        reserved = integration.editor_height() - integration.editor.sizeHint().height()
+        # The hidden scope line's room; a shown caption's size hint can wrap taller than it shows.
+        reserved = max(integration.editor_height() - integration.editor.sizeHint().height(), 0)
         self._inspector_pane.setMinimumHeight(
             self._peak_height(compact=True, whole=False) - reserved
         )
@@ -613,12 +630,21 @@ class Toolbar(QWidget):
         their kept rows, the rest of the Peak window fits, then the summaries take the rest."""
         total = sum(self.splitter.sizes())
         if self._inspector_pane.isHidden() or total <= 0:
+            self.splitter.widget(0).setMinimumHeight(0)
             return
-        self._hold_inspector_floor()
         lists = self._browse_lists()
         chrome = self.splitter.widget(0).minimumSizeHint().height() - sum(
             item.widget.minimumHeight() for item in lists
         )
+        # Fold the rows below the editor when the whole Peak window cannot sit beside the
+        # lists' hard rows; whether the user opened them does not change that.
+        hard = dict(zip((self.compound_list, self.sample_list), BROWSE_HARD_ROWS))
+        fold = total - self._peak_height(compact=True, whole=True) < chrome + sum(
+            self._rows_height(item.widget, hard[item.widget]) for item in lists
+        )
+        self.integration.more.set_headless(not fold)
+        lists = self._browse_lists()
+        self._hold_inspector_floor()
 
         def rows(field: str) -> int:
             return chrome + sum(getattr(item, field) for item in lists)

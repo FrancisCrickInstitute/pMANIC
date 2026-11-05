@@ -22,7 +22,7 @@ from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
-from manic.ui.sidebar_widgets import WholeRowsArea
+from manic.ui.sidebar_widgets import CollapsibleSection
 from manic.ui.theme import set_style_property
 
 logger = logging.getLogger(__name__)
@@ -251,7 +251,7 @@ class IntegrationWindow(QWidget):
         layout.setSpacing(8)
 
         # The offsets and the Reset/Apply that acts on them stay whole together;
-        # on a short sidebar the rows below show one at a time.
+        # on a short sidebar the rows below fold instead.
         self.editor = QWidget()
         editor_layout = QVBoxLayout(self.editor)
         editor_layout.setContentsMargins(0, 0, 0, 0)
@@ -341,8 +341,17 @@ class IntegrationWindow(QWidget):
         self.window_scope_label.setProperty("role", "hint")
         self.window_scope_label.setWordWrap(True)
         window_layout.addWidget(self.window_scope_label)
-        self.more = WholeRowsArea()
-        self.more.rows.addWidget(window_group)
+        rows = QWidget()
+        rows_layout = QVBoxLayout(rows)
+        rows_layout.setContentsMargins(0, 0, 0, 0)
+        rows_layout.setSpacing(4)
+        rows_layout.addWidget(window_group)
+        # Plain rows when they fit; on a short sidebar the toolbar folds them behind a
+        # heading that names them, so the editor above stays whole.
+        self.more = CollapsibleSection("Baseline, tR window", rows, sub=True)
+        self.more.set_headless(True)
+        self.more.toggled.connect(self.more.summary.setHidden)
+        self.more.summary.setHidden(self.more.is_expanded())
         layout.addWidget(self.more)
         layout.addStretch(1)
 
@@ -363,18 +372,21 @@ class IntegrationWindow(QWidget):
         # at their last fitted height; the size hint counts every one.
         return False
 
+    def lower_height(self, whole: bool) -> int:
+        """Height of the rows below the editor: all of them as plain rows, or as they show
+        now, folded behind their heading open or closed as the user left it."""
+        rows = self.more.body.sizeHint().height()
+        if whole or self.more.header.isHidden():
+            return rows
+        heading = self.more.header.minimumHeight()
+        return heading + (self.more.layout().spacing() + rows if self.more.is_expanded() else 0)
+
     def sizeHint(self) -> QSize:
         hint = super().sizeHint()
         height = (
-            self._editor_height(self.width())
-            + self.layout().spacing()
-            + self.more.full_height()
+            self._editor_height(self.width()) + self.layout().spacing() + self.lower_height(True)
         )
         return QSize(hint.width(), height)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.more.fit(self.height() - self.editor.height() - self.layout().spacing())
 
     def _format_number(self, value: float) -> str:
         if value == 0:

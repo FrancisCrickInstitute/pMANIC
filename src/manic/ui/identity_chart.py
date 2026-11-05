@@ -110,14 +110,12 @@ def identity_unassessed_note(identity: IdentityAssessmentSet) -> str | None:
 
 
 def qualifier_gap_note(identity: IdentityAssessmentSet) -> str | None:
-    """One note for a qualifier no sample can be checked on, while another qualifier can.
+    """One note naming each qualifier no sample can be checked on, else None.
 
     The gap is the compound's, not any sample's, so the grid states it once
     instead of marking every tile partial.
     """
     qualifiers = [c for c in identity.channels if c.role is IonRole.QUALIFIER]
-    if not any(_checkable(c) for c in qualifiers):
-        return None
     notes = [
         f"Qualifier {c.ordinal} is not assessed: the compound list gives it no expected ratio. "
         f"See {_GUIDE_LINK}."

@@ -326,6 +326,27 @@ def test_a_qualifier_the_method_cannot_check_is_one_header_note_not_a_badge_per_
     grid.plot_compound("Serine", samples)
     assert not grid.qc_note.isVisibleTo(grid)
 
+    # Glycine: its only qualifier has no expected ratio, so nothing is assessed.
+    qc = IdentityQcResult(
+        status=IdentityStatus.NOT_ASSESSED, quantifier_area=100.0, observed_rt=7.09,
+        rt_error=0.0, rt_passed=True, qualifier_ratios=(QualifierRatioResult(unchecked, 0.2, None),),
+        reasons=(),
+    )
+    glycine = IdentityAssessmentSet(
+        "Glycine",
+        (quantifier, unchecked),
+        tuple(
+            IdentitySampleAssessment(name, qc, qualifier_pair((quantifier, unchecked), qc, error=None), None)
+            for name in samples
+        ),
+    )
+    grid.plot_compound("Glycine", samples, identity=glycine)
+    assert grid.qc_note.isVisibleTo(grid)
+    assert QTextDocumentFragment.fromHtml(grid.qc_note.text()).toPlainText().replace("\xa0", " ") == (
+        "Qualifier 2 is not assessed: the compound list gives it no expected ratio. "
+        "See Fix a missing qualifier ratio."
+    )
+
 
 def test_activated_sample_is_selected_focused_and_scrolled_to(grid, qapp):
     grid.plot_compound("Pyruvate", [f"S{i:02d}" for i in range(24)])

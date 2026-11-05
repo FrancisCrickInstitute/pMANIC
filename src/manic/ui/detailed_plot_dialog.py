@@ -247,12 +247,13 @@ class DetailedPlotDialog(QDialog):
             x_label="Time (min)",
             y_label="Intensity",
         )
-        # Adaptive minimum heights for small screens
-        min_plot_height = min(
-            200, int(screen_rect.height() * 0.15) if screen_rect else 200
+        # Adaptive minimum heights for small screens, but never below what a title,
+        # ticks and axis label need; a short screen scrolls the charts instead.
+        min_plot_height = max(
+            140, min(200, int(screen_rect.height() * 0.15) if screen_rect else 200)
         )
 
-        self.eic_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
+        self.eic_plot.setMinimumHeight(2 * min_plot_height)
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
 

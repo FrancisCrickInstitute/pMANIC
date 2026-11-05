@@ -27,6 +27,16 @@ def test_the_chromatogram_gets_half_the_chart_height(qapp, monkeypatch):
         dialog.show()
         qapp.processEvents()
         eic, tic, ms = dialog.findChild(QSplitter).sizes()
-        assert eic >= tic + ms - 4
+        # Half when there is room; the others' minimums can take a little of it.
+        assert eic > max(tic, ms) and eic >= 0.45 * (eic + tic + ms)
+    finally:
+        dialog.deleteLater()
+
+
+def test_each_chart_keeps_room_for_its_title_and_axis_label(qapp, monkeypatch):
+    dialog = _dialog(monkeypatch)
+    try:
+        for plot in (dialog.eic_plot, dialog.tic_plot, dialog.ms_plot):
+            assert plot.minimumHeight() >= 140
     finally:
         dialog.deleteLater()

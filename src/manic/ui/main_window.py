@@ -1148,7 +1148,7 @@ class MainWindow(QMainWindow):
         elif self.compound_data_loaded or self.cdf_data_loaded:
             if not self._confirm(
                 "Quit MANIC?",
-                "This session is not saved. Use File > Export Method... to keep the compound settings before quitting.",
+                f"This session is not saved. File > {self.export_method_action.text()} keeps it.",
                 "",
                 "Quit",
             ):

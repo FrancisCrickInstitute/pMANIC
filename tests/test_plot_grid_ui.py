@@ -14,7 +14,7 @@ from manic.ui import theme
 from manic.ui.channel_chips import ChannelChip, ChannelChipRow
 from manic.ui.colors import ChannelTraceStyle, label_colors
 from manic.ui.graphs import ClickableChartView, GraphView
-from manic.ui.plot_tile import DENSITY_MIN_TILE, PEAK_BADGES, PlotTile, grid_columns
+from manic.ui.plot_tile import DENSITY_MIN_TILE, PEAK_BADGES, PlotTile, grid_columns, tile_badges
 from manic.validation.peak_verdict import PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -278,6 +278,26 @@ def test_not_detected_tile_is_tinted_throughout_and_its_traces_faded(scheme, gri
         "Marked bad", "Not detected"
     ]
     assert tiles["Missing"].tint() == "danger_soft"
+
+
+def test_a_retention_time_failure_is_badged_even_when_the_ratios_pass():
+    quantifier = IonChannel(217.0, IonRole.QUANTIFIER)
+    qualifier = IonChannel(
+        147.0, IonRole.QUALIFIER, ordinal=1, expected_ratio=0.4, ratio_tolerance=0.25
+    )
+    reason = "Retention-time error +0.120 min exceeds ±0.050 min"
+    qc = IdentityQcResult(
+        status=IdentityStatus.REVIEW_REQUIRED, quantifier_area=100.0, observed_rt=7.21,
+        rt_error=0.12, rt_passed=False,
+        qualifier_ratios=(QualifierRatioResult(qualifier, 0.41, True),), reasons=(reason,),
+    )
+    assessment = IdentitySampleAssessment(
+        "Shifted", qc, qualifier_pair((quantifier, qualifier), qc, error=None), None
+    )
+
+    [badge] = tile_badges(PeakVerdict.PASS, assessment)
+
+    assert (badge.text, badge.tone, badge.tooltip) == ("tR off", "danger", reason)
 
 
 def test_density_toggle_is_one_tab_stop_that_arrow_keys_switch(grid, qapp):

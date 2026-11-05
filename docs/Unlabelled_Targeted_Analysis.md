@@ -345,9 +345,10 @@ Hover a cell for expected ratio, tolerance, and observed ratio. Click a cell to
 highlight that sample's plot. Click the expand button (↗) or double-click to
 enlarge the chart.
 
-A tile carries a badge when qualifier QC needs attention: **QC partial** (amber),
-**QC fail** (red), or **Not detected** (grey) when the Q peak is missing. A clean
-pass has no badge. Hover the badge for the reasons; the Identity chart shows the
+A tile carries a badge when identity QC needs attention: **QC partial** (amber),
+**QC fail** (red), **tR off** (red) when the Q-ion apex is outside the retention-time
+tolerance, or **Not detected** (grey) when the Q peak is missing. A clean pass has
+no badge. Hover the badge for the reasons; the Identity chart shows the
 per-qualifier detail. Peak-area validation against an internal standard (the amber
 **Below threshold** badge, when enabled) remains a separate check and uses
 **Q-ion area only**.
@@ -442,8 +443,9 @@ Right-click a tile for the detail view:
 1. **Validated**. Spot-check a few. Confirm the Q peak sits on the tR line
    and qualifier traces share the same apex shape. The Identity chart does not
    check tR.
-2. **Failed**, or a **QC fail** or **QC partial** badge. Hover the badge for the
-   reasons. RT failures often need a shifted tR so the window covers the peak.
+2. **Failed**, or a **QC fail**, **QC partial** or **tR off** badge. Hover the badge
+   for the reasons. A **tR off** sample often needs a shifted tR so the window
+   covers the peak.
    Ratio failures often indicate co-elution, wrong qualifier ion, or an outdated
    expected ratio.
 3. **Not detected**. Confirm absence vs. window missed the peak vs.

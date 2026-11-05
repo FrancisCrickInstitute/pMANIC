@@ -83,6 +83,9 @@ def tile_badges(
             text, tone = _QC_BADGES[outcome]
             # The badge names the outcome; its tooltip gives only the reasons.
             badges.append(TileBadge(text, tone, "\n".join(identity.qc.reasons)))
+        if identity.qc.rt_passed is False:
+            rt_reasons = [r for r in identity.qc.reasons if r.startswith("Retention-time")]
+            badges.append(TileBadge("tR off", "danger", "\n".join(rt_reasons)))
     return badges
 
 

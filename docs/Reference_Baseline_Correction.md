@@ -1,16 +1,12 @@
 # Reference: Baseline Correction
 
-## Overview
-
 Baseline correction is a technique for removing the contribution of background signal from chromatographic peak areas. It improves accuracy by accounting for elevated baseline levels that would otherwise inflate integrated areas.
 
 MANIC uses a **linear baseline subtraction** algorithm that fits a straight line through points at the edges of the integration window and subtracts the area under this line from the total peak area.
 
 ---
 
-## How It Works
-
-### Algorithm Steps
+## Algorithm
 
 1. **Need six points.** If the window has fewer than 6 points, baseline correction is skipped.
 2. **Collect edge samples.** Take the first 3 and last 3 points in the window (time and intensity).
@@ -28,13 +24,11 @@ so that the six points lie nearest that line in the least-squares sense.
 
 $$\text{Area}_{baseline} = \tfrac{1}{2}\left(B(t_1) + B(t_n)\right) \times w$$
 
-$w$ is the time span (time-based) or the unit-spacing width (legacy).
+$w$ is the time span for time-based integration (the default) or the unit-spacing width for legacy integration. The fit is the same for both.
 
 $$\text{Area}_{corrected} = \max\left(0,\ \text{Area}_{total} - \text{Area}_{baseline}\right)$$
 
-### Negative Value Handling
-
-If the baseline subtraction results in a negative area (which can occur when the baseline estimate exceeds the actual signal), the value is **clamped to zero**. This prevents physically meaningless negative abundances.
+If the edges are at zero intensity, the baseline is horizontal at zero and removes no area.
 
 ---
 
@@ -49,7 +43,7 @@ The baseline line uses the same color as its corresponding isotopologue trace, m
 
 ---
 
-### Considerations
+## Considerations
 
 - **Default Behavior:** Baseline correction is **enabled by default** for all compounds.
 - **Per-Compound Setting:** The setting is stored per compound, not per sample. All samples for a given compound share the same baseline correction state.
@@ -57,22 +51,13 @@ The baseline line uses the same color as its corresponding isotopologue trace, m
 
 ---
 
-## Configuration
+## Turning It On or Off
 
-### Enabling/Disabling
-
-The baseline correction checkbox is in the **Peak window** section of the sidebar, under the **tR window** field. **Review → Baseline Correction** toggles it too.
+The **Baseline correction** checkbox is in the sidebar's **Peak window**, above the **tR window** field. On a short screen, click **Baseline, tR window** to reach it. **Review → Baseline Correction** toggles it too.
 
 1. **Select a Compound** from the compound list.
 2. **Toggle the Checkbox** labeled "Baseline correction".
 3. **Observe the Change:** The plots will immediately refresh to show (or hide) the dashed baseline lines.
-
-### Visual Indicators
-
-| State | Display |
-| :--- | :--- |
-| **Enabled** | Blue checkbox with white checkmark ✓ |
-| **Disabled** | Gray unchecked box |
 
 ---
 
@@ -86,25 +71,3 @@ When baseline correction is enabled, it is applied to **all sheets** in the expo
 
 This ensures consistent quantification throughout the entire analysis pipeline.
 
----
-
-## Technical Notes
-
-### Compatibility with Integration Methods
-
-Baseline correction works with both integration methods:
-
-- **Time-Based Integration (Default):** Baseline area calculated using actual time units.
-- **Legacy Integration:** Baseline area calculated using unit-spacing.
-
-### Edge Cases
-
-| Situation | Behavior |
-| :--- | :--- |
-| Fewer than 6 points in window | Baseline correction skipped (insufficient data) |
-| Negative corrected area | Clamped to zero |
-| Zero intensity at edges | Baseline treated as horizontal at zero |
-
-### Algorithm Origin
-
-The fit uses the same six edge points for time-based and legacy integration. Only the width used in the trapezoid changes.

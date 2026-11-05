@@ -2851,8 +2851,8 @@ class MainWindow(QMainWindow):
                     (
                         "Results will contain quantifier-ion peak areas."
                         if self.analysis_mode is AnalysisMode.UNLABELLED
-                        else "Abundance values will represent 'Peak Area' "
-                        "(sum of corrected isotopologues)."
+                        else "Abundances will be peak areas, summed over the "
+                        "corrected isotopologues."
                     ),
                     "Export",
                 ):

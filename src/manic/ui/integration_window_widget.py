@@ -37,6 +37,8 @@ def toolbar_decimal_text_is_allowed(text: str) -> bool:
 
 
 PEAK_FIELDS = ("lo_input", "tr_input", "ro_input")
+# Non-breaking, so a wrapped caption never strands "·" or "not" at a line end.
+NOT_APPLIED = "\u00a0·\u00a0not\u00a0applied"
 
 
 def _field_value(text: str) -> str:
@@ -720,7 +722,7 @@ class IntegrationWindow(QWidget):
         else:
             scope = ""  # all shown samples, the default; the canvas explains an empty grid
         if edited:
-            scope = f"{scope} · not applied" if scope else "Not applied"
+            scope = f"{scope}{NOT_APPLIED}" if scope else "Not applied"
         self.scope_label.setText(scope)
         # Primary only while there is an edit to apply; still enabled to re-apply a mixed selection.
         set_style_property(self.apply_button, "variant", "primary" if edited else None)
@@ -742,7 +744,7 @@ class IntegrationWindow(QWidget):
         window_edited = self._has_window_draft()
         self.window_scope_label.setText(
             f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
-            + (" · not applied" if window_edited else "")
+            + (NOT_APPLIED if window_edited else "")
         )
         self.window_scope_label.setVisible(bool(self._current_compound and shown))
         set_style_property(self.window_scope_label, "state", "edited" if window_edited else None)

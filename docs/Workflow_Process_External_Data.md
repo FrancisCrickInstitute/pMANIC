@@ -1,6 +1,5 @@
 # Workflow: Process External Data
 
-## Overview
 The **Process External Data** feature allows you to re-process external results using MANIC's algorithms, even if you have lost the original raw mass spectrometry files (CDFs).
 
 It reads a **Raw Values** workbook, pairs it with a compound list, and writes five sheets: **Raw Values**, **Corrected Values**, **Isotope Ratio**, **% Label Incorporation**, and **Abundances**.

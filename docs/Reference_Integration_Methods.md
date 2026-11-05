@@ -1,6 +1,5 @@
 # Reference: Integration Methods
 
-## Overview
 Integration is the process of calculating the "area under the curve" for a chromatogram peak. This area represents the total abundance of the ion detected during the elution window.   
 
 MANIC offers two distinct algorithms for this calculation. The choice of method fundamentally changes the numerical scale of your results.   

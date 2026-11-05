@@ -1,6 +1,5 @@
 # Reference: Peak Validation
 
-## Overview
 MANIC includes an automated quality control system to identify weak or low-quality peaks.   
 
 Instead of requiring you to manually inspect every chromatogram for noise, the software automatically flags peaks that fall below a minimum intensity threshold relative to your internal standard.
@@ -20,7 +19,7 @@ $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 
 * **$\text{Area}_{metabolite}$**: The total raw area of the target peak.
 * **$\text{Area}_{IS}$**: The internal standard reference peak area (M+N, default M+0) in the current sample.
-* **$\text{Threshold}$**: The configurable percentage limit (Default: **0.005** or 0.5%).
+* **$\text{Threshold}$**: The configurable limit set under [Configuration](#3-configuration).
 
 ### Example
 * **Internal Standard Area:** 1,000,000
@@ -48,7 +47,7 @@ When reviewing integration, look under each plot's sample name:
 Every sheet of the results workbook fills a peak's cells by its status:
 
 * **No fill:** Valid data.
-* **Light red:** The value was calculated, but the underlying peak failed validation. Treat these quantitative results with caution. Without an internal standard no peak fails, so no cell is light red.
+* **Light red:** The value was calculated, but the underlying peak failed validation. Treat these quantitative results with caution.
 * **Light purple** or **tan:** You accepted the peak or marked it as bad.
 
 ---

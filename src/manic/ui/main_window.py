@@ -564,6 +564,15 @@ class MainWindow(QMainWindow):
         menu.addAction(self.show_all_samples_action)
         menu.addSeparator()
 
+        # The review loop: reach the next flagged sample, then judge it.
+        self.next_flagged_action = QAction("Next Flagged Sample", self)
+        self.next_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(1))
+        letter_key(self.next_flagged_action, Qt.Key_N)
+        menu.addAction(self.next_flagged_action)
+        self.previous_flagged_action = QAction("Previous Flagged Sample", self)
+        self.previous_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(-1))
+        letter_key(self.previous_flagged_action, Qt.SHIFT | Qt.Key_N)
+        menu.addAction(self.previous_flagged_action)
         self.accept_peak_action = QAction("Accept Peak (Below Threshold)", self)
         self.accept_peak_action.triggered.connect(
             lambda: self._with_review_lead(
@@ -580,14 +589,6 @@ class MainWindow(QMainWindow):
         )
         letter_key(self.reject_peak_action, Qt.Key_B)
         menu.addAction(self.reject_peak_action)
-        self.next_flagged_action = QAction("Next Flagged Sample", self)
-        self.next_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(1))
-        letter_key(self.next_flagged_action, Qt.Key_N)
-        menu.addAction(self.next_flagged_action)
-        self.previous_flagged_action = QAction("Previous Flagged Sample", self)
-        self.previous_flagged_action.triggered.connect(lambda: self.graph_view.focus_flagged(-1))
-        letter_key(self.previous_flagged_action, Qt.SHIFT | Qt.Key_N)
-        menu.addAction(self.previous_flagged_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
         menu.addSeparator()
         # The Peak window's baseline toggle, so it sits with the peak commands.

@@ -78,7 +78,7 @@ By default MANIC uses the internal standard **M+0** peak as the reference peak f
 
 If your internal standard is labelled, you can change this in:
 
-**Settings → General**, **Internal standard** section, **Reference peak**
+**Settings → Internal standard**, **Reference peak**
 
 Choose the internal standard itself from the sidebar **Internal standard** row. Changing the internal standard compound resets the reference peak back to **M+0**.
 

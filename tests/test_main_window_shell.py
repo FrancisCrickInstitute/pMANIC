@@ -1,14 +1,14 @@
 import pytest
 from PySide6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QUrl
 from PySide6.QtGui import QAction, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QToolButton
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 
 from manic.io.compounds_import import CompoundRow, insert_compound
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.processors.tile_y_scale import YScalePolicy
 from manic.ui.main_window import SIDEBAR_OPEN_SETTING, SUMMARY_OPEN_SETTING
-from manic.ui.plot_tile import DENSITY_MIN_TILE, TILE_GAP
+from manic.ui.plot_tile import LARGE_TILE, TILE_GAP
 from manic.ui.settings_window import DeconvolutionPage
 
 from conftest import _make_window
@@ -82,22 +82,6 @@ def test_header_y_scale_toggles_and_the_view_menu_follow_each_other(qapp, monkey
             shared.click()
             assert not actions["Scale to Selected Peak"].isChecked()
             assert view._y_scale_policy is YScalePolicy.SHARED_EXTRACT
-    finally:
-        window.close()
-
-
-def test_view_menu_density_follows_the_header_switch(qapp, monkeypatch):
-    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
-    try:
-        actions = {a.text(): a for a in window.view_menu.actions()}
-        compact, comfortable = actions["Compact"], actions["Comfortable"]
-        compact.trigger()
-        assert window.graph_view.density() == "compact"
-        assert window.findChild(QToolButton, "density_compact").isChecked()
-
-        window.findChild(QToolButton, "density_comfortable").click()
-        window.view_menu.aboutToShow.emit()
-        assert comfortable.isChecked() and not compact.isChecked()
     finally:
         window.close()
 
@@ -200,7 +184,7 @@ def test_a_narrow_window_starts_with_the_summary_closed_and_keeps_two_columns(qa
         window.show_summary_action.trigger()
         QApplication.processEvents()
         assert window.summary.isVisible()
-        two_columns = 2 * DENSITY_MIN_TILE["comfortable"][0] + TILE_GAP
+        two_columns = 2 * LARGE_TILE[0] + TILE_GAP
         assert window.graph_view._grid_viewport()[0] >= two_columns
         # Short of room, the header keeps every control whole, on a second row if need be.
         view = window.graph_view

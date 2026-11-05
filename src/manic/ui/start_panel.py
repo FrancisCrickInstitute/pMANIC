@@ -83,18 +83,52 @@ class StartPanel(QWidget):
 
     def _footer(self) -> QWidget:
         footer = QWidget()
-        row = QHBoxLayout(footer)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        lines = QVBoxLayout(footer)
+        lines.setContentsMargins(0, 0, 0, 0)
+        lines.setSpacing(4)
+        self._footer_row = QHBoxLayout()
+        self._footer_row.setSpacing(6)
         for widget in (
             _footer_link("Change analysis mode", self.new_session_requested),
             _dot(),
             _footer_link("Quick start guide", self.documentation_requested),
-            _dot(),
-            _footer_link("Rebuild an export without CDF files…", self.process_external_requested),
         ):
-            row.addWidget(widget)
+            self._footer_row.addWidget(widget)
+        lines.addLayout(self._footer_row)
+        self._rebuild_dot = _dot()
+        self._rebuild_link = _footer_link(
+            "Rebuild an export without CDF files…", self.process_external_requested
+        )
+        self._footer_row.addWidget(self._rebuild_dot)
+        self._footer_row.addWidget(self._rebuild_link)
+        # Narrower than the column above, the rebuild link takes a line of its own.
+        footer.setMinimumWidth(
+            self._footer_row.sizeHint().width()
+            - self._rebuild_dot.sizeHint().width()
+            - self._rebuild_link.sizeHint().width()
+            - 2 * self._footer_row.spacing()
+        )
+        self._footer = footer
         return footer
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        lines = self._footer.layout()
+        room = self.drop_zone.contentsRect().width() - self.drop_zone.layout().contentsMargins().left() * 2
+        one_row = self._footer_row.sizeHint().width() + (
+            0 if self._footer_row.indexOf(self._rebuild_link) >= 0
+            else self._rebuild_dot.sizeHint().width() + self._rebuild_link.sizeHint().width()
+            + 2 * self._footer_row.spacing()
+        )
+        wide = one_row <= room
+        if wide == (self._footer_row.indexOf(self._rebuild_link) >= 0):
+            return
+        if wide:
+            self._footer_row.addWidget(self._rebuild_dot)
+            self._footer_row.addWidget(self._rebuild_link)
+        else:
+            lines.addWidget(self._rebuild_link, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._rebuild_dot.setVisible(wide)
 
     def refresh(
         self,

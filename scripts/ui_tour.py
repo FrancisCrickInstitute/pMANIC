@@ -605,25 +605,42 @@ def tour_steps(tour: Tour) -> None:
             w.addItems(["one", "two", "three"])
             return w
 
+        from manic.ui.standard_indicator_widget import lacking_amount
+
+        toolbar = tour.window.toolbar
+        names = toolbar.compound_list.real_names()
+        lacking = lacking_amount(names, toolbar.analysis_mode)
+        pos = toolbar.standard.mapToGlobal(toolbar.standard.rect().bottomLeft())
+
+        def real(tweak):
+            c = StandardChooser(names, toolbar.standard.internal_standard, lacking, toolbar.standard)
+            c.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+            tweak(c)
+            return c
+
         variants = {
-            "empty frame": lambda: frame(lambda _f: QLabel("x")),
-            "frame+list": lambda: frame(lst),
-            "frame+lineedit": lambda: frame(lambda _f: QLineEdit()),
-            "frame+lineedit+list": lambda: frame(lambda _f: QLineEdit(), lst),
-            "frame+FilterField+list": lambda: frame(lambda f: FilterField(QListWidget(), "x"), lst),
+            "chooser via popup()": (lambda: real(lambda c: None), True),
+            "chooser move+show": (lambda: real(lambda c: None), False),
+            "chooser no focus proxy": (lambda: real(lambda c: c.setFocusProxy(None)), True),
+            "chooser no style": (lambda: real(lambda c: c.setObjectName("x")), True),
+            "chooser 3 names": (lambda: StandardChooser(names[:3], None, set(), toolbar.standard), True),
         }
-        pos = tour.window.toolbar.standard.mapToGlobal(tour.window.toolbar.standard.rect().bottomLeft())
-        for name, make in variants.items():
+        for name, (make, via_popup) in variants.items():
             tour.window.raise_()
             tour.window.activateWindow()
             tour.pump(0.2)
             w = make()
-            w.move(pos)
-            w.show()
+            if via_popup:
+                w.popup(pos)
+            else:
+                w.move(pos)
+                w.show()
             tour.pump(0.3)
-            print(f"  CHOOSER-DIAG variant {name}: open after 0.3 s = {w.isVisible()}", flush=True)
-            w.close()
-            w.deleteLater()
+            alive = shiboken6.isValid(w) and w.isVisible()
+            print(f"  CHOOSER-DIAG variant {name}: open after 0.3 s = {alive}", flush=True)
+            if shiboken6.isValid(w):
+                w.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+                w.close()
             tour.pump(0.1)
         combo = QComboBox(tour.window.toolbar)
         combo.addItems(["one", "two", "three"])

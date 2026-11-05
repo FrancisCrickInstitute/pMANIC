@@ -536,7 +536,7 @@ def tour_steps(tour: Tour) -> None:
     tour.run("sidebar_filter_and_samples", filter_and_samples)
     tour.run(
         "internal_standard_menu",
-        lambda: grab_popup(tour, tour.window.toolbar._show_internal_standard_menu),
+        lambda: grab_popup(tour, tour.window.toolbar.show_internal_standard_menu),
         grab_main=False,
     )
     tour.run(

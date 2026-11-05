@@ -313,7 +313,7 @@ Generate the final analytical report. This process calculates all results, appli
 
     In labelled mode the same dialog has **Include % Carbons Labelled sheet**, off by default. Click **Choose Location…**.
 3.  In the file dialog, choose a name and location for your output file (e.g., `experiment_results.xlsx`) and click **Save** to begin processing.
-4. If no internal standard is selected, a **warning dialog** will appear explaining that results will be exported as unnormalized "Peak Area". Click **Yes** to proceed. 
+4. If no internal standard is selected, a warning explains that results will be exported as unnormalized peak areas. Click **Export** to proceed.
 
 > **Note on Processing:** MANIC will perform a final check to ensure natural isotope corrections have been applied. If not, a progress bar will appear as it calculates these corrections for all labeled compounds to ensure data integrity.
 

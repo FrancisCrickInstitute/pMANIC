@@ -9,10 +9,6 @@ use [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md).
 
 ## Step 1: Load Compound Definitions
 
-**Objective**   
-
-Initialise the analysis session by importing a library of target metabolites and their specific integration parameters.
-
 **File Requirements**   
 
 Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns listed below.
@@ -47,7 +43,7 @@ Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns l
 
 Upon a successful import, the application provides immediate visual feedback:
 
-* The **Compound list** row at the top of the sidebar shows a green check and the number of compounds.
+* The **Compound list** row at the top of the sidebar shows a green check, and the **Compounds** heading shows the number of compounds.
 * The **Compounds** list in the sidebar fills with the names of all imported compounds.
 
 *If any required columns are missing from your file, the import process will be cancelled and an alert will display the specific missing headers.*
@@ -59,10 +55,6 @@ To add one compound without a spreadsheet, choose **File → Add Compound...** o
 ---
 
 ## Step 2: Import Mass Spectrometry Data
-
-**Objective**   
-
-Import raw experimental data files for processing. The application will extract Extracted Ion Chromatograms (EIC) for every compound defined in Step 1 and apply natural abundance corrections.
 
 **Prerequisites**   
 
@@ -96,7 +88,7 @@ A progress bar will appear as the application:
 
 Upon completion, verify the data loaded correctly:
 
-* The **Raw data** row at the top of the sidebar shows a green check and the number of samples.
+* The **Raw data** row at the top of the sidebar shows a green check, and the **Samples** heading shows the number of samples.
 * Expand **Samples** in the sidebar to see the filenames of your imported samples.
 * Selecting a compound shows one plot per sample in the main view.
 
@@ -108,13 +100,9 @@ After the import finishes, MANIC opens a **Check your data setup** dialog. It sh
 
 **Changing an MM pattern.** Click **How do I change a pattern?** under the table for the short version. For a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. For a compound not in the list, use **File → Add Compound...**, which sets its pattern without reloading.
 
-**Objective**   
-
-Designate the reference compound used for normalization and quantification (MRRF calculation).
-
 **Prerequisites**   
 
-The selected compound must meet specific criteria in your compound definition file (from Step 1):
+The internal standard is the reference compound for normalization and quantification (MRRF calculation). It must meet these criteria in your compound definition file (from Step 1):
 
 * **Unlabeled:** `labelatoms` should be `0`.
 * **Sample Dose:** `int_std_amount` must be defined and `> 0`. This is the amount added to every experimental sample.
@@ -124,14 +112,14 @@ The selected compound must meet specific criteria in your compound definition fi
 **Procedure**   
 
 1.  Click the **Internal standard** row at the top of the sidebar.
-2.  Choose your internal standard compound from the menu.
-3.  To remove a selection, open the same menu and choose **No Internal Standard**.
+2.  Type to filter the list, then click the compound or press Return. Compounds without both amounts are listed last, under **No amount: exports peak areas**.
+3.  To remove a selection, open the same list and choose **No internal standard**.
 
 You can also right-click a compound in the **Compounds** list and choose **Select as Internal Standard**, or right-click anywhere in the list and choose **Clear Internal Standard**. The **Internal standard** section of **Settings → General** names the chosen standard and sets its reference peak; click **Save** to apply a new reference peak.
 
 **Verification**
 
-* **Standard selected:** The **Internal standard** row shows the compound name.
+* **Standard selected:** The **Internal standard** row shows the compound name. If the compound list gives it no amount, the row turns amber with an exclamation mark, and export writes peak areas; hover the row for the reason.
 * **No standard:** The row shows **None**. An internal standard is optional.
 
 The compound you are reviewing is highlighted in the **Compounds** list and named at the left of the status bar.
@@ -139,10 +127,6 @@ The compound you are reviewing is highlighted in the **Compounds** list and name
 ---
 
 ## Step 4: Review Integration
-
-**Objective**   
-
-Visually verify that the integration window captures the correct peak for every sample and adjust parameters where necessary. This ensures quantitative accuracy by excluding noise and adjacent peaks while capturing the full metabolite signal.
 
 **The Main Graph View**   
 
@@ -249,10 +233,6 @@ Clear Session also removes the review work in the session: integration changes, 
 
 ## Step 4b: Managing Samples and Compounds
 
-**Objective**   
-
-Remove unwanted samples or compounds from your analysis without deleting the underlying data. This is useful for excluding failed injections, QC samples, or irrelevant metabolites from your final export.
-
 ### Deleting Items
 
 You can delete samples or compounds directly from their respective list widgets.
@@ -293,10 +273,6 @@ When you export data, the changelog file will include a **"Deleted Items"** sect
 ---
 
 ## Step 5: Export Results
-
-**Objective**   
-
-Generate the final analytical report. This process calculates all results, applies MRRF calibration, and produces two files: a comprehensive Excel workbook and a detailed session changelog.
 
 **Prerequisites**   
 
@@ -410,7 +386,7 @@ The **Summary** section of the sidebar contains two charts: **Label incorporatio
 
 On Windows, **Settings...** is in the **File** menu, and **Documentation**, **Check Data Setup**, **Check for Updates** and **About** are in the **Help** menu. On macOS, **Settings** and **About** sit in the **MANIC** application menu and the other three under **Help**. The book and gear icons at the top right of the plot area open Documentation and Settings too.
 
-**Shortcuts.** **Settings...** is Ctrl+, (Preferences on macOS). **Documentation** is F1 (HelpContents).
+**Shortcuts.** **Settings...** is Ctrl+, and **Documentation** is F1. On macOS they are ⌘, and ⌘?.
 
 Settings has a **General** page and a **Deconvolution** page; unlabelled mode adds **Qualifier Ratios**. On **General**, the **Internal standard** and **Natural abundance** sections are labelled-only. **Save** writes the page's changed values and **Revert** discards them. A dot in the page list marks a page with unsaved changes.
 
@@ -495,13 +471,7 @@ Two commands in the **View** menu set how sample tiles scale. MANIC remembers th
 
 **File → Process External Data...**
 
-**Objective**
-
-Re-process results from the legacy MANIC tool (v3.3.0) or a previous MANIC export. The rebuild uses the current natural abundance correction and MRRF algorithms.
-
-**Use Case**
-
-Use this feature when you possess the exported "Raw Values" (integrated peak areas) from an old experiment but **do not** have the original raw CDF files (or do not wish to re-integrate them).
+Rebuild an export from the "Raw Values" (integrated peak areas) of an old experiment, from the legacy MANIC tool (v3.3.0) or a previous MANIC export, when you **do not** have the original raw CDF files (or do not wish to re-integrate them). The rebuild uses the current natural abundance correction and MRRF algorithms.
 
 **Prerequisites**
 
@@ -513,7 +483,7 @@ Use this feature when you possess the exported "Raw Values" (integrated peak are
 1.  Choose **File → Process External Data...**.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**.
-4.  Optionally choose an **Internal standard**. The list fills in once a compound list is chosen.
+4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen.
 5.  Click **Rebuild export…**.
 6.  In **Save Rebuilt Export**, choose the output workbook and save.
 

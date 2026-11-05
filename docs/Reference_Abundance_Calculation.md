@@ -25,7 +25,7 @@ $$
 $$
 
 ### Path C: Peak Area
-Used when **No Internal Standard** is selected. This reports the sum of corrected isotopologue areas, and the units in the Excel header read **"Peak Area"**.
+Used when no internal standard is selected. This reports the sum of corrected isotopologue areas, and the units in the Excel header read **"Peak Area"**.
 
 $$
 \text{Abundance}_{area} = \text{Area}_{total}

@@ -232,6 +232,7 @@ class StatusRow(QPushButton):
         layout.addWidget(self._value, 1)
         self.setFixedHeight(26)
         self.set_state("blocked", "")
+        theme.notifier.changed.connect(self._on_theme_changed)
 
     def sizeHint(self) -> QSize:  # noqa: N802 (Qt override)
         # A button sizes to its own text; this one's text is its child labels.
@@ -239,7 +240,6 @@ class StatusRow(QPushButton):
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt override)
         return self.sizeHint()
-        theme.notifier.changed.connect(self._on_theme_changed)
 
     def _on_theme_changed(self, _remap: dict) -> None:
         self._icon.setPixmap(status_pixmap(self._state))

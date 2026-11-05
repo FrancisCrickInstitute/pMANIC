@@ -237,6 +237,23 @@ def test_data_rows_report_load_state_without_counts_or_links(qapp):
     ] == ["Compound list: done", "Raw data: done"]
 
 
+def test_status_ticks_repaint_when_the_scheme_switches(qapp):
+    from manic.utils.utils import apply_color_scheme
+
+    rows = LoadedDataWidget()
+    rows.update_status(True, True)
+    icon = rows.compounds_row._icon
+    try:
+        apply_color_scheme(qapp, False)
+        light = icon.pixmap().toImage()
+        apply_color_scheme(qapp, True)
+        assert icon.pixmap().toImage() != light
+    finally:
+        apply_color_scheme(qapp, False)
+        qapp.setStyleSheet("")
+        rows.deleteLater()
+
+
 def test_headings_wait_for_what_they_list(qapp):
     toolbar = Toolbar(AnalysisMode.LABELLED)
     try:

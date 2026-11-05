@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import ExitStack
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +49,7 @@ from manic.io.data_provider import DataProvider
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import (
+    compound_reads_cached,
     list_compound_mm_files,
     read_compound,
     read_compound_with_session,
@@ -1028,8 +1030,12 @@ class MainWindow(QMainWindow):
         if not samples or any(sample.startswith("- No") for sample in samples):
             return  # Don't plot with placeholder samples
 
+        compound_reads = ExitStack()
         try:
             if samples:
+                compound_reads.enter_context(
+                    compound_reads_cached(compound_name, samples)
+                )
                 if not self._reusing_fits:
                     prefetch_display_fits(
                         compound_name,
@@ -1074,6 +1080,7 @@ class MainWindow(QMainWindow):
             msg_box.exec()
         finally:
             discard_prefetched()
+            compound_reads.close()
 
     def _get_current_eics(self):
         """Get EICs for the current compound and samples"""

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
@@ -120,7 +122,43 @@ def read_compound(compound_name: str) -> Compound:
     )
 
 
+_render_scope = threading.local()
+
+
+@contextmanager
+def compound_reads_cached(compound_name: str, sample_names: list[str]):
+    """Within the block, read each compound record once on this thread.
+
+    A plot reads the same per-sample records from several widgets. The block
+    must not change compound or session data, or later reads would be stale.
+    """
+    previous = getattr(_render_scope, "cache", None)
+    cache = {} if previous is None else previous
+    try:
+        primed = read_compounds_with_session(compound_name, list(sample_names))
+    except LookupError:
+        primed = {}
+    for sample_name, compound in primed.items():
+        cache.setdefault((compound_name, sample_name), compound)
+    _render_scope.cache = cache
+    try:
+        yield
+    finally:
+        _render_scope.cache = previous
+
+
 def read_compound_with_session(compound_name: str, sample_name: Optional[str] = None) -> Compound:
+    cache = getattr(_render_scope, "cache", None)
+    if cache is None:
+        return _read_compound_with_session(compound_name, sample_name)
+    key = (compound_name, sample_name)
+    if key not in cache:
+        cache[key] = _read_compound_with_session(compound_name, sample_name)
+    # A copy, as each uncached read returns a fresh object callers may change.
+    return dataclasses.replace(cache[key])
+
+
+def _read_compound_with_session(compound_name: str, sample_name: Optional[str] = None) -> Compound:
     """
     Read compound data with optional session activity override.
     

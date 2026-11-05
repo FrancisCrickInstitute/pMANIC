@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Sequence, Set
 
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QEvent, QMargins, QRect, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QMargins, QRect, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -244,7 +244,25 @@ class GraphView(QWidget):
             "arrow keys move, Space toggles, Enter opens the detailed view."
         )
         header.addWidget(self.selection_summary, stretch=1)
-        header.addWidget(self._build_density_toggle())
+        # The plots' y-scale, mirrored from View > Shared Y-Scale and Scale to Selected Peak.
+        self.shared_y_button = QToolButton()
+        self.shared_y_button.setObjectName("sharedYButton")
+        self.shared_y_button.setText("Shared Y")
+        self.peak_scale_button = QToolButton()
+        self.peak_scale_button.setObjectName("peakScaleButton")
+        self.peak_scale_button.setText("Scale to peak")
+        for button in (self.shared_y_button, self.peak_scale_button):
+            button.setCheckable(True)
+            button.setFocusPolicy(Qt.TabFocus)
+        # The plots' view controls; on a narrow grid they take a row of their own.
+        self._view_controls = QWidget()
+        controls = QHBoxLayout(self._view_controls)
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
+        controls.addWidget(segmented(self.shared_y_button, self.peak_scale_button))
+        controls.addWidget(self._build_density_toggle())
+        header.addWidget(self._view_controls)
+        self._header_row = header
         self.docs_button = icon_button("docsButton", "docs_book.svg", "Documentation")
         self.docs_button.clicked.connect(self.documentation_requested.emit)
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
@@ -253,6 +271,10 @@ class GraphView(QWidget):
             self._header_button(button)
             header.addWidget(button)
         outer_layout.addLayout(header)
+        self._controls_row = QHBoxLayout()
+        self._controls_row.setContentsMargins(6, 4, 6, 0)
+        self._controls_row.addStretch(1)
+        outer_layout.addLayout(self._controls_row)
 
         self.qc_key = QLabel()
         self.qc_key.setTextFormat(Qt.RichText)
@@ -754,6 +776,7 @@ class GraphView(QWidget):
         self._tr_text = ""
         self.compound_title.setText(compound_name)
         self.compound_title.setVisible(bool(compound_name))
+        self._fit_header()
 
     def _update_channel_legend(self, compound_name: str, eics) -> None:
         """One chip per plotted channel above the grid, in both analysis modes."""
@@ -1991,7 +2014,44 @@ class GraphView(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._fit_header()
         self._resize_timer.start(60)
+
+    def minimumSizeHint(self) -> QSize:
+        # The header reflows (see _fit_header), so only the grid's two columns bound the width.
+        return QSize(self.minimumWidth(), super().minimumSizeHint().height())
+
+    def _fit_header(self) -> None:
+        """One header row while every control fits at full width, else the view controls
+        drop to a row below, right-aligned, so none is cut or hidden."""
+        row = self._header_row
+        shown = [
+            row.itemAt(i).widget()
+            for i in range(row.count())
+            if row.itemAt(i).widget() not in (None, self.selection_summary)
+            and not row.itemAt(i).widget().isHidden()
+        ]
+        if self._view_controls not in shown:
+            shown.append(self._view_controls)
+        margins = row.contentsMargins()
+        # Room for a whole selection line at any count, so it never elides or moves them.
+        summary = self.selection_summary.fontMetrics().horizontalAdvance(
+            "tR 00.00 · 000 of 000 selected"
+        )
+        need = (
+            margins.left()
+            + margins.right()
+            + sum(widget.sizeHint().width() for widget in shown)
+            + summary
+            + row.spacing() * len(shown)
+        )
+        home = row if need <= self.width() else self._controls_row
+        if home.indexOf(self._view_controls) >= 0:
+            return
+        if home is row:
+            row.insertWidget(row.indexOf(self.selection_summary) + 1, self._view_controls)
+        else:
+            home.addWidget(self._view_controls)
 
     def _update_graph_sizes(self) -> None:
         self._place_tiles()

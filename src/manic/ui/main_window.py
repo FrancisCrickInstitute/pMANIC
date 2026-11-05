@@ -512,9 +512,18 @@ class MainWindow(QMainWindow):
         )
         view_menu.addSeparator()
         shortcuts = {"Shared Y-Scale": "Ctrl+Shift+Y", "Scale to Selected Peak": "Ctrl+Shift+P"}
+        buttons = {
+            "Shared Y-Scale": self.graph_view.shared_y_button,
+            "Scale to Selected Peak": self.graph_view.peak_scale_button,
+        }
         for action in self.toolbar.scale_actions():
             action.setShortcut(QKeySequence(shortcuts[action.text()]))
             view_menu.addAction(action)
+            self._mirror(action, buttons[action.text()], action.toolTip())
+        # Scaling to the selected peak is a labelled-mode choice.
+        self.graph_view.peak_scale_button.setVisible(
+            self.toolbar.selected_peak_yscale_action is not None
+        )
 
         view_menu.addSeparator()
         self.find_compound_action = QAction("Find Compound", self)
@@ -770,14 +779,22 @@ class MainWindow(QMainWindow):
         action = QAction(text, self)
         action.setCheckable(True)
         action.setShortcut(QKeySequence(key))
-        shortcut = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
-        button.setToolTip(f"{text} ({shortcut})")
+        self._mirror(action, button)
         button.setAccessibleName(text)
-        action.toggled.connect(button.setChecked)
         action.toggled.connect(self._apply_panels)
         action.triggered.connect(lambda shown: QSettings().setValue(setting, shown))
-        button.clicked.connect(action.trigger)
         return action
+
+    @staticmethod
+    def _mirror(action: QAction, button, detail: str = "") -> None:
+        """A grid header button that does what a checkable View menu action does, and shows it."""
+        shortcut = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+        button.setToolTip("\n".join(filter(None, (f"{action.text()} ({shortcut})", detail))))
+        button.setChecked(action.isChecked())
+        button.setEnabled(action.isEnabled())
+        action.toggled.connect(button.setChecked)
+        action.changed.connect(lambda: button.setEnabled(action.isEnabled()))
+        button.clicked.connect(action.trigger)
 
     def _apply_panels(self, *_args) -> None:
         """Show the sidebar and the Summary as their toggles say, each at its remembered

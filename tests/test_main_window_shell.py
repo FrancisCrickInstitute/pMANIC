@@ -55,6 +55,37 @@ def test_view_menu_scale_choice_is_exclusive_and_remembered(qapp, monkeypatch):
         again.close()
 
 
+@pytest.mark.parametrize("mode", [AnalysisMode.LABELLED, AnalysisMode.UNLABELLED])
+def test_header_y_scale_toggles_and_the_view_menu_follow_each_other(qapp, monkeypatch, mode):
+    window = _make_window(monkeypatch, mode)
+    view = window.graph_view
+    shared, peak = view.shared_y_button, view.peak_scale_button
+    actions = {a.text(): a for a in window.view_menu.actions()}
+    try:
+        window.show()
+        assert shared.isVisibleTo(view)
+        key = QKeySequence("Ctrl+Shift+Y").toString(QKeySequence.SequenceFormat.NativeText)
+        assert f"Shared Y-Scale ({key})" in shared.toolTip()
+
+        shared.click()
+        assert view._y_scale_policy is YScalePolicy.SHARED_EXTRACT
+        assert actions["Shared Y-Scale"].isChecked()
+        actions["Shared Y-Scale"].trigger()
+        assert view._y_scale_policy is YScalePolicy.PER_TILE_EXTRACT
+        assert not shared.isChecked()
+
+        assert peak.isVisibleTo(view) == (mode is AnalysisMode.LABELLED)
+        if mode is AnalysisMode.LABELLED:
+            actions["Scale to Selected Peak"].trigger()
+            assert peak.isChecked() and not shared.isChecked()
+            assert view._y_scale_policy is YScalePolicy.PER_TILE_SELECTED_PEAK
+            shared.click()
+            assert not actions["Scale to Selected Peak"].isChecked()
+            assert view._y_scale_policy is YScalePolicy.SHARED_EXTRACT
+    finally:
+        window.close()
+
+
 def test_view_menu_density_follows_the_header_switch(qapp, monkeypatch):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     try:
@@ -171,6 +202,11 @@ def test_a_narrow_window_starts_with_the_summary_closed_and_keeps_two_columns(qa
         assert window.summary.isVisible()
         two_columns = 2 * DENSITY_MIN_TILE["comfortable"][0] + TILE_GAP
         assert window.graph_view._grid_viewport()[0] >= two_columns
+        # Short of room, the header keeps every control whole, on a second row if need be.
+        view = window.graph_view
+        for button in (view.shared_y_button, view.peak_scale_button, view.summary_button):
+            corner = button.mapTo(view, button.rect().bottomRight())
+            assert button.isVisible() and 0 < corner.x() < view.width()
         assert window.toolbar.width() >= window.toolbar.minimumWidth()
     finally:
         window.close()

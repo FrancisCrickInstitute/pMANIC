@@ -242,7 +242,7 @@ class GraphView(QWidget):
         self.qc_key.setFixedHeight(CHIP_HEIGHT)
         theme.style(self.qc_key, text_style("text_secondary", 11))
         self.qc_key.setText(
-            "Qualifier colour = QC&nbsp;&nbsp;"
+            "Qualifier QC:&nbsp;&nbsp;"
             + "&nbsp;&nbsp;".join(
                 f'<span style="color:{qcolor.name()};">●</span>&nbsp;{name}'
                 for qcolor, name in (

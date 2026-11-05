@@ -406,10 +406,7 @@ class ChartPopupDialog(QDialog):
         footer = QHBoxLayout()
         footer.addWidget(self.status_legend)
         footer.addStretch()
-        hover = {
-            "identity": "Hover a cell for details",
-            "isotopologue_ratios": "↑↓ to read",
-        }.get(self.chart_type, "")
+        hover = "Hover a cell for details" if self.chart_type == "identity" else ""
         self._hint = QLabel(hover)
         self._hover_hint = hover
         theme.style(self._hint, text_style("text_tertiary", 11))
@@ -695,12 +692,8 @@ class ChartPopupDialog(QDialog):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self.row_names():
-            self._hint.setText(
-                " · ".join(
-                    p for p in (self._hover_hint, "Return or click to open a plot")
-                    if p
-                )
-            )
+            rows = "↑↓ to choose · Return or click to select its plot"
+            self._hint.setText(" · ".join(p for p in (self._hover_hint, rows) if p))
             self.chart_view.viewport().setCursor(Qt.PointingHandCursor)
             self.chart_view.setFocus(Qt.OtherFocusReason)
 

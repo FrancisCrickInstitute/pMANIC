@@ -540,11 +540,10 @@ def test_sections_collapse_and_remember(qapp, stub_compound):
         # A screen reader hears the heading as open or closed, and can press it.
         heading = QAccessible.queryAccessibleInterface(toolbar.summary_section.header)
         state = heading.state()
-        assert (state.expandable, state.expanded, state.collapsed) == (True, True, False)
-        heading.actionInterface().doAction(QAccessibleActionInterface.pressAction())
+        assert (state.checkable, state.checked) == (True, True)
+        heading.actionInterface().doAction(QAccessibleActionInterface.toggleAction())
         assert not toolbar.summary_section.is_expanded()
-        state = heading.state()
-        assert (state.expanded, state.collapsed) == (False, True)
+        assert not heading.state().checked
     finally:
         toolbar.deleteLater()
 

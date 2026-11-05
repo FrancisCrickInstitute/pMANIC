@@ -17,7 +17,7 @@ Use this workflow **only** if:
 
 ---
 
-## ⚠️ Scientific Limitation: Approximate Mode
+## Scientific Limitation: Approximate Mode
 
 Because the original raw time-series data is missing, MANIC cannot perform its standard **Per-Timepoint Correction**. Instead, it must use an **Approximate Mode**:
 

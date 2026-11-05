@@ -298,6 +298,24 @@ def test_ratio_rows_with_no_ratio_show_a_dash_and_say_why(qapp, monkeypatch):
         dialog.deleteLater()
 
 
+def test_a_long_compound_heading_is_cut_in_the_middle_inside_a_narrow_popup(qapp):
+    name = "2-Hydroxyglutarate-tri-tert-butyldimethylsilyl-derivative-3TBDMS (Q ion m/z 433)"
+    dialog = ChartPopupDialog(
+        "total_abundance", "Peak area", np.array([2.0, 1.0]), ["Bio_002", "Bio_001"],
+        compound_name=name,
+    )
+    try:
+        dialog.show()
+        dialog.resize(600, 400)
+        qapp.processEvents()
+        assert dialog.width() == 600
+        title = dialog.compound_title.text()
+        assert title.startswith("2-Hydroxy") and title.endswith("433)") and "…" in title
+        assert dialog.compound_title.toolTip() == name
+    finally:
+        dialog.deleteLater()
+
+
 def test_the_abundance_popup_names_the_peak_area_it_plots(qapp, monkeypatch):
     insert_compound(CompoundRow(
         compound_name="Pyruvate", retention_time=6.37, mass0=174.0, loffset=0.1, roffset=0.15,

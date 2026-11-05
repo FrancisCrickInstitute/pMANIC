@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from manic.models.analysis import IonRole
 from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
+from manic.ui.chart_header import HeaderName
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
     abundance_scale,
@@ -337,7 +338,7 @@ class ChartPopupDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        self.compound_title = QLabel(compound_name or title)
+        self.compound_title = HeaderName(compound_name or title, min_chars=12)
         theme.style(self.compound_title, text_style("text", FONT_SIZE_TITLE, 600))
         count = len(self.sample_names)
         # An abundance popup's axis title already names its quantity.

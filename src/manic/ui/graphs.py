@@ -261,11 +261,9 @@ class GraphView(QWidget):
         controls.addWidget(self._build_density_toggle())
         header.addWidget(self._view_controls)
         self._header_row = header
-        self.docs_button = icon_button("docsButton", "docs_book.svg", "Documentation")
-        self.docs_button.clicked.connect(self.documentation_requested.emit)
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
         self.settings_button.clicked.connect(self.settings_requested.emit)
-        for button in (self.docs_button, self.settings_button, self.summary_button):
+        for button in (self.settings_button, self.summary_button):
             self._header_button(button)
             header.addWidget(button)
         outer_layout.addLayout(header)
@@ -290,6 +288,9 @@ class GraphView(QWidget):
             )
         )
         self.qc_key.hide()
+        self._qc_key_wanted = False
+        # The Summary's Identity key says the same while it is open.
+        self.summary_button.toggled.connect(self._show_qc_key)
         # Chips and the QC key wrap onto a second row instead of truncating.
         self.channel_legend = ChannelChipRow(trailing=self.qc_key)
         legend_row = QHBoxLayout()
@@ -767,8 +768,12 @@ class GraphView(QWidget):
 
     def _hide_legend(self) -> None:
         self.channel_legend.hide()
-        self.qc_key.hide()
+        self._qc_key_wanted = False
+        self._show_qc_key()
         self.qc_note.hide()
+
+    def _show_qc_key(self, *_args) -> None:
+        self.qc_key.setVisible(self._qc_key_wanted and not self.summary_button.isChecked())
 
     def _set_title(self, compound_name: str) -> None:
         self._tr_text = ""
@@ -797,7 +802,8 @@ class GraphView(QWidget):
                     channels, unlabelled=unlabelled, multi_trace=multi_trace
                 ),
             )
-            self.qc_key.setVisible(unlabelled and multi_trace and len(channels) > 1)
+            self._qc_key_wanted = unlabelled and multi_trace and len(channels) > 1
+            self._show_qc_key()
         except LookupError:
             self._hide_legend()
         except Exception:
@@ -1890,16 +1896,16 @@ class GraphView(QWidget):
             scale_factor,
             selected=False,
             raw_context=True,
+            raw_is_evidence=all(
+                channel.result.model is None and channel.result.empty
+                for channel in bundle.channels
+            ),
             compound=compound,
             channel_styles=channel_styles,
         )
         unfitted_indices: list[int] = []
         for channel in bundle.channels:
             model = channel.result.model
-            raw_is_evidence=all(
-                channel.result.model is None and channel.result.empty
-                for channel in bundle.channels
-            ),
             if model is None:
                 if not channel.result.empty:
                     unfitted_indices.append(channel.index)
@@ -1957,13 +1963,13 @@ class GraphView(QWidget):
         *,
         selected: bool,
         raw_context: bool,
+        raw_is_evidence: bool = False,
         selected_mask: np.ndarray | None = None,
         compound=None,
         channel_styles: Sequence[ChannelTraceStyle] | None = None,
         channel_indices: tuple[int, ...] | None = None,
     ):
         matrix = eic_intensity if eic_intensity.ndim > 1 else eic_intensity.reshape(1, -1)
-        raw_is_evidence: bool = False,
         mask_matrix = None
         if selected_mask is not None:
             mask_matrix = (

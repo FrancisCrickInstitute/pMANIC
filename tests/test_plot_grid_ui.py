@@ -530,7 +530,5 @@ def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, density):
 
 
 def test_icon_buttons_have_accessible_names(grid):
-    assert [b.accessibleName() for b in (grid.docs_button, grid.settings_button)] == [
-        "Documentation", "Settings"
-    ]
+    assert grid.settings_button.accessibleName() == "Settings"
     assert ChartHeader("Peak area").expand_button.accessibleName() == "Enlarge peak area chart"

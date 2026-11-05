@@ -19,10 +19,6 @@ Round 11 (re-rating). Commit `86a53c3` on `feat/ui-ux-overhaul`.
     screen, 1280x800 window): `real-*-150pct-1280x800/`. Judge 2560 first.
     To drive the app at 2560 yourself, run it normally (the monitor is attached),
     or offscreen with `QT_QPA_PLATFORM="offscreen:configfile=<NOTES>/briefs/screen2560.json"`.
-  - Local macOS on a 14" MacBook (1512x949 available; the 1600x1000 request is
-    clamped): `mac-light/`, `mac-dark/`.
-  - Local macOS at `QT_SCALE_FACTOR=1.5` (screen 1008x633 logical, harsher than a
-    real 1280x800 laptop at 150%): `mac-light-150pct-1280x800/`, `mac-dark-150pct-1280x800/`.
   View every PNG in every folder.
 - Round 10 screenshots (commit 4119119): `<NOTES>/reviews/round-10/shots/`.
 - Your previous report: {PREV}.

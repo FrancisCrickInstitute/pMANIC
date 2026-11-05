@@ -144,11 +144,22 @@ def status_pixmap(state: str, size: int = 14) -> QPixmap:
 
 
 class ElidedLabel(QLabel):
-    """A one-line label that elides instead of widening its parent."""
+    """A one-line label that elides instead of widening its parent.
 
-    def __init__(self, text: str = "", parent=None):
+    ``hover`` is shown as the tooltip only while the text is cut; True shows the full text."""
+
+    def __init__(
+        self,
+        text: str = "",
+        parent=None,
+        *,
+        mode: Qt.TextElideMode = Qt.TextElideMode.ElideRight,
+        hover: str | bool = False,
+    ):
         super().__init__(parent)
         self._full = text
+        self._mode = mode
+        self._hover = hover
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.setText(text)
 
@@ -166,8 +177,11 @@ class ElidedLabel(QLabel):
     def _elide(self) -> None:
         metrics = QFontMetrics(self.font())
         width = max(self.width(), 0)
-        shown = metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, width)
-        super().setText(shown if width else self._full)
+        shown = metrics.elidedText(self._full, self._mode, width) if width else self._full
+        super().setText(shown)
+        if self._hover:
+            hover = self._full if self._hover is True else self._hover
+            self.setToolTip(hover if shown != self._full else "")
 
 
 class StatusRow(QPushButton):

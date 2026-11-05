@@ -18,7 +18,7 @@ def test_caption_tooltip_appears_only_when_the_name_is_cut(qapp):
         assert tile.caption.toolTip() == ""
         tile.resize(90, 300)
         qapp.processEvents()
-        assert tile.caption.text() != tile.caption.fullText()
+        assert tile.caption.text() != tile.caption.full_text()
         assert tile.caption.toolTip() == "Sample_05_rt_shift_with_a_long_name"
     finally:
         tile.deleteLater()

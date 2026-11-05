@@ -62,6 +62,7 @@ QListWidget {
 }
 QListWidget::item {
     color: @text;
+    min-height: 28px;
     padding: 0px 10px;
     border: none;
     border-radius: 6px;
@@ -169,20 +170,6 @@ def form_row(form: QFormLayout, text: str, field: QWidget | object) -> QLabel:
     return label
 
 
-def set_invalid(widget: QWidget, invalid: bool) -> None:
-    if bool(widget.property("invalid")) == invalid:
-        return
-    widget.setProperty("invalid", invalid)
-    widget.style().unpolish(widget)
-    widget.style().polish(widget)
-
-
-def set_variant(button: QPushButton, variant: str) -> None:
-    button.setProperty("variant", variant)
-    button.style().unpolish(button)
-    button.style().polish(button)
-
-
 def button_box(
     primary: str, secondary: str | None = "Cancel"
 ) -> tuple[QDialogButtonBox, QPushButton]:
@@ -190,7 +177,7 @@ def button_box(
     box = QDialogButtonBox()
     primary_button = box.addButton(primary, QDialogButtonBox.AcceptRole)
     primary_button.setDefault(True)
-    set_variant(primary_button, "primary")
+    theme.set_style_property(primary_button, "variant", "primary")
     if secondary is not None:
         box.addButton(secondary, QDialogButtonBox.RejectRole).setAutoDefault(False)
     return box, primary_button

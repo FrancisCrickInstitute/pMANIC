@@ -893,28 +893,6 @@ QWidget#totalAbundanceWidget {
     border: none;
 }
 
-QListWidget#settingsPageList,
-QListWidget#documentationPageList {
-    border: none;
-    border-right: 1px solid @border;
-    border-radius: 0px;
-    background-color: @surface_alt;
-    padding: 8px 4px;
-}
-
-QListWidget#settingsPageList::item,
-QListWidget#documentationPageList::item {
-    min-height: 28px;
-    padding: 0px 10px;
-    border-radius: 6px;
-}
-
-QListWidget#settingsPageList::item:selected,
-QListWidget#documentationPageList::item:selected {
-    background-color: @accent_soft;
-    color: @text;
-}
-
 QDialog#settingsWindow QScrollArea,
 QDialog#settingsWindow QScrollArea > QWidget,
 QDialog#settingsWindow QStackedWidget,

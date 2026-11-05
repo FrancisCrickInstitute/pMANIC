@@ -1486,66 +1486,17 @@ class GraphView(QWidget):
             eic: New EIC data to display
         """
         chart = chart_view.chart()
-
-        # Chart visibility is handled at the container level, no need to manage it here
         try:
-            # Update chart view metadata
             chart_view.sample_name = eic.sample_name
             chart_view.compound_name = eic.compound_name
-            chart_view.set_selected(False)  # Reset selection state
-
-            # Clear existing series but preserve chart structure
+            chart_view.set_selected(False)
             chart.removeAllSeries()
-
-            # Use session data if available, otherwise use default compound data
-            compound = read_compound_with_session(eic.compound_name, eic.sample_name)
-            prepared = self._plot_display_for(eic, compound)
-
-            eic_intensity = eic.intensity
-            scale_factor = axis_scale.scale_factor
-            scaled_y_max = axis_scale.scaled_max
-
-            # Reuse existing axes
             axes = chart.axes()
-            x_axis = axes[0] if axes else None
-            y_axis = axes[1] if len(axes) > 1 else None
-
-            # Create new series with updated data
-            if x_axis and y_axis:
-                self._add_eic_series(
-                    chart,
-                    x_axis,
-                    y_axis,
-                    eic.time,
-                    eic_intensity,
-                    compound,
-                    scale_factor,
-                    prepared=prepared,
-                    channel_styles=self._channel_styles_for(compound, eic.sample_name),
-                )
-
-            # Update axis ranges
-            if x_axis and y_axis:
-                self._set_tile_ranges(x_axis, y_axis, eic.time, scaled_y_max)
-                self._add_tile_guides(chart, x_axis, y_axis, compound, scaled_y_max)
-
-                # Add baseline lines if baseline correction is enabled
-                self._add_baseline_lines(
-                    chart,
-                    x_axis,
-                    y_axis,
-                    eic.time,
-                    eic_intensity,
-                    compound,
-                    scale_factor,
-                    prepared=prepared,
-                    channel_styles=self._channel_styles_for(compound, eic.sample_name),
-                )
-
+            if len(axes) > 1:
+                self._draw_eic(chart, axes[0], axes[1], eic, axis_scale)
         except Exception as e:
-            # Log any chart update errors but don't let them break the container update
+            # A failed redraw must not break the rest of the grid.
             logger.error(f"Error updating chart data: {e}")
-            # Container will still be shown, just with potentially stale data
 
     def _return_containers_to_pool(self):
         """
@@ -1608,17 +1559,10 @@ class GraphView(QWidget):
         self, eic, axis_scale: YAxisScale
     ) -> ClickableChartView:
         """Create a ClickableChartView with EIC data and guide lines."""
-        # Use session data if available, otherwise use default compound data
-        compound = read_compound_with_session(eic.compound_name, eic.sample_name)
-        prepared = self._plot_display_for(eic, compound)
-
         chart = QChart()
         style_chart(chart, QMargins(2, 2, 4, 0))
         # The card's fill, tinted for a QC problem, runs under the traces too.
         chart.setPlotAreaBackgroundVisible(False)
-
-        scale_factor = axis_scale.scale_factor
-        scaled_y_max = axis_scale.scaled_max
 
         x_axis = QValueAxis()
         y_axis = QValueAxis()
@@ -1626,7 +1570,15 @@ class GraphView(QWidget):
         style_axis(y_axis, grid=True)
         chart.addAxis(x_axis, Qt.AlignBottom)
         chart.addAxis(y_axis, Qt.AlignLeft)
+        self._draw_eic(chart, x_axis, y_axis, eic, axis_scale)
+        return ClickableChartView(chart, eic.sample_name, eic.compound_name)
 
+    def _draw_eic(self, chart, x_axis, y_axis, eic, axis_scale: YAxisScale) -> None:
+        """Traces, ranges, tR guides and baselines of one tile, on axes it already has."""
+        compound = read_compound_with_session(eic.compound_name, eic.sample_name)
+        prepared = self._plot_display_for(eic, compound)
+        scale_factor = axis_scale.scale_factor
+        scaled_y_max = axis_scale.scaled_max
         channel_styles = self._channel_styles_for(compound, eic.sample_name)
         self._add_eic_series(
             chart,
@@ -1654,7 +1606,6 @@ class GraphView(QWidget):
             prepared=prepared,
             channel_styles=channel_styles,
         )
-        return ClickableChartView(chart, eic.sample_name, eic.compound_name)
 
     def _set_tile_ranges(self, x_axis, y_axis, eic_time, scaled_y_max) -> None:
         x_min = float(np.min(eic_time))

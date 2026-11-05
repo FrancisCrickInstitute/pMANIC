@@ -40,11 +40,11 @@ from manic.ui.dialog_kit import (
     hint_label,
     resize_to_screen,
     section_label,
-    set_invalid,
     style_dialog,
     title_label,
     window_title,
 )
+from manic.ui.theme import set_style_property
 
 
 class _BlankZero:
@@ -270,7 +270,7 @@ class AddCompoundDialog(QDialog):
             label.setVisible(bool(messages))
         flagged = {field for fields, _ in self._problems for field in fields}
         for field in self._errors:
-            set_invalid(field, field in flagged)
+            set_style_property(field, "invalid", field in flagged)
             self._show_placeholder(field, field not in flagged)
         self.validation_message = "\n".join(message for _, message in self._problems)
 

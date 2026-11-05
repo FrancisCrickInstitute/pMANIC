@@ -202,6 +202,23 @@ def test_a_narrow_window_starts_with_the_summary_closed_and_keeps_two_columns(qa
         again.close()
 
 
+def test_narrowing_past_three_grid_columns_closes_the_summary_until_there_is_room(
+    qapp, monkeypatch
+):
+    window = _grid_window(monkeypatch, 1400)
+    try:
+        assert window.summary.isVisible()
+        window.resize(1024, 800)
+        QApplication.processEvents()
+        assert window.summary.isHidden() and not window.show_summary_action.isChecked()
+        assert not QSettings().contains(SUMMARY_OPEN_SETTING)
+        window.resize(1400, 800)
+        QApplication.processEvents()
+        assert window.summary.isVisible()
+    finally:
+        window.close()
+
+
 def test_the_summary_closes_rather_than_cut_the_sidebar_or_widen_the_window(qapp, monkeypatch):
     window = _grid_window(monkeypatch, 1024)
     toolbar = window.toolbar
@@ -310,10 +327,11 @@ def test_deconvolution_status_opens_its_settings_page(qapp, monkeypatch):
         window._refresh_shell()
 
         status = window.deconvolution_indicator_label
+        # At the defaults the status bar stays quiet; a departure names itself.
+        assert status.isHidden()
+        window.apply_deconvolution("Pyruvate", "2", "emg", "balanced", False, replot=False)
         assert not status.isHidden()
-        assert status.text() == (
-            "Deconvolution level 4 · automatic peak shape · balanced noise gate"
-        )
+        assert status.text() == "Deconvolution level 2 · EMG peaks · balanced noise gate"
 
         status.click()
         settings = window.settings_window
@@ -322,7 +340,7 @@ def test_deconvolution_status_opens_its_settings_page(qapp, monkeypatch):
         page = settings.findChild(DeconvolutionPage)
         assert page.isVisible()
         assert page.compound_label.text() == "Compound: Pyruvate"
-        assert page.level_combo.currentText() == "Level 4 (default)"
+        assert page.level_combo.currentText() == "Level 2"
     finally:
         if window.settings_window is not None:
             window.settings_window.close()

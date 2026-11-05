@@ -3,9 +3,10 @@
 1. In **Choose Analysis Mode**, click **Labelled** or **Unlabelled**. The mode is fixed for the session.
 2. Choose **File → Load Compounds/Parameter List** and select your spreadsheet.
 3. Choose **File → Load Raw Data (CDF)** and select the folder of ANDI/AIA NetCDF files.
-4. In **Check your data setup**, confirm the internal standard and which MM files (standard mixture) matched. Click **Continue**, or **Apply** if you chose a different internal standard. If a pattern is wrong, the dialog names your compound list file, and **How do I change a pattern?** opens the steps to reload it.
-5. Select a compound and review its sample plots. The **Summary** panel on the right charts the compound across every sample. Click a plot to select it, or use the keys below. The **Review** menu in the menu bar holds every review command: **Inspect *sample*...**, the selection commands, **Accept Peak (Below Threshold)**, **Mark Peak as Bad** and **Curve Fit**. Right-clicking a plot opens the same commands.
-6. Choose **File → Export Data...**. Pick **Time-based (recommended)** or **Legacy (MATLAB-compatible unit spacing)**. In labelled mode, tick **Include % Carbons Labelled sheet** only if you want that sheet. Click **Choose Location…** and save the workbook.
+4. In **Check your data setup**, confirm the internal standard and the matched MM files (standard mixture). Click **Continue**, or **Apply** if you picked a different internal standard. To fix an MM pattern, see [Configure Internal Standard](01_user_guide.md#step-3-configure-internal-standard).
+5. Select a compound and check each sample's plot.
+6. For a plot with a **Below threshold** badge, click it, then press **A** to accept the peak or **B** to mark it bad. The **Review** menu and the plot's right-click menu hold the same commands. See [Review Integration](01_user_guide.md#step-4-review-integration).
+7. Choose **File → Export Data...**. Pick **Time-based (recommended)** or **Legacy (MATLAB-compatible unit spacing)**. In labelled mode, tick **Include % Carbons Labelled sheet** only if you want that sheet. Click **Choose Location…** and save the workbook.
 
 ## Review from the keyboard
 

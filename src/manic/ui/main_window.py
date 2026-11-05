@@ -68,7 +68,9 @@ from manic.models.session_export import (
     validate_method_file,
 )
 from manic.processors.chromatographic_peak_deconvolution import (
+    DEFAULT_DECONVOLUTION_FIT_TYPE,
     DEFAULT_DECONVOLUTION_LEVEL,
+    DEFAULT_NOISE_GATE,
     normalize_fit_type,
     normalize_noise_gate,
     normalize_stringency,
@@ -80,6 +82,7 @@ from manic.models.sample_fit_type import set_sample_fit_type
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.ui.documentation_viewer import DocumentationViewer
 from manic.ui.graphs import GraphView
+from manic.ui.plot_tile import LARGE_TILE, TILE_GAP
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
 from manic.ui.export_options_dialog import ExportOptionsDialog
@@ -115,7 +118,9 @@ SUMMARY_OPEN_SETTING = "view/summary_open"
 SUMMARY_WIDTH_SETTING = "view/summary_width"
 # Until the user opens or closes it, the Summary starts closed in a narrower window,
 # so the grid keeps its columns.
-SUMMARY_MIN_WINDOW_WIDTH = 1200
+DEFAULT_DECONVOLUTION = (
+    DEFAULT_DECONVOLUTION_LEVEL, DEFAULT_DECONVOLUTION_FIT_TYPE, DEFAULT_NOISE_GATE
+)
 COMPOUND_LIST_SUFFIXES = {".csv", ".xls", ".xlsx"}
 
 
@@ -269,6 +274,7 @@ class MainWindow(QMainWindow):
         self.summary.hide()
         # Decided when the grid first shows, from the window's width then.
         self._summary_settled = False
+        self._summary_roomy = False
 
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -747,10 +753,11 @@ class MainWindow(QMainWindow):
         if page is self.graph_view and not self._summary_settled:
             self._summary_settled = True
             settings = QSettings()
+            self._summary_roomy = self._summary_fits(columns=3)
             self.show_summary_action.setChecked(
                 settings.value(SUMMARY_OPEN_SETTING, type=bool) and self._summary_fits()
                 if settings.contains(SUMMARY_OPEN_SETTING)
-                else self.width() >= SUMMARY_MIN_WINDOW_WIDTH
+                else self._summary_roomy
             )
         self._apply_panels()
         # Loading selects the first compound without on_compound_selected, so name it here.
@@ -814,16 +821,33 @@ class MainWindow(QMainWindow):
         self.summary.setVisible(summary_shown)
         self.splitter.setSizes([sidebar, free - summary, summary])
 
-    def _summary_fits(self) -> bool:
-        """Room for the sidebar at its content width, two grid columns and the Summary."""
+    def _summary_fits(self, columns: int = 2) -> bool:
+        """Room for the sidebar at its content width, ``columns`` large grid columns and
+        the Summary."""
         handle = self.splitter.handleWidth()
         sidebar = (
             self.toolbar.minimumSizeHint().width() + handle
             if self.show_sidebar_action.isChecked()
             else 0
         )
-        need = sidebar + self.graph_view.minimumSizeHint().width() + SUMMARY_MIN_WIDTH + handle
-        return self.splitter.width() >= need
+        grid = self.graph_view.minimumSizeHint().width() + (columns - 2) * (
+            LARGE_TILE[0] + TILE_GAP
+        )
+        return self.splitter.width() >= sidebar + grid + SUMMARY_MIN_WIDTH + handle
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._summary_settled:
+            return
+        # Narrowed past room for three grid columns, the Summary closes (nothing is saved);
+        # widened back, it returns if the user's choice is open.
+        roomy = self._summary_fits(columns=3)
+        if roomy == self._summary_roomy:
+            return
+        self._summary_roomy = roomy
+        self.show_summary_action.setChecked(
+            roomy and QSettings().value(SUMMARY_OPEN_SETTING, True, type=bool)
+        )
 
     def _remember_panel_widths(self, *_args) -> None:
         sidebar, _grid, summary = self.splitter.sizes()
@@ -2569,12 +2593,12 @@ class MainWindow(QMainWindow):
         self, compound_name: str | None
     ) -> tuple[str, str, str]:
         if not compound_name:
-            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
+            return DEFAULT_DECONVOLUTION
         try:
             compound = read_compound_with_session(compound_name)
         except LookupError:
             # The toolbar can still name a compound that was just deleted.
-            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
+            return DEFAULT_DECONVOLUTION
         return (
             normalize_stringency(compound.deconvolution_level),
             normalize_fit_type(compound.deconvolution_fit_type),
@@ -2727,14 +2751,12 @@ class MainWindow(QMainWindow):
         return True
 
     def _deconvolution_indicator_text(self, compound_name: str | None) -> str:
-        """Plain-words status-bar text for the selected compound's deconvolution."""
+        """Status-bar text for the selected compound's deconvolution, empty at the defaults."""
         if not compound_name:
             return ""
-        try:
-            compound = read_compound_with_session(compound_name)
-        except Exception:
+        level, fit, gate = settings = self.deconvolution_settings(compound_name)
+        if settings == DEFAULT_DECONVOLUTION:
             return ""
-        level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
         if level == "off":
             return "Deconvolution off"
         fit_labels = {
@@ -2743,14 +2765,7 @@ class MainWindow(QMainWindow):
             "bi_gaussian": "bi-Gaussian peaks",
             "emg": "EMG peaks",
         }
-        fit = fit_labels.get(
-            normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto")),
-            "automatic peak shape",
-        )
-        gate = normalize_noise_gate(
-            getattr(compound, "deconvolution_noise_gate", "balanced")
-        )
-        return f"Deconvolution level {level} · {fit} · {gate} noise gate"
+        return f"Deconvolution level {level} · {fit_labels.get(fit, fit)} · {gate} noise gate"
 
     def update_deconvolution_indicator(self, compound_name: str | None) -> None:
         """Refresh the status-bar deconvolution indicator for the given compound."""

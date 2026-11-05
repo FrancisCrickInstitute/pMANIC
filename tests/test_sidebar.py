@@ -3,8 +3,15 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtGui import QAccessible, QAccessibleActionInterface, QContextMenuEvent, QKeyEvent, QKeySequence
-from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QMenu, QWidget
+from PySide6.QtGui import (
+    QAccessible,
+    QAccessibleActionInterface,
+    QContextMenuEvent,
+    QHelpEvent,
+    QKeyEvent,
+    QKeySequence,
+)
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QMenu, QToolTip, QWidget
 
 from manic.models import database
 from manic.models.analysis import AnalysisMode
@@ -781,6 +788,62 @@ def test_a_pending_edit_on_a_150_percent_laptop_leaves_samples_two_rows(qapp):
     finally:
         toolbar.deleteLater()
         qapp.setStyleSheet(before)
+
+
+def _hover_text(widget, point: QPoint) -> str:
+    QApplication.sendEvent(widget, QHelpEvent(QEvent.ToolTip, point, widget.mapToGlobal(point)))
+    text = QToolTip.text()
+    QToolTip.hideText()
+    return text
+
+
+def test_a_folded_window_edit_shows_its_value_and_its_state(qapp):
+    before = qapp.styleSheet()
+    apply_app_stylesheet(qapp)
+    _add_compound("Compound 0")
+    toolbar = _sidebar(LAPTOP_640, samples_open=True)
+    integration = toolbar.integration
+    summary = integration.more.summary
+    try:
+        integration.populate_tr_window_field("Compound 0")
+        _settle(toolbar)
+        assert integration.more.header.isVisible()
+        integration.tr_window_edit.selectAll()
+        QTest.keyClicks(integration.tr_window_edit, "0.37")
+        _settle(toolbar)
+        assert summary.full_text() == "0.37 min, not applied"
+        assert summary.text().startswith("0.37 min")
+        # Cut short, the summary shows whole on hover.
+        summary.resize(40, summary.height())
+        assert summary.text() != summary.full_text()
+        assert _hover_text(summary, QPoint(5, 5)) == "0.37 min, not applied"
+    finally:
+        toolbar.deleteLater()
+        qapp.setStyleSheet(before)
+
+
+def test_long_names_keep_whole_rows_and_show_in_full_on_hover(qapp):
+    compound = "N-acetyl-L-aspartyl-L-glutamic acid bis-tert-butyldimethylsilyl derivative"
+    samples = [
+        f"2026-10-28_GCMS_StableIsotope_Experiment_17_Batch04_Replicate_00{i}_Rerun_02"
+        for i in (1, 2)
+    ]
+    toolbar = Toolbar(AnalysisMode.LABELLED)
+    toolbar.update_label_colours(True, True)
+    toolbar.update_compound_list([compound])
+    toolbar.update_sample_list(samples)
+    toolbar.samples_section.set_expanded(True)
+    toolbar.resize(296, 900)
+    toolbar.show()
+    _settle(toolbar)
+    try:
+        for lst, names in ((toolbar.compound_list, [compound]), (toolbar.sample_list, samples)):
+            assert not lst.horizontalScrollBar().isVisible()
+            assert _full_rows(lst) == len(names)
+            point = lst.visualItemRect(lst.item(0)).topLeft() + QPoint(20, 5)
+            assert _hover_text(lst.viewport(), point) == names[0]
+    finally:
+        toolbar.deleteLater()
 
 
 def test_clearing_a_filter_on_a_short_list_keeps_the_current_compound_in_view(qapp):

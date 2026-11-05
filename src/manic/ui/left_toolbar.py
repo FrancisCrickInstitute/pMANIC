@@ -235,7 +235,8 @@ class Toolbar(QWidget):
         self._build_scale_actions()
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        # The children stop short of the right border so it runs the full height.
+        main_layout.setContentsMargins(0, 0, 1, 0)
         main_layout.setSpacing(0)
         main_layout.addWidget(header)
         # The lists hug their rows with the Peak window right under them; the rest stays below.
@@ -301,7 +302,8 @@ class Toolbar(QWidget):
         window = self.integration.tr_window_edit.text().strip()
         state = "On" if self.baseline_checkbox.isChecked() else "Off"
         if self.integration.has_window_draft():
-            summary = f"{state} · not applied"
+            # The edit outranks the baseline state, which the folded row has no room for.
+            summary = f"{window} min, not applied"
         else:
             summary = f"{state} · {window} min" if window else state
         self.integration.more.summary.setText(summary)

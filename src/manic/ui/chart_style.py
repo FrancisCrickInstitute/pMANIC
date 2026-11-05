@@ -97,8 +97,13 @@ def set_nice_ticks(
         metrics = QFontMetricsF(axis.labelsFont())
         places = step_decimals(step) if decimals is None else decimals
         label = max(metrics.horizontalAdvance(f"{v:.{places}f}") for v in (low, high))
-        min_step = (label + metrics.horizontalAdvance("00")) * (high - low) / plot_px
-        while step < min_step:
+        spacing = (label + metrics.horizontalAdvance("00")) * (high - low)
+        while step < spacing / plot_px:
+            step = _next_step(step)
+        # Denser labels move the plot edge by up to a label's width, which can make the
+        # wider step fit again; going denser only with that much to spare stops the flip.
+        shown = axis.tickInterval() if axis.tickType() == QValueAxis.TicksDynamic else 0
+        while step < shown and step < spacing / max(plot_px - label, 1):
             step = _next_step(step)
     axis.setTickType(QValueAxis.TicksDynamic)
     axis.setTickAnchor(math.ceil(low / step) * step)

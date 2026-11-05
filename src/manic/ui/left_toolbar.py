@@ -235,7 +235,8 @@ class Toolbar(QWidget):
         self._build_scale_actions()
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        # The children stop short of the right border so it runs the full height.
+        main_layout.setContentsMargins(0, 0, 1, 0)
         main_layout.setSpacing(0)
         main_layout.addWidget(header)
         # The lists hug their rows with the Peak window right under them; the rest stays below.

@@ -588,9 +588,43 @@ def tour_steps(tour: Tour) -> None:
 
         StandardChooser.close = traced_close
         QApplication.instance().removeEventFilter(spy)
-        # Control: a stock QComboBox popup on the same window, opened the same way.
-        from PySide6.QtWidgets import QComboBox
+        # Which part of the chooser makes Windows close it? Each variant opens the same way.
+        from PySide6.QtWidgets import QComboBox, QFrame, QLineEdit, QListWidget, QVBoxLayout
 
+        from manic.ui.sidebar_widgets import FilterField
+
+        def frame(*parts):
+            f = QFrame(tour.window.toolbar.standard, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+            lay = QVBoxLayout(f)
+            for make in parts:
+                lay.addWidget(make(f))
+            return f
+
+        def lst(_f):
+            w = QListWidget()
+            w.addItems(["one", "two", "three"])
+            return w
+
+        variants = {
+            "empty frame": lambda: frame(lambda _f: QLabel("x")),
+            "frame+list": lambda: frame(lst),
+            "frame+lineedit": lambda: frame(lambda _f: QLineEdit()),
+            "frame+lineedit+list": lambda: frame(lambda _f: QLineEdit(), lst),
+            "frame+FilterField+list": lambda: frame(lambda f: FilterField(QListWidget(), "x"), lst),
+        }
+        pos = tour.window.toolbar.standard.mapToGlobal(tour.window.toolbar.standard.rect().bottomLeft())
+        for name, make in variants.items():
+            tour.window.raise_()
+            tour.window.activateWindow()
+            tour.pump(0.2)
+            w = make()
+            w.move(pos)
+            w.show()
+            tour.pump(0.3)
+            print(f"  CHOOSER-DIAG variant {name}: open after 0.3 s = {w.isVisible()}", flush=True)
+            w.close()
+            w.deleteLater()
+            tour.pump(0.1)
         combo = QComboBox(tour.window.toolbar)
         combo.addItems(["one", "two", "three"])
         combo.show()

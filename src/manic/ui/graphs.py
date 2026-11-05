@@ -50,7 +50,7 @@ from manic.validation.unlabelled_identity import (
 from .channel_chips import CHIP_HEIGHT, ChannelChipRow
 from .channel_labels import channel_legend_label, has_defined_channel
 from .chart_style import set_nice_ticks, style_axis, style_chart, text_style, ui_font
-from .icon_button import icon_button
+from .icon_button import icon_button, segmented
 from .identity_chart import qualifier_gap_note
 from .colors import (
     QUALIFIER_GREEN,
@@ -357,12 +357,7 @@ class GraphView(QWidget):
         self.selection_changed.connect(self._update_selection_summary)
 
     def _build_density_toggle(self) -> QWidget:
-        box = QWidget()
-        box.setObjectName("densityToggle")
-        layout = QHBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        self._density_buttons = QButtonGroup(box)
+        self._density_buttons = QButtonGroup(self)
         self._density = str(QSettings().value("graph/density", "comfortable"))
         if self._density not in DENSITY_MIN_TILE:
             self._density = "comfortable"
@@ -381,34 +376,10 @@ class GraphView(QWidget):
             button.setObjectName(f"density_{key}")
             button.installEventFilter(self)
             self._density_buttons.addButton(button)
-            layout.addWidget(button)
         self._density_buttons.buttonClicked.connect(
             lambda button: self.set_density(button.property("density"))
         )
-        theme.style(
-            box,
-            """
-            QToolButton {
-                font-size: 11px; color: @text_secondary;
-                background: @surface; border: 1px solid @border_strong;
-                padding: 2px 9px; min-height: 18px;
-            }
-            QToolButton:hover { background: @surface_hover; }
-            QToolButton:checked {
-                color: @text; background: @surface_alt; font-weight: 600;
-            }
-            QToolButton:focus { border-color: @accent; }
-            QToolButton#density_compact {
-                border-top-left-radius: 6px; border-bottom-left-radius: 6px;
-            }
-            /* Comfortable's left edge is the divider; this side shows the fill. */
-            QToolButton#density_compact:!focus { border-right-color: transparent; }
-            QToolButton#density_comfortable {
-                border-top-right-radius: 6px; border-bottom-right-radius: 6px;
-            }
-            """,
-        )
-        return box
+        return segmented(*self._density_buttons.buttons())
 
     def set_density(self, density: str) -> None:
         if density not in DENSITY_MIN_TILE or density == self._density:

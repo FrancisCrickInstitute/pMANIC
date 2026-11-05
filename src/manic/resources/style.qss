@@ -206,6 +206,38 @@ QToolButton:checked {
     background-color: @border;
 }
 
+/* A segmented control: each segment its own pill on a quiet track, 4 px apart. */
+QWidget[role="segmented"] {
+    background-color: @surface_alt;
+    border: 1px solid @border;
+    border-radius: 8px;
+}
+
+QWidget[role="segmented"] QToolButton {
+    font-size: 11px;
+    color: @text_secondary;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 1px 9px;
+    min-height: 18px;
+}
+
+QWidget[role="segmented"] QToolButton:hover {
+    background-color: @surface_hover;
+}
+
+QWidget[role="segmented"] QToolButton:checked {
+    color: @text;
+    background-color: @surface;
+    border-color: @border_strong;
+    font-weight: 600;
+}
+
+QWidget[role="segmented"] QToolButton:focus {
+    border-color: @accent;
+}
+
 /* ---------- Inputs ---------- */
 
 QLineEdit,

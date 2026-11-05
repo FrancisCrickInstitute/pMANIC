@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 
 from manic.models.analysis import AnalysisMode
 from manic.ui.dialog_kit import (
+    BUTTON_GAP,
     MARGIN,
     hint_label,
     style_dialog,
@@ -53,6 +54,7 @@ class AnalysisModeDialog(QDialog):
         layout.addLayout(choices)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        buttons.layout().setSpacing(BUTTON_GAP)
         buttons.button(QDialogButtonBox.Cancel).setAutoDefault(False)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

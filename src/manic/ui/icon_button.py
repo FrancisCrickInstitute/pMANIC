@@ -1,8 +1,8 @@
 from collections.abc import Callable
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPainter
-from PySide6.QtWidgets import QToolButton
+from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QToolButton, QWidget
 
 from manic.ui import theme
 from manic.utils.paths import resource_path
@@ -39,3 +39,16 @@ def icon_button(object_name: str, svg: str, tooltip: str) -> QToolButton:
     button.setAutoRaise(True)
     button.setToolTip(tooltip)
     return button
+
+
+def segmented(*buttons: QAbstractButton) -> QWidget:
+    """Buttons as one control: each its own pill on a quiet track, 4 px apart (style.qss)."""
+    track = QWidget()
+    track.setProperty("role", "segmented")
+    track.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    layout = QHBoxLayout(track)
+    layout.setContentsMargins(3, 3, 3, 3)
+    layout.setSpacing(4)
+    for button in buttons:
+        layout.addWidget(button)
+    return track

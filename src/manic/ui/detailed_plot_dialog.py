@@ -59,12 +59,8 @@ from manic.ui.colors import (
 from manic.validation.unlabelled_identity import IdentitySampleAssessment, QualifierStatus
 from manic.ui.chart_style import text_style
 from manic.ui.identity_chart import STATUS_LABELS
-from manic.ui.matplotlib_plot_widget import (
-    SEGMENT_QSS,
-    TOGGLE_QSS,
-    CompactNavigationToolbar,
-    MatplotlibPlotWidget,
-)
+from manic.ui.icon_button import segmented
+from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
 from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
 
@@ -361,27 +357,22 @@ class DetailedPlotDialog(QDialog):
 
     def _build_sample_steps(self) -> QWidget:
         """Previous and next sample, one segmented control; the arrow keys do the same."""
-        box = QWidget()
-        theme.style(box, TOGGLE_QSS + SEGMENT_QSS)
-        row = QHBoxLayout(box)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(0)
         buttons = []
         for name, glyph, step, key in (
             ("Previous sample", "‹", -1, Qt.Key_Left),
             ("Next sample", "›", 1, Qt.Key_Right),
         ):
             button = QToolButton()
-            button.setObjectName("segmentLeft" if step < 0 else "segmentRight")
             button.setText(glyph)
             button.setAccessibleName(name)
             button.setToolTip(f"{name} ({QKeySequence(key).toString(QKeySequence.NativeText)})")
             button.clicked.connect(lambda _checked=False, step=step: self.step_sample(step))
             QShortcut(QKeySequence(key), self, lambda step=step: self.step_sample(step))
-            row.addWidget(button)
             buttons.append(button)
         self.previous_sample, self.next_sample = buttons
-        box.setVisible(len(self._samples) > 1)
+        box = segmented(*buttons)
+        if len(self._samples) <= 1:
+            box.hide()  # never shown before it has a parent
         return box
 
     def _load_data(self):

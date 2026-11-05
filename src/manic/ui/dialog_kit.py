@@ -30,6 +30,8 @@ MARGIN = 24
 SECTION_SPACING = 20
 FORM_LABEL_WIDTH = 150
 SIDEBAR_ROW_HEIGHT = 32
+# Between separate buttons; some styles lay a button box out 6 px apart.
+BUTTON_GAP = 8
 MARKED_ROLE = Qt.UserRole + 1
 
 _DIALOG_STYLE = """
@@ -177,6 +179,7 @@ def button_box(
 ) -> tuple[QDialogButtonBox, QPushButton]:
     """Platform-ordered buttons: one primary (default) action, neutral others."""
     box = QDialogButtonBox()
+    box.layout().setSpacing(BUTTON_GAP)
     primary_button = box.addButton(primary, QDialogButtonBox.AcceptRole)
     primary_button.setDefault(True)
     theme.set_style_property(primary_button, "variant", "primary")

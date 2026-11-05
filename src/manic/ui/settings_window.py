@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QSignalBlocker, Signal
+from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QSignalBlocker, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
@@ -1022,6 +1022,13 @@ class SettingsWindow(QDialog):
         page.load()
         page.set_inputs_enabled(page.editable()[0])
         self._update_footer()
+        if not page.is_dirty():
+            self.hint_label.setText("Saved")
+            QTimer.singleShot(3000, self, self._clear_saved_hint)
+
+    def _clear_saved_hint(self) -> None:
+        if self.hint_label.text() == "Saved":
+            self.hint_label.clear()
 
     def _reset_current(self) -> None:
         page = self._current_page()

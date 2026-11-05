@@ -239,6 +239,9 @@ def test_mass_tolerance_save_writes_literal_value(labelled_window):
     settings.save_button.click()
     assert labelled_window.mass_tolerance == 0.35
     assert not settings.save_button.isEnabled()
+    assert settings.hint_label.text() == "Saved"
+    page.spin.setValue(0.4)
+    assert settings.hint_label.text() != "Saved"
 
 
 def test_settings_is_as_tall_as_the_page_it_shows(labelled_window):

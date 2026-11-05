@@ -228,8 +228,8 @@ class PeakValidationPage(SettingsPage):
             with_help(
                 self.spin,
                 "Compares each compound's peak area with the internal standard's "
-                "reference peak. A peak below this ratio gets an amber Below "
-                "threshold badge. Right-click its plot to accept the peak or mark "
+                "reference peak. A peak below this ratio gets a Below threshold "
+                "badge. Right-click its plot to accept the peak or mark "
                 "it as bad.",
             ),
         )

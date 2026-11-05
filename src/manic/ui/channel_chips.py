@@ -174,7 +174,6 @@ class ChannelChipRow(QWidget):
         super().__init__(parent)
         self._layout = FlowLayout(self)
         self._chips: list[ChannelChip] = []
-        self.trailing = trailing
         if trailing is not None:
             self._layout.addWidget(trailing)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)

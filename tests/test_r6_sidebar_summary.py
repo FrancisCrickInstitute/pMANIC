@@ -6,7 +6,7 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import QApplication
 
 from manic.ui.isotopologue_ratio_widget import IsotopologueRatioWidget
-from manic.ui.sidebar_widgets import NAME_ROW_PX, SUMMARY_CHART_HEIGHT
+from manic.ui.sidebar_widgets import NAME_ROW_PX, SUMMARY_CHART_MAX_HEIGHT
 from manic.ui.total_abundance_widget import TotalAbundanceWidget
 
 NAMES = [f"Bio_{i:03d}" for i in range(30)]
@@ -42,7 +42,7 @@ def _row_in_view(widget, name) -> bool:
 
 
 def _shown(widget):
-    widget.resize(264, SUMMARY_CHART_HEIGHT[1])
+    widget.resize(264, SUMMARY_CHART_MAX_HEIGHT)
     widget.show()
     for _ in range(10):
         QApplication.processEvents()
@@ -57,7 +57,7 @@ def test_thirty_samples_are_named_on_readable_rows_that_scroll(qapp, make):
         assert axis.labelsVisible()
         assert list(axis.categories())[::-1][0] == "Bio_000"
         assert widget.chart.plotArea().height() >= len(NAMES) * NAME_ROW_PX
-        assert widget.height() <= SUMMARY_CHART_HEIGHT[1]
+        assert widget.height() <= SUMMARY_CHART_MAX_HEIGHT
         assert widget.chart_area.verticalScrollBar().maximum() > 0
     finally:
         widget.deleteLater()

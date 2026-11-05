@@ -620,9 +620,6 @@ class Toolbar(QWidget):
             + self._section_height(self.summary_section, width, SUMMARY_MIN_CHART)
         )
 
-    def is_compact(self) -> bool:
-        return self._compact
-
     def _set_compact(self, compact: bool) -> None:
         """Too short for every section: the switcher shows one at a time, in place of their headings."""
         if compact == self._compact:

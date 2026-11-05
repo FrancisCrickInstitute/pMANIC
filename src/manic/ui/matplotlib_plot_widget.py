@@ -8,7 +8,6 @@ efficient batch rendering for improved performance.
 """
 
 import logging
-from contextlib import contextmanager
 
 # Configure matplotlib for Qt5 integration with performance optimizations
 import matplotlib
@@ -124,20 +123,6 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
 logger = logging.getLogger(__name__)
 
 STEM_HEADROOM = 1.18
-
-
-@contextmanager
-def matplotlib_cleanup():
-    """Context manager to ensure matplotlib resources are properly cleaned up."""
-    try:
-        yield
-    finally:
-        # Force garbage collection of matplotlib objects
-        import gc
-
-        gc.collect()
-        # Close any lingering figures
-        plt.close("all")
 
 
 class CompactNavigationToolbar(QWidget):
@@ -546,50 +531,6 @@ class MatplotlibPlotWidget(QWidget):
 
         except Exception as e:
             logger.error(f"Failed to show legend: {e}")
-
-    def add_text(
-        self,
-        x: float,
-        y: float,
-        text: str,
-        color: str | None = None,
-        ha: str = "center",
-        va: str = "bottom",
-        fontsize: int | None = None,
-        rotation: float = 0.0,
-        **kwargs,
-    ):
-        """
-        Add a text annotation at (x, y) in data coordinates.
-
-        Args:
-            x: X position in data coordinates.
-            y: Y position in data coordinates.
-            text: Text string to render.
-            color: Text color.
-            ha: Horizontal alignment ('center', 'left', 'right').
-            va: Vertical alignment ('bottom', 'center', 'top', ...).
-            fontsize: Font size; defaults to slightly smaller than labels.
-            rotation: Rotation angle in degrees.
-            **kwargs: Additional matplotlib.text.Text kwargs.
-        """
-        try:
-            if fontsize is None:
-                fontsize = max(PLOT_LABEL_FONTSIZE - 1, 6)
-
-            self.ax.text(
-                x,
-                y,
-                text,
-                color=color or COLORS["text"],
-                ha=ha,
-                va=va,
-                fontsize=fontsize,
-                rotation=rotation,
-                **kwargs,
-            )
-        except Exception as e:
-            logger.error(f"Failed to add text annotation: {e}")
 
     def _on_theme_changed(self, remap: dict) -> None:
         if self.figure is None:

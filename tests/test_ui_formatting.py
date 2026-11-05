@@ -14,7 +14,6 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
 import numpy as np
 from types import SimpleNamespace
@@ -31,7 +30,6 @@ from manic.ui.colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
     QUALIFIER_RED,
-    QUALIFIER_STATUS_COLORS,
     ChannelTraceStyle,
     channel_trace_styles,
     dark_red_colour,

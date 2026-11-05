@@ -23,7 +23,7 @@ from manic.ui.chart_popup_dialog import PinnedAxis, value_axis_ticks
 from manic.ui.chart_style import scale_text, set_nice_ticks, style_axis, style_chart
 from manic.ui.colors import abundance_colour
 from manic.ui.sidebar_widgets import (
-    SUMMARY_CHART_HEIGHT,
+    SUMMARY_CHART_MAX_HEIGHT,
     SummaryChartArea,
     fit_category_names,
 )
@@ -92,13 +92,12 @@ class TotalAbundanceWidget(QWidget):
         theme.notifier.changed.connect(self._paint_highlight)
 
         # Responsive height to match isotopologue widget
-        self.setMaximumHeight(SUMMARY_CHART_HEIGHT[1])
+        self.setMaximumHeight(SUMMARY_CHART_MAX_HEIGHT)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self.bar_color = abundance_colour
 
         # Data storage
-        self._current_eics: Optional[List[EIC]] = None
         self._current_compound: str = ""
         self._current_abundances: Optional[np.ndarray] = None
         self._current_sample_names: Optional[List[str]] = None
@@ -115,7 +114,6 @@ class TotalAbundanceWidget(QWidget):
             self._clear_chart()
             return
 
-        self._current_eics = eics
         self._current_compound = compound_name
 
         # Order to match graph window layout
@@ -266,10 +264,6 @@ class TotalAbundanceWidget(QWidget):
         x_axis.setRange(0, scaled_max * 1.05)  # Add 5% padding
         set_nice_ticks(x_axis, 0, scaled_max * 1.05, max_ticks=2)
 
-        # Store scale info for later use
-        self._scale_exp = scale_exp
-        self._scale_factor = scale_factor
-
         style_axis(x_axis, grid=True)
         x_axis.setLineVisible(False)
         x_axis.setLabelsVisible(False)
@@ -295,7 +289,6 @@ class TotalAbundanceWidget(QWidget):
         self.chart_area.set_rows(0)
 
         # Reset data
-        self._current_eics = None
         self._current_compound = ""
         self._current_abundances = None
         self._current_sample_names = None

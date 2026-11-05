@@ -1215,10 +1215,6 @@ class GraphView(QWidget):
             return [clicked_plot.sample_name]
         return self.get_selected_samples()
 
-    def deselect_all_plots(self):
-        """Deselect all currently selected plots"""
-        self.clear_selection()
-
     def contextMenuEvent(self, event):
         """
         Handle right-click context menu for plot selection.

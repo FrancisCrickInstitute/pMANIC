@@ -52,12 +52,6 @@ QFrame[role="divider"] {
     min-height: 1px;
 }
 
-QWidget[role="card"] {
-    background-color: @surface;
-    border: 1px solid @border;
-    border-radius: 8px;
-}
-
 QChartView {
     background-color: transparent;
     border: none;
@@ -814,11 +808,6 @@ QPushButton[role="sectionToggle"] {
 
 QPushButton[role="sectionToggle"]:hover {
     background-color: @surface_hover;
-}
-
-QLabel#statusValue[state="todo"] {
-    color: @accent;
-    font-weight: 500;
 }
 
 QLabel#statusValue[state="done"],

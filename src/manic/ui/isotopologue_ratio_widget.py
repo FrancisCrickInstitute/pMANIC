@@ -35,7 +35,7 @@ from .chart_popup_dialog import PinnedAxis, missing_ratio_note, value_axis_ticks
 from .chart_style import AXIS_LABEL_PX, style_axis, style_chart, ui_font
 from .colors import label_colors
 from .sidebar_widgets import (
-    SUMMARY_CHART_HEIGHT,
+    SUMMARY_CHART_MAX_HEIGHT,
     SummaryChartArea,
     fit_category_names,
 )
@@ -122,7 +122,7 @@ class IsotopologueRatioWidget(QWidget):
         theme.notifier.changed.connect(self._paint_highlight)
 
         # Responsive height for toolbar integration
-        self.setMaximumHeight(SUMMARY_CHART_HEIGHT[1])
+        self.setMaximumHeight(SUMMARY_CHART_MAX_HEIGHT)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         # Data storage

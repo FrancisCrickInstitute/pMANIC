@@ -143,3 +143,8 @@ would put it there.
 - Peak verdict colours keep main's and the workbook's meanings (Below threshold
   light red, Accepted light purple, Marked bad tan), drawn as soft translucent
   pastel washes and pastel pills, never solid or bold fills.
+- Optimise for big screens: the user's normal display is a 27" monitor at
+  2560x1440 (device pixel ratio 1.0, 2560x1410 available). Lay out for that
+  first; laptop sizes (1500x940, 1280x800, 1024x720, 150%) must still work.
+- Both side panels are toggleable: the left sidebar and the right Summary panel,
+  each from a header button and the View menu, remembered between sessions.

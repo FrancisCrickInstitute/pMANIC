@@ -185,13 +185,10 @@ def test_internal_standard_row_is_optional_until_chosen(qapp):
 
 
 @pytest.mark.parametrize(
-    "mode, needs_mix, note",
-    [
-        (AnalysisMode.LABELLED, True, "No amount: abundances export as peak areas"),
-        (AnalysisMode.UNLABELLED, False, "No amount: results export as peak areas"),
-    ],
+    "mode, needs_mix", [(AnalysisMode.LABELLED, True), (AnalysisMode.UNLABELLED, False)]
 )
-def test_a_standard_without_an_amount_says_how_it_will_export(qapp, mode, needs_mix, note):
+def test_a_standard_without_an_amount_says_how_it_will_export(qapp, mode, needs_mix):
+    note = "No amount: exports peak areas"
     with database.get_connection() as conn:
         for name, amount, mix in (
             ("Palatinose", None, 1.0),

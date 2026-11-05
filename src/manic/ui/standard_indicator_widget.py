@@ -29,12 +29,12 @@ class StandardIndicator(StatusRow):
     def __init__(self, analysis_mode: AnalysisMode = AnalysisMode.LABELLED, parent=None):
         super().__init__("Internal standard", parent)
         self._mode = analysis_mode
-        self.note = QLabel()
+        self.note = QLabel("No amount: exports peak areas")
         self.note.setObjectName("standardNote")
         self.note.setProperty("role", "hint")
-        self.note.setWordWrap(True)
         self.note.setToolTip(
-            "Add its amounts to the compound list and re-import it to export calibrated values"
+            "The compound list gives this standard no amount, so the export cannot "
+            "calibrate with it. Add its amounts and re-import the list."
         )
         self.internal_standard = None
         self.clear_internal_standard()
@@ -43,8 +43,6 @@ class StandardIndicator(StatusRow):
         self.internal_standard = compound_name
         self.set_state("done", compound_name)
         self.setToolTip("Click to change")
-        values = "abundances" if self._mode is AnalysisMode.LABELLED else "results"
-        self.note.setText(f"No amount: {values} export as peak areas")
         self.note.setHidden(not _lacks_amount(compound_name, self._mode))
 
     def clear_internal_standard(self):

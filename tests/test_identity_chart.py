@@ -271,15 +271,16 @@ def test_compound_with_no_expected_ratios_says_so_instead_of_a_grey_grid(qapp, q
         widget.update_results(identity)
         _settle(widget)
         grid = note is None
-        # The panel sits beside the grid's own note on the gap, so it names only the outcome.
-        for shown_note, scroll, key, text in (
-            (dialog.empty_note, dialog.findChild(QScrollArea), dialog.status_legend, note),
-            (widget.note, widget.findChild(QScrollArea), widget.key, "No qualifier can be assessed."),
+        assert dialog.empty_note.isVisible() is not grid
+        for scroll, key in (
+            (dialog.findChild(QScrollArea), dialog.status_legend),
+            (widget.findChild(QScrollArea), widget.key),
         ):
-            assert shown_note.isVisible() is not grid
             assert scroll.isVisible() is grid and key.isVisible() is grid
-            if not grid:
-                assert _plain(shown_note) == text
+        if not grid:
+            assert _plain(dialog.empty_note) == note
+        # The panel sits beside the grid's own note on the gap, so it says nothing more.
+        assert not widget.note.isVisible()
         if not grid:
             assert dialog.ion_legend.labels()[1] == chip
             # The quantifier and each qualifier the method has; no chip for an absent one.

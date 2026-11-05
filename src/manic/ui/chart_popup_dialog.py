@@ -45,7 +45,6 @@ from manic.ui.colors import (
     QUALIFIER_GREY,
     QUALIFIER_RED,
     ChannelTraceStyle,
-    abundance_colour,
     label_colors,
 )
 from manic.ui.identity_chart import (
@@ -54,6 +53,7 @@ from manic.ui.identity_chart import (
     add_identity_grid,
     identity_cell_tooltip,
     identity_chart_height,
+    identity_cells,
     identity_column_headers,
     identity_unassessed_note,
     show_identity_tooltip,
@@ -63,7 +63,9 @@ from manic.ui import theme
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
 # Every sample gets this much height so its name is never elided.
-ROW_HEIGHT = 22
+ROW_HEIGHT = 26
+# Sample names, bar-end values and the value axis: a step above the sidebar's 10 px.
+VALUE_PX = 12
 # The chart margins above and below the rows; the axis text is pinned outside.
 _AXIS_SPACE = 16
 
@@ -72,7 +74,7 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
     """Qualifier cells per key entry: Validated, Failed, and everything else."""
     counts = {"Validated": 0, "Failed": 0, "Not assessed": 0}
     for sample in identity.samples:
-        for qualifier in sample.qualifiers:
+        for qualifier in identity_cells(sample):
             if qualifier.status is QualifierStatus.VALIDATED:
                 counts["Validated"] += 1
             elif qualifier.status is QualifierStatus.FAILED:
@@ -84,7 +86,7 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
 
 def identity_key_html(identity: IdentityAssessmentSet) -> str:
     counts = identity_status_counts(identity)
-    present = {q.status for sample in identity.samples for q in sample.qualifiers}
+    present = {q.status for sample in identity.samples for q in identity_cells(sample)}
     # Every grey cell's mark, so the key accounts for each mark in the grid.
     grey_marks = " ".join(
         mark for status, mark in STATUS_MARKS.items()
@@ -118,10 +120,15 @@ def missing_ratio_note(sample_name: str) -> str:
     return f"{sample_name}\nNo ratio: this sample has no integrated peak area for this compound."
 
 
-def bar_value_text(value: float) -> str:
-    """A bar's value in the axis unit at fixed precision: '0.91', '<0.01', or '—' for none."""
+def bar_value_text(value: float, *, precise: bool = False) -> str:
+    """A bar's value in the axis unit: '0.91', '<0.01', or '—' for none.
+
+    ``precise`` gives three significant figures, for the row being read.
+    """
     if not np.isfinite(value) or value == 0:
         return "—"
+    if precise:
+        return f"{value:.3g}"
     if abs(value) < 0.005:
         return "<0.01"
     return f"{value:.2f}"
@@ -241,6 +248,7 @@ class ChartPopupDialog(QDialog):
         hover_notes: list[str] | None = None,
         identity: IdentityAssessmentSet | None = None,
         compound_name: str = "",
+        highlighted=(),
     ):
         super().__init__(parent)
         self.chart_type = chart_type
@@ -248,6 +256,8 @@ class ChartPopupDialog(QDialog):
         self.sample_names = sample_names
         self.hover_notes = hover_notes
         self._identity = identity
+        # The grid's selected samples, filled in the accent as in the sidebar.
+        self._highlighted = set(highlighted)
 
         self._hover_categories: list[str] | None = None
         self._hover_notes: list[str] | None = None
@@ -348,7 +358,7 @@ class ChartPopupDialog(QDialog):
             "QScrollArea { background: @surface; border: 1px solid @border; border-radius: 8px; }",
         )
         self.pinned_axis = PinnedAxis(
-            self.chart_view, font_px=11 if self.chart_type == "identity" else AXIS_LABEL_PX
+            self.chart_view, font_px=11 if self.chart_type == "identity" else VALUE_PX
         )
         # Tight to the rows it labels, not a layout gap away.
         rows = QVBoxLayout()
@@ -421,16 +431,21 @@ class ChartPopupDialog(QDialog):
         bar_series.setBarWidth(0.7)
 
         bar_set = QBarSet("Total Abundance")
-        bar_set.setColor(abundance_colour)
-        bar_set.setBorderColor(abundance_colour)
+        bar_set.setColor(color("text_tertiary"))
+        bar_set.setPen(QPen(Qt.NoPen))
 
         max_abundance, scale_exp = abundance_scale(self.data)
         scale_factor = 10**scale_exp
         scaled = [float(abundance) / scale_factor for abundance in self.data]
         for value in scaled:
             bar_set.append(value if np.isfinite(value) else 0.0)
+        bar_set.selectBars([i for i, name in enumerate(self.sample_names) if name in self._highlighted])
+        self._abundance_bars = bar_set
+        self._recolour_selection()
+        theme.notifier.changed.connect(self._recolour_selection)
 
-        # No hover text: each row already shows its name and the same rounded value.
+        # The row under the pointer or picked with the arrow keys reads at three
+        # significant figures (see _refresh_value_labels), so no tooltip.
         bar_series.append(bar_set)
         self.chart.addSeries(bar_series)
 
@@ -442,25 +457,32 @@ class ChartPopupDialog(QDialog):
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._add_value_labels(bar_series, list(enumerate(scaled)))
 
+    def _recolour_selection(self, *_args) -> None:
+        # A scheme switch remaps bar colours, but not the selected colour.
+        self._abundance_bars.setSelectedColor(color("accent"))
+
     def _add_value_labels(
         self, series: QAbstractBarSeries, values: list[tuple[int, float]]
     ) -> None:
         """Text past the bar end of each (category, value). QtCharts' own labels can only print raw numbers."""
         for index, value in values:
             item = _BackedText(bar_value_text(value), self.chart)
-            item.setFont(ui_font(10))
+            item.setFont(ui_font(VALUE_PX))
             # Above QtCharts' gridlines, which sit over plain chart children.
             item.setZValue(50)
             self._value_labels.append((item, value if np.isfinite(value) else 0.0, index))
         self._value_series = series
-        self._recolour_value_labels()
+        self._refresh_value_labels()
         self.chart.plotAreaChanged.connect(self._place_value_labels)
-        theme.notifier.changed.connect(self._recolour_value_labels)
+        theme.notifier.changed.connect(self._refresh_value_labels)
         self._place_value_labels()
 
-    def _recolour_value_labels(self, *_args) -> None:
-        for item, _value, _index in self._value_labels:
-            item.setBrush(color("text_secondary"))
+    def _refresh_value_labels(self, *_args) -> None:
+        """Compact values, except the current row's, which reads in full in the text colour."""
+        current = None if self._current_row is None else len(self.sample_names) - 1 - self._current_row
+        for item, value, index in self._value_labels:
+            item.setText(bar_value_text(value, precise=index == current))
+            item.setBrush(color("text" if index == current else "text_secondary"))
             item.update()
 
     def _place_value_labels(self, *_args) -> None:
@@ -619,7 +641,7 @@ class ChartPopupDialog(QDialog):
         axis = QBarCategoryAxis()
         axis.append(names)
         style_axis(axis)
-        axis.setLabelsFont(ui_font(11))
+        axis.setLabelsFont(ui_font(VALUE_PX))
         axis.setLabelsColor(color("text"))
         axis.setLineVisible(False)
         # Every row is tall enough for its name, so never shorten it to "…".
@@ -704,6 +726,7 @@ class ChartPopupDialog(QDialog):
     def set_current_row(self, row: int | None) -> None:
         self._current_row = row
         self._place_row_marker()
+        self._refresh_value_labels()
 
     def _place_row_marker(self, *_args) -> None:
         if self._current_row is None or not self.chart.series():

@@ -61,6 +61,8 @@ from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
 
 logger = logging.getLogger(__name__)
+# m/z either side of a labelled compound's isotopologues that the spectrum opens on.
+SPECTRUM_CLUSTER_MARGIN = 20
 
 
 def _rgba(qcolor, alpha: float) -> str:
@@ -487,16 +489,8 @@ class DetailedPlotDialog(QDialog):
             except Exception as baseline_error:
                 logger.error(f"Failed to draw baseline lines: {baseline_error}")
 
-            # Above the plot, beside its title, so it never covers a trace.
-            self.eic_plot.show_legend(
-                loc="lower right",
-                bbox_to_anchor=(1.0, 1.0),
-                ncol=max(1, len(self.eic_plot.ax.get_legend_handles_labels()[1])),
-                frameon=False,
-                borderaxespad=0.2,
-                handlelength=1.6,
-                columnspacing=1.2,
-            )
+            # Above the plot, under its title, so it never covers a trace.
+            self.eic_plot.show_legend()
 
             # Execute batch rendering for performance
             self.eic_plot.finalize_plot()
@@ -739,7 +733,7 @@ class DetailedPlotDialog(QDialog):
         # One name for every grey state; the Identity popup chips give the reason.
         if status not in (QualifierStatus.VALIDATED, QualifierStatus.FAILED):
             status = QualifierStatus.NOT_ASSESSED
-        return f"{label} ({STATUS_LABELS[status].lower()})"
+        return f"{label} ({STATUS_LABELS[status]})"
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""
@@ -802,6 +796,10 @@ class DetailedPlotDialog(QDialog):
                 own_mz=[channel.mz for channel in channels],
                 own_names=[f"M+{channel.ordinal}" for channel in channels] if isotopologues else None,
             )
+            if channels and isotopologues:
+                # The cluster is a few m/z wide; at full scan it is one sliver.
+                masses = [channel.mz for channel in channels]
+                self.ms_plot.show_x_range(min(masses) - SPECTRUM_CLUSTER_MARGIN, max(masses) + SPECTRUM_CLUSTER_MARGIN)
 
             # Mark target m/z position with transparent indicator
             if self.compound_info:

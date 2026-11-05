@@ -146,13 +146,28 @@ def test_isotopologues_are_named_together_at_full_range_and_apart_when_zoomed(sp
     bracket = next(line for line in widget.ax.lines if list(line.get_ydata()) == [1.3e6, 1.3e6])
     assert bracket.get_visible()
     renderer = widget.canvas.get_renderer()
-    last_stem = widget.ax.transData.transform((177.0, 0))[0]
-    # Beside the cluster, so the name sits on none of its stems.
-    assert label.get_window_extent(renderer).x0 > last_stem + 2
+    tallest = widget.ax.transData.transform((174.99, 1.3e6))[1]
+    # Above the bracket over the tallest bar, so the name sits on none of the stems.
+    assert label.get_window_extent(renderer).y0 > tallest + 3
 
     _zoom_to_cluster(widget)
     assert _shown_labels(widget) == ["M+0  173.97", "M+1  174.99", "M+2  175.98", "M+3  177.00"]
     assert not bracket.get_visible()
+
+
+def test_labelled_spectrum_opens_on_its_cluster_and_reset_shows_the_scan(qapp, dialog):
+    from manic.models.analysis import IonChannel, IonRole
+
+    dialog.ms_data = SimpleNamespace(mz=SPECTRUM_MZ, intensity=SPECTRUM_INTENSITY)
+    dialog.compound_info = SimpleNamespace(
+        analysis_channels=[IonChannel(mz, IonRole.ISOTOPOLOGUE, ordinal=i) for i, mz in enumerate(OWN_IONS)],
+        mass0=174.0,
+    )
+    dialog._plot_ms()
+    assert dialog.ms_plot.ax.get_xlim() == (154.0, 197.0)
+    dialog.nav_toolbar.home_btn.click()
+    low, high = dialog.ms_plot.ax.get_xlim()
+    assert low < 73.02 and high > 300.0
 
 
 def test_live_scheme_switch_repaints_spectrum_label_boxes(qapp, spectrum):

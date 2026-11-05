@@ -30,27 +30,31 @@ from manic.validation.unlabelled_identity import (
 _TOOLTIP_HOLD_MS = 86_400_000
 # Rows are capped at this height, so one sample is a strip, not a slab.
 IDENTITY_ROW_MAX = 24
-# Column header text at each column's centre, for a PinnedAxis above the grid.
-IDENTITY_COLUMN_HEADERS = [(0.5, "Qualifier 1"), (1.5, "Qualifier 2")]
 
 
-def identity_column_headers(channels) -> list[tuple[float, str]]:
-    """Two-line headers naming each qualifier column's ion and expectation."""
-    by_ordinal = {c.ordinal: c for c in channels if c.role is IonRole.QUALIFIER}
-    headers = []
-    for x, title in IDENTITY_COLUMN_HEADERS:
-        channel = by_ordinal.get(int(x + 0.5))
-        detail = (
-            "not in the method" if channel is None
-            else f"m/z {channel.mz:g}   {expectation_text(channel)}"
+def identity_column_headers(channels, *, detail: bool = True) -> list[tuple[float, str]]:
+    """A header at each column's centre, one column per qualifier the method has.
+
+    With ``detail``, a second line names the ion and its expectation.
+    """
+    qualifiers = sorted((c for c in channels if c.role is IonRole.QUALIFIER), key=lambda c: c.ordinal)
+    return [
+        (
+            column + 0.5,
+            f"Qualifier {c.ordinal}" + (f"\nm/z {c.mz:g}   {expectation_text(c)}" if detail else ""),
         )
-        headers.append((x, f"{title}\n{detail}"))
-    return headers
+        for column, c in enumerate(qualifiers)
+    ]
+
+
+def identity_cells(sample: IdentitySampleAssessment) -> list[QualifierAssessment]:
+    """One cell per qualifier the method has; a slot for an absent ion is no cell."""
+    return [q for q in sample.qualifiers if q.status is not QualifierStatus.ABSENT]
+
 
 STATUS_LABELS = {
     QualifierStatus.VALIDATED: "Validated",
     QualifierStatus.FAILED: "Failed",
-    QualifierStatus.ABSENT: "Absent",
     QualifierStatus.NOT_ASSESSED: "Not assessed",
     QualifierStatus.UNAVAILABLE: "Unavailable",
 }
@@ -61,7 +65,6 @@ STATUS_LABELS = {
 STATUS_MARKS = {
     QualifierStatus.VALIDATED: "✓",
     QualifierStatus.FAILED: "✕",
-    QualifierStatus.ABSENT: "–",
     QualifierStatus.NOT_ASSESSED: "?",
     QualifierStatus.UNAVAILABLE: "n/a",
 }
@@ -108,14 +111,12 @@ def identity_unassessed_note(identity: IdentityAssessmentSet) -> str | None:
 
 
 def qualifier_gap_note(identity: IdentityAssessmentSet) -> str | None:
-    """One note for a qualifier no sample can be checked on, while another qualifier can.
+    """One note naming each qualifier no sample can be checked on, else None.
 
     The gap is the compound's, not any sample's, so the grid states it once
     instead of marking every tile partial.
     """
     qualifiers = [c for c in identity.channels if c.role is IonRole.QUALIFIER]
-    if not any(_checkable(c) for c in qualifiers):
-        return None
     notes = [
         f"Qualifier {c.ordinal} is not assessed: the compound list gives it no expected ratio. "
         f"See {_GUIDE_LINK}."
@@ -129,23 +130,16 @@ def qualifier_gap_note(identity: IdentityAssessmentSet) -> str | None:
 
 
 class _CellMark(QGraphicsSimpleTextItem):
-    """A cell's state mark, in whichever text colour reads on the cell fill.
+    """A cell's state mark, in whichever text colour reads on the cell fill."""
 
-    With no fill the cell is an outline, and the mark is secondary text.
-    """
-
-    def __init__(self, text: str, fill: QColor | None, x: float, row: int, parent):
+    def __init__(self, text: str, fill: QColor, x: float, row: int, parent):
         super().__init__(text, parent)
         # The shared QColor is retuned in place on a scheme switch.
         self._fill = fill
         self.cell = (x, row)
 
     def paint(self, painter, _option, _widget=None):
-        ink = (
-            color("text_secondary") if self._fill is None
-            else max((color("text"), color("surface")), key=lambda c: contrast(c, self._fill))
-        )
-        painter.setPen(ink)
+        painter.setPen(max((color("text"), color("surface")), key=lambda c: contrast(c, self._fill)))
         painter.setFont(self.font())
         painter.drawText(self.boundingRect(), Qt.AlignCenter, self.text())
 
@@ -230,16 +224,14 @@ def add_identity_grid(
     bar_sets: list[QBarSet] = []
     cells: dict[QBarSet, IdentityCell] = {}
     for row, sample in enumerate(display):
-        for column, qualifier in enumerate(sample.qualifiers):
-            # An ion the method lacks is an empty slot, not a grey verdict.
-            absent = qualifier.status is QualifierStatus.ABSENT
-            fill = None if absent else QUALIFIER_STATUS_COLORS[qualifier.status]
+        for column, qualifier in enumerate(identity_cells(sample)):
+            fill = QUALIFIER_STATUS_COLORS[qualifier.status]
             mark = _CellMark(STATUS_MARKS[qualifier.status], fill, column + 0.5, row, chart)
             mark.setFont(ui_font(label_font_size))
             mark.setZValue(10)
             bar_set = QBarSet("")
-            bar_set.setColor(color("surface") if absent else fill)
-            bar_set.setBorderColor(color("border_strong") if absent else color("surface"))
+            bar_set.setColor(fill)
+            bar_set.setBorderColor(color("surface"))
             for other_row in range(count):
                 bar_set.append(1.0 if other_row == row else 0.0)
             series.append(bar_set)
@@ -248,7 +240,7 @@ def add_identity_grid(
     chart.addSeries(series)
 
     x_axis = QValueAxis()
-    x_axis.setRange(0, 2)
+    x_axis.setRange(0, max(len(identity_cells(samples[0])), 1))
     x_axis.setLabelsVisible(False)
     x_axis.setGridLineVisible(False)
     x_axis.setLineVisible(False)

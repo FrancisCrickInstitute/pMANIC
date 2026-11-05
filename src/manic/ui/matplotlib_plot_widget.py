@@ -120,6 +120,9 @@ def remap_figure_colors(figure: Figure, remap: dict[str, str]) -> None:
 logger = logging.getLogger(__name__)
 
 STEM_HEADROOM = 1.18
+CLUSTER_HEADROOM = 1.4
+# Space under a legend for the axis multiplier, in logical px.
+LEGEND_LIFT_PX = 20
 
 
 class CompactNavigationToolbar(QWidget):
@@ -276,6 +279,7 @@ class MatplotlibPlotWidget(QWidget):
         self.nav = NavigationToolbar(self.canvas, self)
         self.nav.setVisible(False)
         self._reset_peak_labels()
+        self._legend_entries = None
         self.canvas.mpl_connect("resize_event", self._fit_margins)
         self.canvas.mpl_connect("draw_event", self._declutter_peak_labels)
         self.canvas.mpl_connect("button_press_event", self._reset_on_double_click)
@@ -292,6 +296,7 @@ class MatplotlibPlotWidget(QWidget):
         self.data_lines = []
         self.ax.set_facecolor(COLORS["surface"])
         self._reset_peak_labels()
+        self._legend_entries = None
         self._set_axes_title(self.title)
         self.ax.set_xlabel(self.x_label, fontsize=PLOT_LABEL_FONTSIZE)
         self.ax.set_ylabel(self.y_label, fontsize=PLOT_LABEL_FONTSIZE)
@@ -426,6 +431,16 @@ class MatplotlibPlotWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to plot stems: {e}")
 
+    def show_x_range(self, low: float, high: float) -> None:
+        """Open on ``low``..``high`` with the stems there filling the height; reset shows them all."""
+        self.ax.set_xlim(low, high)
+        if self._last_stem_data is not None:
+            x_data, y_data = self._last_stem_data
+            inside = y_data[(x_data >= low) & (x_data <= high)]
+            if inside.size:
+                # Room above the tallest bar for the cluster's bracket and name.
+                self.ax.set_ylim(0, float(inside.max()) * CLUSTER_HEADROOM)
+
     def add_vertical_line(
         self,
         x_position: float,
@@ -472,25 +487,50 @@ class MatplotlibPlotWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to add vertical line: {e}")
 
-    def show_legend(self, loc: str = "best", **kwargs):
+    def show_legend(self) -> None:
+        """Key the named traces above the axes, wrapped to the plot's width.
+
+        Its rows are laid out, and room made for them, on every resize.
         """
-        Display a legend for the isotopologues.
+        handles, labels = self.ax.get_legend_handles_labels()
+        self._legend_entries = (handles, labels) if labels else None
 
-        Args:
-            loc: Legend location (matplotlib 'loc' parameter).
-            **kwargs: Additional keyword arguments forwarded to ax.legend().
-        """
-        try:
-            handles, labels = self.ax.get_legend_handles_labels()
-            if not labels:
-                return
+    def _wrap_legend(self, width: float) -> float:
+        """Lay the legend out in as many columns as ``width`` px holds; its height in px."""
+        if self._legend_entries is None:
+            return 0.0
+        handles, labels = self._legend_entries
+        style = {
+            "loc": "lower left",
+            "bbox_to_anchor": (0, 1),
+            # Above the axis multiplier ("×10⁵"), which sits on the axes' top-left corner.
+            "bbox_transform": offset_copy(self.ax.transAxes, fig=self.figure, y=_points(LEGEND_LIFT_PX), units="points"),
+            "fontsize": PLOT_LABEL_FONTSIZE,
+            "frameon": False,
+            "borderaxespad": 0,
+            "borderpad": 0,
+            "handlelength": 1.6,
+            "columnspacing": 1.2,
+        }
+        renderer = self.canvas.get_renderer()
+        logical = self.canvas.get_width_height()[0] / self.figure.bbox.width
 
-            kwargs.setdefault("frameon", True)
-            legend = self.ax.legend(loc=loc, fontsize=PLOT_LABEL_FONTSIZE, **kwargs)
-            self._legend = legend
+        def px(artist):
+            return artist.get_window_extent(renderer).width * logical
 
-        except Exception as e:
-            logger.error(f"Failed to show legend: {e}")
+        legend = self.ax.legend(handles, labels, ncol=len(labels), **style)
+        font_px = PLOT_LABEL_FONTSIZE * PLOT_DPI / 72
+        spacing = style["columnspacing"] * font_px
+        # Each entry is its handle, matplotlib's default 0.8 em text pad, its text and a gap.
+        entry = max(px(text) for text in legend.get_texts()) + (style["handlelength"] + 0.8) * font_px + spacing
+        columns = max(1, min(len(labels), int((width + spacing) // entry)))
+        rows = -(-len(labels) // columns)
+        # Matplotlib fills columns top to bottom; reorder so entries read across, M+0 first.
+        order = [row * columns + col for col in range(columns) for row in range(rows) if row * columns + col < len(labels)]
+        legend = self.ax.legend(
+            [handles[i] for i in order], [labels[i] for i in order], ncol=columns, **style
+        )
+        return legend.get_window_extent(renderer).height * logical
 
     def _on_theme_changed(self, remap: dict) -> None:
         if self.figure is None:
@@ -510,18 +550,26 @@ class MatplotlibPlotWidget(QWidget):
         self._set_axes_title(title)
         # Don't draw yet
 
-    def _set_axes_title(self, title: str) -> None:
-        self.ax.set_title(
-            title, loc="left", fontsize=PLOT_TITLE_FONTSIZE, pad=PLOT_TITLE_PADDING + 4
-        )
+    def _set_axes_title(self, title: str, legend_px: float = 0.0) -> None:
+        pad = PLOT_TITLE_PADDING + 4
+        if legend_px:
+            pad = _points(LEGEND_LIFT_PX + legend_px + 10)
+        self.ax.set_title(title, loc="left", fontsize=PLOT_TITLE_FONTSIZE, pad=pad)
 
     def _fit_margins(self, _event=None) -> None:
-        """Fixed pixel margins, so axes line up across plots of any width."""
+        """Fixed pixel margins, so axes line up across plots of any width.
+
+        A legend gets its own rows between the title and the axes.
+        """
         width, height = self.canvas.get_width_height()
         if width < 100 or height < 100:
             return
+        left, right = 72, 16
+        legend_px = self._wrap_legend(width - left - right)
+        self._set_axes_title(self.title, legend_px)
+        top = 38 + (LEGEND_LIFT_PX + legend_px - 2 if legend_px else 0)
         self.figure.subplots_adjust(
-            left=72 / width, right=1 - 16 / width, top=1 - 38 / height, bottom=46 / height
+            left=left / width, right=1 - right / width, top=1 - top / height, bottom=46 / height
         )
 
     def set_mode(self, mode: str) -> None:
@@ -680,9 +728,9 @@ class MatplotlibPlotWidget(QWidget):
                 color=COLORS["text_secondary"], linewidth=PLOT_GUIDELINE_WIDTH,
                 transform=offset_copy(self.ax.transData, fig=self.figure, y=3, units="points"),
             )[0]
-            # Beside the bracket's end, so it sits on no stem and no guide line.
+            # Centred above the bracket, which sits over the tallest bar, so on no stem.
             label = self._peak_label(
-                f"{own[named[0]]}…{own[named[-1]]}", right, top, own=True, rise=3, side=4
+                f"{own[named[0]]}…{own[named[-1]]}", (left + right) / 2, top, own=True, rise=6
             )
             self._cluster = (label, bracket)
 

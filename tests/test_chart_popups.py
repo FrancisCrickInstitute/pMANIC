@@ -54,6 +54,14 @@ def _row_point(dialog, row: int, x: float = 0.05):
     return dialog.chart_view.mapFromScene(dialog.chart.mapToScene(point))
 
 
+def _hover(dialog, row: int, x: float = 0.05) -> None:
+    pos = QPointF(_row_point(dialog, row, x))
+    QApplication.sendEvent(
+        dialog.chart_view.viewport(),
+        QMouseEvent(QEvent.MouseMove, pos, pos, Qt.NoButton, Qt.NoButton, Qt.NoModifier),
+    )
+
+
 def test_both_popups_read_top_down_in_grid_order_with_values_paired(qapp):
     abundance = _abundance([300.0, 200.0, 100.0], SIDEBAR_ORDER)
     ratios = _ratios([[0.3, 0.7], [0.2, 0.8], [0.1, 0.9]], SIDEBAR_ORDER)
@@ -90,6 +98,24 @@ def test_a_sample_with_no_abundance_shows_a_dash_on_a_sane_axis(qapp):
         assert _value_labels(dialog) == ["1.13", "—", "0.91"]
         assert dialog.pinned_axis.title() == "×10⁴"
         assert [text for text, _x in dialog.pinned_axis.tick_positions()] == ["0.0", "0.2", "0.4", "0.6", "0.8", "1.0", "1.2"]
+    finally:
+        dialog.deleteLater()
+
+
+def test_the_row_being_read_shows_its_value_to_three_figures(qapp):
+    # Bottom to top, as the sidebar hands them over: "Large" is the top row.
+    dialog = _abundance([0.004, 9.06], ["Small", "Large"])
+    try:
+        dialog.show()
+        qapp.processEvents()
+        assert _value_labels(dialog) == ["9.06", "<0.01"]
+        _hover(dialog, 1, x=0.002)
+        assert _value_labels(dialog) == ["9.06", "0.004"]
+        QTest.keyClick(dialog.chart_view, Qt.Key_Up)
+        assert _marked_row(dialog) == "Large"
+        assert _value_labels(dialog) == ["9.06", "<0.01"]
+        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
+        assert _value_labels(dialog) == ["9.06", "0.004"]
     finally:
         dialog.deleteLater()
 
@@ -212,11 +238,7 @@ def test_ratio_rows_with_no_ratio_show_a_dash_and_say_why(qapp, monkeypatch):
     )
 
     def hover(row):
-        pos = QPointF(_row_point(dialog, row, x=0.5))
-        qapp.sendEvent(
-            dialog.chart_view.viewport(),
-            QMouseEvent(QEvent.MouseMove, pos, pos, Qt.NoButton, Qt.NoButton, Qt.NoModifier),
-        )
+        _hover(dialog, row, x=0.5)
 
     try:
         dialog.show()

@@ -50,7 +50,6 @@ from manic.validation.unlabelled_identity import (
     IdentitySampleAssessment,
     IdentityStatus,
     QualifierRatioResult,
-    QualifierStatus,
     qualifier_pair,
 )
 
@@ -269,9 +268,7 @@ def test_identity_chart_click_emits_sample_name(qapp):
     widget.sample_activated.connect(activated.append)
     try:
         widget.update_results(identity)
-        v2_set = widget._binding.bar_sets[1]
-        assert widget._binding.cell_for(v2_set).qualifier.status is QualifierStatus.ABSENT
-        v2_set.clicked.emit(0)
+        widget._binding.bar_sets[0].clicked.emit(0)
         assert activated == ["S1"]
     finally:
         widget.deleteLater()
@@ -297,7 +294,7 @@ def test_identity_chart_hover_maps_live_cell(qapp, monkeypatch):
     widget = TargetedQcWidget()
     try:
         widget.update_results(identity)
-        s1_v1 = widget._binding.bar_sets[2]
+        s1_v1 = widget._binding.bar_sets[1]
         assert widget._binding.cell_for(s1_v1).sample_name == "S1"
         s1_v1.hovered.emit(True, 1)
         assert len(shown) == 1

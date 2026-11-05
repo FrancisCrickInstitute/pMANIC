@@ -13,7 +13,7 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt, Signal
-from PySide6.QtGui import QCursor, QPainter, QMouseEvent
+from PySide6.QtGui import QCursor, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QFrame, QSizePolicy, QToolTip, QVBoxLayout, QWidget
 
 from manic.io.eic_reader import EIC
@@ -21,7 +21,6 @@ from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import PinnedAxis, value_axis_ticks
 from manic.ui.chart_style import abundance_scale, scale_text, set_nice_ticks, style_axis, style_chart
-from manic.ui.colors import abundance_colour
 from manic.ui.sidebar_widgets import (
     SUMMARY_CHART_MAX_HEIGHT,
     SummaryChartArea,
@@ -92,8 +91,6 @@ class TotalAbundanceWidget(QWidget):
         self.setMaximumHeight(SUMMARY_CHART_MAX_HEIGHT)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
-        self.bar_color = abundance_colour
-
         self._current_compound: str = ""
         self._current_abundances: Optional[np.ndarray] = None
         self._current_sample_names: Optional[List[str]] = None
@@ -133,8 +130,9 @@ class TotalAbundanceWidget(QWidget):
         bar_series.setBarWidth(0.8)
 
         bar_set = QBarSet("Total Abundance")
-        bar_set.setColor(self.bar_color)
-        bar_set.setBorderColor(self.bar_color)
+        # Neutral ink, so the accent marks only the grid's selection (see _paint_highlight).
+        bar_set.setColor(color("text_tertiary"))
+        bar_set.setPen(QPen(Qt.NoPen))
 
         _top, scale_exp = abundance_scale(abundances)
         for abundance in abundances:
@@ -258,6 +256,7 @@ class TotalAbundanceWidget(QWidget):
                 sample_names=self._current_sample_names,
                 parent=self,
                 compound_name=self._current_compound,
+                highlighted=self._highlighted,
             )
             dialog.sample_activated.connect(self.sample_activated)
             dialog.exec()

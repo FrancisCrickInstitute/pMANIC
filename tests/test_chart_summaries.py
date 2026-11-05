@@ -158,6 +158,26 @@ def test_abundance_marks_the_selected_samples_and_ticks_on_round_numbers(qapp, v
         widget.deleteLater()
 
 
+def test_the_enlarged_abundance_chart_keeps_the_grid_selection(qapp, monkeypatch):
+    from manic.ui.chart_popup_dialog import ChartPopupDialog
+
+    opened = []
+    monkeypatch.setattr(ChartPopupDialog, "exec", lambda dialog: opened.append(dialog))
+    widget = _shown(_abundance(["S1", "S2", "S3"]))
+    try:
+        widget.set_highlighted(["S2"])
+        widget._show_popup_chart()
+        bars = opened[0].chart.series()[0].barSets()[0]
+        names = opened[0].chart.axes(Qt.Vertical)[0].categories()
+        assert [names[i] for i in bars.selectedBars()] == ["S2"]
+        assert bars.selectedColor() == theme.color("accent")
+        assert bars.color() == widget.chart.series()[0].barSets()[0].color() == theme.color("text_tertiary")
+    finally:
+        widget.deleteLater()
+        for dialog in opened:
+            dialog.deleteLater()
+
+
 @pytest.mark.parametrize("count, scrolls", [(30, True), (3, False)])
 @pytest.mark.parametrize("make", [_abundance, _ratios])
 def test_thirty_samples_are_named_on_readable_rows_that_scroll(qapp, make, count, scrolls):

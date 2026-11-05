@@ -958,8 +958,9 @@ class SettingsWindow(QDialog):
             return
         self.stack.setCurrentIndex(self._items.index(item))
         self.stack.updateGeometry()
-        self._fit_to_page()
+        # The footer first: Appearance hides Save and Revert, and the fit measures around them.
         self._update_footer()
+        self._fit_to_page()
 
     def _fit_to_page(self, grow_only: bool = False) -> None:
         """As tall as the page list and the current page need, so a short page does not sit

@@ -280,6 +280,8 @@ def test_compound_with_no_expected_ratios_says_so_instead_of_a_grey_grid(qapp, q
                 assert _plain(shown_note) == note
         if not grid:
             assert dialog.ion_legend.labels()[1] == chip
+            # The quantifier and each qualifier the method has; no chip for an absent one.
+            assert len(dialog.ion_legend.labels()) == 1 + len(qualifiers)
     finally:
         dialog.deleteLater()
         widget.deleteLater()

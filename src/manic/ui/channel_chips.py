@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QLayout, QLayoutItem, QSizePolicy, QWidget, QWidge
 
 from manic.models.analysis import IonChannel, IonRole
 from manic.ui.chart_style import ui_font
-from manic.ui.colors import QUALIFIER_GREY, ChannelTraceStyle, legend_trace_styles
+from manic.ui.colors import ChannelTraceStyle, legend_trace_styles
 from manic.ui.theme import color
 from manic.validation.unlabelled_identity import qualifier_expectation
 
@@ -23,21 +23,14 @@ GAP = 6
 def identity_key_chips(
     channels: Sequence[IonChannel],
 ) -> tuple[list[str], list[ChannelTraceStyle]]:
-    """Chips for the Identity view: every channel with its expectation, plus a
-    dotted placeholder for each of the two qualifier slots the method left empty."""
+    """Chips for the Identity view: every channel, each qualifier with its expectation."""
     labels = [
         f"{channel.label}   {expectation_text(channel)}"
         if channel.role is IonRole.QUALIFIER
         else channel.label
         for channel in channels
     ]
-    styles = list(legend_trace_styles(channels, unlabelled=True, multi_trace=True))
-    present = {channel.ordinal for channel in channels if channel.role is IonRole.QUALIFIER}
-    for ordinal in (1, 2):
-        if ordinal not in present:
-            labels.append(f"Qualifier ion {ordinal}   not in the method")
-            styles.append(ChannelTraceStyle(QUALIFIER_GREY, Qt.DotLine))
-    return labels, styles
+    return labels, list(legend_trace_styles(channels, unlabelled=True, multi_trace=True))
 
 
 def expectation_text(channel: IonChannel) -> str:

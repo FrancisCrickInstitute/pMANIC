@@ -766,21 +766,16 @@ class MainWindow(QMainWindow):
 
         return msg_box
 
-    def _show_question_dialog(
-        self,
-        title: str,
-        text: str,
-        informative_text: str = "",
-        parent=None,
-        default_button=None,
-    ) -> int:
-        """Show a question dialog and return the result (QMessageBox.Yes or QMessageBox.No)."""
-        msg_box = self._create_message_box(
-            "question", title, text, informative_text, parent
-        )
-        if default_button is not None:
-            msg_box.setDefaultButton(default_button)
-        return msg_box.exec()
+    def _confirm(
+        self, title: str, text: str, informative_text: str, verb: str, parent=None
+    ) -> bool:
+        """Ask before acting: the button names the action, and Return cancels."""
+        box = self._create_message_box("question", title, text, informative_text, parent)
+        box.setStandardButtons(QMessageBox.Cancel)
+        act = box.addButton(verb, QMessageBox.AcceptRole)
+        box.setDefaultButton(QMessageBox.Cancel)
+        box.exec()
+        return box.clickedButton() is act
 
     def _show_message(
         self, msg_type: str, title: str, text: str, informative_text: str = ""
@@ -904,13 +899,13 @@ class MainWindow(QMainWindow):
             return
 
         if self.compound_data_loaded or self.cdf_data_loaded:
-            reply = self._show_question_dialog(
+            if not self._confirm(
                 "New Analysis Session",
                 "Starting a new session will clear all loaded data.",
                 "Compound data, raw data, and results in this session will be "
                 "removed. Export anything you want to keep first.",
-            )
-            if reply != QMessageBox.Yes:
+                "Start New Session",
+            ):
                 return
 
         if preset_mode is not None:
@@ -960,12 +955,7 @@ class MainWindow(QMainWindow):
                     "An import or reload is still running. Quitting now leaves "
                     "the database partly written."
                 )
-            reply = self._show_question_dialog(
-                "Quit MANIC?",
-                quit_text,
-                default_button=QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
+            if not self._confirm("Quit MANIC?", quit_text, "", "Quit"):
                 event.ignore()
                 return
             if running == "_export_thread":
@@ -974,12 +964,12 @@ class MainWindow(QMainWindow):
                 if self._export_thread is not None:
                     self._export_thread.wait()
         elif self.compound_data_loaded or self.cdf_data_loaded:
-            reply = self._show_question_dialog(
+            if not self._confirm(
                 "Quit MANIC?",
                 "This session is not saved. Use File > Export Method... to keep the compound settings before quitting.",
-                default_button=QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
+                "",
+                "Quit",
+            ):
                 event.ignore()
                 return
         event.accept()
@@ -2118,18 +2108,13 @@ class MainWindow(QMainWindow):
             if has_overrides:
                 info_lines.append("Any existing session overrides will be replaced.")
             if has_deletion_data:
-                info_lines.append("Compound and sample deletion states will be synchronized.")
-            confirm = self._create_message_box(
-                "question",
+                info_lines.append("Deleted compounds and samples will match the file.")
+            if not self._confirm(
                 "Import Session Overrides",
                 f"Import {Path(file_path).name}?",
                 "\n".join(info_lines),
-            )
-            confirm.setStandardButtons(QMessageBox.Cancel)
-            import_button = confirm.addButton("Import Overrides", QMessageBox.AcceptRole)
-            confirm.setDefaultButton(QMessageBox.Cancel)
-            confirm.exec()
-            if confirm.clickedButton() is not import_button:
+                "Import Overrides",
+            ):
                 return
 
             # Import the session overrides
@@ -2824,17 +2809,17 @@ class MainWindow(QMainWindow):
             internal_standard_for_export = internal_standard
 
             if not internal_standard:
-                reply = self._show_question_dialog(
+                if not self._confirm(
                     "No Internal Standard Selected",
-                    "You have not selected an internal standard. Proceed with export?",
+                    "You have not selected an internal standard. Export anyway?",
                     (
                         "Results will contain quantifier-ion peak areas."
                         if self.analysis_mode is AnalysisMode.UNLABELLED
                         else "Abundance values will represent 'Peak Area' "
                         "(sum of corrected isotopologues)."
                     ),
-                )
-                if reply != QMessageBox.Yes:
+                    "Export",
+                ):
                     return
             elif self.analysis_mode is AnalysisMode.LABELLED:
                 ok, problems = validate_internal_standard_metadata(
@@ -2843,11 +2828,11 @@ class MainWindow(QMainWindow):
                 )
                 if not ok:
                     problems_text = "\n".join(f"• {p}" for p in problems)
-                    reply = self._show_question_dialog(
+                    if not self._confirm(
                         "Internal Standard Metadata Missing",
                         (
                             f"Internal standard '{internal_standard}' is missing required metadata. "
-                            "Proceed with export in Peak Area mode instead?"
+                            "Export peak areas instead?"
                         ),
                         (
                             "Fix the compound list and re-import to enable calibrated Abundances.\n\n"
@@ -2855,8 +2840,8 @@ class MainWindow(QMainWindow):
                             f"{problems_text}\n\n"
                             "If you continue, MANIC will export without an internal standard."
                         ),
-                    )
-                    if reply != QMessageBox.Yes:
+                        "Export Peak Areas",
+                    ):
                         return
                     internal_standard_for_export = None
 

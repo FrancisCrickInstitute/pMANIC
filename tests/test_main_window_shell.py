@@ -4,6 +4,7 @@ from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequ
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton
 
 from manic.io.compounds_import import CompoundRow, insert_compound
+from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.processors.tile_y_scale import YScalePolicy
 from manic.ui.settings_window import DeconvolutionPage
@@ -252,14 +253,30 @@ def test_destructive_confirmations_default_to_cancel(qapp, monkeypatch, tmp_path
         "manic.ui.main_window.import_session_overrides",
         lambda *a, **k: pytest.fail("imported after Cancel"),
     )
+    monkeypatch.setattr(
+        "manic.ui.integration_window_widget.SessionActivityService.restore_samples_to_defaults",
+        lambda *a, **k: pytest.fail("reset after Cancel"),
+    )
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms) VALUES ('Alanine', 1.0, 0.1, 0.1, 217.0, 0)"
+        )
     try:
         window.clear_session()
         window.import_session()
-        (clear, clear_buttons, clear_default, _), (text, buttons, default, info) = asked
+        window.toolbar.integration.populate_fields_from_plots("Alanine", ["S2"], ["S1", "S2"])
+        window.toolbar.integration.restore_button.click()
+        (clear, clear_buttons, clear_default, _), (text, buttons, default, info), reset = asked
         assert sorted(clear_buttons) == ["Cancel", "Clear Session"] and clear_default == "Cancel"
         assert text == "Import week3.json?"
         assert sorted(buttons) == ["Cancel", "Import Overrides"] and default == "Cancel"
         assert "?" not in info
+        assert (reset[0], sorted(reset[1]), reset[2]) == (
+            "Reset S2 to the compound's default peak window?",
+            ["Cancel", "Reset Peak Window"],
+            "Cancel",
+        )
     finally:
         window.close()
 

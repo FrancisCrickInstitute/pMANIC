@@ -259,17 +259,10 @@ class IntegrationWindow(QWidget):
     ):
         """Show a message using the main window's styled message box helper."""
         main_window = self._get_main_window()
-        if main_window and hasattr(main_window, "_create_message_box"):
-            create_box = getattr(main_window, "_create_message_box")
-            msg_box = create_box(msg_type, title, text, informative_text, self)
-            return msg_box.exec()
+        if main_window:
+            main_window._create_message_box(msg_type, title, text, informative_text, self).exec()
         else:
-            # Fallback to standard message box if main window not found
-            if msg_type == "question":
-                return QMessageBox.question(self, title, text)
-            else:
-                getattr(QMessageBox, msg_type)(self, title, text)
-                return None
+            getattr(QMessageBox, msg_type)(self, title, text)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -1024,19 +1017,21 @@ class IntegrationWindow(QWidget):
             )
             return
 
-        # Confirm restore action
         sample_count = len(samples_to_restore)
-        if self._selected_samples:
-            if sample_count == 1:
-                message = f"Restore {samples_to_restore[0]} to default values?"
-            else:
-                message = f"Restore {sample_count} selected samples to default values?"
+        if not self._selected_samples:
+            target = f"all {sample_count} shown samples"
+        elif sample_count == 1:
+            target = samples_to_restore[0]
         else:
-            message = f"Restore all {sample_count} samples to default values?"
-
-        reply = self._show_message("question", "Confirm Restore", message)
-
-        if reply == QMessageBox.StandardButton.Yes:
+            target = f"{sample_count} selected samples"
+        main_window = self._get_main_window()
+        if main_window is not None and main_window._confirm(
+            "Reset Peak Window",
+            f"Reset {target} to the compound's default peak window?",
+            "",
+            "Reset Peak Window",
+            self,
+        ):
             # Reset discards the unapplied edit along with the stored one.
             self._drafts.pop(self._draft_key(), None)
             self._loaded = self._field_texts()

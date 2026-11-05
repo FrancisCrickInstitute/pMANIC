@@ -390,6 +390,38 @@ def test_tiles_fit_the_2560_screen_or_scroll_at_the_large_size(
     assert (grid._scroll.verticalScrollBar().maximum() > 0) == (samples == 200)
 
 
+def test_time_ticks_settle_at_every_tile_width(grid, qapp):
+    # At some width the chosen step once moved the plot edge enough to flip the step
+    # back, forever, freezing the app (ccc9554f). One row of three tiles, 1 px at a time
+    # from the narrowest the grid keeps in a row to 260 px.
+    _show_grid_with_viewport(grid, qapp, 3, 480, 130)
+    extra = grid.width() - grid._grid_viewport()[0]
+    views = list(_plots(grid).values())
+    axes = [view.chart().axes(Qt.Horizontal)[0] for view in views]
+    changes = []
+
+    def count(_area):
+        changes.append(1)
+        if len(changes) == 50 * len(views):
+            for view in views:
+                view.chart().plotAreaChanged.disconnect()
+
+    for view in views:
+        view.chart().plotAreaChanged.connect(count)
+    for tile in range(150, 261):
+        changes.clear()
+        grid.resize(extra + 3 * tile + 30, grid.height())
+        QTest.qWait(70)
+        first = [axis.tickInterval() for axis in axes]
+        fired = []
+        QTimer.singleShot(0, lambda: fired.append(True))
+        QTest.qWait(100)
+        settled = fired and [axis.tickInterval() for axis in axes] == first
+        assert settled and len(changes) < 50 * len(views), (
+            f"ticks never settled at {views[0].width()} px"
+        )
+
+
 def test_tiles_too_small_to_judge_a_peak_scroll_at_the_large_size_instead(grid, qapp):
     # The grid viewport of a 1280x800 window with the Summary open; fitting all 30
     # tiles would leave each 139x106.
@@ -609,3 +641,4 @@ def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, samples, tile
 def test_icon_buttons_have_accessible_names(grid):
     assert grid.settings_button.accessibleName() == "Settings"
     assert ChartHeader("Peak area").expand_button.accessibleName() == "Enlarge peak area chart"
+

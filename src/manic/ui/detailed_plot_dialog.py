@@ -61,6 +61,12 @@ from manic.ui import theme
 from manic.ui.theme import COLORS, FONT_SIZE_TITLE
 
 logger = logging.getLogger(__name__)
+# Secondary legend entries, in key order: (label, line style, alpha), keyed by treatment.
+TRACE_KEY = {
+    "raw": ("Raw signal", "solid", 0.4),
+    "component": ("Other fitted peak", "dotted", 0.6),
+    "baseline": ("Baseline", "dashed", 1.0),
+}
 # m/z either side of a labelled compound's isotopologues that the spectrum opens on.
 SPECTRUM_CLUSTER_MARGIN = 20
 
@@ -98,6 +104,8 @@ class DetailedPlotDialog(QDialog):
         self.use_corrected = use_corrected  # Store the isotope correction flag
         self.identity = identity
         self._channel_styles = ()
+        # Which TRACE_KEY treatments the chromatogram drew.
+        self._treatments: set[str] = set()
 
         # Initialize data containers
         self.eic_data = None
@@ -445,6 +453,7 @@ class DetailedPlotDialog(QDialog):
             return
 
         self._eic_plot_error = None
+        self._treatments = set()
         try:
             self.eic_plot.clear_plot()
             prepared = None
@@ -489,6 +498,10 @@ class DetailedPlotDialog(QDialog):
             except Exception as baseline_error:
                 logger.error(f"Failed to draw baseline lines: {baseline_error}")
 
+            # After the channels, so the faint, dotted and dashed lines are named too.
+            for treatment, (label, style, alpha) in TRACE_KEY.items():
+                if treatment in self._treatments:
+                    self.eic_plot.add_key_entry(label, style=style, alpha=alpha)
             # Above the plot, under its title, so it never covers a trace.
             self.eic_plot.show_legend()
 
@@ -553,6 +566,7 @@ class DetailedPlotDialog(QDialog):
                     name="",
                     style="dashed",
                 )
+                self._treatments.add("baseline")
                 drew_baseline = True
             if drew_baseline:
                 return
@@ -579,6 +593,7 @@ class DetailedPlotDialog(QDialog):
                     name="",
                     style="dashed",
                 )
+                self._treatments.add("baseline")
         else:
             for i in range(draw_intensity.shape[0]):
                 idata_win = draw_intensity[i, mask]
@@ -599,6 +614,7 @@ class DetailedPlotDialog(QDialog):
                         name="",
                         style="dashed",
                     )
+                    self._treatments.add("baseline")
 
     def _plot_model_component(
         self,
@@ -641,6 +657,7 @@ class DetailedPlotDialog(QDialog):
                 self.eic_plot.plot_line(
                     grid, row, color=color, width=1.2, name="", style="dotted"
                 )
+                self._treatments.add("component")
 
     def _plot_eic_traces(self, prepared):
         display = prepared.display
@@ -654,6 +671,7 @@ class DetailedPlotDialog(QDialog):
             return
 
         self._plot_trace_matrix(self.eic_data.intensity, selected=False, alpha=0.32)
+        self._treatments.add("raw")
         if not prepared.includes_raw_underlay:
             self._plot_trace_matrix(draw_intensity, selected=True)
             return

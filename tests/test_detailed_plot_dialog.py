@@ -232,3 +232,24 @@ def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(dialog):
         "Extracted Ion Chromatogram (plot failed)"
     )
 
+
+def test_the_chromatogram_key_names_the_baseline_it_draws(qapp, dialog, monkeypatch):
+    from manic.processors.display_deconvolution import PlotDisplay
+
+    time = np.linspace(4.8, 5.2, 41)
+    intensity = 1e5 * np.exp(-0.5 * ((time - 5.0) / 0.02) ** 2) + 2e3 * time
+    dialog.eic_data = SimpleNamespace(time=time, intensity=intensity)
+    dialog.compound_info = SimpleNamespace(
+        retention_time=5.0, loffset=0.1, roffset=0.1, is_unlabelled_target=False,
+        baseline_correction=1, analysis_channels=[],
+    )
+    monkeypatch.setattr(
+        "manic.ui.detailed_plot_dialog.plot_display",
+        lambda *_a, **_k: PlotDisplay(display=None, intensity=intensity, includes_raw_underlay=False),
+    )
+    dialog._plot_eic()
+    legend = dialog.eic_plot.ax.get_legend()
+    assert [text.get_text() for text in legend.get_texts()] == ["Baseline"]
+    dialog.compound_info.baseline_correction = 0
+    dialog._plot_eic()
+    assert dialog.eic_plot.ax.get_legend() is None

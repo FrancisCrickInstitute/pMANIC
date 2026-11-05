@@ -133,7 +133,7 @@ def fit_name_font(chart: QChart, axis: QAbstractAxis) -> None:
     rows = axis.count()
     if not rows:
         return
-    px = min(max(int(chart.plotArea().height() / rows / 2), AXIS_LABEL_PX), CAPTION_PX)
+    px = min(max(int(chart.plotArea().height() / rows * 0.6), AXIS_LABEL_PX), CAPTION_PX)
     if axis.labelsFont().pixelSize() != px:
         axis.setLabelsFont(ui_font(px))
 

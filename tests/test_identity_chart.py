@@ -400,7 +400,7 @@ def test_long_sidebar_names_shorten_to_fit_instead_of_running_off(qapp):
         axis = widget.chart.axes(Qt.Vertical)[0]
         shown = list(reversed(axis.categories()))
         assert shown[0] == "MM_01" and len(set(shown)) == 3
-        assert shown[1].startswith("Sampl") and shown[1].endswith("fail") and "…" in shown[1]
+        assert shown[1].startswith("Samp") and shown[1].endswith("fail") and "…" in shown[1]
         metrics = QFontMetrics(axis.labelsFont())
         assert max(metrics.horizontalAdvance(n) for n in shown) <= widget.chart_view.width() * 0.4
         # Clicking the shortened row still selects the full sample name.

@@ -246,6 +246,8 @@ class IntegrationWindow(QWidget):
         self._window_compound = ""
         self._loaded_window = ""
         self._window_drafts: Dict[str, str] = {}
+        # With both drafts open, only the one typed in last gets the primary button.
+        self._last_draft = "peak"
 
         self._build_ui()
         self._update_apply_button_state()
@@ -308,7 +310,7 @@ class IntegrationWindow(QWidget):
             edt.setValidator(ToolbarDecimalValidator(edt))
             # Enable Enter key to trigger apply (same as clicking Apply button)
             edt.returnPressed.connect(self._on_apply_clicked)
-            edt.textEdited.connect(self._update_apply_button_state)
+            edt.textEdited.connect(lambda: self._draft_edited("peak"))
             lbl.setBuddy(edt)  # names the field for a screen reader
             fields.addWidget(lbl, row, 0)
             fields.addWidget(edt, row, 1)
@@ -349,7 +351,7 @@ class IntegrationWindow(QWidget):
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
         # Enable Enter key to trigger regeneration (same as clicking Apply window)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
-        self.tr_window_edit.textEdited.connect(self._update_apply_button_state)
+        self.tr_window_edit.textEdited.connect(lambda: self._draft_edited("window"))
         self.regenerate_button = QPushButton("Apply window")
         self.regenerate_button.setObjectName("RegenerateButton")
         self.regenerate_button.setToolTip("Ignores the plot selection")
@@ -746,6 +748,10 @@ class IntegrationWindow(QWidget):
             
             return row["retention_time"] if row and row["retention_time"] else 0.0
 
+    def _draft_edited(self, draft: str) -> None:
+        self._last_draft = draft
+        self._update_apply_button_state()
+
     def _update_apply_button_state(self, *_args):
         """Name whom Apply and Reset change: a selection in the caption, all shown samples
         (the default) on hover. An unapplied edit says so. Apply window states its own."""
@@ -770,8 +776,12 @@ class IntegrationWindow(QWidget):
         if edited:
             scope += NOT_APPLIED
         self.scope_label.setText(scope)
+        window_edited = self.has_window_draft()
+        lead = self._last_draft if edited and window_edited else "peak" if edited else "window"
         # Primary only while there is an edit to apply; still enabled to re-apply a mixed selection.
-        set_style_property(self.apply_button, "variant", "primary" if edited else None)
+        set_style_property(
+            self.apply_button, "variant", "primary" if edited and lead == "peak" else None
+        )
         self.scope_label.setVisible(bool(scope))
         set_style_property(
             self.scope_label,
@@ -787,15 +797,18 @@ class IntegrationWindow(QWidget):
                 "Restore all shown samples to the compound's default peak window"
             )
         shown = len(self._all_samples)
-        window_edited = self.has_window_draft()
+        # One line in the sidebar: an unapplied window drops the verb for its note.
         self.window_scope_label.setText(
-            f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
-            + (NOT_APPLIED if window_edited else "")
+            f"All {shown} shown{NOT_APPLIED}"
+            if window_edited
+            else f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
         )
         self.window_scope_label.setVisible(bool(self._current_compound and shown))
         set_style_property(self.window_scope_label, "state", "edited" if window_edited else None)
         set_style_property(
-            self.regenerate_button, "variant", "primary" if window_edited else None
+            self.regenerate_button,
+            "variant",
+            "primary" if window_edited and lead == "window" else None,
         )
         self.state_changed.emit()
 

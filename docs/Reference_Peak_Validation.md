@@ -1,4 +1,4 @@
-# Reference: Peak Validation
+# Peak Validation
 
 MANIC includes an automated quality control system to identify weak or low-quality peaks.   
 

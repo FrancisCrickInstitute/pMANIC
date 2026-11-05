@@ -1,4 +1,4 @@
-# Reference: Baseline Correction
+# Baseline Correction
 
 Baseline correction is a technique for removing the contribution of background signal from chromatographic peak areas. It improves accuracy by accounting for elevated baseline levels that would otherwise inflate integrated areas.
 

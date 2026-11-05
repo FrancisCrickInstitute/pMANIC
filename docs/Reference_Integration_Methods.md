@@ -1,4 +1,4 @@
-# Reference: Integration Methods
+# Integration Methods
 
 Integration is the process of calculating the "area under the curve" for a chromatogram peak. This area represents the total abundance of the ion detected during the elution window.   
 

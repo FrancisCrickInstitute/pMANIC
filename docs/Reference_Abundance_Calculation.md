@@ -1,4 +1,4 @@
-# Reference: Abundance Calculation & MRRF
+# Abundance Calculation & MRRF
 
 The **Abundances** sheet in the final export reports the absolute amount of each metabolite in your samples (in nanomoles), relative ratios, or raw peak areas depending on your configuration.
 

@@ -1,4 +1,4 @@
-# Reference: Natural Isotope Correction
+# Natural Isotope Correction
 
 In mass spectrometry, the signal for a biological molecule is spread across multiple mass channels due to the natural presence of heavy isotopes (¹³C ≈ 1.1%, ¹⁵N ≈ 0.4%, ³⁷Cl ≈ 24%, ⁸¹Br ≈ 49%, and others).   
 

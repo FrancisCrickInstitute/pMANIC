@@ -1,4 +1,4 @@
-# Reference: Chromatographic Peak Deconvolution
+# Chromatographic Peak Deconvolution
 
 Chromatographic peak deconvolution separates partially overlapping extracted ion chromatogram (EIC) signals before peak area integration. In MANIC this is distinct from natural isotope correction: chromatographic deconvolution works in retention-time space, while natural isotope correction works across isotopologue intensities before integration.
 

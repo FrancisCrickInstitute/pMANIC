@@ -1,4 +1,4 @@
-# Reference: Mass Tolerance
+# Mass Tolerance
 
 Mass spectrometers detect ions with high precision (e.g., `204.8723` Da), but analytical workflows typically bin these values into integer mass units (e.g., `205` Da) to group related signals.
 

@@ -282,6 +282,8 @@ class MainWindow(QMainWindow):
         # Initiate the file menu
         file_menu = menu_bar.addMenu("File")
         self.file_menu = file_menu
+        # Windows draws menu tooltips only when asked; a disabled action's says what it needs.
+        file_menu.setToolTipsVisible(True)
 
         # Create the actions/logic for loading compound list data
         self.load_compound_action = QAction("Load Compounds/Parameter List", self)
@@ -577,6 +579,7 @@ class MainWindow(QMainWindow):
         self.baseline_action.setCheckable(True)
         self.baseline_action.setChecked(baseline.isChecked())
         self.baseline_action.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        self.baseline_action.setShortcutVisibleInContextMenu(True)
         self.baseline_action.triggered.connect(lambda checked: baseline.setChecked(checked))
         baseline.toggled.connect(self.baseline_action.setChecked)
         menu.addAction(self.baseline_action)

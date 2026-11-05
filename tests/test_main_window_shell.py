@@ -199,6 +199,30 @@ def test_finished_data_export_reports_in_a_toast_not_a_dialog(qapp, monkeypatch,
         window.close()
 
 
+def test_long_session_name_toast_stays_inside_the_window(qapp, monkeypatch, tmp_path):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    chosen = tmp_path / f"{'labelled-pyruvate-lactate-review-' * 3}final.json"
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QFileDialog.getSaveFileName", lambda *a, **k: (str(chosen), "")
+    )
+    try:
+        window.resize(1008, 633)
+        window.show()
+        window.export_method()
+        QApplication.processEvents()
+        bar = window.statusBar()
+        toast = _toast(window)
+        assert bar.rect().contains(toast.geometry())
+        for button in (toast.action_button, toast.findChild(QPushButton, "toastCloseButton")):
+            assert button.isVisible() and toast.rect().contains(button.geometry())
+        label = toast.findChild(QLabel, "toastLabel")
+        written = tmp_path / "manic_session_export" / chosen.name
+        assert "…" in label.text() and label.text().endswith("manic_session_export")
+        assert label.toolTip() == str(written)
+    finally:
+        window.close()
+
+
 def test_destructive_confirmations_default_to_cancel(qapp, monkeypatch, tmp_path):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
     session = tmp_path / "week3.json"
@@ -240,25 +264,15 @@ def test_destructive_confirmations_default_to_cancel(qapp, monkeypatch, tmp_path
         window.close()
 
 
-def test_long_session_name_toast_stays_inside_the_window(qapp, monkeypatch, tmp_path):
+def test_import_session_says_what_it_needs_while_disabled(qapp, monkeypatch):
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
-    chosen = tmp_path / f"{'labelled-pyruvate-lactate-review-' * 3}final.json"
-    monkeypatch.setattr(
-        "PySide6.QtWidgets.QFileDialog.getSaveFileName", lambda *a, **k: (str(chosen), "")
-    )
     try:
-        window.resize(1008, 633)
-        window.show()
-        window.export_method()
-        QApplication.processEvents()
-        bar = window.statusBar()
-        toast = _toast(window)
-        assert bar.rect().contains(toast.geometry())
-        for button in (toast.action_button, toast.findChild(QPushButton, "toastCloseButton")):
-            assert button.isVisible() and toast.rect().contains(button.geometry())
-        label = toast.findChild(QLabel, "toastLabel")
-        written = tmp_path / "manic_session_export" / chosen.name
-        assert "…" in label.text() and label.text().endswith("manic_session_export")
-        assert label.toolTip() == str(written)
+        action = window.import_session_action
+        assert not action.isEnabled()
+        assert action.toolTip() == "Load the session's compound list and raw data first"
+        window.compound_data_loaded = window.cdf_data_loaded = True
+        window._update_menu_states()
+        # Cleared, a menu shows no tooltip (toolTip() then falls back to the action's text).
+        assert action.isEnabled() and action.toolTip() == "Import Session"
     finally:
         window.close()

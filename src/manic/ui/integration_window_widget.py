@@ -4,9 +4,10 @@ import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut, QValidator
 from PySide6.QtWidgets import (
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -209,6 +210,9 @@ class IntegrationWindow(QWidget):
     # Signal emitted when restore button is clicked and session data is cleared
     session_data_restored = Signal(str, list)  # compound_name, sample_names
 
+    # The fields, the selection or an unapplied edit changed.
+    state_changed = Signal()
+
     # Signal emitted when regenerate button is clicked (for future implementation)
     data_regeneration_requested = Signal(
         str, float, list, object
@@ -371,10 +375,50 @@ class IntegrationWindow(QWidget):
         # heading that names them, so the editor above stays whole.
         self.more = CollapsibleSection("Baseline, tR window", rows, sub=True)
         self.more.set_headless(True)
-        self.more.toggled.connect(self.more.summary.setHidden)
-        self.more.summary.setHidden(self.more.is_expanded())
         layout.addWidget(self.more)
         layout.addStretch(1)
+        # Folded, the rows open beside the sidebar, so the lists keep their rows.
+        self._popover = QFrame(self, Qt.WindowType.Popup)
+        self._popover.setObjectName("lowerPopover")
+        self._popover.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)
+        QVBoxLayout(self._popover).setContentsMargins(12, 10, 12, 10)
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self._popover, self._popover.close)
+        self._popover.installEventFilter(self)
+        self.more.toggled.connect(self._open_popover)
+
+    def set_folded(self, folded: bool) -> None:
+        """Fold the rows below the editor behind their heading, where they open in the
+        popover, or show them as plain rows."""
+        rows = self.more.body
+        home = self._popover if folded else self.more
+        if rows.parentWidget() is not home:
+            self._popover.close()
+            rows.setMinimumWidth(0)
+            rows.setMaximumWidth(16777215)
+            home.layout().addWidget(rows)
+        self.more.set_headless(not folded)
+
+    def _open_popover(self, expanded: bool) -> None:
+        if not expanded or self.more.header.isHidden():
+            return
+        rows = self.more.body
+        rows.setFixedWidth(self.width())  # wraps as it does in the sidebar
+        # Settle the wrapped hint at that width before measuring.
+        self._popover.layout().activate()
+        self._popover.resize(self._popover.sizeHint())
+        heading = self.more.header
+        # Past the sidebar's edge, its bottom level with the heading's.
+        corner = heading.mapToGlobal(QPoint(heading.width() + 24, heading.height()))
+        screen = heading.screen().availableGeometry()
+        top = max(corner.y() - self._popover.height(), screen.top())
+        self._popover.move(min(corner.x(), screen.right() - self._popover.width()), top)
+        self._popover.show()
+        rows.focusNextChild()
+
+    def eventFilter(self, watched, event):
+        if watched is self._popover and event.type() == QEvent.Type.Hide:
+            self.more.set_expanded(False)
+        return super().eventFilter(watched, event)
 
     def _editor_height(self, width: int) -> int:
         height = self.editor.heightForWidth(width)
@@ -394,13 +438,11 @@ class IntegrationWindow(QWidget):
         return False
 
     def lower_height(self, whole: bool) -> int:
-        """Height of the rows below the editor: all of them as plain rows, or as they show
-        now, folded behind their heading open or closed as the user left it."""
-        rows = self.more.body.sizeHint().height()
+        """Height of the rows below the editor: all of them as plain rows, or their heading
+        once folded (they open in a popover)."""
         if whole or self.more.header.isHidden():
-            return rows
-        heading = self.more.header.minimumHeight()
-        return heading + (self.more.layout().spacing() + rows if self.more.is_expanded() else 0)
+            return self.more.body.sizeHint().height()
+        return self.more.header.minimumHeight()
 
     def sizeHint(self) -> QSize:
         hint = super().sizeHint()
@@ -444,7 +486,7 @@ class IntegrationWindow(QWidget):
                 tr_window_value = getattr(compound_data, "tr_window", 0.2)
 
             field = self.tr_window_edit
-            if self._has_window_draft():
+            if self.has_window_draft():
                 self._window_drafts[self._window_compound] = field.text()
             else:
                 self._window_drafts.pop(self._window_compound, None)
@@ -500,7 +542,7 @@ class IntegrationWindow(QWidget):
     def _has_draft(self) -> bool:
         return bool(self._current_compound) and _differs(self._field_texts(), self._loaded)
 
-    def _has_window_draft(self) -> bool:
+    def has_window_draft(self) -> bool:
         return bool(self._window_compound) and _field_value(
             self.tr_window_edit.text()
         ) != _field_value(self._loaded_window)
@@ -741,13 +783,14 @@ class IntegrationWindow(QWidget):
                 "Restore all shown samples to the compound's default peak window"
             )
         shown = len(self._all_samples)
-        window_edited = self._has_window_draft()
+        window_edited = self.has_window_draft()
         self.window_scope_label.setText(
             f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
             + (NOT_APPLIED if window_edited else "")
         )
         self.window_scope_label.setVisible(bool(self._current_compound and shown))
         set_style_property(self.window_scope_label, "state", "edited" if window_edited else None)
+        self.state_changed.emit()
 
     def _get_samples_needing_reload(
         self,

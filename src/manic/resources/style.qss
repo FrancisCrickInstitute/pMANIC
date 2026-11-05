@@ -923,6 +923,12 @@ QDialog#settingsWindow QStackedWidget > QWidget {
     background-color: transparent;
 }
 
+/* The Peak window's folded rows, opened beside the sidebar. A popup window is opaque, so square. */
+QFrame#lowerPopover {
+    background-color: @surface;
+    border: 1px solid @border_strong;
+}
+
 /* The inspector's section switcher on a short sidebar: same shape as the grid's density switch. */
 QWidget#inspectorSwitcher QToolButton {
     font-size: 11px;

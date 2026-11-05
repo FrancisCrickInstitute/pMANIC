@@ -239,6 +239,8 @@ class Toolbar(QWidget):
         main_layout.addWidget(inspector_content)
 
         self.setMinimumWidth(256)
+        # A wider sidebar only pads its rows; the grid makes better use of the room.
+        self.setMaximumWidth(480)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._refresh_data_state()
 

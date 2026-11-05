@@ -90,7 +90,7 @@ from manic.ui.start_panel import StartPanel
 from manic.ui.theme import set_style_property
 from manic.ui.toast_notification import show_status_toast
 from manic.ui.window_placement import show_over_parent
-from manic.ui.summary_panel import SUMMARY_MIN_WIDTH, SUMMARY_WIDTH, SummaryPanel
+from manic.ui.summary_panel import SUMMARY_MIN_WIDTH, SummaryPanel, summary_width_for
 from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.utils.paths import docs_path, resource_path
 from manic.utils.recent_files import RecentFiles
@@ -110,6 +110,8 @@ def _eics(count: int) -> str:
     return f"{count} EIC" if count == 1 else f"{count} EICs"
 
 SIDEBAR_WIDTH = 296
+SIDEBAR_OPEN_SETTING = "view/sidebar_open"
+SIDEBAR_WIDTH_SETTING = "view/sidebar_width"
 SUMMARY_OPEN_SETTING = "view/summary_open"
 SUMMARY_WIDTH_SETTING = "view/summary_width"
 # Until the user opens or closes it, the Summary starts closed in a narrower window,
@@ -276,7 +278,7 @@ class MainWindow(QMainWindow):
         for index in range(3):
             splitter.setCollapsible(index, False)
         splitter.setSizes([SIDEBAR_WIDTH, 10_000, 0])
-        splitter.splitterMoved.connect(self._remember_summary_width)
+        splitter.splitterMoved.connect(self._remember_panel_widths)
         self.splitter = splitter
         main_layout.addWidget(splitter)
 
@@ -480,6 +482,18 @@ class MainWindow(QMainWindow):
         view_menu = menu_bar.addMenu("View")
         self.view_menu = view_menu
         view_menu.setToolTipsVisible(True)
+        # The grid header's two panel buttons; the sidebar is open unless the user closed it.
+        self.show_sidebar_action = self._panel_action(
+            "Show Sidebar", "Ctrl+Alt+S", self.graph_view.sidebar_button, SIDEBAR_OPEN_SETTING
+        )
+        self.show_sidebar_action.setChecked(
+            QSettings().value(SIDEBAR_OPEN_SETTING, True, type=bool)
+        )
+        self.show_summary_action = self._panel_action(
+            "Show Summary", "Ctrl+Alt+R", self.graph_view.summary_button, SUMMARY_OPEN_SETTING
+        )
+        view_menu.addActions([self.show_sidebar_action, self.show_summary_action])
+        view_menu.addSeparator()
         # The grid header's density switch, for the keyboard.
         density = QActionGroup(view_menu)
         for key, text in (("compact", "Compact"), ("comfortable", "Comfortable")):
@@ -502,7 +516,9 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         self.find_compound_action = QAction("Find Compound", self)
         self.find_compound_action.setShortcut(QKeySequence.Find)
-        self.find_compound_action.triggered.connect(self.toolbar.focus_compound_filter)
+        self.find_compound_action.triggered.connect(
+            lambda: (self.show_sidebar_action.setChecked(True), self.toolbar.focus_compound_filter())
+        )
         view_menu.addAction(self.find_compound_action)
 
         self.previous_compound_action = QAction("Previous Compound", self)
@@ -526,19 +542,14 @@ class MainWindow(QMainWindow):
         self.show_samples_action.toggled.connect(
             self.toolbar.samples_section.set_expanded
         )
+        # Asking for the list shows it, so it opens the sidebar too.
+        self.show_samples_action.triggered.connect(
+            lambda shown: shown and self.show_sidebar_action.setChecked(True)
+        )
         self.toolbar.samples_section.toggled.connect(
             self.show_samples_action.setChecked
         )
         view_menu.addAction(self.show_samples_action)
-
-        self.show_summary_action = QAction("Show Summary", self)
-        self.show_summary_action.setCheckable(True)
-        button = self.graph_view.summary_button
-        self.show_summary_action.toggled.connect(button.setChecked)
-        self.show_summary_action.toggled.connect(self._apply_summary)
-        self.show_summary_action.triggered.connect(self._remember_summary_open)
-        button.clicked.connect(self.show_summary_action.trigger)
-        view_menu.addAction(self.show_summary_action)
 
         self.show_all_samples_action = QAction("Show All Samples", self)
         self.show_all_samples_action.triggered.connect(self.show_all_samples)  # listed in Review
@@ -745,39 +756,61 @@ class MainWindow(QMainWindow):
                 if settings.contains(SUMMARY_OPEN_SETTING)
                 else self.width() >= SUMMARY_MIN_WINDOW_WIDTH
             )
-        self._apply_summary()
+        self._apply_panels()
         # Loading selects the first compound without on_compound_selected, so name it here.
         self.update_deconvolution_indicator(
             self.selected_compound_name() if self.compound_data_loaded else None
         )
 
-    def _apply_summary(self, *_args) -> None:
-        """Show the Summary beside the grid while it is open, at the width last dragged to."""
-        shown = (
+    def _panel_action(self, text: str, key: str, button, setting: str) -> QAction:
+        """A View menu toggle that the grid header button mirrors; a user's choice is saved."""
+        action = QAction(text, self)
+        action.setCheckable(True)
+        action.setShortcut(QKeySequence(key))
+        shortcut = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+        button.setToolTip(f"{text} ({shortcut})")
+        button.setAccessibleName(text)
+        action.toggled.connect(button.setChecked)
+        action.toggled.connect(self._apply_panels)
+        action.triggered.connect(lambda shown: QSettings().setValue(setting, shown))
+        button.clicked.connect(action.trigger)
+        return action
+
+    def _apply_panels(self, *_args) -> None:
+        """Show the sidebar and the Summary as their toggles say, each at its remembered
+        width; the grid takes the rest. The Summary shows only beside the grid."""
+        sidebar_shown = self.show_sidebar_action.isChecked()
+        summary_shown = (
             self.workspace.currentWidget() is self.graph_view
             and self.show_summary_action.isChecked()
         )
-        if shown != self.summary.isHidden():
+        if (sidebar_shown, summary_shown) == (self.toolbar.isVisibleTo(self), self.summary.isVisibleTo(self)):
             return
-        if not shown:
-            self.summary.hide()
-            return
-        sidebar = self.splitter.sizes()[0]
-        # The grid's and the panel's share once both show, with a handle each.
-        free = self.splitter.width() - sidebar - 2 * self.splitter.handleWidth()
-        saved = QSettings().value(SUMMARY_WIDTH_SETTING, SUMMARY_WIDTH, type=int)
-        # Taken from the grid down to its two columns, never from the sidebar.
-        width = max(min(saved, free - self.workspace.minimumSizeHint().width()), SUMMARY_MIN_WIDTH)
-        self.summary.show()
-        self.splitter.setSizes([sidebar, free - width, width])
+        settings = QSettings()
+        sidebar = 0
+        if sidebar_shown:
+            sidebar = settings.value(SIDEBAR_WIDTH_SETTING, SIDEBAR_WIDTH, type=int)
+            sidebar = max(sidebar, self.toolbar.minimumWidth())
+        handle = self.splitter.handleWidth()
+        # The grid's and the Summary's share, with a handle for each panel shown.
+        free = self.splitter.width() - sidebar - handle * (sidebar_shown + summary_shown)
+        summary = 0
+        if summary_shown:
+            saved = settings.value(
+                SUMMARY_WIDTH_SETTING, summary_width_for(self.width()), type=int
+            )
+            # Taken from the grid down to its two columns.
+            summary = max(min(saved, free - self.workspace.minimumSizeHint().width()), SUMMARY_MIN_WIDTH)
+        self.toolbar.setVisible(sidebar_shown)
+        self.summary.setVisible(summary_shown)
+        self.splitter.setSizes([sidebar, free - summary, summary])
 
-    def _remember_summary_open(self, shown: bool) -> None:
-        self._summary_settled = True
-        QSettings().setValue(SUMMARY_OPEN_SETTING, shown)
-
-    def _remember_summary_width(self, *_args) -> None:
-        if not self.summary.isHidden():
-            QSettings().setValue(SUMMARY_WIDTH_SETTING, self.splitter.sizes()[2])
+    def _remember_panel_widths(self, *_args) -> None:
+        sidebar, _grid, summary = self.splitter.sizes()
+        if self.toolbar.isVisibleTo(self):
+            QSettings().setValue(SIDEBAR_WIDTH_SETTING, sidebar)
+        if self.summary.isVisibleTo(self):
+            QSettings().setValue(SUMMARY_WIDTH_SETTING, summary)
 
     def dragEnterEvent(self, event):
         if self._dropped_path(event) is not None:

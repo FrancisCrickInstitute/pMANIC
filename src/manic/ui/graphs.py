@@ -221,8 +221,16 @@ class GraphView(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
         header = QHBoxLayout()
-        header.setContentsMargins(TILE_GAP + 2, 6, 6, 0)
+        header.setContentsMargins(6, 6, 6, 0)
         header.setSpacing(8)
+        # The two panel buttons bracket the header, each beside the panel it opens; the
+        # window wires them to View > Show Sidebar and Show Summary.
+        self.sidebar_button = icon_button("sidebarButton", "sidebar_panel.svg", "Sidebar")
+        self.summary_button = icon_button("summaryButton", "summary_panel.svg", "Summary")
+        for button in (self.sidebar_button, self.summary_button):
+            button.setCheckable(True)
+        self._header_button(self.sidebar_button)
+        header.addWidget(self.sidebar_button)
         self.compound_title = QLabel()
         theme.style(self.compound_title, text_style("text", FONT_SIZE_TITLE, 600))
         self.compound_title.hide()
@@ -241,15 +249,8 @@ class GraphView(QWidget):
         self.docs_button.clicked.connect(self.documentation_requested.emit)
         self.settings_button = icon_button("settingsButton", "settings_gear.svg", "Settings")
         self.settings_button.clicked.connect(self.settings_requested.emit)
-        # Beside the panel it opens; the window wires it to View > Show Summary.
-        self.summary_button = icon_button("summaryButton", "summary_panel.svg", "Summary")
-        self.summary_button.setCheckable(True)
         for button in (self.docs_button, self.settings_button, self.summary_button):
-            button.setAccessibleName(button.toolTip())
-            button.setProperty("variant", "ghost")
-            button.setIconSize(button.iconSize() * 0.9)
-            button.setFixedSize(28, 28)
-            button.setFocusPolicy(Qt.NoFocus)
+            self._header_button(button)
             header.addWidget(button)
         outer_layout.addLayout(header)
 
@@ -355,6 +356,14 @@ class GraphView(QWidget):
         self.installEventFilter(self)
         self._tr_text = ""
         self.selection_changed.connect(self._update_selection_summary)
+
+    @staticmethod
+    def _header_button(button: QToolButton) -> None:
+        button.setAccessibleName(button.toolTip())
+        button.setProperty("variant", "ghost")
+        button.setIconSize(button.iconSize() * 0.9)
+        button.setFixedSize(28, 28)
+        button.setFocusPolicy(Qt.NoFocus)
 
     def _build_density_toggle(self) -> QWidget:
         self._density_buttons = QButtonGroup(self)

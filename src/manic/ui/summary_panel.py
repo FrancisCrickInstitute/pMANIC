@@ -11,9 +11,13 @@ from .isotopologue_ratio_widget import IsotopologueRatioWidget
 from .targeted_qc_widget import TargetedQcWidget
 from .total_abundance_widget import TotalAbundanceWidget
 
-SUMMARY_WIDTH = 300
 # Narrow enough to leave the grid two Comfortable columns in a 1024 px window.
 SUMMARY_MIN_WIDTH = 232
+
+
+def summary_width_for(window_width: int) -> int:
+    """The panel's first width: 300 px on a laptop, up to 400 px on a large monitor."""
+    return min(max(window_width * 3 // 20, 300), 400)
 
 
 class SummaryPanel(QWidget):

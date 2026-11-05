@@ -1,13 +1,13 @@
 import pytest
 from PySide6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QUrl
-from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
+from PySide6.QtGui import QAction, QDragEnterEvent, QDragLeaveEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QToolButton
 
 from manic.io.compounds_import import CompoundRow, insert_compound
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.processors.tile_y_scale import YScalePolicy
-from manic.ui.main_window import SUMMARY_OPEN_SETTING
+from manic.ui.main_window import SIDEBAR_OPEN_SETTING, SUMMARY_OPEN_SETTING
 from manic.ui.plot_tile import DENSITY_MIN_TILE, TILE_GAP
 from manic.ui.settings_window import DeconvolutionPage
 
@@ -121,6 +121,45 @@ def test_summary_opens_from_the_view_menu_or_the_grid_header_and_is_remembered(q
         assert closed.summary.isHidden() and not closed.graph_view.summary_button.isChecked()
     finally:
         closed.close()
+
+
+def test_sidebar_hides_from_the_view_menu_or_the_grid_header_and_keeps_its_width(qapp, monkeypatch):
+    window = _grid_window(monkeypatch, 1400)
+    action, button = window.show_sidebar_action, window.graph_view.sidebar_button
+    try:
+        assert action.shortcut() == QKeySequence("Ctrl+Alt+S")
+        assert window.show_summary_action.shortcut() == QKeySequence("Ctrl+Alt+R")
+        shortcuts = [
+            key.toString()
+            for a in window.findChildren(QAction)
+            for key in a.shortcuts()
+            if not key.isEmpty()
+        ]
+        assert len(shortcuts) == len(set(shortcuts))
+        assert window.toolbar.isVisible() and button.isChecked()
+        window.splitter.moveSplitter(340, 1)
+        grid = window.graph_view.width()
+
+        button.click()
+        QApplication.processEvents()
+        assert window.toolbar.isHidden() and not action.isChecked()
+        assert window.graph_view.width() > grid
+        assert QSettings().value(SIDEBAR_OPEN_SETTING, type=bool) is False
+        # Finding a compound needs the list, so it brings the sidebar back.
+        window.find_compound_action.trigger()
+        assert window.toolbar.isVisible() and button.isChecked()
+        assert window.toolbar.width() == 340
+
+        action.trigger()
+    finally:
+        window.close()
+    again = _grid_window(monkeypatch, 1400)
+    try:
+        assert again.toolbar.isHidden() and not again.graph_view.sidebar_button.isChecked()
+        again.show_sidebar_action.trigger()
+        assert again.toolbar.width() == 340
+    finally:
+        again.close()
 
 
 def test_a_narrow_window_starts_with_the_summary_closed_and_keeps_two_columns(qapp, monkeypatch):

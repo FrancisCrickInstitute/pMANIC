@@ -607,6 +607,37 @@ def test_peak_window_stays_whole_at_1024x768(qapp, height):
         toolbar.deleteLater()
 
 
+def test_short_lists_hug_their_rows_with_the_peak_window_right_under_them(qapp):
+    toolbar = Toolbar(AnalysisMode.UNLABELLED)
+    toolbar.update_label_colours(True, True)
+    toolbar.update_compound_list([f"Compound {i}" for i in range(8)])
+    toolbar.update_sample_list([f"Sample_{i:02d}" for i in range(11)])
+    toolbar.resize(296, 1357)
+    toolbar.show()
+
+    def top(widget) -> int:
+        return widget.mapTo(toolbar, QPoint(0, 0)).y()
+
+    def bottom(widget) -> int:
+        return top(widget) + widget.height()
+
+    try:
+        for samples_open in (False, True):
+            toolbar.samples_section.set_expanded(samples_open)
+            _settle(toolbar)
+            above = toolbar.sample_list if samples_open else toolbar.samples_section.header
+            # Directly below what it edits, the slack under it, not in bands between rows.
+            assert 0 <= top(toolbar.inspector) - bottom(above) <= 16, samples_open
+            assert bottom(toolbar.inspector) < toolbar.height() - 300
+            assert _full_rows(toolbar.compound_list) == 8
+            if samples_open:
+                assert top(toolbar.sample_filter) - bottom(toolbar.samples_section.header) == 8
+                assert top(toolbar.sample_list) - bottom(toolbar.sample_filter) == 8
+                assert _full_rows(toolbar.sample_list) == 11
+    finally:
+        toolbar.deleteLater()
+
+
 def test_closing_samples_gives_its_room_back_without_a_resize(qapp):
     toolbar = _sidebar(700)
     try:

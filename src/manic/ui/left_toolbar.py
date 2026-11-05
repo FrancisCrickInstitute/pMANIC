@@ -168,9 +168,7 @@ class Toolbar(QWidget):
         self.samples_section = CollapsibleSection(
             "Samples", samples_body, settings_key="sidebar/samples_expanded"
         )
-        browse_layout.addWidget(self.samples_section)
-        # Takes what is left once each list is as tall as its rows.
-        browse_layout.addStretch(0)
+        browse_layout.addWidget(self.samples_section, 1)
 
         # Inspector: the Peak window under the lists, at the height its rows need.
         inspector_content = QWidget()
@@ -237,8 +235,10 @@ class Toolbar(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         main_layout.addWidget(header)
+        # The lists hug their rows with the Peak window right under them; the rest stays below.
         main_layout.addWidget(browse, 1)
         main_layout.addWidget(inspector_content)
+        main_layout.addStretch(0)
 
         self.setMinimumWidth(256)
         # A wider sidebar only pads its rows; the grid makes better use of the room.
@@ -403,18 +403,33 @@ class Toolbar(QWidget):
         return heights
 
     def _set_list_heights(self, browse: int, chrome: int, lists: list[_BrowseList]) -> None:
-        # A closed section must not grow; an open one grows up to its content.
-        self._browse.layout().setStretchFactor(
-            self.samples_section, int(self.samples_section.is_expanded())
+        rows = [max(item.widget.sizeHintForRow(0), 1) for item in lists]
+        frames = [2 * item.widget.frameWidth() for item in lists]
+        # Whole rows only, and the part rows each share leaves go back as whole rows.
+        heights = [
+            max(height - frame, 0) // row * row + frame
+            for height, row, frame in zip(self._share_lists(browse - chrome, lists), rows, frames)
+        ]
+        spare = browse - chrome - sum(heights)
+        for i, item in enumerate(lists):
+            add = max(min(spare, item.full - heights[i]), 0) // rows[i] * rows[i]
+            heights[i] += add
+            spare -= add
+        section = self.samples_section
+        # The Samples section's own rows, without its list.
+        section_chrome = section.minimumSizeHint().height() - (
+            self.sample_list.minimumHeight() if self.sample_list.isVisibleTo(section) else 0
         )
-        for item, height in zip(lists, self._share_lists(browse - chrome, lists)):
-            # Whole rows only; what is left stays blank under the lists.
-            row, frame = max(item.widget.sizeHintForRow(0), 1), 2 * item.widget.frameWidth()
-            height = max(height - frame, 0) // row * row + frame
+        for item, height in zip(lists, heights):
             # A floor of one row leaves the window room for a line the sidebar gains, such
             # as the standard's note.
             item.widget.setMinimumHeight(min(item.tiers[0], height) or 1)
             item.widget.setMaximumHeight(height)
+        # Stretch fills each list to its rows; capped at their sum, no slack spreads between
+        # a section's rows, and what is left falls below the Peak window.
+        sample_rows = self.sample_list.maximumHeight() if self.sample_list.isVisibleTo(section) else 0
+        section.setMaximumHeight(section_chrome + sample_rows)
+        self._browse.setMaximumHeight(chrome + sum(heights))
 
     def _peak_height(self, whole: bool) -> int:
         """Inspector height for the Peak window: all of it, or with the rows below its editor
@@ -439,9 +454,8 @@ class Toolbar(QWidget):
         chrome = self._browse.minimumSizeHint().height() - sum(
             item.widget.minimumHeight() for item in lists
         )
-        browse = self._browse.height()
+        browse = room = self.height() - self._header.height()
         if self._raw_loaded:
-            room = self.height() - self._header.height()
             rows = sum(self._rows_height(item.widget, BROWSE_FOLD_ROWS) for item in lists)
             self.integration.set_folded(room - self._peak_height(whole=True) < chrome + rows)
             need = self._peak_height(whole=False)

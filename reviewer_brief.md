@@ -47,6 +47,17 @@ change a Settings value, open every popup and the detailed view, export. Any
 path that is broken, silently does nothing, or shows stale or missing state is
 a top issue regardless of how the screen looks.
 
+## Settled decisions (do not raise, do not score)
+
+The user has decided these; do not list them as issues, suggest them, or let
+them affect any score:
+- No flag, badge or warning for labelled peaks that sit outside the integration
+  window. The user does not want this feature.
+- The isotopologue trace colours (`colors.label_colors`) stay as they are.
+- The session export keeps writing into `manic_session_export/` beside its changelog.
+- Settings stays split into one page per topic, even where a page holds one
+  control; do not suggest merging pages.
+
 ## Round context
 
 {ROUND_CONTEXT}

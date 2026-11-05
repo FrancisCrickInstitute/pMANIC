@@ -44,8 +44,7 @@ Round 11 (re-rating). Commit `86a53c3` on `feat/ui-ux-overhaul`.
     screens first. Judge clutter strictly.
   - Known limit: the first documentation page may flash blank on CI macOS.
   - Declined: replacing the isotopologue colours; moving the session JSON out of
-    `manic_session_export/`; flagging labelled peaks outside the integration
-    window (needs a science-side definition; a PR follow-up).
+    `manic_session_export/`.
   Judge the result, not the intent. Re-check each of your round 10 issues and say
   which are fixed, partly fixed or still open.
 - Platforms: score every factor at the weakest of Windows/macOS x light/dark, per

@@ -1,3 +1,4 @@
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -20,6 +21,7 @@ from manic.ui.plot_tile import (
     LARGE_TILE,
     MIN_TILE,
     PEAK_BADGES,
+    TILE_GAP,
     PlotTile,
     grid_columns,
     tile_badges,
@@ -365,7 +367,25 @@ def _show_grid_with_viewport(grid, qapp, samples: int, width: int, height: int) 
     viewport_w, viewport_h = grid._grid_viewport()
     grid.resize(grid.width() + width - viewport_w, grid.height() + height - viewport_h)
     # The grid re-lays its tiles shortly after a resize, and again if a scroll bar shows.
-    QTest.qWait(400)
+    for _ in range(500):
+        if grid._grid_viewport()[1] == height and _laid_out(grid):
+            return
+        QTest.qWait(10)
+    raise AssertionError("the grid never finished laying out its tiles")
+
+
+def _laid_out(grid) -> bool:
+    """The tiles have the size the grid's shape gives its current viewport."""
+    if grid._resize_timer.isActive():
+        return False
+    cols, row_height = grid._grid_shape
+    rows = math.ceil(len(grid._current_plots) / cols)
+    width, height = grid._grid_viewport()
+    tile = grid._current_plots[0].parent()
+    return (
+        abs(tile.width() - (width - TILE_GAP * (cols - 1)) / cols) <= 1
+        and abs(tile.height() - (row_height or (height - TILE_GAP * (rows - 1)) / rows)) <= 1
+    )
 
 
 @pytest.mark.parametrize(

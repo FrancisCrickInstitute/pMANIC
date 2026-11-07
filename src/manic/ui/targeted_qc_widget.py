@@ -30,9 +30,12 @@ from manic.ui.chart_style import (
     text_style,
 )
 from manic.ui.identity_chart import (
+    STATUS_LABELS,
+    IdentityCell,
     IdentityGridBinding,
     add_identity_grid,
     identity_cell_tooltip,
+    identity_cells,
     identity_chart_height,
     identity_column_headers,
     identity_unassessed_note,
@@ -42,7 +45,7 @@ from manic.ui.identity_chart import (
 from manic.ui import theme
 from manic.ui.sidebar_widgets import ROOMY_ROW_PX, SUMMARY_SHORT_ROWS
 from manic.ui.theme import color
-from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
+from manic.validation.unlabelled_identity import IdentityAssessmentSet
 
 # Tall enough for each row's state mark and sample name.
 IDENTITY_ROW = 18
@@ -77,15 +80,13 @@ class TargetedQcWidget(QWidget):
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.chart_view.setFrameShape(QFrame.NoFrame)
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
-        self.chart_view.setToolTip(
-            "Click a row to select its plot; double-click to enlarge."
-        )
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
         # Rows count up from the bottom; samples read top down.
         SummaryRows(
             self.chart,
             self.chart_view,
             lambda row: self.sample_activated.emit(self._identity.samples[-1 - row].sample_name),
+            self._row_tip,
         )
 
         style_chart(self.chart, QMargins(0, 0, 0, 0))
@@ -131,6 +132,7 @@ class TargetedQcWidget(QWidget):
 
         self._identity: IdentityAssessmentSet | None = None
         self._binding: IdentityGridBinding | None = None
+        self._hovered_cell: IdentityCell | None = None
         self._highlighted: set[str] = set()
         self._marks: list[QGraphicsRectItem] = []
         self.chart.plotAreaChanged.connect(self._paint_highlight)
@@ -144,6 +146,7 @@ class TargetedQcWidget(QWidget):
 
         self._identity = identity
         self._binding = add_identity_grid(self.chart, identity.samples)
+        self._hovered_cell = None
         height = identity_chart_height(len(identity.samples), IDENTITY_ROW)
         self.chart_view.setMinimumHeight(height)
         short = identity_chart_height(SUMMARY_SHORT_ROWS, IDENTITY_ROW)
@@ -161,14 +164,8 @@ class TargetedQcWidget(QWidget):
         self._connect_cell_signals()
         self._fit_names()
         self._paint_highlight()
-        failed = sum(
-            any(q.status is QualifierStatus.FAILED for q in sample.qualifiers)
-            for sample in identity.samples
-        )
-        # The sample total is the Samples section's; only the failures are news here.
-        self.header.set_has_data(
-            True, f"{failed} sample{'s' if failed != 1 else ''} failed" if failed else ""
-        )
+        # The footer tallies the failures; a sample count here would be a second number for them.
+        self.header.set_has_data(True)
         self.key.setText(identity_key_html(identity, swatches=False))
         self.key.setToolTip(IDENTITY_KEY_TOOLTIP)
         self.key.setVisible(assessed)
@@ -192,6 +189,7 @@ class TargetedQcWidget(QWidget):
     def clear(self) -> None:
         self._identity = None
         self._binding = None
+        self._hovered_cell = None
         self.header.set_has_data(False)
         for widget in (self.key, self.note, self._scroll, self.columns):
             widget.hide()
@@ -253,13 +251,22 @@ class TargetedQcWidget(QWidget):
             or index >= bar_set.count()
             or bar_set.at(index) <= 0
         ):
+            self._hovered_cell = None
             QToolTip.hideText()
             return
-        cell = self._binding.cell_for(bar_set)
-        if cell is None:
+        self._hovered_cell = self._binding.cell_for(bar_set)
+        if self._hovered_cell is None:
             QToolTip.hideText()
             return
-        show_identity_tooltip(self.chart_view, identity_cell_tooltip(cell))
+        show_identity_tooltip(self.chart_view, identity_cell_tooltip(self._hovered_cell))
+
+    def _row_tip(self, row: int) -> str:
+        """Over a cell its own detail; over the name, the sample and each qualifier's state."""
+        if self._hovered_cell is not None:
+            return identity_cell_tooltip(self._hovered_cell)
+        sample = self._identity.samples[-1 - row]
+        states = (f"Qualifier {q.ordinal}  {STATUS_LABELS[q.status]}" for q in identity_cells(sample))
+        return "\n".join((sample.sample_name, *states))
 
     def _has_data(self) -> bool:
         return self._identity is not None and bool(self._identity.samples)

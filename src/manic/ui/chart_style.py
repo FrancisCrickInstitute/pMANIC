@@ -219,6 +219,9 @@ class SummaryRows(QObject):
 
     def eventFilter(self, obj, event) -> bool:
         kind = event.type()
+        if kind == QEvent.ToolTip and self._tip is not None:
+            # The scene answers a tooltip request by hiding any tip none of its items own.
+            return bar_row_at(self._chart, self._view, event.pos()) is not None
         if kind == QEvent.MouseMove and self._tip is not None:
             row = bar_row_at(self._chart, self._view, event.position().toPoint())
             if row is None:

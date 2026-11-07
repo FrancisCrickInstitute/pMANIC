@@ -175,6 +175,24 @@ def test_internal_standard_row_is_optional_until_chosen(qapp):
     assert value.property("state") == "optional"
 
 
+def test_a_long_internal_standard_keeps_its_ending_and_shows_whole_on_hover(qapp):
+    name = "Lactate_2TMS_internal_standard_batch_2026_long_d3"
+    _add_compound(name)
+    toolbar = Toolbar(AnalysisMode.LABELLED)
+    try:
+        toolbar.update_compound_list([name])
+        toolbar.resize(296, 900)
+        toolbar.show()
+        _choose_standard(toolbar, name)
+        _settle(toolbar)
+        shown = _value(toolbar.standard).text()
+        assert "…" in shown and shown.endswith("_d3")
+        tip = toolbar.standard.toolTip()
+        assert _hover_text(toolbar.standard, QPoint(5, 5)) == f"{name}\n{tip}"
+    finally:
+        toolbar.deleteLater()
+
+
 @pytest.mark.parametrize(
     "mode, needs_mix", [(AnalysisMode.LABELLED, True), (AnalysisMode.UNLABELLED, False)]
 )

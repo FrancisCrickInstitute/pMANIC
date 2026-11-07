@@ -16,7 +16,7 @@ from conftest import _make_window
 
 def _write_docs(docs_dir: Path) -> None:
     docs_dir.mkdir(exist_ok=True)
-    (docs_dir / "Reference_Z.md").write_text("# Reference: Ref Z\n", encoding="utf-8")
+    (docs_dir / "Reference_Z.md").write_text("# Ref Z\n", encoding="utf-8")
     (docs_dir / "Workflow_B.md").write_text("# Flow B\n", encoding="utf-8")
     (docs_dir / "00_quick_start.md").write_text(
         "# Quick Start\n\nLoad a compound list.\n", encoding="utf-8"
@@ -28,7 +28,7 @@ def _write_docs(docs_dir: Path) -> None:
     (docs_dir / "alpha.md").write_text("# Alpha\n", encoding="utf-8")
     (docs_dir / "zzz_other.md").write_text("no heading here\n", encoding="utf-8")
     (docs_dir / "Reference_A.md").write_text("# Ref A\n", encoding="utf-8")
-    (docs_dir / "Workflow_A.md").write_text("# Workflow: Flow A\n", encoding="utf-8")
+    (docs_dir / "Workflow_A.md").write_text("# Flow A\n", encoding="utf-8")
 
 
 @pytest.fixture
@@ -115,10 +115,10 @@ def test_documentation_index_orders_groups_and_titles(tmp_path):
         "Quick Start",
         "Guide",
         "Unlabelled Targeted Analysis",
-        "Workflow: Flow A",
+        "Flow A",
         "Flow B",
         "Ref A",
-        "Reference: Ref Z",
+        "Ref Z",
         "Alpha",
         "Zzz Other",
     ]

@@ -100,7 +100,6 @@ def _documentation_group(name: str) -> int:
     return 5
 
 
-# Groups listed under one heading, so their titles drop the shared "Workflow: " or "Reference: ".
 _GROUP_HEADINGS = {3: "Workflows", 4: "Reference"}
 
 
@@ -230,11 +229,9 @@ class DocumentationViewer(QDialog):
                 header.setSizeHint(sidebar_item_size() + QSize(0, 8))
                 self.page_list.addItem(header)
             last_heading = heading
-            # The document keeps its full title; under a heading the list drops the prefix.
-            label = title.partition(": ")[2] if heading and ": " in title else title
-            item = QListWidgetItem(label)
+            item = QListWidgetItem(title)
             # The whole title on hover only when the list cuts it short.
-            if metrics.horizontalAdvance(label) > room:
+            if metrics.horizontalAdvance(title) > room:
                 item.setToolTip(title)
             item.setSizeHint(sidebar_item_size())
             item.setData(Qt.UserRole, path)

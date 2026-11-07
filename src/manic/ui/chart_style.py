@@ -210,6 +210,8 @@ class BarRows(QObject):
     is empty or too short to hit.
 
     ``value`` is the pointer in the chart's value space, for a tip that differs along a row.
+    With ``waits_for_double_click``, a click activates only once no second click follows, so a
+    double-click that enlarges the chart leaves the selection as it was.
     """
 
     def __init__(
@@ -218,6 +220,8 @@ class BarRows(QObject):
         view: QChartView,
         activated: Callable[[int], None],
         tip: Callable[[int, QPointF], str | None],
+        *,
+        waits_for_double_click: bool = False,
     ):
         # The viewport's child, so its filter goes before the viewport's own teardown events.
         super().__init__(view.viewport())
@@ -226,6 +230,12 @@ class BarRows(QObject):
         self._showing: str | None = None
         self._settled = QTimer(self, singleShot=True, interval=0)
         self._settled.timeout.connect(lambda: self._show_under(QCursor.pos()))
+        self._click: QTimer | None = None
+        if waits_for_double_click:
+            self._click = QTimer(self, singleShot=True, interval=QApplication.doubleClickInterval())
+            self._click.timeout.connect(self._activate_click)
+        self._clicked: int | None = None
+        self._doubled = False
         view.viewport().setMouseTracking(True)
         view.viewport().installEventFilter(self)
 
@@ -275,11 +285,27 @@ class BarRows(QObject):
             self._show_at(None)
         elif kind == QEvent.Resize:
             self.refresh()
+        elif kind == QEvent.MouseButtonDblClick and self._click is not None:
+            self._click.stop()
+            self._clicked = None
+            self._doubled = True
         elif kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             row = bar_row_at(self._chart, self._view, event.position().toPoint())
-            if row is not None:
+            if self._doubled:
+                self._doubled = False  # the release that ends a double-click
+            elif row is not None and self._click is None:
                 self._activated(row)
+            elif row is not None:
+                self._activate_click()  # an earlier click still waiting is a click of its own
+                self._clicked = row
+                self._click.start()
         return False
+
+    def _activate_click(self) -> None:
+        self._click.stop()
+        row, self._clicked = self._clicked, None
+        if row is not None:
+            self._activated(row)
 
 
 def style_chart(chart: QChart, margins: QMargins = QMargins(0, 0, 0, 0)) -> None:

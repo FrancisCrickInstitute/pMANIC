@@ -338,19 +338,34 @@ def test_a_peak_area_too_small_to_draw_reads_as_its_popup_value(qapp, monkeypatc
 
 
 @pytest.mark.parametrize("make", [_abundance, _ratios])
-def test_a_click_on_a_summary_row_selects_its_sample(qapp, make):
+def test_a_click_on_a_summary_row_selects_its_sample_and_a_double_click_only_enlarges(
+    qapp, make, monkeypatch
+):
+    from PySide6.QtTest import QTest
+
+    from manic.ui.chart_popup_dialog import ChartPopupDialog
+
     names = ["S1", "S2", "S3"]
     widget = make(names)
     if make is _abundance:
         widget.update_abundance_from_data("Alanine", _eics(names), np.asarray([3e6, 0.0, 1e6]))
     _shown(widget, 300)
-    activated = []
+    activated, enlarged = [], []
     widget.sample_activated.connect(activated.append)
+    monkeypatch.setattr(ChartPopupDialog, "exec", lambda self: enlarged.append(True) or 0)
+    monkeypatch.setattr("manic.ui.total_abundance_widget.peak_area_label", lambda _c: "Peak area")
+    click = (QEvent.MouseButtonPress, QEvent.MouseButtonRelease)
     try:
         for name in ("S3", "S2"):
-            _mouse(widget, name, QEvent.MouseButtonPress)
-            _mouse(widget, name, QEvent.MouseButtonRelease)
+            for kind in click:
+                _mouse(widget, name, kind)
+            QTest.qWait(QApplication.doubleClickInterval() + 100)
         assert activated == ["S3", "S2"]
+        # What Qt delivers for a double-click.
+        for kind in click + (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick) + click[1:]:
+            _mouse(widget, "S1", kind)
+        QTest.qWait(QApplication.doubleClickInterval() + 100)
+        assert enlarged == [True] and activated == ["S3", "S2"]
     finally:
         widget.deleteLater()
 

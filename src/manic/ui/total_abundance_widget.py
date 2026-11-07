@@ -88,6 +88,7 @@ class TotalAbundanceWidget(QWidget):
             self.chart_view,
             lambda row: self.sample_activated.emit(self._current_sample_names[row]),
             lambda row, _value: self.hover_text(row),
+            waits_for_double_click=True,
         )
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))

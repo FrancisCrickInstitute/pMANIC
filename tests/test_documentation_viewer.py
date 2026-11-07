@@ -213,6 +213,27 @@ def test_a_new_page_shows_loading_until_that_page_renders(viewer):
     assert _page_text(viewer) == "Guide"
 
 
+def test_a_scheme_switch_while_closed_shows_the_page_on_reopen(qapp, viewer, monkeypatch):
+    from manic.utils.utils import apply_color_scheme, set_appearance
+
+    monkeypatch.setattr("manic.ui.documentation_viewer._PAINT_TIMEOUT_MS", 500)
+    viewer.open()
+    assert _wait(viewer.is_rendered)
+    viewer.close()
+    try:
+        set_appearance(qapp, "dark")
+        QTest.qWait(1500)
+        viewer.open()
+        assert _wait(viewer.is_rendered)
+        assert not viewer.retry_button.isVisible() and _shown_at_centre(viewer) == "page"
+        assert _page_text(viewer) == "Quick Start\n\nLoad a compound list."
+    finally:
+        viewer.close()
+        set_appearance(qapp, "system")
+        apply_color_scheme(qapp, False)
+        qapp.setStyleSheet("")
+
+
 def test_a_guide_link_opens_its_page_at_the_section(viewer, docs_dir):
     (docs_dir / "01_user_guide.md").write_text(
         "# Guide\n\n## Fix a missing qualifier ratio\n\nFill the column.\n", encoding="utf-8"

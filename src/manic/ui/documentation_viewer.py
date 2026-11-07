@@ -202,6 +202,8 @@ class DocumentationViewer(QDialog):
         self._painted = 0
         self._reloaded = 0
         self._pending_fragment = None
+        # A closed window draws nothing, so its page is loaded again when it opens.
+        self._stale = False
 
         self.setup_ui()
 
@@ -414,10 +416,14 @@ class DocumentationViewer(QDialog):
         self._check_painted(self._request)
 
     def _check_painted(self, request: int) -> None:
-        if request == self._request and not self.web_view.isHidden():
-            self.web_view.page().runJavaScript(
-                _PAINTED_JS, 0, lambda painted: self._on_painted(request, painted)
-            )
+        if request != self._request or self.web_view.isHidden():
+            return
+        if not self.isVisible():
+            self._stale = True
+            return
+        self.web_view.page().runJavaScript(
+            _PAINTED_JS, 0, lambda painted: self._on_painted(request, painted)
+        )
 
     def _on_painted(self, request: int, painted) -> None:
         if painted is None:
@@ -437,6 +443,9 @@ class DocumentationViewer(QDialog):
         # Not when it drew, was replaced, or already says it failed.
         if request != self._request or request == self._painted or not self.retry_button.isHidden():
             return
+        if not self.isVisible():
+            self._stale = True
+            return
         if request == self._reloaded:
             self._show_status("This page could not be displayed.", retry=True)
             return
@@ -453,7 +462,9 @@ class DocumentationViewer(QDialog):
 
     def _on_theme_changed(self, _remap: dict) -> None:
         self.web_view.page().setBackgroundColor(theme.color("surface"))
-        if self.current_file is not None:
+        if not self.isVisible():
+            self._stale = True
+        elif self.current_file is not None:
             # A drawn page stays in view until the new colours are drawn; one still
             # loading is hidden first.
             self.load_markdown_file(
@@ -463,6 +474,8 @@ class DocumentationViewer(QDialog):
     def open(self) -> None:
         if self.current_file is None and self.page_list.count():
             self.page_list.setCurrentRow(0)
+        elif self._stale and self.current_file is not None:
+            self.load_markdown_file(self.current_file, self.current_fragment)
         show_over_parent(self)
 
     def open_at(self, file_path: Path, fragment: str | None = None) -> None:
@@ -607,6 +620,7 @@ class DocumentationViewer(QDialog):
             self._pending_fragment = self.current_fragment
             self._sync_page_list(file_path)
             self._request += 1
+            self._stale = False
             if show_loading:
                 self._show_status("Loading…")
 

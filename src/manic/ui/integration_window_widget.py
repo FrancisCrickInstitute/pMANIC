@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
 from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut, QValidator
@@ -230,7 +230,7 @@ class IntegrationWindow(QWidget):
         self._pending_session_update: PendingRegeneration | None = None
         # What the peak fields last loaded, and each target's unapplied edit until Apply or Reset.
         self._loaded: Dict[str, str] = {}
-        self._drafts: Dict[Tuple[str, Tuple[str, ...]], Dict[str, str]] = {}
+        self._drafts: Dict[Tuple[str, FrozenSet[str]], Dict[str, str]] = {}
         # The tR window is per compound, whatever the selection, so its draft is too.
         self._window_compound = ""
         self._loaded_window = ""
@@ -528,8 +528,9 @@ class IntegrationWindow(QWidget):
     def _field_texts(self) -> Dict[str, str]:
         return {name: self.findChild(QLineEdit, name).text() for name in PEAK_FIELDS}
 
-    def _draft_key(self) -> Tuple[str, Tuple[str, ...]]:
-        return self._current_compound, tuple(self._selected_samples or self._all_samples)
+    def _draft_key(self) -> Tuple[str, FrozenSet[str]]:
+        # The same samples picked in another order are the same target.
+        return self._current_compound, frozenset(self._selected_samples or self._all_samples)
 
     def _has_draft(self) -> bool:
         return bool(self._current_compound) and _differs(self._field_texts(), self._loaded)

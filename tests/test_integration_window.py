@@ -204,3 +204,54 @@ def test_an_unapplied_tr_window_comes_back_with_its_compound_and_says_so(qapp, m
         )
     finally:
         integration.deleteLater()
+
+
+def test_an_unapplied_edit_stays_when_the_same_samples_are_picked_in_another_order(
+    qapp, monkeypatch
+):
+    import numpy as np
+    from types import SimpleNamespace
+
+    from conftest import _make_window
+    from manic.io.compound_reader import Compound
+    from manic.ui.main_window import MainWindow
+
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms) VALUES ('Cmp', 1.0, 0.1, 0.1, 217.0, 0)"
+        )
+    time = np.linspace(0.8, 1.2, 81)
+
+    def eics(compound, samples, **_kwargs):
+        return [
+            SimpleNamespace(sample_name=s, compound_name=compound, time=time, intensity=np.ones((1, 81)))
+            for s in samples
+        ]
+
+    compound = Compound(
+        compound_name="Cmp", retention_time=1.0, loffset=0.1, roffset=0.1, mass0=217.0, label_atoms=0
+    )
+    monkeypatch.setattr("manic.ui.graphs.get_eics_for_compound", eics)
+    monkeypatch.setattr("manic.ui.graphs.read_compound_with_session", lambda *_a: compound)
+    monkeypatch.setattr("manic.ui.integration_window_widget.get_eics_for_compound", eics)
+    monkeypatch.setattr(MainWindow, "_refresh_mode_charts", lambda *_a, **_k: None)
+    window = _make_window(monkeypatch)
+    try:
+        window.resize(1500, 1000)
+        window.compound_data_loaded = window.cdf_data_loaded = True
+        window.toolbar.update_label_colours(True, True)
+        window.toolbar.update_compound_list(["Cmp"])
+        window.toolbar.update_sample_list([f"S{i}" for i in range(4)])
+        window.show()
+        view = window.graph_view
+        for plot in reversed(view._current_plots):
+            QTest.mouseClick(plot.viewport(), Qt.LeftButton)
+        left = window.toolbar.integration.findChild(QLineEdit, "lo_input")
+        left.selectAll()
+        QTest.keyClicks(left, "0.05")
+        view.setFocus()
+        QTest.keyClick(view, Qt.Key_A, Qt.ControlModifier)
+        assert left.text() == "0.05"
+    finally:
+        window.close()

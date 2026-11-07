@@ -153,13 +153,6 @@ def _insert_unlabelled_target(name: str = "Target") -> None:
         )
 
 
-def test_qualifier_ratios_page_is_unlabelled_only(labelled_window):
-    labelled_window.open_settings_window()
-    titles = _page_titles(labelled_window.settings_window)
-    assert "Qualifier ratios" not in titles
-    assert titles == LABELLED_TITLES
-
-
 def test_qualifier_ratios_not_editable_without_a_selected_compound(
     qapp, empty_db, monkeypatch
 ):

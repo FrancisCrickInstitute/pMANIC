@@ -17,8 +17,8 @@ from manic.ui.theme import set_style_property
 
 class CompoundListWidget(QListWidget):
     internal_standard_selected = Signal(str)
-    compounds_deleted = Signal(list)  # Emits list of deleted compound names
-    compounds_restored = Signal(list)  # Emits list of restored compound names
+    compounds_deleted = Signal(list)
+    compounds_restored = Signal(list)
     add_compound_requested = Signal()
     internal_standard_cleared = Signal()
 
@@ -33,7 +33,6 @@ class CompoundListWidget(QListWidget):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.itemSelectionChanged.connect(self._center_current_item)
-        # Track pending selection index for post-deletion selection
         self._pending_selection_index = None
         self._context_item: QListWidgetItem | None = None
 
@@ -81,10 +80,8 @@ class CompoundListWidget(QListWidget):
             else:
                 self.setCurrentRow(0)
 
-        # Re-enable signals after update is complete
         self.blockSignals(False)
 
-        # Emit a single selection changed signal if we have a selection
         if self.currentItem():
             self.itemSelectionChanged.emit()
             self._center_current_item()
@@ -119,23 +116,18 @@ class CompoundListWidget(QListWidget):
         add_action.triggered.connect(self.add_compound_requested.emit)
         menu.addSeparator()
 
-        # Check if we clicked on a valid compound
         valid_item = item and not item.text().startswith("- No")
 
         if valid_item:
-            # Add "Select as Internal Standard" action
             select_standard_action = menu.addAction("Select as Internal Standard")
             select_standard_action.triggered.connect(
                 lambda: self.internal_standard_selected.emit(item.text())
             )
 
-            # Add separator
             menu.addSeparator()
 
-            # Add "Delete Compound" action
             delete_action = menu.addAction("Delete Compound")
             
-            # Disable delete if this is the only compound
             total_compounds = self.real_count()
             can_delete = total_compounds > 1
             delete_action.setEnabled(can_delete)
@@ -143,19 +135,15 @@ class CompoundListWidget(QListWidget):
                 lambda: self._confirm_delete_compound(item.text())
             )
 
-            # Add separator
             menu.addSeparator()
 
-        # Recover action (always available)
         recover_action = menu.addAction("Recover Deleted Compounds...")
         deleted_compounds = get_deleted_compounds()
         recover_action.setEnabled(len(deleted_compounds) > 0)
         recover_action.triggered.connect(self._show_recovery_dialog)
 
-        # Add separator
         menu.addSeparator()
 
-        # Add the Clear action (always available)
         clear_std_action = QAction("Clear Internal Standard", self)
         clear_std_action.triggered.connect(
             lambda: self.internal_standard_cleared.emit()
@@ -183,18 +171,15 @@ class CompoundListWidget(QListWidget):
         reply = msg_box.exec()
 
         if reply == QMessageBox.StandardButton.Yes:
-            # Calculate the next index to select after deletion
             current_index = self.currentRow()
             total_before = self.real_count()
 
             if current_index >= total_before - 1:
-                # Deleting last item, select the new last item (previous one)
                 self._pending_selection_index = max(0, current_index - 1)
             else:
                 # Deleting non-last item, stay at same index (next item moves up)
                 self._pending_selection_index = current_index
 
-            # Perform deletion
             if soft_delete_compound(compound_name):
                 self.compounds_deleted.emit([compound_name])
 

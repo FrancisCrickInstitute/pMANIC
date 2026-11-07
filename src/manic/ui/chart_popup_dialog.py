@@ -291,7 +291,6 @@ class ChartPopupDialog(QDialog):
         # in a reference cycle the garbage collector clears while the dialog is still alive.
         self.setAttribute(Qt.WA_DeleteOnClose)
 
-        # Set window icon (same as main window)
         self._set_window_icon(parent)
 
         self._setup_ui(title, compound_name or (identity.compound_name if identity else ""))
@@ -334,7 +333,6 @@ class ChartPopupDialog(QDialog):
 
     def _set_window_icon(self, parent_widget):
         """Set window icon by finding the main window."""
-        # Walk up the parent hierarchy to find the main window
         widget = parent_widget
         while widget and widget.parent():
             widget = widget.parent()
@@ -475,10 +473,8 @@ class ChartPopupDialog(QDialog):
         bar_series.append(bar_set)
         self.chart.addSeries(bar_series)
 
-        # Setup axes with sample names visible
         self._setup_total_abundance_axes(max_abundance, scale_exp, scale_factor)
 
-        # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
         self._add_value_labels(bar_series, list(enumerate(scaled)))
@@ -525,7 +521,6 @@ class ChartPopupDialog(QDialog):
         stacked_series = QHorizontalStackedBarSeries()
         stacked_series.setBarWidth(0.7)
 
-        # Get number of isotopologues
         num_isotopologues = self.data.shape[1] if len(self.data.shape) > 1 else 1
 
         labels = []
@@ -538,25 +533,22 @@ class ChartPopupDialog(QDialog):
             labels.append(bar_set.label())
             styles.append(ChannelTraceStyle(bar_colour, Qt.SolidLine))
 
-            # Add ratio values for this isotopologue across all samples
             for sample_idx in range(len(self.sample_names)):
                 if len(self.data.shape) > 1:
                     ratio = self.data[sample_idx, i]
                 else:
-                    ratio = 1.0 if i == 0 else 0.0  # Single trace case
+                    ratio = 1.0 if i == 0 else 0.0
                 bar_set.append(ratio)
             stacked_series.append(bar_set)
 
         self.chart.addSeries(stacked_series)
 
-        # Setup axes
         self._setup_isotopologue_axes()
 
         if num_isotopologues > 1:
             self._ratio_key = (labels, styles)
             self._refresh_ratio_key()
 
-        # Attach series to axes
         stacked_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         stacked_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
 

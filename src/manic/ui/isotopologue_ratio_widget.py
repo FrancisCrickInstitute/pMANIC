@@ -159,7 +159,6 @@ class IsotopologueRatioWidget(QWidget):
         if eics[0].intensity.ndim == 1:
             # Single trace - don't show isotopologue chart (it would just be 100%)
             self._clear_chart()
-            # But we still have the abundance data stored for the total abundance widget
             return
 
         # Reversed for horizontal bars, which QtCharts draws bottom to top. A reversed

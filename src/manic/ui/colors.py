@@ -19,12 +19,10 @@ from manic.validation.unlabelled_identity import (
     QualifierStatus,
 )
 
-# Steel blue and dark red used in graphs
 steel_blue_colour = QColor(70, 130, 180)
 dark_red_colour = QColor(139, 0, 0)
 
 # Colors for isotopologue labels (M+0, M+1, M+2, etc.)
-# Used in both multi-trace plots and isotopologue ratio charts
 label_colors = [
     QColor(31, 119, 180),    # blue - M+0
     QColor(255, 127, 14),    # orange - M+1  

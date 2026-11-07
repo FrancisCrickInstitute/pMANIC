@@ -223,11 +223,10 @@ class _ScaleMenuButton(QToolButton):
 
 class GraphView(QWidget):
     """
-    Re-implements the old grid-of-charts look with pyqtgraph,
-    but fetches data via the new processors/io stack.
+    A grid of QtCharts tiles, one per sample, with data from the
+    processors/io stack.
     """
 
-    # Signal to emit when plot selection changes
     selection_changed = Signal(list)  # List of selected sample names
     peak_review_changed = Signal(str, list, object)
     sample_fit_type_changed = Signal(str, list, object)
@@ -362,13 +361,10 @@ class GraphView(QWidget):
         self._text_size = tile_text_size(*MIN_TILE)
         self._focus_index: int | None = None
 
-        # Track selected plots
         self._selected_plots: Set[ClickableChartView] = set()
 
-        # Store all current plots for easy access
         self._current_plots: List[ClickableChartView] = []
 
-        # Store current compound and samples for integration window updates
         self._current_compound: str = ""
         self._current_samples: List[str] = []
         self._sample_fit_types: Dict[tuple[str, str], str] = {}
@@ -386,24 +382,20 @@ class GraphView(QWidget):
         self._max_rows_seen = 0
         self._max_cols_seen = 0
 
-        # Chart object pooling for performance optimization
         # Maintains reusable chart containers to avoid expensive creation/destruction cycles
         self._container_pool: List[
             QWidget
-        ] = []  # Complete plot containers with captions
+        ] = []
         self._available_containers: List[QWidget] = []
 
-        # throttle resize events – avoids constant redraw while user resizes
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.timeout.connect(self._update_graph_sizes)
 
-        # Rubberband selection state
         self._rubber_band = QRubberBand(QRubberBand.Rectangle, self)
         self._drag_origin = None
         self._is_dragging = False
 
-        # Install event filter on self to handle background drags
         self.installEventFilter(self)
         self._tr_text = ""
         self.selection_changed.connect(self._update_selection_summary)
@@ -442,7 +434,6 @@ class GraphView(QWidget):
         if event.type() == QEvent.Resize and obj is self._scroll.viewport():
             self._resize_timer.start(60)
             return False
-        # Handle Drag Press
         if event.type() == QEvent.MouseButtonPress:
             me = event
             if me.button() == Qt.LeftButton:
@@ -451,23 +442,21 @@ class GraphView(QWidget):
             # Always return False to let children process press events (e.g. for click detection)
             return False
 
-        # Handle Drag Move
         elif event.type() == QEvent.MouseMove:
             me = event
             if not (me.buttons() & Qt.LeftButton):
                 return False
 
             if self._handle_drag_move(me):
-                return True  # Consume event if we are dragging
+                return True
 
-        # Handle Drag Release
         elif event.type() == QEvent.MouseButtonRelease:
             me = event
             if me.button() != Qt.LeftButton:
                 return False
 
             if self._handle_drag_release(me):
-                return True  # Consume event if we were dragging
+                return True
 
         return super().eventFilter(obj, event)
 
@@ -479,20 +468,17 @@ class GraphView(QWidget):
         current_pos = self.mapFromGlobal(me.globalPosition().toPoint())
 
         if not self._is_dragging:
-            # Check drag threshold
             if (
                 current_pos - self._drag_origin
             ).manhattanLength() < QApplication.startDragDistance():
                 return False
 
-            # Start drag
             self._is_dragging = True
             self._rubber_band.setGeometry(
                 QRect(self._drag_origin, current_pos).normalized()
             )
             self._rubber_band.show()
         else:
-            # Continue drag
             rect = QRect(self._drag_origin, current_pos).normalized()
             self._rubber_band.setGeometry(rect)
             self._update_selection_from_rubberband(rect)
@@ -507,12 +493,10 @@ class GraphView(QWidget):
 
         self._rubber_band.hide()
 
-        # Final update
         final_pos = self.mapFromGlobal(me.globalPosition().toPoint())
         rect = QRect(self._drag_origin, final_pos).normalized()
         self._update_selection_from_rubberband(rect)
 
-        # Emit selection changed signal
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
 
@@ -522,19 +506,16 @@ class GraphView(QWidget):
 
     def _update_selection_from_rubberband(self, band_rect: QRect):
         """Update selection based on rubberband geometry"""
-        # Check modifier keys for add/subtract behavior
         modifiers = QApplication.keyboardModifiers()
         is_additive = bool(modifiers & (Qt.ControlModifier | Qt.ShiftModifier))
 
         for container in self._current_plots:
-            # Note: _current_plots contains chart views
-            # Get parent container for geometry check
             chart_container = container.parent()
             if not chart_container:
                 continue
 
-            # Map the container rect into GraphView coordinates (the grid
-            # lives in an inner host widget since the legend strip was added)
+            # Map the container rect into GraphView coordinates; the grid lives in an
+            # inner host widget.
             top_left = chart_container.mapTo(self, chart_container.rect().topLeft())
             container_rect = QRect(top_left, chart_container.size())
 
@@ -543,7 +524,6 @@ class GraphView(QWidget):
                     container.set_selected(True)
                     self._selected_plots.add(container)
             elif not is_additive:
-                # Standard behavior: deselect items outside rubberband unless holding Ctrl/Shift
                 if container.is_selected:
                     container.set_selected(False)
                     self._selected_plots.discard(container)
@@ -555,7 +535,6 @@ class GraphView(QWidget):
             f"GraphView set to use {'corrected' if use_corrected else 'uncorrected'} data"
         )
 
-    # public function
     def plot_compound(
         self,
         compound_name: str,
@@ -589,7 +568,6 @@ class GraphView(QWidget):
             self._update_selection_summary()
             return
 
-        # Store current compound and samples for integration window updates
         self._current_compound = compound_name
         self._current_samples = samples
         self._sample_fit_types = get_sample_fit_types(compound_name)
@@ -636,10 +614,7 @@ class GraphView(QWidget):
 
         self._update_channel_legend(compound_name, eics)
 
-        # time plot building for debugging
         with measure_time("build_plots_and_add_to_layout"):
-            # Build all plots with captions using chart pooling for performance
-            # Pass validation data to determine background color
             plot_containers = [
                 self._get_container_from_pool(
                     eic,
@@ -651,7 +626,6 @@ class GraphView(QWidget):
                 for eic, axis_scale in zip(eics, tile_axes, strict=True)
             ]
 
-            # Extract chart views for click handling
             self._current_plots = [
                 container.chart_view for container in plot_containers
             ]
@@ -819,15 +793,12 @@ class GraphView(QWidget):
             self._focus_index = self._current_plots.index(clicked_plot)
             self._paint_focus()
         if clicked_plot.is_selected:
-            # Deselect if already selected
             self._selected_plots.discard(clicked_plot)
             clicked_plot.set_selected(False)
         else:
-            # Select the clicked plot
             self._selected_plots.add(clicked_plot)
             clicked_plot.set_selected(True)
 
-        # Emit signal with currently selected sample names
         selected_samples = [plot.sample_name for plot in self._selected_plots]
         self.selection_changed.emit(selected_samples)
 
@@ -931,14 +902,12 @@ class GraphView(QWidget):
     def _show_context_menu(self, global_pos, clicked_plot=None):
         """Plot context menu; Inspect and Select Only need a right-clicked plot."""
 
-        # Close any existing context menu first
         if hasattr(self, "_active_context_menu") and self._active_context_menu:
             self._active_context_menu.close()
 
         context_menu = QMenu(self)
-        self._active_context_menu = context_menu  # Store reference for cleanup
+        self._active_context_menu = context_menu
 
-        # Ensure menu disappears when clicking outside or after actions
         context_menu.setAttribute(Qt.WA_DeleteOnClose)
         context_menu.aboutToHide.connect(self._on_context_menu_closed)
 
@@ -997,7 +966,6 @@ class GraphView(QWidget):
                 lambda: self.toggle_peak_review(clicked_plot, PeakReview.REJECTED)
             )
 
-        # Show menu at position - use popup() instead of exec() for better behavior
         context_menu.popup(global_pos)
 
     def has_plots(self) -> bool:
@@ -1264,7 +1232,6 @@ class GraphView(QWidget):
         self._identity = None
         self._hide_legend()
         self._set_title("")
-        # Note: _current_plots will be cleared in _clear_layout
         self._clear_layout(force_destroy=force_destroy)
         self._hide_unused_tiles()
         self._update_selection_summary()
@@ -1314,10 +1281,8 @@ class GraphView(QWidget):
         if not self._current_plots:
             return
 
-        # Qt fires contextMenuEvent in addition to the chart view's right-click
-        # signal. Previously this path always passed clicked_plot=None, so if it
-        # won the race it greyed out "View Detailed" even over a real plot. Hit-
-        # test the cursor position so the correct plot is used either way.
+        # Qt fires contextMenuEvent as well as the chart view's right-click signal;
+        # hit-test the cursor so either path gets the plot under it.
         clicked_plot = self._plot_at_global_pos(event.globalPos())
         self._show_context_menu(event.globalPos(), clicked_plot=clicked_plot)
 
@@ -1352,15 +1317,12 @@ class GraphView(QWidget):
             logger.warning("Cannot refresh plots: no current compound or samples")
             return
 
-        # Store current selection state
         selected_sample_names = {plot.sample_name for plot in self._selected_plots}
 
         try:
             with measure_time("refresh_plots_with_session_data"):
-                # Clear existing selection tracking before re-plotting
                 self._selected_plots.clear()
 
-                # Re-plot the compound with the same samples
                 self.plot_compound(
                     self._current_compound,
                     self._current_samples,
@@ -1378,7 +1340,6 @@ class GraphView(QWidget):
 
         except Exception as e:
             logger.error(f"Failed to refresh plots with session data: {e}")
-            # Try to maintain some UI state even if refresh fails
             try:
                 selected_samples = [plot.sample_name for plot in self._selected_plots]
                 self.selection_changed.emit(selected_samples)
@@ -2084,7 +2045,6 @@ class GraphView(QWidget):
         self._layout.activate()
         self._layout.update()
 
-        # Update the parent widget geometry
         parent = self.parent()
         if parent:
             parent.updateGeometry()
@@ -2135,7 +2095,6 @@ class GraphView(QWidget):
                     if widget not in self._container_pool:
                         widget.deleteLater()
 
-        # purge persistent row/col tracking by resetting stretches
         # Recreating the layout causes a crash because the old layout
         # remains associated with the widget in ways that deleteLater()
         # doesn't handle immediately during the plot cycle.

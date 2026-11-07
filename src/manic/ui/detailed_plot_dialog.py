@@ -111,7 +111,7 @@ class DetailedPlotDialog(QDialog):
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
-        self.use_corrected = use_corrected  # Store the isotope correction flag
+        self.use_corrected = use_corrected
         self._samples = list(samples) or [sample_name]
         self._identity_for = identity_for
         self.identity = identity_for(sample_name)
@@ -119,7 +119,6 @@ class DetailedPlotDialog(QDialog):
         # Which TRACE_KEY treatments the chromatogram drew.
         self._treatments: set[str] = set()
 
-        # Initialize data containers
         self.eic_data = None
         self.tic_data = None
         self.ms_data = None
@@ -160,13 +159,10 @@ class DetailedPlotDialog(QDialog):
         """Setup the dialog UI."""
         self.setModal(True)
 
-        # Ensure the dialog is resizable on all platforms
-        self.setSizeGripEnabled(True)  # Enable resize grip
+        self.setSizeGripEnabled(True)
         self.setWindowFlags(
             self.windowFlags() | Qt.WindowMaximizeButtonHint
-        )  # Enable maximize button
-        # Platform-adaptive sizing for better cross-platform experience
-        # Try to get screen where parent window is located, fall back to primary screen
+        )
         if self.parent():
             screen = QApplication.screenAt(self.parent().geometry().center())
         else:
@@ -174,7 +170,6 @@ class DetailedPlotDialog(QDialog):
         screen_rect = screen.availableGeometry() if screen else None
 
         if sys.platform == "win32":
-            # Windows: Account for title bar, taskbar, and DPI scaling
             width = min(
                 DETAILED_DIALOG_WIDTH,
                 int(screen_rect.width() * 0.85)
@@ -188,7 +183,6 @@ class DetailedPlotDialog(QDialog):
                 else DETAILED_DIALOG_HEIGHT,
             )
         elif sys.platform == "darwin":
-            # macOS: Account for menu bar and dock
             width = min(
                 DETAILED_DIALOG_WIDTH,
                 int(screen_rect.width() * 0.9)
@@ -202,7 +196,6 @@ class DetailedPlotDialog(QDialog):
                 else DETAILED_DIALOG_HEIGHT,
             )
         else:
-            # Linux: Conservative sizing
             width = min(
                 DETAILED_DIALOG_WIDTH,
                 int(screen_rect.width() * 0.85)
@@ -218,25 +211,21 @@ class DetailedPlotDialog(QDialog):
 
         self.resize(width, height)
 
-        # Set more reasonable minimum size for small screens (allow scrolling)
         min_width = min(600, int(screen_rect.width() * 0.5) if screen_rect else 600)
         min_height = min(500, int(screen_rect.height() * 0.4) if screen_rect else 500)
         self.setMinimumSize(min_width, min_height)
 
-        # Set maximum size based on available screen space with adaptive ratio
         if screen_rect:
-            # Use more generous ratios for larger screens
             screen_width = screen_rect.width()
             screen_height = screen_rect.height()
 
-            # Adaptive ratio: more generous on larger screens
-            if screen_width >= 2560:  # 4K+ monitors
+            if screen_width >= 2560:
                 width_ratio = 0.95
                 height_ratio = 0.95
-            elif screen_width >= 1920:  # 1080p+ monitors
+            elif screen_width >= 1920:
                 width_ratio = 0.92
                 height_ratio = 0.92
-            else:  # Smaller monitors
+            else:
                 width_ratio = DETAILED_DIALOG_SCREEN_RATIO
                 height_ratio = DETAILED_DIALOG_SCREEN_RATIO
 
@@ -244,7 +233,6 @@ class DetailedPlotDialog(QDialog):
             max_height = int(screen_height * height_ratio)
             self.setMaximumSize(max_width, max_height)
 
-        # Configure primary layout structure
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -262,12 +250,11 @@ class DetailedPlotDialog(QDialog):
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # Initialize scrollable container for plot widgets
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAsNeeded
-        )  # Allow horizontal scroll if needed
+        )
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setFrameShape(QFrame.NoFrame)
         theme.style(
@@ -275,21 +262,17 @@ class DetailedPlotDialog(QDialog):
             "QScrollArea { background: @surface; border: 1px solid @border; border-radius: 8px; }",
         )
 
-        # Ensure scroll area can shrink to fit in small windows
-        scroll_area.setMinimumSize(400, 300)  # Reasonable minimum for plot visibility
+        scroll_area.setMinimumSize(400, 300)
         scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Configure scroll area content widget
         scroll_widget = QWidget()
         theme.style(scroll_widget, "background-color: @surface;")
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setContentsMargins(8, 8, 8, 8)
 
-        # Initialize resizable splitter for plot arrangement
         splitter = QSplitter(Qt.Vertical)
         splitter.setChildrenCollapsible(False)
 
-        # Initialize Extracted Ion Chromatogram display
         self.eic_plot = MatplotlibPlotWidget(
             title=PLOT_TITLES[0],
             x_label="Time (min)",
@@ -306,7 +289,6 @@ class DetailedPlotDialog(QDialog):
         supporting.setChildrenCollapsible(False)
         splitter.addWidget(supporting)
 
-        # Initialize Total Ion Chromatogram display
         self.tic_plot = MatplotlibPlotWidget(
             title=PLOT_TITLES[1],
             x_label="Time (min)",
@@ -316,7 +298,6 @@ class DetailedPlotDialog(QDialog):
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         supporting.addWidget(self.tic_plot)
 
-        # Initialize Mass Spectrum display
         self.ms_plot = MatplotlibPlotWidget(
             title=PLOT_TITLES[2], x_label="m/z", y_label="Intensity"
         )
@@ -335,16 +316,12 @@ class DetailedPlotDialog(QDialog):
         for index, stretch in enumerate((3, 2)):
             splitter.setStretchFactor(index, stretch)
 
-        # Add splitter to scroll layout
         scroll_layout.addWidget(splitter)
 
-        # Set the scroll widget as the content of scroll area
         scroll_area.setWidget(scroll_widget)
 
-        # Add scroll area to main layout
         layout.addWidget(scroll_area)
 
-        # Create information display panel
         info_layout = QHBoxLayout()
         self.info_label = QLabel("Loading…")
         theme.style(self.info_label, text_style("text_secondary", 11))
@@ -358,7 +335,6 @@ class DetailedPlotDialog(QDialog):
 
         layout.addLayout(info_layout)
 
-        # Enable window maximization capability
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
 
     def _build_sample_steps(self) -> QWidget:
@@ -384,7 +360,6 @@ class DetailedPlotDialog(QDialog):
     def _load_data(self):
         """Load all required data for the plots."""
         try:
-            # Retrieve compound metadata from database
             self.compound_info = read_compound_with_session(
                 self.compound_name, self.sample_name
             )
@@ -397,7 +372,6 @@ class DetailedPlotDialog(QDialog):
                 self.identity,
             )
 
-            # Extract Extracted Ion Chromatogram data (mandatory)
             self._load_eic_data()
             if (
                 self.eic_data is not None
@@ -412,21 +386,16 @@ class DetailedPlotDialog(QDialog):
                     roffset=self.compound_info.roffset,
                 )
 
-            # Retrieve Total Ion Chromatogram data (if available)
             self._load_tic_data()
 
-            # Extract Mass Spectrum at retention time (if available)
             self._load_ms_data()
 
-            # Render all available data visualizations
             self._plot_eic()
             self._plot_tic()
             self._plot_ms()
 
-            # Update info label
             self._update_info_label()
 
-            # Validate minimum data requirements
             if not self.eic_data:
                 self._show_error(
                     "No EIC data available for this compound-sample combination"
@@ -539,7 +508,6 @@ class DetailedPlotDialog(QDialog):
             left_bound = rt - self.compound_info.loffset
             right_bound = rt + self.compound_info.roffset
 
-            # Render integration boundary markers with transparency
             for edge in (left_bound, right_bound):
                 self.eic_plot.add_vertical_line(
                     edge, color=_rgba(steel_blue_colour, 0.85), width=PLOT_GUIDELINE_WIDTH, style="dashed"
@@ -560,10 +528,8 @@ class DetailedPlotDialog(QDialog):
             # Above the plot, under its title, so it never covers a trace.
             self.eic_plot.show_legend()
 
-            # Execute batch rendering for performance
             self.eic_plot.finalize_plot()
 
-            # Record retention time values for diagnostics
             logger.debug(
                 f"EIC plot - RT: {rt:.3f}, Left: {left_bound:.3f}, Right: {right_bound:.3f}"
             )
@@ -816,10 +782,8 @@ class DetailedPlotDialog(QDialog):
             return
 
         try:
-            # Reset plot area before rendering
             self.tic_plot.clear_plot()
 
-            # Render Total Ion Chromatogram trace
             self.tic_plot.plot_line(
                 self.tic_data.time,
                 self.tic_data.intensity,
@@ -828,14 +792,12 @@ class DetailedPlotDialog(QDialog):
                 name="Total ion chromatogram",
             )
 
-            # Display retention time indicator with transparency
             if self.compound_info:
                 rt = self.compound_info.retention_time
                 self.tic_plot.add_vertical_line(
                     rt, color=COLORS["text_secondary"], width=PLOT_GUIDELINE_WIDTH, style="solid"
                 )
 
-            # Execute batch rendering for performance
             self.tic_plot.finalize_plot()
 
         except Exception as e:
@@ -850,7 +812,6 @@ class DetailedPlotDialog(QDialog):
             return
 
         try:
-            # Reset plot area before rendering
             self.ms_plot.clear_plot()
 
             channels = self.compound_info.analysis_channels if self.compound_info else ()
@@ -889,7 +850,6 @@ class DetailedPlotDialog(QDialog):
                     behind=True,
                 )
 
-            # Execute batch rendering for performance
             self.ms_plot.finalize_plot()
 
         except Exception as e:
@@ -922,7 +882,6 @@ class DetailedPlotDialog(QDialog):
         )
         msg_box.exec()
 
-        # Display error message in information panel
         self.info_label.setText(f"Error: {message}")
 
     def keyPressEvent(self, event):
@@ -935,7 +894,6 @@ class DetailedPlotDialog(QDialog):
     def cleanup_plots(self):
         """Clean up all matplotlib resources from plot widgets."""
         try:
-            # Clean up each plot widget
             if hasattr(self, "eic_plot") and self.eic_plot:
                 self.eic_plot.cleanup()
 
@@ -948,7 +906,6 @@ class DetailedPlotDialog(QDialog):
             if getattr(self, "nav_toolbar", None) is not None:
                 self.nav_toolbar.cleanup()
 
-            # Clear data references
             self.eic_data = None
             self.tic_data = None
             self.ms_data = None

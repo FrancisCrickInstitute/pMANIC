@@ -232,7 +232,7 @@ class TotalAbundanceWidget(QWidget):
         x_axis = QValueAxis()
         max_abundance, scale_exp = abundance_scale(abundances)
         scaled_max = max_abundance / 10**scale_exp
-        x_axis.setRange(0, scaled_max * 1.05)  # Add 5% padding
+        x_axis.setRange(0, scaled_max * 1.05)
         set_nice_ticks(x_axis, 0, scaled_max * 1.05, max_ticks=2)
 
         style_axis(x_axis, grid=True)

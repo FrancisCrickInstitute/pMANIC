@@ -65,11 +65,6 @@ class ToolbarDecimalValidator(QValidator):
         return QValidator.State.Invalid, text, pos
 
 
-# ─────────────────────── RT Window Boundary Checking Functions ───────────────────────
-# These pure functions handle the logic for determining when EIC data needs to be reloaded
-# due to integration boundaries falling outside the currently stored data window.
-
-
 def _parse_rt_text(rt_text: str) -> tuple[str, float, Optional[tuple[float, float]]]:
     """Parse an RT input field value.
 
@@ -88,7 +83,6 @@ def _parse_rt_text(rt_text: str) -> tuple[str, float, Optional[tuple[float, floa
     if not text:
         raise ValueError("Retention time cannot be empty")
 
-    # Robust range parsing: allow whitespace variations around '-'
     m = re.match(r"^\s*([0-9]*\.?[0-9]+)\s*-\s*([0-9]*\.?[0-9]+)\s*$", text)
     if m:
         min_rt = float(m.group(1))
@@ -204,16 +198,13 @@ class IntegrationWindow(QWidget):
     The apply button is only enabled when plots are selected.
     """
 
-    # Signal emitted when apply button is clicked and session data is updated
     session_data_applied = Signal(str, list)  # compound_name, sample_names
 
-    # Signal emitted when restore button is clicked and session data is cleared
     session_data_restored = Signal(str, list)  # compound_name, sample_names
 
     # The fields, the selection or an unapplied edit changed.
     state_changed = Signal()
 
-    # Signal emitted when regenerate button is clicked (for future implementation)
     data_regeneration_requested = Signal(
         str, float, list, object
     )  # compound_name, tr_window, sample_names, retention_time
@@ -229,12 +220,10 @@ class IntegrationWindow(QWidget):
         self.setObjectName("integrationWindow")
         self.analysis_mode = AnalysisMode.coerce(analysis_mode)
 
-        # Track current state for apply button management
         self._current_compound: str = ""
         self._selected_samples: List[str] = []
         self._all_samples: List[str] = []
 
-        # Track data window bounds for reload detection (per-sample)
         # Maps (compound_name, sample_name) to (min_time, max_time) of stored EIC data
         self._data_window_bounds: Dict[Tuple[str, str], Tuple[float, float]] = {}
 
@@ -257,7 +246,6 @@ class IntegrationWindow(QWidget):
         widget = self
         while widget.parent():
             widget = widget.parent()
-            # Check if this widget has the _create_message_box method (i.e., it's the MainWindow)
             if hasattr(widget, "_create_message_box"):
                 return widget
         return None
@@ -308,7 +296,6 @@ class IntegrationWindow(QWidget):
             edt.setObjectName(obj_name)
             edt.setToolTip(tip)
             edt.setValidator(ToolbarDecimalValidator(edt))
-            # Enable Enter key to trigger apply (same as clicking Apply button)
             edt.returnPressed.connect(self._on_apply_clicked)
             edt.textEdited.connect(lambda: self._draft_edited("peak"))
             lbl.setBuddy(edt)  # names the field for a screen reader
@@ -337,7 +324,6 @@ class IntegrationWindow(QWidget):
         editor_layout.addLayout(action_row)
         layout.addWidget(self.editor)
 
-        # tR Window field for data regeneration
         tr_window_row = QHBoxLayout()
         tr_window_row.setSpacing(8)
         tr_window_lbl = QLabel("tR window")
@@ -354,7 +340,6 @@ class IntegrationWindow(QWidget):
         )
         tr_window_lbl.setBuddy(self.tr_window_edit)
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
-        # Enable Enter key to trigger regeneration (same as clicking Apply window)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
         self.tr_window_edit.textEdited.connect(lambda: self._draft_edited("window"))
         self.regenerate_button = QPushButton("Apply window")
@@ -472,7 +457,6 @@ class IntegrationWindow(QWidget):
         to compound defaults if no EIC data exists yet.
         """
         try:
-            # Try to get RT window from actual EIC data (persisted value)
             from manic.models.database import get_connection
 
             tr_window_value = None
@@ -489,7 +473,6 @@ class IntegrationWindow(QWidget):
                 if row and row["rt_window"] is not None:
                     tr_window_value = row["rt_window"]
 
-            # Fall back to compound default if no EIC data exists
             if tr_window_value is None:
                 compound_data = read_compound(compound_name)
                 tr_window_value = getattr(compound_data, "tr_window", 0.2)
@@ -522,7 +505,7 @@ class IntegrationWindow(QWidget):
             self._update_apply_button_state()
             return
 
-        # Map compound data to UI fields (excluding tR window - only updated on compound change)
+        # The tR window is left out: it changes only with the compound.
         field_mappings = {
             "lo_input": compound_dict.get("loffset", ""),
             "tr_input": compound_dict.get("retention_time", ""),
@@ -584,18 +567,15 @@ class IntegrationWindow(QWidget):
             self._clear_fields()
             return
 
-        # Update internal state for apply button management
         self._current_compound = compound_name
         self._selected_samples = selected_samples.copy() if selected_samples else []
         self._all_samples = all_samples.copy() if all_samples else []
 
         try:
-            # Case 1: No plots selected - show range for all visible plots
             if not selected_samples and all_samples:
                 self._populate_range_fields(compound_name, all_samples)
                 return
 
-            # Case 2: No plots selected and no samples provided - use compound defaults
             if not selected_samples:
                 compound_data = read_compound(compound_name)
                 compound_dict = {
@@ -607,11 +587,9 @@ class IntegrationWindow(QWidget):
                 self.populate_fields(compound_dict)
                 return
 
-            # Case 3: Single plot selected - show specific values (with session data if available)
             if len(selected_samples) == 1:
                 sample_name = selected_samples[0]
 
-                # Get EIC data to capture data window bounds (per-sample)
                 try:
                     eics = get_eics_for_compound(compound_name, [sample_name])
                     if eics and len(eics) > 0 and len(eics[0].time) > 0:
@@ -631,7 +609,6 @@ class IntegrationWindow(QWidget):
                 self.populate_fields(compound_dict)
                 return
 
-            # Case 4: Multiple plots selected - show ranges
             self._populate_range_fields(compound_name, selected_samples)
 
         except Exception as e:
@@ -642,7 +619,6 @@ class IntegrationWindow(QWidget):
         """Populate fields with ranges for multiple samples"""
         
         try:
-            # Get EIC data for all specified samples
             eics = get_eics_for_compound(compound_name, sample_names)
 
             if not eics:
@@ -650,14 +626,12 @@ class IntegrationWindow(QWidget):
                 self._clear_fields()
                 return
 
-            # Store data window bounds for all samples
             for idx, sample_name in enumerate(sample_names):
                 if idx < len(eics) and len(eics[idx].time) > 0:
                     time_data = eics[idx].time
                     key = (compound_name, sample_name)
                     self._data_window_bounds[key] = (time_data.min(), time_data.max())
 
-            # Get compound data for each sample (including session overrides)
             rt_times = []
             loffsets = []
             roffsets = []
@@ -670,14 +644,13 @@ class IntegrationWindow(QWidget):
                 roffsets.append(compound_data.roffset)
                 tr_windows.append(getattr(compound_data, "tr_window", 0.2))
 
-            # Format ranges or single values (excluding tR window - only updated on compound change)
+            # The tR window is left out: it changes only with the compound.
             field_values = {
                 "lo_input": self._format_range(loffsets),
                 "tr_input": self._format_range(rt_times),
                 "ro_input": self._format_range(roffsets),
             }
 
-            # Populate fields
             for obj_name, value in field_values.items():
                 line_edit = self.findChild(QLineEdit, obj_name)
                 if line_edit:
@@ -692,7 +665,6 @@ class IntegrationWindow(QWidget):
         if not values:
             return ""
 
-        # Remove None values and convert to float
         clean_values = []
         for v in values:
             if v is not None:
@@ -707,11 +679,9 @@ class IntegrationWindow(QWidget):
         min_val = min(clean_values)
         max_val = max(clean_values)
 
-        # If all values are the same (or very close), show single value
         if abs(max_val - min_val) < 1e-6:
             return self._format_number(min_val)
         else:
-            # Show range with consistent formatting
             min_str = self._format_number(min_val)
             max_str = self._format_number(max_val)
             return f"{min_str} - {max_str}"
@@ -729,7 +699,6 @@ class IntegrationWindow(QWidget):
         from manic.models.database import get_connection
         
         with get_connection() as conn:
-            # Try session override first if we have selected samples
             if self._selected_samples:
                 row = conn.execute(
                     """
@@ -742,7 +711,6 @@ class IntegrationWindow(QWidget):
                 if row and row["retention_time"] is not None:
                     return row["retention_time"]
             
-            # Fall back to compound default
             row = conn.execute(
                 """
                 SELECT retention_time FROM compounds
@@ -849,16 +817,13 @@ class IntegrationWindow(QWidget):
         
         samples_needing_reload = []
         
-        # Calculate new integration boundaries using tested helper function
         left_boundary, right_boundary = calculate_integration_boundaries(
             new_rt, new_loffset, new_roffset
         )
         
-        # Check each sample independently
         for sample_name in samples_to_check:
             key = (self._current_compound, sample_name)
             
-            # If no bounds info, reload to be safe
             if key not in self._data_window_bounds:
                 logger.debug(f"No bounds info for {sample_name} - marking for reload")
                 samples_needing_reload.append(sample_name)
@@ -866,7 +831,6 @@ class IntegrationWindow(QWidget):
             
             window_min, window_max = self._data_window_bounds[key]
             
-            # Check if boundaries fit within this sample's window using tested helper
             boundaries_fit = check_boundaries_within_window(
                 left_boundary, right_boundary, window_min, window_max
             )
@@ -960,7 +924,6 @@ class IntegrationWindow(QWidget):
             self._show_message("warning", "No Compound", "No compound selected.")
             return
 
-        # Determine which samples to apply to
         samples_to_apply = (
             self._selected_samples if self._selected_samples else self._all_samples
         )
@@ -972,7 +935,6 @@ class IntegrationWindow(QWidget):
             return
 
         try:
-            # Get and validate input values
             input_values = self._get_validated_inputs()
             if input_values is None:
                 return  # Validation failed, error already shown
@@ -992,8 +954,6 @@ class IntegrationWindow(QWidget):
 
             preserve_sample_rts = (len(samples_to_apply) > 1 and rt_mode == "range")
 
-            # Determine which samples need reload (check each sample independently)
-            # In offset-only mode, use each sample's existing RT for boundary checks.
             if preserve_sample_rts:
                 sample_rts = {
                     sample_name: read_compound_with_session(
@@ -1015,7 +975,6 @@ class IntegrationWindow(QWidget):
                     f"{len(samples_needing_reload)} need reload"
                 )
                 
-                # Get current RT window value
                 tr_window_field = self.findChild(QLineEdit, "tr_window_input")
                 current_tr_window = (
                     float(tr_window_field.text()) if tr_window_field and tr_window_field.text() else 0.2
@@ -1051,7 +1010,6 @@ class IntegrationWindow(QWidget):
                 )
                 return
 
-            # No reload needed - update session activity data immediately
             if preserve_sample_rts:
                 SessionActivityService.update_offsets_preserve_rt(
                     compound_name=self._current_compound,
@@ -1068,7 +1026,6 @@ class IntegrationWindow(QWidget):
                     roffset=roffset,
                 )
 
-            # Emit signal to trigger plot refresh
             self.session_data_applied.emit(self._current_compound, samples_to_apply)
 
         except Exception as e:
@@ -1082,7 +1039,6 @@ class IntegrationWindow(QWidget):
             self._show_message("warning", "No Compound", "No compound selected.")
             return
 
-        # Determine which samples to restore
         samples_to_restore = (
             self._selected_samples if self._selected_samples else self._all_samples
         )
@@ -1112,13 +1068,11 @@ class IntegrationWindow(QWidget):
             self._drafts.pop(self._draft_key(), None)
             self._loaded = self._field_texts()
             try:
-                # Remove session data to restore defaults
                 SessionActivityService.restore_samples_to_defaults(
                     compound_name=self._current_compound,
                     sample_names=samples_to_restore,
                 )
 
-                # Emit signal to trigger plot refresh
                 self.session_data_restored.emit(
                     self._current_compound, samples_to_restore
                 )
@@ -1138,7 +1092,6 @@ class IntegrationWindow(QWidget):
             Tuple of (retention_time, loffset, roffset) if validation passes, None otherwise
         """
         try:
-            # Get field values
             lo_field = self.findChild(QLineEdit, "lo_input")
             ro_field = self.findChild(QLineEdit, "ro_input")
             tr_field = self.findChild(QLineEdit, "tr_input")
@@ -1146,7 +1099,6 @@ class IntegrationWindow(QWidget):
             if lo_field is None or ro_field is None or tr_field is None:
                 raise ValueError("Could not find required input fields")
 
-            # Parse and validate retention time
             try:
                 rt_mode, retention_time, _rt_range = _parse_rt_text(tr_field.text())
             except ValueError:
@@ -1158,12 +1110,10 @@ class IntegrationWindow(QWidget):
                 tr_field.setFocus()
                 return None
 
-            # Parse and validate left offset
             try:
                 loffset_text = lo_field.text().strip()
                 if not loffset_text:
                     raise ValueError("Left offset cannot be empty")
-                # Handle range format (e.g., "1.2 - 1.5") by taking first value
                 if " - " in loffset_text:
                     loffset_text = loffset_text.split(" - ")[0]
                 loffset = float(loffset_text)
@@ -1174,12 +1124,10 @@ class IntegrationWindow(QWidget):
                 lo_field.setFocus()
                 return None
 
-            # Parse and validate right offset
             try:
                 roffset_text = ro_field.text().strip()
                 if not roffset_text:
                     raise ValueError("Right offset cannot be empty")
-                # Handle range format
                 if " - " in roffset_text:
                     roffset_text = roffset_text.split(" - ")[0]
                 roffset = float(roffset_text)
@@ -1190,7 +1138,6 @@ class IntegrationWindow(QWidget):
                 ro_field.setFocus()
                 return None
 
-            # Basic validation
             if retention_time <= 0:
                 self._show_message(
                     "warning", "Invalid Input", "Retention time must be positive"
@@ -1226,7 +1173,6 @@ class IntegrationWindow(QWidget):
             self._show_message("warning", "No Compound", "No compound selected.")
             return
 
-        # Get and validate tR window input
         tr_window_field = self.findChild(QLineEdit, "tr_window_input")
         if not tr_window_field:
             self._show_message(
@@ -1243,7 +1189,6 @@ class IntegrationWindow(QWidget):
                 tr_window_field.setFocus()
                 return
 
-            # Handle range format (take first value like other fields)
             if " - " in tr_window_text:
                 tr_window_text = tr_window_text.split(" - ")[0]
 

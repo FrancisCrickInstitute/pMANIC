@@ -15,8 +15,8 @@ from PySide6.QtCharts import (
     QValueAxis,
     QXYSeries,
 )
-from PySide6.QtCore import QEvent, QMargins, QObject, QPoint, QPointF, QRect, Qt
-from PySide6.QtGui import QBrush, QFont, QFontMetrics, QFontMetricsF, QPen
+from PySide6.QtCore import QEvent, QMargins, QObject, QPoint, QPointF, QRect, Qt, QTimer
+from PySide6.QtGui import QBrush, QCursor, QFont, QFontMetrics, QFontMetricsF, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsSimpleTextItem, QToolTip
 
 from manic.ui.theme import color, remap_color
@@ -223,27 +223,39 @@ class BarRows(QObject):
         super().__init__(view.viewport())
         self._chart, self._view = chart, view
         self._activated, self._tip = activated, tip
-        self._pointer: QPoint | None = None
         self._showing: str | None = None
+        self._settled = QTimer(self, singleShot=True, interval=0)
+        self._settled.timeout.connect(lambda: self._show_under(QCursor.pos()))
         view.viewport().setMouseTracking(True)
         view.viewport().installEventFilter(self)
 
     def refresh(self, pointer: QPoint | None = None) -> None:
-        """Show the tip for the place under the pointer, now at ``pointer`` if given (a
-        viewport point; the keys give a row's name); hide it where there is none."""
-        if pointer is not None:
-            self._pointer = pointer
+        """Show the tip for the place at ``pointer`` (a viewport point; the keys give a row's
+        name), or with none given, under the pointer once the layout has settled; hide it
+        where there is none."""
+        if pointer is None:
+            self._settled.start()
+        else:
+            self._show_at(pointer)
+
+    def _show_under(self, at: QPoint) -> None:
+        # Qt sends no event when the chart moves under a still pointer, so a point kept in the
+        # viewport goes stale; the screen point stays true while the pointer rests.
+        viewport = self._view.viewport()
+        self._show_at(viewport.mapFromGlobal(at) if QApplication.widgetAt(at) is viewport else None)
+
+    def _show_at(self, pointer: QPoint | None) -> None:
         text = None
-        row = None if self._pointer is None else bar_row_at(self._chart, self._view, self._pointer)
+        row = None if pointer is None else bar_row_at(self._chart, self._view, pointer)
         if row is not None:
-            scene = self._view.mapToScene(self._pointer)
+            scene = self._view.mapToScene(pointer)
             value = self._chart.mapToValue(self._chart.mapFromScene(scene), self._chart.series()[0])
             text = self._tip(row, value)
         if text is None:
             if self._showing is not None:
                 QToolTip.hideText()
         else:
-            screen = self._view.viewport().mapToGlobal(self._pointer)
+            screen = self._view.viewport().mapToGlobal(pointer)
             if text != self._showing and QToolTip.isVisible() and QToolTip.text() == text:
                 # Qt ignores the same text while the hide just asked for is pending; new text cancels it.
                 QToolTip.showText(screen, text + " ", self._view)
@@ -253,13 +265,14 @@ class BarRows(QObject):
     def eventFilter(self, obj, event) -> bool:
         kind = event.type()
         if kind == QEvent.ToolTip:
-            self.refresh(event.pos())
+            self._show_under(event.globalPos())
             # Unanswered, the scene would hide any tip none of its items own.
             return True
         if kind == QEvent.MouseMove:
-            self.refresh(event.position().toPoint())
+            self._show_at(event.position().toPoint())
         elif kind in (QEvent.Leave, QEvent.Hide):
-            self._pointer = None
+            self._show_at(None)
+        elif kind == QEvent.Resize:
             self.refresh()
         elif kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             row = bar_row_at(self._chart, self._view, event.position().toPoint())

@@ -1,12 +1,13 @@
 import pytest
-from PySide6.QtCore import QPointF, Qt, QTimer
-from PySide6.QtGui import QFontMetrics, QTextDocumentFragment
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
+from PySide6.QtGui import QFontMetrics, QHelpEvent, QMouseEvent, QTextDocumentFragment
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
     QScrollArea,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -200,6 +201,50 @@ def test_rebuilding_the_grid_replaces_its_marks(qapp):
         widget.clear()
         assert _marks(widget.chart) == []
     finally:
+        widget.deleteLater()
+
+
+def test_identity_rows_answer_hover_with_the_sample_and_cells_with_their_detail(qapp, monkeypatch):
+    widget = TargetedQcWidget()
+    shown = []
+    monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_args: shown.append(text))
+    try:
+        widget.update_results(_identity(["S1", "S2"], failed=("S2",), qualifiers=(V1, V2)))
+        _settle(widget)
+        chart, viewport = widget.chart, widget.chart_view.viewport()
+
+        def at(x, row) -> QPointF:
+            point = chart.mapToPosition(QPointF(x, row), chart.series()[0])
+            if x < 0:
+                point.setX(chart.plotArea().left() - 5)
+            return QPointF(widget.chart_view.mapFromScene(chart.mapToScene(point)))
+
+        def hover(x, row) -> str:
+            pos = at(x, row)
+            for _ in range(2):
+                QApplication.sendEvent(
+                    viewport,
+                    QMouseEvent(QEvent.MouseMove, pos, viewport.mapToGlobal(pos),
+                                Qt.NoButton, Qt.NoButton, Qt.NoModifier),
+                )
+            return shown[-1]
+
+        # Rows count up from the bottom, so S2 is row 0.
+        assert hover(-1, 0) == "S2\nQualifier 1  Failed\nQualifier 2  Failed"
+        assert hover(1.5, 0).startswith("S2\nQualifier 2  Failed\n")
+        assert hover(-1, 1) == "S1\nQualifier 1  Validated\nQualifier 2  Validated"
+        assert widget.chart_view.toolTip() == ""
+
+        # Resting on the name, Qt asks for a tooltip; the row's tip stays up.
+        monkeypatch.undo()
+        hover(-1, 1)
+        point = at(-1, 1).toPoint()
+        QApplication.sendEvent(viewport, QHelpEvent(QEvent.ToolTip, point, viewport.mapToGlobal(point)))
+        QTest.qWait(400)
+        assert QToolTip.isVisible()
+        assert QToolTip.text() == "S1\nQualifier 1  Validated\nQualifier 2  Validated"
+    finally:
+        QToolTip.hideText()
         widget.deleteLater()
 
 

@@ -301,6 +301,57 @@ def test_the_arrows_step_through_the_samples_in_grid_order(qapp, monkeypatch):
         dialog.deleteLater()
 
 
+def test_stepping_to_a_sample_with_no_tic_or_spectrum_draws_their_no_data_state(qapp, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from manic.io.compound_reader import Compound
+    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
+
+    time = np.linspace(0.8, 1.2, 81)
+    peak = 1e6 * np.exp(-0.5 * ((time - 1.0) / 0.02) ** 2)
+    compound = Compound(
+        compound_name="Cmp", retention_time=1.0, loffset=0.1, roffset=0.1, mass0=217.0, label_atoms=0
+    )
+    module = "manic.ui.detailed_plot_dialog"
+    monkeypatch.setattr(f"{module}.read_compound_with_session", lambda *_a: compound)
+    monkeypatch.setattr(
+        f"{module}.get_eics_for_compound",
+        lambda name, samples, **_k: [
+            SimpleNamespace(sample_name=s, compound_name=name, time=time, intensity=np.vstack([peak]))
+            for s in samples
+        ],
+    )
+    monkeypatch.setattr(
+        f"{module}.read_tic",
+        lambda sample: SimpleNamespace(time=time, intensity=peak) if sample == "S1" else None,
+    )
+    monkeypatch.setattr(
+        f"{module}.ensure_ms_data_for_time",
+        lambda sample, *_a, **_k: SimpleNamespace(
+            time=1.0, mz=np.array([200.0, 217.0, 230.0]), intensity=np.array([1e5, 2e5, 1e4])
+        ) if sample == "S1" else None,
+    )
+    dialog = DetailedPlotDialog("Cmp", "S1", samples=["S1", "S2"])
+    try:
+        dialog.show()
+        QTest.qWait(150)
+        drawn = {}
+        for plot in (dialog.tic_plot, dialog.ms_plot):
+            plot.canvas.mpl_connect(
+                "draw_event",
+                lambda _e, ax=plot.ax: drawn.__setitem__(
+                    ax.get_title(loc="left"), len(ax.lines) + len(ax.collections)
+                ),
+            )
+        QTest.mouseClick(dialog.next_sample, Qt.LeftButton)
+        QTest.qWait(150)
+        assert drawn == {"Total ion chromatogram (no data)": 0, "Mass spectrum (no data)": 0}
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
 def test_the_header_names_a_sample_s_fit_override_as_its_grid_caption_does(qapp, monkeypatch):
     from manic.models.sample_fit_type import set_sample_fit_type
     from manic.ui.detailed_plot_dialog import DetailedPlotDialog

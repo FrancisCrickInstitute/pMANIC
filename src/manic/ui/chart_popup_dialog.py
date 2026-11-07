@@ -766,6 +766,9 @@ class ChartPopupDialog(QDialog):
         if obj is self.chart_view and event.type() == QEvent.Resize:
             self._fit_names()
         if obj is self.chart_view.viewport() and self.row_names():
+            if event.type() == QEvent.ToolTip:
+                # The scene answers a tooltip request by hiding any tip none of its items own.
+                return self._row_at(event.pos()) is not None
             if event.type() == QEvent.MouseMove:
                 row = self._row_at(event.position().toPoint())
                 if row is not None and row != self._current_row:

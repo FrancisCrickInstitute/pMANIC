@@ -1,5 +1,5 @@
 import pytest
-from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QFontMetrics, QHelpEvent, QMouseEvent, QTextDocumentFragment
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -254,6 +254,34 @@ def test_identity_rows_answer_hover_with_the_sample_and_cells_with_their_detail(
     finally:
         QToolTip.hideText()
         widget.deleteLater()
+
+
+def test_the_popup_cell_tip_stays_up_while_the_pointer_rests_on_the_cell(qapp):
+    dialog = ChartPopupDialog.for_identity(_identity(["S1", "S2"], failed=("S2",)))
+    try:
+        _settle(dialog, 820, 400)
+        dialog.activateWindow()
+        assert QTest.qWaitForWindowActive(dialog)
+        chart, view = dialog.chart, dialog.chart_view
+        # Rows count up from the bottom, so S2 is row 0.
+        cell = view.mapFromScene(chart.mapToScene(chart.mapToPosition(QPointF(0.5, 0), chart.series()[0])))
+        window = dialog.windowHandle()
+        # An earlier test may leave a QTest button down, which makes every move a drag.
+        for button in (Qt.LeftButton, Qt.RightButton, Qt.MiddleButton):
+            QTest.mouseRelease(window, button, Qt.NoModifier, QPoint(1, 1))
+        QTest.mouseMove(window, view.viewport().mapTo(dialog, cell))
+        QTest.qWait(150)
+        tip = "S2\nQualifier 1  Failed\nexpected 0.400  ±25%  observed 0.900"
+        assert QToolTip.text() == tip
+        # Resting with no further movement, Qt asks the viewport for a tooltip.
+        QTest.qWait(1500)
+        assert QToolTip.isVisible()
+        assert QToolTip.text() == tip
+        dialog.close()
+        assert not QToolTip.isVisible()
+    finally:
+        QToolTip.hideText()
+        dialog.deleteLater()
 
 
 @pytest.mark.parametrize("dark", [False, True])

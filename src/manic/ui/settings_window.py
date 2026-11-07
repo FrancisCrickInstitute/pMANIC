@@ -858,7 +858,6 @@ class SettingsWindow(QDialog):
 
     def __init__(self, parent: QWidget, host) -> None:
         super().__init__(parent)
-        self._host = host
         self.setObjectName("settingsWindow")
         # [*] lets setWindowModified() mark unsaved pages in the title bar.
         self.setWindowTitle(window_title("Settings[*]"))

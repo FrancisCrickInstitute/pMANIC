@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenuBar,
     QMessageBox,
-    QProgressBar,
     QProgressDialog,
     QPushButton,
     QSplitter,
@@ -144,7 +143,6 @@ class MainWindow(QMainWindow):
 
         # Set window icon
         self._set_window_icon()
-        self.progress_bar = QProgressBar()
 
         # Menu actions
         self.load_cdf_action = None
@@ -1236,7 +1234,7 @@ class MainWindow(QMainWindow):
         self._recent_compounds.add(path)
         self.open_recent_menu.setEnabled(True)
         try:
-            self.compounds_data_storage = import_compound_excel(
+            import_compound_excel(
                 path,
                 analysis_mode=self.analysis_mode,
             )

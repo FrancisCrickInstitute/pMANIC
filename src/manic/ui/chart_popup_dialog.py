@@ -279,7 +279,6 @@ class ChartPopupDialog(QDialog):
 
         # The ion key's (labels, styles); with a current row it reads that row's shares.
         self._ratio_key: tuple[list[str], list[ChannelTraceStyle]] | None = None
-        self._hover_notes: list[str] | None = None
         self._identity_binding: IdentityGridBinding | None = None
         self._value_labels: list[tuple[QGraphicsSimpleTextItem, float, int]] = []
         self._current_row: int | None = None

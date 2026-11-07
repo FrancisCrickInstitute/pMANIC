@@ -79,7 +79,7 @@ class TargetedQcWidget(QWidget):
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
         # Rows count up from the bottom; samples read top down.
-        BarRows(
+        self._rows = BarRows(
             self.chart,
             self.chart_view,
             lambda row: self.sample_activated.emit(self._identity.samples[-1 - row].sample_name),
@@ -164,6 +164,7 @@ class TargetedQcWidget(QWidget):
         self.key.setToolTip(IDENTITY_KEY_TOOLTIP)
         self.key.setVisible(assessed)
         self._cap_height()
+        self._rows.refresh()
 
     def _cap_height(self) -> None:
         """As tall as its rows and no taller, so no band opens below one sample."""
@@ -189,6 +190,7 @@ class TargetedQcWidget(QWidget):
         add_identity_grid(self.chart, ())
         self._paint_highlight()
         self._cap_height()
+        self._rows.refresh()
 
     def _fit_names(self, *_args) -> None:
         axes = self.chart.axes(Qt.Vertical)

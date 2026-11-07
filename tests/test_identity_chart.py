@@ -233,7 +233,7 @@ def test_identity_rows_answer_hover_with_the_sample_and_cells_with_their_detail(
 
         # Rows count up from the bottom, so S2 is row 0.
         assert hover(-1, 0) == "S2\nQualifier 1  Failed\nQualifier 2  Failed"
-        assert hover(1.5, 0).startswith("S2\nQualifier 2  Failed\n")
+        assert hover(1.5, 0) == "S2\nQualifier 2  Failed\nexpected 0.200  ±25%  observed 0.900"
         assert hover(-1, 1) == "S1\nQualifier 1  Validated\nQualifier 2  Validated"
         assert widget.chart_view.toolTip() == ""
 

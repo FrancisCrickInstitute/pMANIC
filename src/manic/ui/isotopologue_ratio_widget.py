@@ -32,7 +32,7 @@ from . import theme
 from .chart_header import ChartHeader
 from .chart_popup_dialog import PinnedAxis, missing_ratio_note, value_axis_ticks
 from .chart_style import (
-    SummaryRows,
+    BarRows,
     fit_category_names,
     fit_name_font,
     place_row_notes,
@@ -82,11 +82,11 @@ class IsotopologueRatioWidget(QWidget):
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
 
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
-        SummaryRows(
+        BarRows(
             self.chart,
             self.chart_view,
             lambda row: self.sample_activated.emit(self._current_sample_names[row]),
-            self.hover_text,
+            lambda row, _value: self.hover_text(row),
         )
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))

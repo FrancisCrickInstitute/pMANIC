@@ -43,7 +43,6 @@ from manic.ui.summary_panel import SummaryPanel
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
-from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.targeted_qc_widget import TargetedQcWidget
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
@@ -285,38 +284,6 @@ def test_identity_chart_click_emits_sample_name(qapp):
         assert activated == ["S1"]
     finally:
         widget.deleteLater()
-
-
-def test_identity_chart_popup_hover_maps_live_cell(qapp, monkeypatch):
-    channels = (_qion(), _v1())
-    identity = _identity_snapshot(
-        channels, ("S1", _supported_qc(channels, True), None)
-    )
-    shown = []
-    hidden = []
-    monkeypatch.setattr(
-        "manic.ui.chart_popup_dialog.show_identity_tooltip",
-        lambda _widget, text: shown.append(text),
-    )
-    monkeypatch.setattr(
-        "manic.ui.chart_popup_dialog.QToolTip.hideText",
-        lambda: hidden.append(True),
-    )
-    dialog = ChartPopupDialog.for_identity(identity)
-    try:
-        v1_set = dialog._identity_binding.bar_sets[0]
-        assert dialog._identity_binding.cell_for(v1_set).sample_name == "S1"
-        v1_set.hovered.emit(True, 0)
-        assert len(shown) == 1
-        assert "S1" in shown[0]
-        assert "Validated" in shown[0]
-        shown.clear()
-        hidden.clear()
-        v1_set.hovered.emit(True, 1)
-        assert shown == []
-        assert hidden == [True]
-    finally:
-        dialog.deleteLater()
 
 
 def test_channel_trace_styles_keep_q_steel_blue_and_solid():

@@ -28,7 +28,7 @@ from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import PinnedAxis, bar_value_text, value_axis_ticks
 from manic.ui.chart_style import (
-    SummaryRows,
+    BarRows,
     abundance_scale,
     fit_category_names,
     fit_name_font,
@@ -83,11 +83,11 @@ class TotalAbundanceWidget(QWidget):
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
 
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
-        SummaryRows(
+        BarRows(
             self.chart,
             self.chart_view,
             lambda row: self.sample_activated.emit(self._current_sample_names[row]),
-            self.hover_text,
+            lambda row, _value: self.hover_text(row),
         )
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSettings, QSize, Qt, Signal
 from PySide6.QtGui import (
     QFont,
     QFontMetrics,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -206,7 +207,8 @@ class StatusRow(QPushButton):
         # Short of room the title elides, but the sidebar keeps the room it needs whole.
         self._title = ElidedLabel(title)
         self._title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self._value = ElidedLabel()
+        # Cut in the middle, like the compound list, so a long name keeps its ending.
+        self._value = ElidedLabel(mode=Qt.TextElideMode.ElideMiddle)
         self._value.setObjectName("statusValue")
         self._value.setAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -226,6 +228,16 @@ class StatusRow(QPushButton):
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 (Qt override)
         return self.sizeHint()
+
+    def event(self, event) -> bool:  # noqa: N802 (Qt override)
+        # The value lets the mouse through, so a cut value shows whole in the row's tooltip.
+        if event.type() == QEvent.Type.ToolTip:
+            value = self._value.full_text()
+            if self._value.text() != value:
+                text = "\n".join(filter(None, (value, self.toolTip())))
+                QToolTip.showText(event.globalPos(), text, self)
+                return True
+        return super().event(event)
 
     def _on_theme_changed(self, _remap: dict) -> None:
         self._icon.setPixmap(status_pixmap(self._state))

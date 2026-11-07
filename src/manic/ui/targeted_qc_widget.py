@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QScrollArea,
     QSizePolicy,
-    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -40,7 +39,6 @@ from manic.ui.identity_chart import (
     identity_column_headers,
     identity_unassessed_note,
     qualifier_gap_note,
-    show_identity_tooltip,
 )
 from manic.ui import theme
 from manic.ui.sidebar_widgets import ROOMY_ROW_PX, SUMMARY_SHORT_ROWS
@@ -82,7 +80,7 @@ class TargetedQcWidget(QWidget):
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
         # Rows count up from the bottom; samples read top down.
-        SummaryRows(
+        self._rows = SummaryRows(
             self.chart,
             self.chart_view,
             lambda row: self.sample_activated.emit(self._identity.samples[-1 - row].sample_name),
@@ -244,21 +242,15 @@ class TargetedQcWidget(QWidget):
             )
 
     def _on_grid_hovered(self, bar_set: QBarSet, status: bool, index: int) -> None:
-        if (
-            not status
-            or self._binding is None
-            or index < 0
-            or index >= bar_set.count()
-            or bar_set.at(index) <= 0
-        ):
-            self._hovered_cell = None
-            QToolTip.hideText()
-            return
-        self._hovered_cell = self._binding.cell_for(bar_set)
-        if self._hovered_cell is None:
-            QToolTip.hideText()
-            return
-        show_identity_tooltip(self.chart_view, identity_cell_tooltip(self._hovered_cell))
+        entered = (
+            status
+            and self._binding is not None
+            and 0 <= index < bar_set.count()
+            and bar_set.at(index) > 0
+        )
+        self._hovered_cell = self._binding.cell_for(bar_set) if entered else None
+        # The scene reports a cell after the move's tip was shown, so show it again.
+        self._rows.refresh()
 
     def _row_tip(self, row: int) -> str:
         """Over a cell its own detail; over the name, the sample and each qualifier's state."""

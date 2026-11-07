@@ -219,7 +219,8 @@ class BarRows(QObject):
         activated: Callable[[int], None],
         tip: Callable[[int, QPointF], str | None],
     ):
-        super().__init__(view)
+        # The viewport's child, so its filter goes before the viewport's own teardown events.
+        super().__init__(view.viewport())
         self._chart, self._view = chart, view
         self._activated, self._tip = activated, tip
         self._pointer: QPoint | None = None

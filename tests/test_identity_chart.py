@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from manic.models.analysis import IonChannel, IonRole
 from manic.ui import theme
@@ -333,8 +334,10 @@ def test_chart_tips_follow_the_pointer_through_every_transition(qapp, kind, tran
     finally:
         QToolTip.hideText()
         QTest.qWait(350)
-        window.close()
-        window.deleteLater()
+        # A closed popup has already deleted itself.
+        if isValid(window):
+            window.close()
+            window.deleteLater()
 
 
 @pytest.mark.parametrize("dark", [False, True])
@@ -393,7 +396,7 @@ def test_identity_popup_row_selects_the_sample_through_the_qc_widget(qapp):
         widget.header.expand_button.click()
         assert seen["rows"] == ["S1", "S2"]
         assert activated == ["S2"]
-        assert not seen["dialog"].isVisible()
+        assert not isValid(seen["dialog"])
     finally:
         watchdog.stop()
         widget.deleteLater()

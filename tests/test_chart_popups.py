@@ -1,8 +1,12 @@
+import gc
+import subprocess
+import sys
+import tempfile
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
+from PySide6.QtCore import QEvent, QPointF, QSettings, Qt, QTimer
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -10,8 +14,11 @@ from PySide6.QtWidgets import (
     QDialog,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
+    QHBoxLayout,
+    QPushButton,
     QScrollArea,
     QToolTip,
+    QWidget,
 )
 
 from manic.io.compounds_import import (
@@ -201,15 +208,12 @@ def test_row_keys_work_from_the_focus_a_real_open_gives(qapp, make):
 
     QTimer.singleShot(0, drive)
     QTimer.singleShot(5000, dialog.reject)
-    try:
-        result = dialog.exec()
-        assert seen["focus"] is dialog.chart_view
-        assert seen["first"] == "Bio_001"
-        assert seen["before_return"] == "Bio_029"
-        assert activated == ["Bio_029"]
-        assert result == QDialog.Accepted
-    finally:
-        dialog.deleteLater()
+    result = dialog.exec()
+    assert seen["focus"] is dialog.chart_view
+    assert seen["first"] == "Bio_001"
+    assert seen["before_return"] == "Bio_029"
+    assert activated == ["Bio_029"]
+    assert result == QDialog.Accepted
 
 
 def test_return_first_shows_the_row_it_would_open(qapp):
@@ -352,3 +356,83 @@ def test_the_label_key_reads_the_current_rows_percentages(qapp):
         assert dialog.ion_legend.labels() == ["M+0", "M+1"]
     finally:
         dialog.deleteLater()
+
+
+def _open_and_close_every_popup(scheme: str) -> None:
+    """Opens each Summary chart's popup with its enlarge button 30 times, closing it by Esc
+    or its Close button, and collects garbage after each close as Python may at any time."""
+    from test_chart_summaries import _abundance as summary_abundance, _ratios as summary_ratios
+    from test_identity_chart import _identity, _qualifier
+
+    from manic.ui import isotopologue_ratio_widget, total_abundance_widget
+    from manic.ui.targeted_qc_widget import TargetedQcWidget
+    from manic.utils.utils import set_appearance
+
+    app = QApplication([])
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tempfile.mkdtemp())
+    set_appearance(app, scheme)
+    total_abundance_widget.peak_area_label = lambda _compound: "Peak area"
+    isotopologue_ratio_widget.read_compound_with_session = lambda _compound, _sample: None
+    isotopologue_ratio_widget.integrated_display_areas = (
+        lambda _time, intensity, _compound, use_corrected: list(intensity.sum(axis=1))
+    )
+    errors = []
+
+    def report(kind, value, tb):
+        errors.append(f"{kind.__name__}: {value}")
+        sys.__excepthook__(kind, value, tb)
+
+    sys.excepthook = report
+
+    identity = TargetedQcWidget()
+    identity.update_results(_identity(["S1", "S2"], failed=("S2",)))
+    # Like Glycine: its qualifiers have no expected ratio, so the popup is a note.
+    unassessed = TargetedQcWidget()
+    unassessed.update_results(_identity(["S1", "S2"], qualifiers=(_qualifier(1),)))
+    charts = [identity, unassessed, summary_abundance(["S1", "S2"]), summary_ratios(["S1", "S2"])]
+    host = QWidget()
+    row = QHBoxLayout(host)
+    for chart in charts:
+        row.addWidget(chart)
+    host.resize(1200, 500)
+    host.show()
+    QTest.qWaitForWindowExposed(host)
+
+    opened = 0
+    for chart in charts:
+        for i in range(30):
+            def close(tries=50):
+                dialog = QApplication.activeModalWidget()
+                if not isinstance(dialog, ChartPopupDialog):
+                    if tries:
+                        QTimer.singleShot(10, lambda: close(tries - 1))
+                    return
+                if i % 2:
+                    QTest.keyClick(dialog, Qt.Key_Escape)
+                else:
+                    button = next(b for b in dialog.findChildren(QPushButton) if b.text() == "Close")
+                    QTest.mouseClick(button, Qt.LeftButton)
+                nonlocal opened
+                opened += 1
+
+            QTimer.singleShot(0, close)
+            QTest.mouseClick(chart.header.expand_button, Qt.LeftButton)
+            gc.collect()
+            assert not errors, errors
+            assert not chart.findChildren(ChartPopupDialog), "a closed popup is left behind"
+    print(f"{opened} popups opened and closed")
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_every_popup_opens_and_closes_thirty_times_without_a_crash(scheme):
+    # In a child process, so a crash fails this test instead of ending the run.
+    run = subprocess.run(
+        [sys.executable, __file__, scheme], capture_output=True, text=True, timeout=600
+    )
+    assert run.returncode == 0, run.stderr[-4000:]
+    assert run.stdout.splitlines()[-1] == "120 popups opened and closed"
+
+
+if __name__ == "__main__":
+    _open_and_close_every_popup(sys.argv[1])

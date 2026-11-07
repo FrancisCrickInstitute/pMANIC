@@ -351,3 +351,22 @@ def test_long_names_are_cut_in_the_middle_and_shown_whole_on_hover(qapp, monkeyp
     finally:
         dialog.close()
         dialog.deleteLater()
+
+
+def test_closing_with_a_draw_queued_prints_no_traceback(qapp, dialog, capsys):
+    from manic.models.analysis import IonChannel, IonRole
+
+    dialog.ms_data = SimpleNamespace(mz=SPECTRUM_MZ, intensity=SPECTRUM_INTENSITY)
+    dialog.compound_info = SimpleNamespace(
+        analysis_channels=[IonChannel(mz, IonRole.ISOTOPOLOGUE, ordinal=i) for i, mz in enumerate(OWN_IONS)],
+        mass0=174.0,
+    )
+    dialog._plot_ms()
+    dialog.show()
+    qapp.processEvents()
+    capsys.readouterr()
+    dialog.ms_plot.canvas.draw_idle()
+    dialog.close()
+    for _ in range(5):
+        qapp.processEvents()
+    assert "Traceback" not in capsys.readouterr().err

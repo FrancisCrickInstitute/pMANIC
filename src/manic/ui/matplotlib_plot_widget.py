@@ -789,6 +789,8 @@ class MatplotlibPlotWidget(QWidget):
             self._cluster = (label, bracket)
 
     def _on_draw(self, _event=None) -> None:
+        if self.ax is None:  # a draw queued before cleanup() lands after it
+            return
         if self.full_scan_button is not None:
             self._place_full_scan_button()
         if not self._peak_labels:

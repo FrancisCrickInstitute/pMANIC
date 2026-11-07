@@ -42,7 +42,7 @@ from manic.ui.identity_chart import (
 from manic.ui import theme
 from manic.ui.sidebar_widgets import ROOMY_ROW_PX, SUMMARY_SHORT_ROWS
 from manic.ui.theme import color
-from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
+from manic.validation.unlabelled_identity import IdentityAssessmentSet
 
 # Tall enough for each row's state mark and sample name.
 IDENTITY_ROW = 18
@@ -161,14 +161,8 @@ class TargetedQcWidget(QWidget):
         self._connect_cell_signals()
         self._fit_names()
         self._paint_highlight()
-        failed = sum(
-            any(q.status is QualifierStatus.FAILED for q in sample.qualifiers)
-            for sample in identity.samples
-        )
-        # The sample total is the Samples section's; only the failures are news here.
-        self.header.set_has_data(
-            True, f"{failed} sample{'s' if failed != 1 else ''} failed" if failed else ""
-        )
+        # The footer tallies the failures; a sample count here would be a second number for them.
+        self.header.set_has_data(True)
         self.key.setText(identity_key_html(identity, swatches=False))
         self.key.setToolTip(IDENTITY_KEY_TOOLTIP)
         self.key.setVisible(assessed)

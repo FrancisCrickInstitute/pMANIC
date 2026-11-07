@@ -164,7 +164,8 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         ]
         assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1"]
 
-        assert widget.header.detail.text() == "2 samples failed"
+        # The tally is the one count of failures.
+        assert widget.header.detail.text() == ""
         # The grid's QC key names the states beside the Summary, which only tallies them;
         # the popup has its own key.
         assert _plain(widget.key) == "Qualifier cells   ✓ 1   ✕ 2"
@@ -194,10 +195,8 @@ def test_rebuilding_the_grid_replaces_its_marks(qapp):
     widget = TargetedQcWidget()
     try:
         widget.update_results(_identity(["S1", "S2"], failed=("S2",)))
-        assert widget.header.detail.text() == "1 sample failed"
         widget.update_results(_identity(["S1"]))
         assert [text for text, _shown in _marks(widget.chart)] == ["✓"]
-        assert widget.header.detail.text() == ""
         widget.clear()
         assert _marks(widget.chart) == []
     finally:

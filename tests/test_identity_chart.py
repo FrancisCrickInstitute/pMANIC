@@ -16,12 +16,13 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
-from manic.models.analysis import IonChannel, IonRole
+from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.ui import theme
 from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.chart_style import ui_font
 from manic.ui.colors import QUALIFIER_PASS_TINT, QUALIFIER_RED
 from manic.ui.sidebar_widgets import ROOMY_ROW_PX
+from manic.ui.summary_panel import SummaryPanel
 from manic.ui.targeted_qc_widget import TargetedQcWidget
 from manic.ui.total_abundance_widget import TotalAbundanceWidget
 from manic.validation.unlabelled_identity import (
@@ -331,9 +332,9 @@ def test_chart_tips_follow_the_pointer_through_every_transition(qapp, kind, tran
                 at.setX(chart.plotArea().left() - 10 - (step[0] == "nudge"))
             return view.viewport().mapTo(window, view.mapFromScene(chart.mapToScene(at)))
 
-        handle = window.windowHandle()
+        # The widget overload moves the cursor too, as a real pointer does.
         for step in path:
-            QTest.mouseMove(handle, point(step))
+            QTest.mouseMove(window, point(step))
             QTest.qWait(50)
         if last == ("close",):
             QTest.qWait(400)
@@ -344,7 +345,7 @@ def test_chart_tips_follow_the_pointer_through_every_transition(qapp, kind, tran
             assert QToolTip.isVisible()
             _change_data(window, kind, last)
         else:
-            QTest.mouseMove(handle, point(last))
+            QTest.mouseMove(window, point(last))
         expected = {"leave": None, "close": None, "no data": None, "nudge": TIPS[kind].get(("name", last[-1]))}.get(
             last[0], TIPS[kind].get(last)
         )
@@ -358,6 +359,44 @@ def test_chart_tips_follow_the_pointer_through_every_transition(qapp, kind, tran
         if isValid(window):
             window.close()
             window.deleteLater()
+
+
+def test_a_resting_tip_follows_the_charts_a_compound_change_moves(qapp):
+    """Qt sends no event when a chart moves under a still pointer; the tip must still describe
+    the place under it. Glycine has no expected ratios, so Identity shrinks to its note and
+    Peak area moves up into its place; Serine's grid pushes Peak area back down."""
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    names = LONG[:8]
+    eics = [SimpleNamespace(sample_name=name) for name in names]
+    panel = SummaryPanel(AnalysisMode.UNLABELLED)
+
+    def show(compound, qualifiers, scale):
+        panel.targeted_qc.update_results(_identity(names, qualifiers=qualifiers))
+        panel.total_abundance.update_abundance_from_data(compound, eics, np.arange(1, 9) * scale)
+        QTest.qWait(1100)
+        return QToolTip.text() if QToolTip.isVisible() else None
+
+    show("Serine", (V1, V2), 1e6)
+    _settle(panel, 300, 900)
+    try:
+        panel.activateWindow()
+        assert QTest.qWaitForWindowActive(panel)
+        show("Glycine", (_qualifier(1),), 1e6)
+        view = panel.total_abundance.chart_view
+        chart = view.chart()
+        at = chart.mapToPosition(QPointF(0, names[::-1].index("Sample_02")), chart.series()[0])
+        at.setX(chart.plotArea().left() - 10)
+        QTest.mouseMove(panel, view.viewport().mapTo(panel, view.mapFromScene(chart.mapToScene(at))))
+        # Shorter than Qt's wait before its own tip event, which then arrives after the change.
+        QTest.qWait(300)
+        assert QToolTip.text() == "Sample_02\nPeak area  3e+06"
+        assert show("Serine", (V1, V2), 1e5) == "Sample_05\nQualifier 1  Validated\nQualifier 2  Validated"
+        assert show("Glycine", (_qualifier(1),), 1e4) == "Sample_02\nPeak area  3e+04"
+    finally:
+        QToolTip.hideText()
+        QTest.qWait(350)
+        panel.close()
+        panel.deleteLater()
 
 
 @pytest.mark.parametrize("dark", [False, True])

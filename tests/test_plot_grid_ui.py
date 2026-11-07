@@ -26,6 +26,7 @@ from manic.ui.plot_tile import (
     grid_columns,
     tile_badges,
 )
+from manic.utils.utils import apply_app_stylesheet
 from manic.validation.peak_verdict import PeakVerdict
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -220,7 +221,17 @@ def test_a_long_compound_name_is_cut_in_the_middle_and_keeps_the_tr_in_view(grid
     assert grid.selection_summary.text() == "tR 7.09"
 
 
-def test_a_narrow_header_keeps_one_row_with_the_scale_toggles_in_a_menu(grid, qapp, rts):
+@pytest.fixture
+def styled(qapp):
+    """The app's font and stylesheet, which set the header's widths, whatever ran before."""
+    before = qapp.font(), qapp.styleSheet()
+    apply_app_stylesheet(qapp)
+    yield
+    qapp.setFont(before[0])
+    qapp.setStyleSheet(before[1])
+
+
+def test_a_narrow_header_keeps_one_row_with_the_scale_toggles_in_a_menu(grid, qapp, rts, styled):
     grid.plot_compound("Pyruvate", ["S1", "S2"])
     grid.show()
     for width, folded in ((900, False), (520, True)):

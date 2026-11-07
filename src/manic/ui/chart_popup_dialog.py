@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
-    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -33,6 +32,7 @@ from manic.ui.channel_chips import ChannelChipRow, identity_key_chips
 from manic.ui.chart_header import HeaderName
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
+    BarRows,
     abundance_scale,
     bar_row_at,
     fit_category_names,
@@ -59,7 +59,6 @@ from manic.ui.identity_chart import (
     identity_cells,
     identity_column_headers,
     identity_unassessed_note,
-    show_identity_tooltip,
 )
 from manic.ui.theme import FONT_SIZE_TITLE, color
 from manic.ui import theme
@@ -286,7 +285,6 @@ class ChartPopupDialog(QDialog):
         self._current_row: int | None = None
         # Tooltip for each row that has nothing drawn, by category index.
         self._row_notes: dict[int, str] = {}
-        self._tip_shown = False
 
         self.setWindowTitle(f"{title} — MANIC")
         self.setModal(True)
@@ -305,7 +303,12 @@ class ChartPopupDialog(QDialog):
         self._row_marker.setZValue(100)
         self._row_marker.hide()
         self.chart.plotAreaChanged.connect(self._place_row_marker)
-        self.chart_view.viewport().setMouseTracking(True)
+        self._rows = BarRows(
+            self.chart,
+            self.chart_view,
+            lambda category: self.activate_row(len(self._category_names) - 1 - category),
+            self._tip,
+        )
         self.chart_view.viewport().installEventFilter(self)
         # Whichever of these has focus, the row keys still reach the rows.
         self._scroll.installEventFilter(self)
@@ -591,34 +594,6 @@ class ChartPopupDialog(QDialog):
         self.status_legend.setText(identity_key_html(self._identity))
         self.status_legend.setToolTip(IDENTITY_KEY_TOOLTIP)
         self.status_legend.show()
-        for bar_set in self._identity_binding.bar_sets:
-            bar_set.hovered.connect(
-                lambda status, index, bound=bar_set: self._on_identity_cell_hover(
-                    bound, status, index
-                )
-            )
-
-    def _on_identity_cell_hover(
-        self, bar_set: QBarSet, status: bool, index: int
-    ) -> None:
-        if (
-            not status
-            or self._identity_binding is None
-            or index < 0
-            or index >= bar_set.count()
-            or bar_set.at(index) <= 0
-        ):
-            QToolTip.hideText()
-            return
-        cell = self._identity_binding.cell_for(bar_set)
-        if cell is None:
-            QToolTip.hideText()
-            return
-        show_identity_tooltip(self.chart_view, identity_cell_tooltip(cell))
-
-    def closeEvent(self, event) -> None:
-        QToolTip.hideText()
-        super().closeEvent(event)
 
     def _sample_axis(self, names: list[str]) -> QBarCategoryAxis:
         axis = QBarCategoryAxis()
@@ -706,7 +681,6 @@ class ChartPopupDialog(QDialog):
         self._place_row_marker()
         self._refresh_value_labels()
         self._refresh_ratio_key()
-        self._show_row_tip()
 
     def _refresh_ratio_key(self) -> None:
         """Each isotopologue chip gives the current row's percentage, as its bar shows."""
@@ -738,16 +712,18 @@ class ChartPopupDialog(QDialog):
         name = self._category_names[category]
         return name if self._name_axis().categories()[category] != name else None
 
-    def _show_row_tip(self) -> None:
-        tip = None if self._current_row is None else self.row_tip(self._current_row)
-        if tip is not None:
-            # At the row's name, so the arrow keys show it too.
-            rect = self._row_marker.sceneBoundingRect()
-            anchor = self.chart_view.mapFromScene(rect.left(), rect.center().y())
-            QToolTip.showText(self.chart_view.mapToGlobal(anchor), tip, self.chart_view)
-        elif self._tip_shown:
-            QToolTip.hideText()
-        self._tip_shown = tip is not None
+    def _tip(self, category: int, value: QPointF) -> str | None:
+        """Over an identity cell its detail; elsewhere on the row, its row tip."""
+        cell = self._identity_binding.cell_at(value) if self._identity_binding else None
+        if cell is not None:
+            return identity_cell_tooltip(cell)
+        return self.row_tip(len(self._category_names) - 1 - category)
+
+    def _choose_row(self, row: int) -> None:
+        """Make a row the keys picked current, with its tip shown at its name."""
+        self.set_current_row(row)
+        rect = self._row_marker.sceneBoundingRect()
+        self._rows.refresh(self.chart_view.mapFromScene(rect.left(), rect.center().y()))
 
     def _open_guide(self, href: str) -> None:
         self.accept()
@@ -765,22 +741,10 @@ class ChartPopupDialog(QDialog):
             return self._row_key(event.key())
         if obj is self.chart_view and event.type() == QEvent.Resize:
             self._fit_names()
-        if obj is self.chart_view.viewport() and self.row_names():
-            if event.type() == QEvent.ToolTip:
-                # The scene answers a tooltip request by hiding any tip none of its items own.
-                return self._row_at(event.pos()) is not None
-            if event.type() == QEvent.MouseMove:
-                row = self._row_at(event.position().toPoint())
-                if row is not None and row != self._current_row:
-                    self.set_current_row(row)
-            elif (
-                event.type() == QEvent.MouseButtonRelease
-                and event.button() == Qt.LeftButton
-            ):
-                row = self._row_at(event.position().toPoint())
-                if row is not None:
-                    self.activate_row(row)
-                    return True
+        if obj is self.chart_view.viewport() and event.type() == QEvent.MouseMove:
+            row = self._row_at(event.position().toPoint())
+            if row is not None and row != self._current_row:
+                self.set_current_row(row)
         return super().eventFilter(obj, event)
 
     def _row_key(self, key: int) -> bool:
@@ -792,13 +756,13 @@ class ChartPopupDialog(QDialog):
         if key in (Qt.Key_Down, Qt.Key_Up):
             step = 1 if key == Qt.Key_Down else -1
             start = -1 if step == 1 else rows
-            self.set_current_row(min(max((start if current is None else current) + step, 0), rows - 1))
+            self._choose_row(min(max((start if current is None else current) + step, 0), rows - 1))
         elif key in (Qt.Key_Home, Qt.Key_End):
-            self.set_current_row(0 if key == Qt.Key_Home else rows - 1)
+            self._choose_row(0 if key == Qt.Key_Home else rows - 1)
         elif key in (Qt.Key_Return, Qt.Key_Enter):
             # The first press shows which row Return would open.
             if current is None:
-                self.set_current_row(0)
+                self._choose_row(0)
             else:
                 self.activate_row(current)
         else:

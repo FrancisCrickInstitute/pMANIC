@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from types import MappingProxyType
-from typing import Mapping, Sequence
+from typing import Sequence
 
 from PySide6.QtCharts import (
     QBarCategoryAxis,
@@ -12,8 +12,8 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QCursor, QFontMetrics
-from PySide6.QtWidgets import QGraphicsSimpleTextItem, QToolTip, QWidget
+from PySide6.QtGui import QColor, QFontMetrics
+from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
 from manic.models.analysis import IonRole
 from manic.ui.channel_chips import expectation_text
@@ -27,7 +27,8 @@ from manic.validation.unlabelled_identity import (
     QualifierStatus,
 )
 
-_TOOLTIP_HOLD_MS = 86_400_000
+# Each row's cells fill this share of its height.
+_BAR_WIDTH = 0.92
 # Rows are capped at this height, so one sample is a strip, not a slab.
 IDENTITY_ROW_MAX = 24
 
@@ -164,16 +165,6 @@ def _place_cell_marks(chart: QChart) -> None:
             mark.setPos(centre - QRectF(mark.boundingRect()).center())
 
 
-def show_identity_tooltip(widget: QWidget, text: str) -> None:
-    QToolTip.showText(
-        QCursor.pos(),
-        text,
-        widget,
-        widget.rect(),
-        _TOOLTIP_HOLD_MS,
-    )
-
-
 def identity_cell_tooltip(cell: "IdentityCell") -> str:
     qualifier = cell.qualifier
     label = f"Qualifier {qualifier.ordinal}"
@@ -191,13 +182,19 @@ class IdentityCell:
     qualifier: QualifierAssessment
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class IdentityGridBinding:
-    bar_sets: tuple[QBarSet, ...]
-    cells_by_set: Mapping[QBarSet, IdentityCell]
+    """Each row's cells, rows counting up from the bottom as the chart draws them."""
 
-    def cell_for(self, bar_set: QBarSet) -> IdentityCell | None:
-        return self.cells_by_set.get(bar_set)
+    rows: tuple[tuple[IdentityCell, ...], ...]
+
+    def cell_at(self, value: QPointF) -> IdentityCell | None:
+        """The cell drawn at ``value``, a point in the chart's value space."""
+        row, column = round(value.y()), math.floor(value.x())
+        if abs(value.y() - row) > _BAR_WIDTH / 2 or not 0 <= row < len(self.rows):
+            return None
+        cells = self.rows[row]
+        return cells[column] if 0 <= column < len(cells) else None
 
 
 def add_identity_grid(
@@ -221,14 +218,12 @@ def add_identity_grid(
             if item.scene() is not None:
                 item.scene().removeItem(item)
     if not samples:
-        return IdentityGridBinding((), MappingProxyType({}))
+        return IdentityGridBinding(())
 
     display = tuple(reversed(samples))
     count = len(display)
     series = QHorizontalStackedBarSeries()
-    series.setBarWidth(0.92)
-    bar_sets: list[QBarSet] = []
-    cells: dict[QBarSet, IdentityCell] = {}
+    series.setBarWidth(_BAR_WIDTH)
     for row, sample in enumerate(display):
         for column, qualifier in enumerate(identity_cells(sample)):
             passed = qualifier.status is QualifierStatus.VALIDATED
@@ -243,8 +238,6 @@ def add_identity_grid(
             for other_row in range(count):
                 bar_set.append(1.0 if other_row == row else 0.0)
             series.append(bar_set)
-            bar_sets.append(bar_set)
-            cells[bar_set] = IdentityCell(sample.sample_name, qualifier)
     chart.addSeries(series)
 
     x_axis = QValueAxis()
@@ -269,4 +262,9 @@ def add_identity_grid(
         chart.setProperty("identityMarksPlaced", True)
         chart.plotAreaChanged.connect(lambda _area: _place_cell_marks(chart))
     _place_cell_marks(chart)
-    return IdentityGridBinding(tuple(bar_sets), MappingProxyType(cells))
+    return IdentityGridBinding(
+        tuple(
+            tuple(IdentityCell(sample.sample_name, q) for q in identity_cells(sample))
+            for sample in display
+        )
+    )

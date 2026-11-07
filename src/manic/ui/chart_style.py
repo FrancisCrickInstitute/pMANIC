@@ -15,7 +15,7 @@ from PySide6.QtCharts import (
     QValueAxis,
     QXYSeries,
 )
-from PySide6.QtCore import QEvent, QMargins, QObject, QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QMargins, QObject, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QBrush, QFont, QFontMetrics, QFontMetricsF, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsSimpleTextItem, QToolTip
 
@@ -200,45 +200,66 @@ def bar_row_at(chart: QChart, view: QChartView, pos: QPoint) -> int | None:
     return row if 0 <= row < names.count() else None
 
 
-class SummaryRows(QObject):
-    """A summary chart answers by row: hover shows ``tip(row)`` and a click calls
-    ``activated(row)``, the same for a row whose bar is empty or too short to hit."""
+# A chart's tip stays up while the pointer rests on what it describes.
+_TIP_HOLD_MS = 86_400_000
+
+
+class BarRows(QObject):
+    """A bar chart answers by row: a click calls ``activated(row)``, and the place under the
+    pointer alone decides the tip, ``tip(row, value)`` or none, the same for a row whose bar
+    is empty or too short to hit.
+
+    ``value`` is the pointer in the chart's value space, for a tip that differs along a row.
+    """
 
     def __init__(
         self,
         chart: QChart,
         view: QChartView,
         activated: Callable[[int], None],
-        tip: Callable[[int], str] | None = None,
+        tip: Callable[[int, QPointF], str | None],
     ):
         super().__init__(view)
         self._chart, self._view = chart, view
         self._activated, self._tip = activated, tip
-        self._pointer: tuple[QPoint, QPoint] | None = None
+        self._pointer: QPoint | None = None
+        self._showing: str | None = None
         view.viewport().setMouseTracking(True)
         view.viewport().installEventFilter(self)
 
-    def refresh(self) -> None:
-        """Show the tip of the row under the pointer again, for text that changed without a move."""
-        if self._pointer is None or self._tip is None:
-            return
-        local, screen = self._pointer
-        row = bar_row_at(self._chart, self._view, local)
-        if row is None:
-            QToolTip.hideText()
+    def refresh(self, pointer: QPoint | None = None) -> None:
+        """Show the tip for the place under the pointer, now at ``pointer`` if given (a
+        viewport point; the keys give a row's name); hide it where there is none."""
+        if pointer is not None:
+            self._pointer = pointer
+        text = None
+        row = None if self._pointer is None else bar_row_at(self._chart, self._view, self._pointer)
+        if row is not None:
+            scene = self._view.mapToScene(self._pointer)
+            value = self._chart.mapToValue(self._chart.mapFromScene(scene), self._chart.series()[0])
+            text = self._tip(row, value)
+        if text is None:
+            if self._showing is not None:
+                QToolTip.hideText()
         else:
-            QToolTip.showText(screen, self._tip(row), self._view)
+            screen = self._view.viewport().mapToGlobal(self._pointer)
+            if text != self._showing and QToolTip.isVisible() and QToolTip.text() == text:
+                # Qt ignores the same text while the hide just asked for is pending; new text cancels it.
+                QToolTip.showText(screen, text + " ", self._view)
+            QToolTip.showText(screen, text, self._view, QRect(), _TIP_HOLD_MS)
+        self._showing = text
 
     def eventFilter(self, obj, event) -> bool:
         kind = event.type()
-        if kind == QEvent.ToolTip and self._tip is not None:
-            # The scene answers a tooltip request by hiding any tip none of its items own.
-            return bar_row_at(self._chart, self._view, event.pos()) is not None
+        if kind == QEvent.ToolTip:
+            self.refresh(event.pos())
+            # Unanswered, the scene would hide any tip none of its items own.
+            return True
         if kind == QEvent.MouseMove:
-            self._pointer = event.position().toPoint(), event.globalPosition().toPoint()
-            self.refresh()
-        elif kind == QEvent.Leave:
+            self.refresh(event.position().toPoint())
+        elif kind in (QEvent.Leave, QEvent.Hide):
             self._pointer = None
+            self.refresh()
         elif kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             row = bar_row_at(self._chart, self._view, event.position().toPoint())
             if row is not None:

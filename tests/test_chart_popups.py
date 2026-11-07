@@ -149,9 +149,6 @@ def test_a_long_sample_name_is_shortened_in_the_middle_and_shown_whole_on_its_ro
         assert shown == []
         QTest.keyClick(dialog.chart_view, Qt.Key_Down)
         assert shown == [long_name]
-        _hover(dialog, 0)
-        _hover(dialog, 1)
-        assert shown[-1] == long_name
         QTest.keyClick(dialog.chart_view, Qt.Key_Return)
         assert activated == [long_name]
     finally:

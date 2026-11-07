@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
+import numpy as np
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
-from PySide6.QtGui import QFontMetrics, QHelpEvent, QMouseEvent, QTextDocumentFragment
+from PySide6.QtGui import QFontMetrics, QTextDocumentFragment
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -19,6 +22,7 @@ from manic.ui.chart_style import ui_font
 from manic.ui.colors import QUALIFIER_PASS_TINT, QUALIFIER_RED
 from manic.ui.sidebar_widgets import ROOMY_ROW_PX
 from manic.ui.targeted_qc_widget import TargetedQcWidget
+from manic.ui.total_abundance_widget import TotalAbundanceWidget
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
     IdentityQcResult,
@@ -204,81 +208,133 @@ def test_rebuilding_the_grid_replaces_its_marks(qapp):
         widget.deleteLater()
 
 
-def test_identity_rows_answer_hover_with_the_sample_and_cells_with_their_detail(qapp, monkeypatch):
-    widget = TargetedQcWidget()
-    shown = []
-    monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_args: shown.append(text))
-    try:
-        widget.update_results(_identity(["S1", "S2"], failed=("S2",), qualifiers=(V1, V2)))
+LONG_A = "2026_GCMS_Experiment_17_Batch_04_Replicate_01_very_long_sample_name_Bio_017"
+LONG_B = "2026_GCMS_Experiment_17_Batch_04_Replicate_01_very_long_sample_name_Bio_018"
+# Top to bottom: two names too long for any chart, then one that fits.
+TIP_NAMES = [LONG_A, LONG_B, "S3"]
+_A_STATES = f"{LONG_A}\nQualifier 1  Validated\nQualifier 2  Validated"
+_A_CELL_1 = f"{LONG_A}\nQualifier 1  Validated\nexpected 0.400  ±25%  observed 0.410"
+_A_CELL_2 = f"{LONG_A}\nQualifier 2  Validated\nexpected 0.200  ±25%  observed 0.410"
+# The tip each surface shows over each place; None where it shows none.
+TIPS = {
+    "summary identity": {
+        ("name", LONG_A): _A_STATES,
+        ("name", LONG_B): f"{LONG_B}\nQualifier 1  Failed\nQualifier 2  Failed",
+        ("name", "S3"): "S3\nQualifier 1  Validated\nQualifier 2  Validated",
+        ("cell", 1): _A_CELL_1,
+        ("cell", 2): _A_CELL_2,
+    },
+    "popup identity": {
+        ("name", LONG_A): LONG_A,
+        ("name", LONG_B): LONG_B,
+        ("name", "S3"): None,
+        ("cell", 1): _A_CELL_1,
+        ("cell", 2): _A_CELL_2,
+    },
+    "summary peak area": {
+        ("name", LONG_A): f"{LONG_A}\nPeak area  3e+06",
+        ("name", LONG_B): f"{LONG_B}\nPeak area  2e+06",
+        ("name", "S3"): "S3\nPeak area  1e+06",
+        ("cell", 1): f"{LONG_A}\nPeak area  3e+06",
+    },
+    "popup peak area": {
+        ("name", LONG_A): LONG_A,
+        ("name", LONG_B): LONG_B,
+        ("name", "S3"): None,
+        ("cell", 1): LONG_A,
+    },
+}
+# Each case is a path; only its last step is the transition under test.
+TRANSITIONS = {
+    "enter name": [("name", LONG_A)],
+    "enter cell": [("cell", 1)],
+    "cell to same-row name": [("cell", 1), ("name", LONG_A)],
+    "cell to other-row name": [("cell", 1), ("name", LONG_B)],
+    "cell to neighbour cell": [("cell", 1), ("cell", 2)],
+    "name to cell": [("name", LONG_A), ("cell", 1)],
+    "back onto the cell before the last tip fades": [("cell", 1), ("name", "S3"), ("cell", 1)],
+    "1 px along the name after a cell": [("cell", 1), ("name", LONG_A), ("nudge", LONG_A)],
+    "leave the chart": [("name", LONG_A), ("leave",)],
+    "close": [("cell", 1), ("close",)],
+}
+
+
+def _tip_surface(kind):
+    """(window, chart view, names bottom to top, a widget off the chart) for one chart."""
+    # An earlier test's popup stays modal, blocking the mouse, until its deletion runs.
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    bottom_up = TIP_NAMES[::-1]
+    if kind == "summary identity":
+        widget = TargetedQcWidget()
+        widget.update_results(_identity(TIP_NAMES, failed=(LONG_B,), qualifiers=(V1, V2)))
         _settle(widget)
-        chart, viewport = widget.chart, widget.chart_view.viewport()
+        return widget, widget.chart_view, bottom_up, widget.header
+    if kind == "summary peak area":
+        widget = TotalAbundanceWidget()
+        eics = [SimpleNamespace(sample_name=name) for name in TIP_NAMES]
+        widget.update_abundance_from_data("Pyruvate", eics, np.array([3e6, 2e6, 1e6]))
+        _settle(widget, 264, 330)
+        return widget, widget.chart_view, bottom_up, widget.header
+    if kind == "popup identity":
+        dialog = ChartPopupDialog.for_identity(
+            _identity(TIP_NAMES, failed=(LONG_B,), qualifiers=(V1, V2))
+        )
+    else:
+        dialog = ChartPopupDialog("total_abundance", "Peak area", np.array([1e6, 2e6, 3e6]), bottom_up)
+    _settle(dialog, 820, 400)
+    return dialog, dialog.chart_view, bottom_up, dialog.compound_title
 
-        def at(x, row) -> QPointF:
-            point = chart.mapToPosition(QPointF(x, row), chart.series()[0])
-            if x < 0:
-                point.setX(chart.plotArea().left() - 5)
-            return QPointF(widget.chart_view.mapFromScene(chart.mapToScene(point)))
 
-        def move(pos: QPointF) -> None:
-            QApplication.sendEvent(
-                viewport,
-                QMouseEvent(QEvent.MouseMove, pos, viewport.mapToGlobal(pos),
-                            Qt.NoButton, Qt.NoButton, Qt.NoModifier),
-            )
+@pytest.mark.parametrize("kind", list(TIPS))
+@pytest.mark.parametrize("transition", list(TRANSITIONS))
+def test_chart_tips_follow_the_pointer_through_every_transition(qapp, kind, transition):
+    *path, last = TRANSITIONS[transition]
+    if last == ("cell", 2) and last not in TIPS[kind]:
+        pytest.skip("a bar row has one place to point at")
+    if last == ("close",) and not kind.startswith("popup"):
+        pytest.skip("the Summary panel does not close")
+    window, view, bottom_up, off_chart = _tip_surface(kind)
+    try:
+        window.activateWindow()
+        assert QTest.qWaitForWindowActive(window)
+        chart = view.chart()
+        series = chart.series()[0]
 
-        def hover(x, row) -> str:
-            for _ in range(2):
-                move(at(x, row))
-            return shown[-1]
+        def point(step):
+            if step[0] in ("leave", "close"):
+                return off_chart.mapTo(window, off_chart.rect().center())
+            if step[0] == "cell":
+                category = bottom_up.index(LONG_A)
+                bars = series.barSets()
+                # An identity cell spans one qualifier column; a bar runs from 0 to its value.
+                x = step[1] - 0.5 if len(bars) > 1 else bars[0].at(category) / 2
+                at = chart.mapToPosition(QPointF(x, category), series)
+            else:
+                at = chart.mapToPosition(QPointF(0, bottom_up.index(step[1])), series)
+                at.setX(chart.plotArea().left() - 10 - (step[0] == "nudge"))
+            return view.viewport().mapTo(window, view.mapFromScene(chart.mapToScene(at)))
 
-        # Rows count up from the bottom, so S2 is row 0.
-        assert hover(-1, 0) == "S2\nQualifier 1  Failed\nQualifier 2  Failed"
-        assert hover(1.5, 0) == "S2\nQualifier 2  Failed\nexpected 0.200  ±25%  observed 0.900"
-        assert hover(-1, 1) == "S1\nQualifier 1  Validated\nQualifier 2  Validated"
-        assert widget.chart_view.toolTip() == ""
-
-        # One move from a cell straight onto a name, then a rest: Qt asks for a tooltip and
-        # the name's tip is up, whichever row the name is on.
-        monkeypatch.undo()
-        rows = {0: "S2\nQualifier 1  Failed\nQualifier 2  Failed",
-                1: "S1\nQualifier 1  Validated\nQualifier 2  Validated"}
-        for row, tip in rows.items():
-            hover(1.5, 0)
-            assert QToolTip.text().startswith("S2\nQualifier 2  Failed\n")
-            move(at(-1, row))
-            point = at(-1, row).toPoint()
-            QApplication.sendEvent(viewport, QHelpEvent(QEvent.ToolTip, point, viewport.mapToGlobal(point)))
+        handle = window.windowHandle()
+        for step in path:
+            QTest.mouseMove(handle, point(step))
+            QTest.qWait(50)
+        if last == ("close",):
             QTest.qWait(400)
             assert QToolTip.isVisible()
-            assert QToolTip.text() == tip
+            QTest.keyClick(window, Qt.Key_Escape)
+        else:
+            QTest.mouseMove(handle, point(last))
+        expected = {"leave": None, "close": None, "nudge": TIPS[kind].get(("name", last[-1]))}.get(
+            last[0], TIPS[kind].get(last)
+        )
+        # Long enough for Qt to ask for a tooltip at rest and for any hide to land.
+        QTest.qWait(1100)
+        assert (QToolTip.text() if QToolTip.isVisible() else None) == expected
     finally:
         QToolTip.hideText()
-        widget.deleteLater()
-
-
-def test_the_popup_cell_tip_stays_up_while_the_pointer_rests_on_the_cell(qapp):
-    dialog = ChartPopupDialog.for_identity(_identity(["S1", "S2"], failed=("S2",)))
-    try:
-        _settle(dialog, 820, 400)
-        dialog.activateWindow()
-        assert QTest.qWaitForWindowActive(dialog)
-        chart, view = dialog.chart, dialog.chart_view
-        # Rows count up from the bottom, so S2 is row 0.
-        cell = view.mapFromScene(chart.mapToScene(chart.mapToPosition(QPointF(0.5, 0), chart.series()[0])))
-        window = dialog.windowHandle()
-        QTest.mouseMove(window, view.viewport().mapTo(dialog, cell))
-        QTest.qWait(150)
-        tip = "S2\nQualifier 1  Failed\nexpected 0.400  ±25%  observed 0.900"
-        assert QToolTip.text() == tip
-        # Resting with no further movement, Qt asks the viewport for a tooltip.
-        QTest.qWait(1500)
-        assert QToolTip.isVisible()
-        assert QToolTip.text() == tip
-        dialog.close()
-        assert not QToolTip.isVisible()
-    finally:
-        QToolTip.hideText()
-        dialog.deleteLater()
+        QTest.qWait(350)
+        window.close()
+        window.deleteLater()
 
 
 @pytest.mark.parametrize("dark", [False, True])

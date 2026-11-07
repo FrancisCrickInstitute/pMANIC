@@ -287,45 +287,6 @@ def test_identity_chart_click_emits_sample_name(qapp):
         widget.deleteLater()
 
 
-def test_identity_chart_hover_maps_live_cell(qapp, monkeypatch):
-    channels = (_qion(), _v1())
-    identity = _identity_snapshot(
-        channels,
-        ("S1", _supported_qc(channels, True), None),
-        ("S2", _supported_qc(channels, False), None),
-    )
-    shown = []
-    hidden = []
-    monkeypatch.setattr(
-        "manic.ui.targeted_qc_widget.show_identity_tooltip",
-        lambda _widget, text: shown.append(text),
-    )
-    monkeypatch.setattr(
-        "manic.ui.targeted_qc_widget.QToolTip.hideText",
-        lambda: hidden.append(True),
-    )
-    widget = TargetedQcWidget()
-    try:
-        widget.update_results(identity)
-        s1_v1 = widget._binding.bar_sets[1]
-        assert widget._binding.cell_for(s1_v1).sample_name == "S1"
-        s1_v1.hovered.emit(True, 1)
-        assert len(shown) == 1
-        assert "S1" in shown[0]
-        assert "Validated" in shown[0]
-        shown.clear()
-        hidden.clear()
-        s1_v1.hovered.emit(True, 0)
-        assert shown == []
-        assert hidden == [True]
-        hidden.clear()
-        s1_v1.hovered.emit(False, 1)
-        assert shown == []
-        assert hidden == [True]
-    finally:
-        widget.deleteLater()
-
-
 def test_identity_chart_popup_hover_maps_live_cell(qapp, monkeypatch):
     channels = (_qion(), _v1())
     identity = _identity_snapshot(

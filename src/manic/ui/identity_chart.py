@@ -176,10 +176,12 @@ def show_identity_tooltip(widget: QWidget, text: str) -> None:
 
 def identity_cell_tooltip(cell: "IdentityCell") -> str:
     qualifier = cell.qualifier
+    label = f"Qualifier {qualifier.ordinal}"
+    # A ratio's detail opens with the qualifier, which the status line already names.
     return (
         f"{cell.sample_name}\n"
-        f"Qualifier {qualifier.ordinal}  {STATUS_LABELS[qualifier.status]}\n"
-        f"{qualifier.detail}"
+        f"{label}  {STATUS_LABELS[qualifier.status]}\n"
+        f"{qualifier.detail.removeprefix(f'{label}  ')}"
     )
 
 

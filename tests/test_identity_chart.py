@@ -219,30 +219,38 @@ def test_identity_rows_answer_hover_with_the_sample_and_cells_with_their_detail(
                 point.setX(chart.plotArea().left() - 5)
             return QPointF(widget.chart_view.mapFromScene(chart.mapToScene(point)))
 
+        def move(pos: QPointF) -> None:
+            QApplication.sendEvent(
+                viewport,
+                QMouseEvent(QEvent.MouseMove, pos, viewport.mapToGlobal(pos),
+                            Qt.NoButton, Qt.NoButton, Qt.NoModifier),
+            )
+
         def hover(x, row) -> str:
-            pos = at(x, row)
             for _ in range(2):
-                QApplication.sendEvent(
-                    viewport,
-                    QMouseEvent(QEvent.MouseMove, pos, viewport.mapToGlobal(pos),
-                                Qt.NoButton, Qt.NoButton, Qt.NoModifier),
-                )
+                move(at(x, row))
             return shown[-1]
 
         # Rows count up from the bottom, so S2 is row 0.
         assert hover(-1, 0) == "S2\nQualifier 1  Failed\nQualifier 2  Failed"
-        assert hover(1.5, 0).startswith("S2\nQualifier 2  Failed\n")
+        assert hover(1.5, 0) == "S2\nQualifier 2  Failed\nexpected 0.200  ±25%  observed 0.900"
         assert hover(-1, 1) == "S1\nQualifier 1  Validated\nQualifier 2  Validated"
         assert widget.chart_view.toolTip() == ""
 
-        # Resting on the name, Qt asks for a tooltip; the row's tip stays up.
+        # One move from a cell straight onto a name, then a rest: Qt asks for a tooltip and
+        # the name's tip is up, whichever row the name is on.
         monkeypatch.undo()
-        hover(-1, 1)
-        point = at(-1, 1).toPoint()
-        QApplication.sendEvent(viewport, QHelpEvent(QEvent.ToolTip, point, viewport.mapToGlobal(point)))
-        QTest.qWait(400)
-        assert QToolTip.isVisible()
-        assert QToolTip.text() == "S1\nQualifier 1  Validated\nQualifier 2  Validated"
+        rows = {0: "S2\nQualifier 1  Failed\nQualifier 2  Failed",
+                1: "S1\nQualifier 1  Validated\nQualifier 2  Validated"}
+        for row, tip in rows.items():
+            hover(1.5, 0)
+            assert QToolTip.text().startswith("S2\nQualifier 2  Failed\n")
+            move(at(-1, row))
+            point = at(-1, row).toPoint()
+            QApplication.sendEvent(viewport, QHelpEvent(QEvent.ToolTip, point, viewport.mapToGlobal(point)))
+            QTest.qWait(400)
+            assert QToolTip.isVisible()
+            assert QToolTip.text() == tip
     finally:
         QToolTip.hideText()
         widget.deleteLater()

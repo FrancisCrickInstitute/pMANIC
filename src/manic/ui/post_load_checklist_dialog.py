@@ -191,6 +191,9 @@ class PostLoadChecklistDialog(QDialog):
         header.setStretchLastSection(True)
         header.setHighlightSections(False)
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header.sectionResized.connect(
+            lambda column, _old, width: column == 2 and self._sync_file_tooltips(width)
+        )
         self.mm_file_table.setTextElideMode(Qt.ElideMiddle)
         self.mm_file_table.setWordWrap(False)
         self.mm_file_table.setShowGrid(False)
@@ -343,17 +346,19 @@ class PostLoadChecklistDialog(QDialog):
         table = self.mm_file_table
         table.setRowCount(len(rows))
         warning_fill = theme.color("warning_soft")
-        pattern_width = 200
+        name_width = pattern_width = 200
         metrics = table.fontMetrics()
         for row, status in enumerate(rows):
             matched = status.state == "matched"
             pattern = _pattern_cell_text(status)
-            # Tooltips only where a cell hides something: an elided pattern or
-            # files beyond the three listed.
+            # Tooltips only where a cell hides something: an elided name or pattern
+            # here, elided or unlisted files in _sync_file_tooltips.
             tooltips = (
-                "",
+                status.compound_name
+                if metrics.horizontalAdvance(status.compound_name) > name_width - 16
+                else "",
                 pattern if metrics.horizontalAdvance(pattern) > pattern_width - 16 else "",
-                "\n".join(status.matched) if len(status.matched) > 3 else "",
+                "",
             )
             values = (status.compound_name, pattern, _matched_cell_text(status))
             for column, text in enumerate(values):
@@ -364,13 +369,27 @@ class PostLoadChecklistDialog(QDialog):
                     # A screen reader reads the whole value, not the elided cell.
                     item.setData(Qt.AccessibleTextRole, tooltips[column])
                 if column == 2:
+                    item.setData(Qt.UserRole, status.matched)
                     item.setIcon(status_icon(matched))
                     if not matched:
                         item.setBackground(warning_fill)
                 table.setItem(row, column, item)
         table.resizeColumnToContents(0)
-        table.setColumnWidth(0, min(table.columnWidth(0) + 16, 200))
+        table.setColumnWidth(0, min(table.columnWidth(0) + 16, name_width))
         table.setColumnWidth(1, pattern_width)
+        self._sync_file_tooltips(table.columnWidth(2))
+
+    def _sync_file_tooltips(self, width: int) -> None:
+        # The files column stretches with the dialog, so whether its text is cut changes too.
+        table = self.mm_file_table
+        room = width - 16 - 20  # the cell's padding, then the status icon and its gap
+        for row in range(table.rowCount()):
+            item = table.item(row, 2)
+            files = item.data(Qt.UserRole)
+            cut = len(files) > 3 or table.fontMetrics().horizontalAdvance(item.text()) > room
+            tip = "\n".join(files) if cut else ""
+            item.setToolTip(tip)
+            item.setData(Qt.AccessibleTextRole, tip or item.text())
 
     def _fit_table_height(self) -> None:
         table = self.mm_file_table

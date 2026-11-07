@@ -190,6 +190,25 @@ def test_checklist_tooltips_only_reveal_hidden_values(qapp):
     dialog.close()
 
 
+def test_checklist_reveals_long_names_and_files_while_they_are_cut(qapp):
+    name = "N-acetyl-L-aspartyl-L-glutamic acid bis-tert-butyldimethylsilyl derivative (quantifier 174)"
+    files = tuple(
+        f"2026-10-28_GCMS_StableIsotope_Experiment_17_Batch04_StdMix_MM_0{i}_Rerun_02"
+        for i in (1, 2)
+    )
+    dialog = PostLoadChecklistDialog([name], None, [MmFileStatus(name, "*_MM_0*", files)], None)
+    table = dialog.mm_file_table
+    try:
+        dialog.show()
+        _settle()
+        assert table.item(0, 0).toolTip() == name
+        assert table.item(0, 2).toolTip() == "\n".join(files)
+        dialog.resize(2400, dialog.height())
+        _settle()
+        assert table.item(0, 2).toolTip() == ""
+    finally:
+        dialog.close()
+
 def test_checklist_names_the_loaded_compound_list_and_opens_it(qapp, tmp_path):
     path = tmp_path / "compounds_v3.xlsx"
     path.write_bytes(b"")

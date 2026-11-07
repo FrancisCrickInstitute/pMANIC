@@ -402,3 +402,28 @@ def test_review_keys_that_cannot_act_say_why(qapp, monkeypatch, plot_data):
     finally:
         _close_popups()
         window.close()
+
+
+def test_a_review_that_goes_through_clears_the_refusal_before_it(
+    qapp, empty_db, monkeypatch, plot_data
+):
+    from manic.ui.toast_notification import ToastNotification
+
+    window, _reviews = _review_window(monkeypatch, {"A": PASS})
+    view = window.graph_view
+    view.peak_review_changed.connect(window.on_peak_review_changed)
+    monkeypatch.setattr(window, "_peak_verdicts", lambda compound, samples: {"A": REJECTED})
+
+    def shown():
+        toasts = window.statusBar().findChildren(ToastNotification)
+        return [t.findChild(QLabel, "toastLabel").text() for t in toasts if t.isVisible()]
+
+    try:
+        view.select_samples(["A"])
+        QTest.keyClick(view, Qt.Key_A)
+        assert shown() == ["A is not Below threshold"]
+        QTest.keyClick(view, Qt.Key_B)
+        assert shown() == []
+    finally:
+        _close_popups()
+        window.close()

@@ -90,7 +90,7 @@ from manic.ui.settings_window import SettingsWindow
 from manic.ui.standard_indicator_widget import lacking_amount
 from manic.ui.start_panel import StartPanel
 from manic.ui.theme import set_style_property
-from manic.ui.toast_notification import show_status_toast
+from manic.ui.toast_notification import ToastNotification, show_status_toast
 from manic.ui.window_placement import show_over_parent
 from manic.ui.summary_panel import SUMMARY_MIN_WIDTH, SummaryPanel, summary_width_for
 from manic.ui.total_abundance_widget import abundances_from_provider
@@ -688,7 +688,7 @@ class MainWindow(QMainWindow):
             message = "No selected plot is Below threshold"
         else:
             message = f"{lead.sample_name} is not Below threshold"
-        show_status_toast(self.statusBar(), message)
+        show_status_toast(self.statusBar(), message).setProperty("refusal", True)
 
     def _with_review_lead(self, command) -> None:
         lead = self.graph_view.review_lead()
@@ -1401,6 +1401,10 @@ class MainWindow(QMainWindow):
         return verdicts
 
     def on_peak_review_changed(self, compound_name: str, sample_names: list, review):
+        # A refused A or B no longer applies once a review goes through.
+        for toast in self.statusBar().findChildren(ToastNotification):
+            if toast.property("refusal"):
+                toast.close()
         for sample_name in sample_names:
             set_peak_review(compound_name, sample_name, review)
         samples = self.graph_view.get_current_samples()

@@ -209,9 +209,7 @@ class Toolbar(QWidget):
         self.integration.state_changed.connect(self._refresh_peak_summary)
         self._refresh_peak_summary()
         inspector_layout.addWidget(self.peak_section)
-        # An open section's own controls show its state, so the heading summary is for a closed one.
-        self.peak_section.toggled.connect(self.peak_section.summary.setHidden)
-        self.peak_section.summary.setHidden(self.peak_section.is_expanded())
+        self.peak_section.toggled.connect(self._refresh_peak_summary)
         self.inspector = inspector_content
 
         QWidget.setTabOrder(
@@ -298,7 +296,11 @@ class Toolbar(QWidget):
     def _refresh_peak_summary(self, *_args) -> None:
         baseline = "Baseline on" if self.baseline_checkbox.isChecked() else "No baseline"
         tr = self.integration.findChild(QLineEdit, "tr_input").text().strip()
-        self.peak_section.summary.setText(f"tR {tr} · {baseline}" if tr else baseline)
+        if self.peak_section.is_expanded():
+            # The open rows show their own values; the heading names their unit once.
+            self.peak_section.summary.setText("minutes")
+        else:
+            self.peak_section.summary.setText(f"tR {tr} · {baseline}" if tr else baseline)
         window = self.integration.tr_window_edit.text().strip()
         state = "On" if self.baseline_checkbox.isChecked() else "Off"
         if self.integration.has_window_draft():

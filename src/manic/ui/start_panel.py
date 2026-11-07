@@ -209,8 +209,14 @@ def _recent_row(path: str, enabled: bool, signal) -> QWidget:
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(10)
-    button = QPushButton(Path(path).name or path)
+    name = Path(path).name or path
+    button = QPushButton()
     button.setObjectName("recentName")
+    button.ensurePolished()  # measure in the stylesheet's font
+    # Two lists of one name in different folders differ only in the folder, so it keeps room.
+    button.setText(button.fontMetrics().elidedText(name, Qt.TextElideMode.ElideMiddle, 220))
+    button.setAccessibleName(name)
+    button.setToolTip(path)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     button.setEnabled(enabled)
     button.clicked.connect(lambda: signal.emit(path))

@@ -564,13 +564,12 @@ def test_sections_collapse_and_remember(qapp, stub_compound):
         assert toolbar.peak_section.is_expanded()
 
         peak = toolbar.peak_section
-        # A section's summary shows only while the section is closed.
-        assert not peak.summary.isVisible()
+        # Open, the heading names the rows' unit; closed, it sums up their state.
+        assert peak.summary.full_text() == "minutes"
         peak.header.click()
-        assert peak.summary.isVisible()
         assert peak.summary.full_text() == "Baseline on"
         peak.header.click()
-        assert not peak.summary.isVisible()
+        assert peak.summary.full_text() == "minutes"
 
         # A screen reader hears the heading as open or closed, and can press it.
         heading = QAccessible.queryAccessibleInterface(peak.header)

@@ -431,7 +431,10 @@ def test_time_ticks_settle_at_every_tile_width(grid, qapp):
     for tile in range(150, 261):
         changes.clear()
         grid.resize(extra + 3 * tile + 30, grid.height())
-        QTest.qWait(70)
+        for _ in range(200):
+            QTest.qWait(10)
+            if _laid_out(grid):
+                break
         first = [axis.tickInterval() for axis in axes]
         fired = []
         QTimer.singleShot(0, lambda: fired.append(True))

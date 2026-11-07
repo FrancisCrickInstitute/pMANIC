@@ -12,15 +12,14 @@ from PySide6.QtCharts import (
     QHorizontalStackedBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QEvent, QMargins, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QCursor, QMouseEvent, QPainter, QPen
+from PySide6.QtCore import QMargins, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
     QLabel,
     QSizePolicy,
-    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -32,12 +31,16 @@ from manic.processors.display_deconvolution import integrated_display_areas
 from . import theme
 from .chart_header import ChartHeader
 from .chart_popup_dialog import PinnedAxis, missing_ratio_note, value_axis_ticks
-from .chart_style import fit_name_font, place_row_notes, style_axis, style_chart
-from .colors import label_colors
-from .sidebar_widgets import (
-    SummaryChartArea,
+from .chart_style import (
+    SummaryRows,
     fit_category_names,
+    fit_name_font,
+    place_row_notes,
+    style_axis,
+    style_chart,
 )
+from .colors import label_colors
+from .sidebar_widgets import SummaryChartArea
 from .theme import color
 
 
@@ -79,6 +82,12 @@ class IsotopologueRatioWidget(QWidget):
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
 
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
+        SummaryRows(
+            self.chart,
+            self.chart_view,
+            lambda row: self.sample_activated.emit(self._current_sample_names[row]),
+            self.hover_text,
+        )
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))
 
@@ -111,12 +120,10 @@ class IsotopologueRatioWidget(QWidget):
         # The grid's selected samples, marked beside their bars.
         self._highlighted: set[str] = set()
         self._marks: list[QGraphicsRectItem] = []
-        # "—" on each row with no ratio, which has no bar to hover.
+        # "—" on each row with no ratio, which has no bar.
         self._dashes: list[QGraphicsSimpleTextItem] = []
         self.chart.plotAreaChanged.connect(self._place_dashes)
         theme.notifier.changed.connect(self._place_dashes)
-        self.chart_view.viewport().setMouseTracking(True)
-        self.chart_view.viewport().installEventFilter(self)
         self.chart.plotAreaChanged.connect(self._paint_highlight)
         theme.notifier.changed.connect(self._paint_highlight)
 
@@ -223,7 +230,6 @@ class IsotopologueRatioWidget(QWidget):
 
             for j in range(n_samples):
                 bar_set.append(ratios[j, i])
-            bar_set.hovered.connect(self._on_bar_hovered)
 
             bar_sets.append(bar_set)
             bar_series.append(bar_set)
@@ -235,6 +241,8 @@ class IsotopologueRatioWidget(QWidget):
 
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+        # New axes start with full names at the axis size; the plot area may not change to refit them.
+        self._fit_names()
         self._refresh_key()
         self._paint_highlight()
         self._place_dashes()
@@ -247,28 +255,6 @@ class IsotopologueRatioWidget(QWidget):
 
     def _place_dashes(self, *_args) -> None:
         place_row_notes(self.chart, self._dashes, dict.fromkeys(self.empty_rows(), "—"))
-
-    def row_at(self, viewport_pos) -> int | None:
-        """The bar row (0 is the bottom bar) under a chart-view position."""
-        if not self._has_data() or not self.chart.series():
-            return None
-        point = self.chart.mapFromScene(self.chart_view.mapToScene(viewport_pos))
-        area = self.chart.plotArea()
-        if not (area.top() <= point.y() <= area.bottom()):
-            return None
-        row = round(self.chart.mapToValue(point, self.chart.series()[0]).y())
-        return row if 0 <= row < len(self._current_sample_names) else None
-
-    def eventFilter(self, obj, event) -> bool:
-        if obj is self.chart_view.viewport() and event.type() == QEvent.MouseMove:
-            row = self.row_at(event.position().toPoint())
-            if row is not None and row in self.empty_rows():
-                QToolTip.showText(
-                    event.globalPosition().toPoint(),
-                    missing_ratio_note(self._current_sample_names[row]),
-                    self.chart_view,
-                )
-        return super().eventFilter(obj, event)
 
     def _fit_names(self, *_args) -> None:
         axes = self.chart.axes(Qt.Vertical)
@@ -324,19 +310,15 @@ class IsotopologueRatioWidget(QWidget):
         self.key.setVisible(count > 1)
 
     def hover_text(self, index: int) -> str:
-        """Sample name and every isotopologue share for one bar."""
+        """Sample name and every isotopologue share for one row, or why it has none."""
+        if index in self.empty_rows():
+            return missing_ratio_note(self._current_sample_names[index])
         lines = [self._current_sample_names[index]]
         lines += [
             f"M+{i}  {share * 100:.1f}%"
             for i, share in enumerate(self._current_ratios[index])
         ]
         return "\n".join(lines)
-
-    def _on_bar_hovered(self, status: bool, index: int) -> None:
-        if not status or not self._has_data():
-            QToolTip.hideText()
-            return
-        QToolTip.showText(QCursor.pos(), self.hover_text(index), self.chart_view)
 
     def _setup_axes(self, sample_names: List[str]) -> None:
         """Setup chart axes for horizontal layout."""

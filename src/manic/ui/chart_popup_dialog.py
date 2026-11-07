@@ -34,6 +34,8 @@ from manic.ui.chart_header import HeaderName
 from manic.ui.chart_style import (
     AXIS_LABEL_PX,
     abundance_scale,
+    bar_row_at,
+    fit_category_names,
     scale_text,
     set_nice_ticks,
     style_axis,
@@ -59,7 +61,6 @@ from manic.ui.identity_chart import (
     identity_unassessed_note,
     show_identity_tooltip,
 )
-from manic.ui.sidebar_widgets import fit_category_names
 from manic.ui.theme import FONT_SIZE_TITLE, color
 from manic.ui import theme
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
@@ -87,8 +88,11 @@ def identity_status_counts(identity: IdentityAssessmentSet) -> dict[str, int]:
 
 
 def identity_key_html(identity: IdentityAssessmentSet, *, swatches: bool = True) -> str:
-    """Each state's cell mark, name and count. ``swatches`` adds its colour, for a chart
-    with no QC key of its own nearby (the grid's key names the colours beside the Summary)."""
+    """Each state's colour, cell mark, name and count, for a chart with no QC key nearby.
+
+    Without ``swatches`` it is a tally beside the grid's QC key, which already names the
+    states: each mark that occurs and its count ("✓ 16  ✕ 2  ? 4").
+    """
     counts = identity_status_counts(identity)
     present = {q.status for sample in identity.samples for q in identity_cells(sample)}
     # Every grey cell's mark, so the key accounts for each mark in the grid.
@@ -104,8 +108,11 @@ def identity_key_html(identity: IdentityAssessmentSet, *, swatches: bool = True)
         (QUALIFIER_GREY, grey_marks, "Not assessed"),
     ):
         mark = f"{mark.replace(' ', '&nbsp;')}&nbsp;" if mark else ""
-        swatch = f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;' if swatches else ""
-        parts.append(f"{swatch}{mark}{name}&nbsp;<b>{counts[name]}</b>")
+        if swatches:
+            swatch = f'<span style="color:{qcolor.name()};">&#9632;</span>&nbsp;'
+            parts.append(f"{swatch}{mark}{name}&nbsp;<b>{counts[name]}</b>")
+        elif counts[name]:
+            parts.append(f"{mark}<b>{counts[name]}</b>")
     # Counts are cells, not samples; the unit leads so it is read first.
     unit, gap = ("Qualifier cells&nbsp;", " ") if swatches else ("Qualifier cells", "&nbsp;&nbsp; ")
     # Each entry stays whole, so a narrow key wraps between entries.
@@ -399,10 +406,7 @@ class ChartPopupDialog(QDialog):
         footer = QHBoxLayout()
         footer.addWidget(self.status_legend)
         footer.addStretch()
-        hover = {
-            "identity": "Hover a cell for details",
-            "isotopologue_ratios": "↑↓ to read",
-        }.get(self.chart_type, "")
+        hover = "Hover a cell for details" if self.chart_type == "identity" else ""
         self._hint = QLabel(hover)
         self._hover_hint = hover
         theme.style(self._hint, text_style("text_tertiary", 11))
@@ -688,26 +692,14 @@ class ChartPopupDialog(QDialog):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self.row_names():
-            self._hint.setText(
-                " · ".join(
-                    p for p in (self._hover_hint, "Return or click to open a plot")
-                    if p
-                )
-            )
+            rows = "↑↓ to choose · Return or click to select its plot"
+            self._hint.setText(" · ".join(p for p in (self._hover_hint, rows) if p))
             self.chart_view.viewport().setCursor(Qt.PointingHandCursor)
             self.chart_view.setFocus(Qt.OtherFocusReason)
 
     def _row_at(self, viewport_pos) -> int | None:
-        series = self.chart.series()
-        if not series:
-            return None
-        point = self.chart.mapFromScene(self.chart_view.mapToScene(viewport_pos))
-        area = self.chart.plotArea()
-        if not (area.top() <= point.y() <= area.bottom()) or point.x() > area.right():
-            return None
-        category = round(self.chart.mapToValue(point, series[0]).y())
-        rows = len(self.row_names())
-        return rows - 1 - category if 0 <= category < rows else None
+        category = bar_row_at(self.chart, self.chart_view, viewport_pos)
+        return None if category is None else len(self.row_names()) - 1 - category
 
     def set_current_row(self, row: int | None) -> None:
         self._current_row = row

@@ -77,6 +77,7 @@ def set_dark(dark: bool, plot_area: QColor) -> dict[str, str]:
     tint = _pass_tint(plot_area)
     remap[QUALIFIER_PASS_TINT.name()] = tint.name()
     QUALIFIER_PASS_TINT.setRgb(tint.rgb())
+    QUALIFIER_PASS_INK.setRgb(_readable(QUALIFIER_GREEN, tint, lighter=dark).rgb())
     return remap
 
 
@@ -109,6 +110,10 @@ def _readable(colour: QColor, background: QColor, *, lighter: bool) -> QColor:
         lightness = min(1.0, lightness + 0.01) if lighter else max(0.0, lightness - 0.01)
         colour = QColor.fromHslF(hue, sat * (0.85 if not lighter else 1.0), lightness).toRgb()
     return colour
+
+
+# The mark on that wash: the green, deepened (lightened in dark) until it reads at 4.5:1.
+QUALIFIER_PASS_INK = _readable(QUALIFIER_GREEN, QUALIFIER_PASS_TINT, lighter=False)
 
 
 def _verdict_scheme(fill: str) -> tuple[VerdictColours, VerdictColours]:

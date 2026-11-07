@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from manic.models.analysis import IonChannel, IonRole
 from manic.ui import theme
 from manic.ui.chart_popup_dialog import ChartPopupDialog
+from manic.ui.chart_style import ui_font
 from manic.ui.colors import QUALIFIER_PASS_TINT, QUALIFIER_RED
 from manic.ui.sidebar_widgets import ROOMY_ROW_PX
 from manic.ui.targeted_qc_widget import TargetedQcWidget
@@ -164,8 +165,9 @@ def test_every_identity_cell_carries_a_visible_state_mark(qapp):
         assert [text for text, _x in widget.columns.tick_positions()] == ["Qualifier 1"]
 
         assert widget.header.detail.text() == "2 samples failed"
-        # The grid's QC key names the colours beside the Summary; the popup has its own.
-        assert _plain(widget.key) == "Qualifier cells   ✓ Validated 1   ✕ Failed 2   Not assessed 0"
+        # The grid's QC key names the states beside the Summary, which only tallies them;
+        # the popup has its own key.
+        assert _plain(widget.key) == "Qualifier cells   ✓ 1   ✕ 2"
         assert _plain(dialog.status_legend) == (
             "Qualifier cells  ■ ✓ Validated 1 ■ ✕ Failed 2 ■ Not assessed 0"
         )
@@ -199,6 +201,35 @@ def test_rebuilding_the_grid_replaces_its_marks(qapp):
         widget.clear()
         assert _marks(widget.chart) == []
     finally:
+        widget.deleteLater()
+
+
+@pytest.mark.parametrize("dark", [False, True])
+def test_a_validated_mark_reads_at_text_contrast_on_its_cell(qapp, dark):
+    from PySide6.QtGui import QImage, QPainter
+
+    from manic.utils.utils import apply_color_scheme
+
+    widget = TargetedQcWidget()
+    try:
+        apply_color_scheme(qapp, dark)
+        widget.update_results(_identity(["S1"]))
+        [mark] = _mark_items(widget.chart)
+        mark.setFont(ui_font(48))
+        fill = QUALIFIER_PASS_TINT
+        image = QImage(mark.boundingRect().size().toSize(), QImage.Format_RGB32)
+        image.fill(fill)
+        painter = QPainter(image)
+        mark.paint(painter, None)
+        painter.end()
+        drawn = max(
+            (image.pixelColor(x, y) for x in range(image.width()) for y in range(image.height())),
+            key=lambda c: theme.contrast(c, fill),
+        )
+        assert theme.contrast(drawn, fill) >= 4.5
+    finally:
+        apply_color_scheme(qapp, False)
+        qapp.setStyleSheet("")
         widget.deleteLater()
 
 

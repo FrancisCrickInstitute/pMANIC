@@ -22,7 +22,13 @@ from manic.ui.chart_popup_dialog import (
     identity_key_html,
     IDENTITY_KEY_TOOLTIP,
 )
-from manic.ui.chart_style import fit_name_font, style_chart, text_style
+from manic.ui.chart_style import (
+    SummaryRows,
+    fit_category_names,
+    fit_name_font,
+    style_chart,
+    text_style,
+)
 from manic.ui.identity_chart import (
     IdentityGridBinding,
     add_identity_grid,
@@ -34,7 +40,7 @@ from manic.ui.identity_chart import (
     show_identity_tooltip,
 )
 from manic.ui import theme
-from manic.ui.sidebar_widgets import ROOMY_ROW_PX, SUMMARY_SHORT_ROWS, fit_category_names
+from manic.ui.sidebar_widgets import ROOMY_ROW_PX, SUMMARY_SHORT_ROWS
 from manic.ui.theme import color
 from manic.validation.unlabelled_identity import IdentityAssessmentSet, QualifierStatus
 
@@ -75,6 +81,12 @@ class TargetedQcWidget(QWidget):
             "Click a row to select its plot; double-click to enlarge."
         )
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
+        # Rows count up from the bottom; samples read top down.
+        SummaryRows(
+            self.chart,
+            self.chart_view,
+            lambda row: self.sample_activated.emit(self._identity.samples[-1 - row].sample_name),
+        )
 
         style_chart(self.chart, QMargins(0, 0, 0, 0))
 
@@ -232,17 +244,6 @@ class TargetedQcWidget(QWidget):
                     bound, status, index
                 )
             )
-            bar_set.clicked.connect(
-                lambda index, bound=bar_set: self._on_grid_clicked(bound, index)
-            )
-
-    def _on_grid_clicked(self, bar_set: QBarSet, _index: int) -> None:
-        if self._binding is None:
-            return
-        cell = self._binding.cell_for(bar_set)
-        if cell is None:
-            return
-        self.sample_activated.emit(cell.sample_name)
 
     def _on_grid_hovered(self, bar_set: QBarSet, status: bool, index: int) -> None:
         if (

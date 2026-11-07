@@ -13,12 +13,11 @@ from PySide6.QtCharts import (
     QValueAxis,
 )
 from PySide6.QtCore import QMargins, Qt, Signal
-from PySide6.QtGui import QCursor, QMouseEvent, QPainter, QPen
+from PySide6.QtGui import QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGraphicsSimpleTextItem,
     QSizePolicy,
-    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -29,7 +28,9 @@ from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
 from manic.ui.chart_popup_dialog import PinnedAxis, bar_value_text, value_axis_ticks
 from manic.ui.chart_style import (
+    SummaryRows,
     abundance_scale,
+    fit_category_names,
     fit_name_font,
     place_row_notes,
     scale_text,
@@ -37,10 +38,7 @@ from manic.ui.chart_style import (
     style_axis,
     style_chart,
 )
-from manic.ui.sidebar_widgets import (
-    SummaryChartArea,
-    fit_category_names,
-)
+from manic.ui.sidebar_widgets import SummaryChartArea
 
 from manic.ui.theme import color
 
@@ -85,6 +83,12 @@ class TotalAbundanceWidget(QWidget):
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
 
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
+        SummaryRows(
+            self.chart,
+            self.chart_view,
+            lambda row: self.sample_activated.emit(self._current_sample_names[row]),
+            self.hover_text,
+        )
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))
 
@@ -160,7 +164,6 @@ class TotalAbundanceWidget(QWidget):
         _top, scale_exp = abundance_scale(abundances)
         for abundance in abundances:
             bar_set.append(abundance / 10**scale_exp if np.isfinite(abundance) else 0.0)
-        bar_set.hovered.connect(self._on_bar_hovered)
 
         bar_series.append(bar_set)
 
@@ -171,6 +174,8 @@ class TotalAbundanceWidget(QWidget):
 
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+        # New axes start with full names at the axis size; the plot area may not change to refit them.
+        self._fit_names()
         self._paint_highlight()
         self._place_row_notes()
 
@@ -217,12 +222,6 @@ class TotalAbundanceWidget(QWidget):
         value = float(self._current_abundances[index])
         shown = f"{value:.3g}" if np.isfinite(value) else "—"
         return f"{self._current_sample_names[index]}\nPeak area  {shown}"
-
-    def _on_bar_hovered(self, status: bool, index: int) -> None:
-        if not status or not self._has_data():
-            QToolTip.hideText()
-            return
-        QToolTip.showText(QCursor.pos(), self.hover_text(index), self.chart_view)
 
     def _setup_axes(self, sample_names: List[str], abundances: np.ndarray) -> None:
         """Setup chart axes for horizontal layout."""

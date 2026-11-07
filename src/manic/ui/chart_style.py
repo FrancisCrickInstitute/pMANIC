@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import math
+from typing import Callable
 
 from PySide6.QtCharts import (
     QAbstractAxis,
     QAbstractBarSeries,
     QAreaSeries,
+    QBarCategoryAxis,
     QChart,
+    QChartView,
     QValueAxis,
     QXYSeries,
 )
-from PySide6.QtCore import QMargins, QPointF, Qt
-from PySide6.QtGui import QBrush, QFont, QFontMetricsF, QPen
-from PySide6.QtWidgets import QApplication, QGraphicsSimpleTextItem
+from PySide6.QtCore import QEvent, QMargins, QObject, QPoint, QPointF, Qt
+from PySide6.QtGui import QBrush, QFont, QFontMetrics, QFontMetricsF, QPen
+from PySide6.QtWidgets import QApplication, QGraphicsSimpleTextItem, QToolTip
 
 from manic.ui.theme import color, remap_color
 
@@ -138,6 +141,24 @@ def fit_name_font(chart: QChart, axis: QAbstractAxis) -> None:
         axis.setLabelsFont(ui_font(px))
 
 
+def fit_category_names(axis, names: list[str], view_width: int) -> None:
+    """Shorten names in the middle to fit a summary chart's name column.
+
+    QtCharts gives the name axis at most 40% of the chart and lets a longer name
+    run off its edge (or, truncating, leaves only "…"). Hover gives the full name.
+    """
+    metrics = QFontMetrics(axis.labelsFont())
+    width = int(view_width * 0.4) - 8
+    fitted, seen = [], {}
+    for name in names:
+        short = metrics.elidedText(name, Qt.TextElideMode.ElideMiddle, width)
+        # A category axis needs unique names; alike shortenings differ by invisible marks.
+        fitted.append(short + "\u200b" * seen.get(short, 0))
+        seen[short] = seen.get(short, 0) + 1
+    if fitted != axis.categories():
+        axis.setCategories(fitted)
+
+
 def place_row_notes(
     chart: QChart, notes: list[QGraphicsSimpleTextItem], texts: dict[int, str]
 ) -> None:
@@ -161,6 +182,54 @@ def place_row_notes(
         start = chart.mapToPosition(QPointF(0, row), series)
         note.setPos(start.x() + 4, start.y() - note.boundingRect().height() / 2)
         notes.append(note)
+
+
+def bar_row_at(chart: QChart, view: QChartView, pos: QPoint) -> int | None:
+    """The bar row (0 is the bottom bar) under a chart-view viewport position.
+
+    A row spans its name and the plot's width, so a bar too short to hit still has one.
+    """
+    names = next((a for a in chart.axes(Qt.Vertical) if isinstance(a, QBarCategoryAxis)), None)
+    if not chart.series() or names is None:
+        return None
+    point = chart.mapFromScene(view.mapToScene(pos))
+    area = chart.plotArea()
+    if not area.top() <= point.y() <= area.bottom() or point.x() > area.right():
+        return None
+    row = round(chart.mapToValue(point, chart.series()[0]).y())
+    return row if 0 <= row < names.count() else None
+
+
+class SummaryRows(QObject):
+    """A summary chart answers by row: hover shows ``tip(row)`` and a click calls
+    ``activated(row)``, the same for a row whose bar is empty or too short to hit."""
+
+    def __init__(
+        self,
+        chart: QChart,
+        view: QChartView,
+        activated: Callable[[int], None],
+        tip: Callable[[int], str] | None = None,
+    ):
+        super().__init__(view)
+        self._chart, self._view = chart, view
+        self._activated, self._tip = activated, tip
+        view.viewport().setMouseTracking(True)
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        kind = event.type()
+        if kind == QEvent.MouseMove and self._tip is not None:
+            row = bar_row_at(self._chart, self._view, event.position().toPoint())
+            if row is None:
+                QToolTip.hideText()
+            else:
+                QToolTip.showText(event.globalPosition().toPoint(), self._tip(row), self._view)
+        elif kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            row = bar_row_at(self._chart, self._view, event.position().toPoint())
+            if row is not None:
+                self._activated(row)
+        return False
 
 
 def style_chart(chart: QChart, margins: QMargins = QMargins(0, 0, 0, 0)) -> None:

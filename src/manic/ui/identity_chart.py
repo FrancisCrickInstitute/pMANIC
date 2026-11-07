@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QGraphicsSimpleTextItem, QToolTip, QWidget
 from manic.models.analysis import IonRole
 from manic.ui.channel_chips import expectation_text
 from manic.ui.chart_style import style_axis, ui_font
-from manic.ui.colors import QUALIFIER_GREEN, QUALIFIER_PASS_TINT, QUALIFIER_STATUS_COLORS
+from manic.ui.colors import QUALIFIER_PASS_INK, QUALIFIER_PASS_TINT, QUALIFIER_STATUS_COLORS
 from manic.ui.theme import color, contrast
 from manic.validation.unlabelled_identity import (
     IdentityAssessmentSet,
@@ -231,7 +231,7 @@ def add_identity_grid(
         for column, qualifier in enumerate(identity_cells(sample)):
             passed = qualifier.status is QualifierStatus.VALIDATED
             fill = QUALIFIER_PASS_TINT if passed else QUALIFIER_STATUS_COLORS[qualifier.status]
-            ink = QUALIFIER_GREEN if passed else None
+            ink = QUALIFIER_PASS_INK if passed else None
             mark = _CellMark(STATUS_MARKS[qualifier.status], fill, ink, column + 0.5, row, chart)
             mark.setFont(ui_font(label_font_size))
             mark.setZValue(10)

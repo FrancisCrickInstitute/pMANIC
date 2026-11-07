@@ -82,7 +82,6 @@ class RecoveryDialog(QDialog):
             chrome = self.sizeHint().height() - list_.sizeHint().height()
             self.resize(420, chrome + rows * list_.sizeHintForRow(0) + 2 * list_.frameWidth())
         else:
-            # Nothing to restore: say so and offer only Close.
             self.title.setText(f"No deleted {self._noun}s")
             for widget in (self.item_list, self.status_label):
                 widget.hide()

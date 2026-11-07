@@ -417,7 +417,7 @@ class MatplotlibPlotWidget(QWidget):
             markerline, stemlines, baseline = self.ax.stem(x_data, y_data, basefmt=" ")
 
             markerline.set_color(color)
-            markerline.set_markersize(0)  # Hide markers
+            markerline.set_markersize(0)
             colors = [color] * len(x_data)
             for mz, own_color in highlight:
                 index = _channel_stem(x_data, y_data, mz)

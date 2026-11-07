@@ -9,9 +9,6 @@ on:
       - "scripts/ui_tour.py"
       - ".github/workflows/ui-tour.yml"
   workflow_dispatch:
-  # Temporary: removed before the PR opens (workflow_dispatch only works from main).
-  push:
-    branches: [wip/ui-dark-mode, feat/ui-ux-overhaul]
 
 permissions:
   contents: read

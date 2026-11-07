@@ -19,8 +19,8 @@ class SampleListWidget(QListWidget):
 
     Row selection is separate and only picks rows for the context menu."""
 
-    samples_deleted = Signal(list)  # Emits list of deleted sample names
-    samples_restored = Signal(list)  # Emits list of restored sample names
+    samples_deleted = Signal(list)
+    samples_restored = Signal(list)
     shown_changed = Signal()
 
     def __init__(self, parent=None):
@@ -130,11 +130,9 @@ class SampleListWidget(QListWidget):
         menu = QMenu(self)
 
 
-        # Get selected samples
         selected_samples = self._get_valid_selected_samples()
         total_samples = self.real_count()
 
-        # Delete action
         if len(selected_samples) == 1:
             delete_text = "Delete Sample"
         else:
@@ -142,9 +140,6 @@ class SampleListWidget(QListWidget):
 
         delete_action = menu.addAction(delete_text)
 
-        # Enable delete only if:
-        # - At least one sample is selected
-        # - Not deleting ALL samples
         can_delete = len(selected_samples) > 0 and len(selected_samples) < total_samples
         delete_action.setEnabled(can_delete)
 
@@ -175,7 +170,6 @@ class SampleListWidget(QListWidget):
 
         menu.addSeparator()
 
-        # Recover action
         recover_action = menu.addAction("Recover Deleted Samples...")
         deleted_samples = get_deleted_samples()
         recover_action.setEnabled(len(deleted_samples) > 0)
@@ -197,7 +191,6 @@ class SampleListWidget(QListWidget):
         else:
             msg_box.setWindowTitle("Delete Samples")
             msg_box.setText(f"Delete {len(sample_names)} samples?")
-            # Add list of samples in informative text
             sample_list = "\n".join(f"  - {name}" for name in sample_names[:10])
             if len(sample_names) > 10:
                 sample_list += f"\n  ... and {len(sample_names) - 10} more"
@@ -216,7 +209,6 @@ class SampleListWidget(QListWidget):
         reply = msg_box.exec()
 
         if reply == QMessageBox.StandardButton.Yes:
-            # Perform deletion
             deleted_count = soft_delete_samples(sample_names)
             if deleted_count > 0:
                 self.samples_deleted.emit(sample_names)

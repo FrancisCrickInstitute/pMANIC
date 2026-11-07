@@ -69,30 +69,22 @@ def _deconvolution_on(compound_name: str) -> bool:
 
 
 class Toolbar(QWidget):
-    # Signal for the currently selected samples
     samples_selected = Signal(list)
 
-    # Signal for the currently selected compound
     compound_selected = Signal(str)
 
-    # Signal for when internal standard is selected
     internal_standard_selected = Signal(str)
 
-    # Signal for when compounds are deleted
     compounds_deleted = Signal(list)
 
-    # Signal for when compounds are restored
     compounds_restored = Signal(list)
 
     add_compound_requested = Signal()
 
-    # Signal for when samples are deleted
     samples_deleted = Signal(list)
 
-    # Signal for when samples are restored
     samples_restored = Signal(list)
 
-    # Signal emitted when baseline correction checkbox is toggled
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
     y_scale_policy_changed = Signal(object)
@@ -129,7 +121,6 @@ class Toolbar(QWidget):
         self.standard = StandardIndicator(self.analysis_mode)
         header_layout.addWidget(self.standard)
 
-        # Browse: compounds, then samples.
         browse = QWidget()
         browse.setObjectName("sidebarBrowse")
         browse_layout = QVBoxLayout(browse)
@@ -173,7 +164,6 @@ class Toolbar(QWidget):
         )
         browse_layout.addWidget(self.samples_section, 1)
 
-        # Inspector: the Peak window under the lists, at the height its rows need.
         inspector_content = QWidget()
         inspector_content.setObjectName("sidebarInspector")
         inspector_content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -544,7 +534,6 @@ class Toolbar(QWidget):
         elif self.standard.internal_standard is not None:
             self.on_internal_standard_cleared()
 
-    # --- Signal Handlers ---
     def on_samples_selection_changed(self):
         """
         Handler for when the selection changes in the samples list widget.
@@ -561,7 +550,6 @@ class Toolbar(QWidget):
         if selected_items:
             selected_text = selected_items[0].text()
             self.compound_selected.emit(selected_text)
-            # Update baseline checkbox state
             self._set_baseline_checkbox_from_compound(selected_text)
             self.sync_selected_peak_scale(selected_text)
         else:
@@ -576,7 +564,6 @@ class Toolbar(QWidget):
         self.standard.set_internal_standard(compound_name)
         self.internal_standard_selected.emit(compound_name)
 
-    # --- Public Methods ---
     def update_label_colours(self, raw_data_loaded, compound_list_loaded):
         """Record what is loaded; the header, hints and inspector follow it."""
         self._raw_loaded = raw_data_loaded
@@ -689,5 +676,5 @@ class Toolbar(QWidget):
 
     def on_internal_standard_cleared(self):
         """Handler for clearing the internal standard."""
-        self.standard.clear_internal_standard()  # Calls existing method
-        self.internal_standard_selected.emit(None)  # Notify MainWindow standard is gone
+        self.standard.clear_internal_standard()
+        self.internal_standard_selected.emit(None)

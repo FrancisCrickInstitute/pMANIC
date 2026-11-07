@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
-from PySide6.QtGui import QFontMetrics, QTextDocumentFragment
+from PySide6.QtGui import QCursor, QFontMetrics, QTextDocumentFragment
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -392,6 +392,55 @@ def test_a_resting_tip_follows_the_charts_a_compound_change_moves(qapp):
         assert QToolTip.text() == "Sample_02\nPeak area  3e+06"
         assert show("Serine", (V1, V2), 1e5) == "Sample_05\nQualifier 1  Validated\nQualifier 2  Validated"
         assert show("Glycine", (_qualifier(1),), 1e4) == "Sample_02\nPeak area  3e+04"
+    finally:
+        QToolTip.hideText()
+        QTest.qWait(350)
+        panel.close()
+        panel.deleteLater()
+
+
+def test_a_chart_keeps_its_hands_off_another_charts_tip(qapp):
+    """Peak area raises its tip under a pointer placed with no mouse event, so when the pointer
+    moves to Identity, Qt sends Peak area no Leave. The next compound must leave Identity's tip."""
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    names = LONG[:8]
+    eics = [SimpleNamespace(sample_name=name) for name in names]
+    panel = SummaryPanel(AnalysisMode.UNLABELLED)
+
+    def show(failed, scale):
+        panel.targeted_qc.update_results(_identity(names, failed=failed, qualifiers=(V1, V2)))
+        panel.total_abundance.update_abundance_from_data("Serine", eics, np.arange(1, 9) * scale)
+        QTest.qWait(1100)
+        return QToolTip.text() if QToolTip.isVisible() else None
+
+    def name_of(widget, name):
+        view = widget.chart_view
+        chart = view.chart()
+        at = chart.mapToPosition(QPointF(0, names[::-1].index(name)), chart.series()[0])
+        at.setX(chart.plotArea().left() - 10)
+        return view.viewport().mapToGlobal(view.mapFromScene(chart.mapToScene(at)))
+
+    show((), 1e6)
+    _settle(panel, 300, 900)
+    try:
+        # The pointer rests on another window when the panel appears over it, so it enters nothing.
+        resting = name_of(panel.total_abundance, "Sample_02")
+        panel.hide()
+        cover = QWidget()
+        cover.setGeometry(panel.geometry())
+        cover.show()
+        QTest.qWaitForWindowExposed(cover)
+        QCursor.setPos(resting)
+        panel.show()
+        cover.close()
+        panel.activateWindow()
+        assert QTest.qWaitForWindowActive(panel)
+        assert show((), 1e5) == "Sample_02\nPeak area  3e+05"
+        QTest.mouseMove(panel, panel.mapFromGlobal(name_of(panel.targeted_qc, "Sample_05")))
+        # Past Qt's own tip event, which would otherwise raise the tip again after the change.
+        QTest.qWait(1100)
+        assert QToolTip.text() == "Sample_05\nQualifier 1  Validated\nQualifier 2  Validated"
+        assert show(("Sample_05",), 1e4) == "Sample_05\nQualifier 1  Failed\nQualifier 2  Failed"
     finally:
         QToolTip.hideText()
         QTest.qWait(350)

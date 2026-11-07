@@ -252,7 +252,8 @@ class BarRows(QObject):
             value = self._chart.mapToValue(self._chart.mapFromScene(scene), self._chart.series()[0])
             text = self._tip(row, value)
         if text is None:
-            if self._showing is not None:
+            # Another chart may have raised the tip since; Qt has one tip for the whole app.
+            if self._showing is not None and QToolTip.isVisible() and QToolTip.text() == self._showing:
                 QToolTip.hideText()
         else:
             screen = self._view.viewport().mapToGlobal(pointer)

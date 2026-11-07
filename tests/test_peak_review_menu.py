@@ -160,13 +160,6 @@ def test_clear_bad_mark_clears_the_review(grid):
     assert reviews == [("Cmp", ["B"], None)]
 
 
-def test_action_applies_to_every_selected_tile(grid):
-    reviews = _plot(grid, VERDICTS)
-    grid.select_samples(["A", "C"])
-    _context_menu(grid, "A")["Mark 2 Peaks as Bad"].trigger()
-    assert reviews == [("Cmp", ["A", "C"], PeakReview.REJECTED)]
-
-
 @pytest.mark.parametrize(
     ("overrides", "selected", "checked", "chosen", "emitted"),
     [

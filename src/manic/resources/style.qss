@@ -8,8 +8,7 @@
 
 QMainWindow#mainWindow,
 QWidget#centralWidget,
-QWidget#workspace,
-QWidget#graphView {
+QWidget#workspace {
     background-color: @bg;
 }
 

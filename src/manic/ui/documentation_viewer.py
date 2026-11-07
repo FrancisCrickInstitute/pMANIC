@@ -100,7 +100,6 @@ def _documentation_group(name: str) -> int:
     return 5
 
 
-# Groups listed under one heading, so their titles drop the shared "Workflow: " or "Reference: ".
 _GROUP_HEADINGS = {3: "Workflows", 4: "Reference"}
 
 
@@ -175,13 +174,10 @@ class DocumentationPage(QWebEnginePage):
         Returns:
             True to allow navigation, False to block it
         """
-        # Only intercept main frame navigation (not iframes or sub-resources)
         if is_main_frame and self.navigation_handler:
-            # Delegate to our custom handler
             should_proceed = self.navigation_handler(url)
             return should_proceed
         
-        # Allow all other navigation (sub-resources, etc.)
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
@@ -230,11 +226,9 @@ class DocumentationViewer(QDialog):
                 header.setSizeHint(sidebar_item_size() + QSize(0, 8))
                 self.page_list.addItem(header)
             last_heading = heading
-            # The document keeps its full title; under a heading the list drops the prefix.
-            label = title.partition(": ")[2] if heading and ": " in title else title
-            item = QListWidgetItem(label)
+            item = QListWidgetItem(title)
             # The whole title on hover only when the list cuts it short.
-            if metrics.horizontalAdvance(label) > room:
+            if metrics.horizontalAdvance(title) > room:
                 item.setToolTip(title)
             item.setSizeHint(sidebar_item_size())
             item.setData(Qt.UserRole, path)
@@ -395,7 +389,7 @@ class DocumentationViewer(QDialog):
         )
         self.retry_button.setVisible(retry)
         # A load that may overlap another starts with the view hidden: a load in a
-        # shown view while another ran crashed QtWebEngine.
+        # shown view while another runs crashes QtWebEngine.
         self.web_view.hide()
         self.status_page.show()
 
@@ -517,23 +511,19 @@ class DocumentationViewer(QDialog):
         
         logger.debug(f"Navigation requested: {url_string} (scheme: {scheme})")
         
-        # Handle external web links - open in system default browser
         if scheme in ("http", "https", "mailto"):
             logger.info(f"Opening external link in browser: {url_string}")
             QDesktopServices.openUrl(url)
-            return False  # Block navigation in our view
+            return False
         
-        # Handle anchor-only links (just #section) - let browser handle
         if url_string.startswith("#"):
             anchor = url_string[1:]
             logger.debug(f"Allowing anchor navigation: #{anchor}")
-            return True  # Allow browser to scroll to anchor
+            return True
         
-        # Handle file:// or relative links to .md files
         if scheme == "file" or not scheme:
             return self._handle_file_navigation(url)
         
-        # Default: allow navigation
         logger.debug(f"Allowing default navigation for: {url_string}")
         return True
 
@@ -549,19 +539,16 @@ class DocumentationViewer(QDialog):
         """
         url_string = url.toString()
         
-        # Extract path and fragment (anchor)
         if url.scheme() == "file":
             file_path = url.toLocalFile()
             fragment = url.fragment()
         else:
-            # Relative URL - resolve it
             if "#" in url_string:
                 path_part, fragment = url_string.split("#", 1)
             else:
                 path_part = url_string
                 fragment = ""
             
-            # Resolve relative to current file or docs directory
             if self.current_file:
                 file_path = str((self.current_file.parent / path_part).resolve())
             else:
@@ -570,19 +557,16 @@ class DocumentationViewer(QDialog):
         path = Path(file_path)
         logger.debug(f"File navigation: {path} (fragment: {fragment})")
         
-        # Check if it's a markdown file
         if path.suffix.lower() == ".md":
             if path.exists():
                 logger.info(f"Loading markdown file: {path.name}")
-                # Load the new markdown file, passing fragment for anchor scrolling
                 self.load_markdown_file(path, fragment)
-                return False  # We handled it manually
+                return False
             else:
                 logger.warning(f"Markdown file not found: {path}")
                 self._show_error(f"File not found: {path.name}")
                 return False
         else:
-            # Non-markdown file - open with system default application
             logger.info(f"Opening non-markdown file with system app: {path}")
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
             return False
@@ -615,7 +599,6 @@ class DocumentationViewer(QDialog):
 
             logger.info(f"Loading markdown file: {file_path}")
             
-            # Read the markdown content
             raw_markdown = file_path.read_text(encoding="utf-8")
             
             # Store current file for relative link resolution BEFORE loading HTML
@@ -627,14 +610,11 @@ class DocumentationViewer(QDialog):
             if show_loading:
                 self._show_status("Loading…")
 
-            # Convert markdown to HTML
             html_body = self._markdown_to_html(raw_markdown)
             
-            # Wrap in complete HTML document with GitHub styling and MathJax
             full_html = self._wrap_with_github_style(html_body, self._request_title())
             
-            # Set the HTML content with base URL pointing to docs directory
-            # This allows both relative .md links AND _assets/ to resolve correctly
+            # The docs directory as base URL resolves both relative .md links and _assets/.
             base_url = QUrl.fromLocalFile(str(self.docs_dir) + "/")
             self.web_view.setHtml(full_html, base_url)
             request = self._request
@@ -670,22 +650,20 @@ class DocumentationViewer(QDialog):
         """
         if not HAS_MARKDOWN:
             logger.warning("Markdown library not available, displaying as plain text")
-            # Fallback to preformatted text if markdown not available
             escaped_text = markdown_text.replace("<", "&lt;").replace(">", "&gt;")
             return f"<pre>{escaped_text}</pre>"
         
         try:
-            # Initialize markdown converter with GitHub-compatible extensions
             md_converter = markdown.Markdown(
                 extensions=[
-                    "markdown.extensions.extra",        # Tables, footnotes, attr_list, etc.
-                    "markdown.extensions.fenced_code",  # ``` code blocks
-                    "markdown.extensions.codehilite",   # Syntax highlighting
-                    "markdown.extensions.tables",       # Explicit table support
-                    "markdown.extensions.sane_lists",   # Better list behavior
-                    "markdown.extensions.toc",          # Table of contents
-                    "markdown.extensions.md_in_html",   # Markdown in HTML blocks
-                    "pymdownx.arithmatex",             # LaTeX math support
+                    "markdown.extensions.extra",
+                    "markdown.extensions.fenced_code",
+                    "markdown.extensions.codehilite",
+                    "markdown.extensions.tables",
+                    "markdown.extensions.sane_lists",
+                    "markdown.extensions.toc",
+                    "markdown.extensions.md_in_html",
+                    "pymdownx.arithmatex",
                 ],
                 extension_configs={
                     "codehilite": {
@@ -698,7 +676,6 @@ class DocumentationViewer(QDialog):
                 }
             )
             
-            # Convert to HTML
             html = md_converter.convert(markdown_text)
             
             logger.debug(f"Converted {len(markdown_text)} chars of markdown to {len(html)} chars of HTML")
@@ -706,7 +683,6 @@ class DocumentationViewer(QDialog):
             
         except Exception as e:
             logger.error(f"Error converting markdown to HTML: {e}", exc_info=True)
-            # Fallback to plain text on error
             escaped_text = markdown_text.replace("<", "&lt;").replace(">", "&gt;")
             return f"<pre>Error rendering markdown:\n{str(e)}\n\n{escaped_text}</pre>"
 

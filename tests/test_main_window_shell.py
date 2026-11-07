@@ -448,8 +448,11 @@ def test_long_session_name_toast_stays_inside_the_window(qapp, monkeypatch, tmp_
             assert button.isVisible() and toast.rect().contains(button.geometry())
         label = toast.findChild(QLabel, "toastLabel")
         written = tmp_path / "manic_session_export" / chosen.name
-        assert "…" in label.text() and label.text().endswith("manic_session_export")
-        assert label.toolTip() == str(written)
+        # Whatever the font: the text fits, keeps its folder, and reads whole there or on hover.
+        assert label.fontMetrics().horizontalAdvance(label.text()) <= label.width()
+        assert label.text().endswith("manic_session_export")
+        full = f"Exported {chosen.name} to manic_session_export"
+        assert label.text() == full or label.toolTip() == str(written)
     finally:
         window.close()
 

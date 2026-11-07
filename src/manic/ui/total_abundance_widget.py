@@ -83,7 +83,7 @@ class TotalAbundanceWidget(QWidget):
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
 
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
-        BarRows(
+        self._rows = BarRows(
             self.chart,
             self.chart_view,
             lambda row: self.sample_activated.emit(self._current_sample_names[row]),
@@ -178,6 +178,7 @@ class TotalAbundanceWidget(QWidget):
         self._fit_names()
         self._paint_highlight()
         self._place_row_notes()
+        self._rows.refresh()
 
     def _place_row_notes(self, *_args) -> None:
         texts = {}
@@ -261,6 +262,7 @@ class TotalAbundanceWidget(QWidget):
         self._current_abundances = None
         self._current_sample_names = None
         self._place_row_notes()
+        self._rows.refresh()
 
     def _chart_view_double_click(self, event: QMouseEvent):
         """Handle double-click on chart view to show popup chart."""

@@ -288,6 +288,9 @@ class ChartPopupDialog(QDialog):
 
         self.setWindowTitle(f"{title} — MANIC")
         self.setModal(True)
+        # exec() then deletes the popup as it returns. Left to Python, its row callbacks keep it
+        # in a reference cycle the garbage collector clears while the dialog is still alive.
+        self.setAttribute(Qt.WA_DeleteOnClose)
 
         # Set window icon (same as main window)
         self._set_window_icon(parent)

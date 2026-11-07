@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from manic.models.analysis import IonChannel, IonRole
 from manic.ui import theme
@@ -223,6 +224,7 @@ TIPS = {
         ("name", "S3"): "S3\nQualifier 1  Validated\nQualifier 2  Validated",
         ("cell", 1): _A_CELL_1,
         ("cell", 2): _A_CELL_2,
+        ("new data",): f"{LONG_A}\nQualifier 1  Failed\nQualifier 2  Failed",
     },
     "popup identity": {
         ("name", LONG_A): LONG_A,
@@ -236,6 +238,7 @@ TIPS = {
         ("name", LONG_B): f"{LONG_B}\nPeak area  2e+06",
         ("name", "S3"): "S3\nPeak area  1e+06",
         ("cell", 1): f"{LONG_A}\nPeak area  3e+06",
+        ("new data",): f"{LONG_A}\nPeak area  136",
     },
     "popup peak area": {
         ("name", LONG_A): LONG_A,
@@ -256,7 +259,19 @@ TRANSITIONS = {
     "1 px along the name after a cell": [("cell", 1), ("name", LONG_A), ("nudge", LONG_A)],
     "leave the chart": [("name", LONG_A), ("leave",)],
     "close": [("cell", 1), ("close",)],
+    "new data under the pointer": [("name", LONG_A), ("new data",)],
+    "data cleared under the pointer": [("name", LONG_A), ("no data",)],
 }
+
+
+def _change_data(widget, kind, step) -> None:
+    """Gives a Summary chart the next compound's data (LONG_A failed, or 136), or none."""
+    names = TIP_NAMES if step == ("new data",) else []
+    if kind == "summary identity":
+        widget.update_results(_identity(names, failed=(LONG_A,), qualifiers=(V1, V2)))
+    else:
+        eics = [SimpleNamespace(sample_name=name) for name in names]
+        widget.update_abundance_from_data("Pyruvate", eics, np.array([136.0, 2e6, 1e6]))
 
 
 def _tip_surface(kind):
@@ -293,6 +308,8 @@ def test_chart_tips_follow_the_pointer_through_every_transition(qapp, kind, tran
         pytest.skip("a bar row has one place to point at")
     if last == ("close",) and not kind.startswith("popup"):
         pytest.skip("the Summary panel does not close")
+    if "data" in last[0] and kind.startswith("popup"):
+        pytest.skip("a popup's data does not change")
     window, view, bottom_up, off_chart = _tip_surface(kind)
     try:
         window.activateWindow()
@@ -322,9 +339,13 @@ def test_chart_tips_follow_the_pointer_through_every_transition(qapp, kind, tran
             QTest.qWait(400)
             assert QToolTip.isVisible()
             QTest.keyClick(window, Qt.Key_Escape)
+        elif "data" in last[0]:
+            QTest.qWait(400)
+            assert QToolTip.isVisible()
+            _change_data(window, kind, last)
         else:
             QTest.mouseMove(handle, point(last))
-        expected = {"leave": None, "close": None, "nudge": TIPS[kind].get(("name", last[-1]))}.get(
+        expected = {"leave": None, "close": None, "no data": None, "nudge": TIPS[kind].get(("name", last[-1]))}.get(
             last[0], TIPS[kind].get(last)
         )
         # Long enough for Qt to ask for a tooltip at rest and for any hide to land.
@@ -333,8 +354,10 @@ def test_chart_tips_follow_the_pointer_through_every_transition(qapp, kind, tran
     finally:
         QToolTip.hideText()
         QTest.qWait(350)
-        window.close()
-        window.deleteLater()
+        # A closed popup has already deleted itself.
+        if isValid(window):
+            window.close()
+            window.deleteLater()
 
 
 @pytest.mark.parametrize("dark", [False, True])
@@ -393,7 +416,7 @@ def test_identity_popup_row_selects_the_sample_through_the_qc_widget(qapp):
         widget.header.expand_button.click()
         assert seen["rows"] == ["S1", "S2"]
         assert activated == ["S2"]
-        assert not seen["dialog"].isVisible()
+        assert not isValid(seen["dialog"])
     finally:
         watchdog.stop()
         widget.deleteLater()

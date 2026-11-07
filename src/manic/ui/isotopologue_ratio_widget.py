@@ -82,7 +82,7 @@ class IsotopologueRatioWidget(QWidget):
         self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
 
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
-        BarRows(
+        self._rows = BarRows(
             self.chart,
             self.chart_view,
             lambda row: self.sample_activated.emit(self._current_sample_names[row]),
@@ -246,6 +246,7 @@ class IsotopologueRatioWidget(QWidget):
         self._refresh_key()
         self._paint_highlight()
         self._place_dashes()
+        self._rows.refresh()
 
     def empty_rows(self) -> list[int]:
         """Bar rows (0 is the bottom bar) whose sample has no ratio."""
@@ -361,6 +362,7 @@ class IsotopologueRatioWidget(QWidget):
         self._current_sample_names = None
         self._paint_highlight()
         self._place_dashes()
+        self._rows.refresh()
 
     def get_last_total_abundances(
         self,

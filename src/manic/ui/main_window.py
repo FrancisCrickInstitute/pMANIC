@@ -458,7 +458,7 @@ class MainWindow(QMainWindow):
         )
         self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy)
 
-        # Clicking an Identity bar, or a row in a summary popup, highlights that sample's plot.
+        # Clicking a Summary row, or a row in a summary popup, highlights that sample's plot.
         for chart in (
             self.summary.targeted_qc,
             self.summary.total_abundance,

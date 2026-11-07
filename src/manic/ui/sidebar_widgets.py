@@ -55,20 +55,6 @@ ROOMY_ROW_PX = 28
 SUMMARY_SHORT_ROWS = 2
 
 
-def fit_category_names(axis, names: list[str], view_width: int) -> None:
-    """Shorten names in the middle to fit a summary chart's name column.
-
-    QtCharts gives the name axis at most 40% of the chart and lets a longer name
-    run off its edge (or, truncating, leaves only "…"). Hover gives the full name.
-    """
-    metrics = QFontMetrics(axis.labelsFont())
-    width = int(view_width * 0.4) - 8
-    fitted = [metrics.elidedText(name, Qt.TextElideMode.ElideMiddle, width) for name in names]
-    # A category axis needs unique names.
-    if len(set(fitted)) == len(fitted) and fitted != axis.categories():
-        axis.setCategories(fitted)
-
-
 class SummaryChartArea(QScrollArea):
     """A summary chart tall enough to name every bar; rows past the widget's height scroll.
 

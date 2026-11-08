@@ -182,6 +182,19 @@ def test_double_click_opens_once_without_a_second_toggle(grid, opened):
     assert opened == [("Cmp", "A")]
 
 
+def test_the_first_click_after_a_double_click_toggles_again(grid, opened):
+    # The detail view the double-click opens is modal, so the release ending it never reaches the tile.
+    grid.plot_compound("Cmp", ["A", "B"])
+    selections = []
+    grid.selection_changed.connect(lambda names: selections.append(sorted(names)))
+    viewport = _plots(grid)["A"].viewport()
+    QTest.mouseClick(viewport, Qt.LeftButton)
+    QTest.mouseDClick(viewport, Qt.LeftButton)
+    QTest.mouseClick(viewport, Qt.LeftButton)
+    assert opened == [("Cmp", "A")]
+    assert selections == [["A"], []]
+
+
 def test_grid_header_names_the_compound_with_tr_and_count(grid, rts):
     samples = ["S1", "S2", "S3"]
     grid.plot_compound("Pyruvate", samples)

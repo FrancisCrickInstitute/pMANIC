@@ -156,6 +156,8 @@ class ClickableChartView(QChartView):
         super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event):
+        # The release that ends a double-click can be lost to the dialog it opened.
+        self._swallow_release = False
         if event.button() == Qt.LeftButton:
             self.m_pressPos = event.position().toPoint()
         elif event.button() == Qt.RightButton:

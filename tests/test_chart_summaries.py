@@ -370,6 +370,24 @@ def test_a_click_on_a_summary_row_selects_its_sample_and_a_double_click_only_enl
         widget.deleteLater()
 
 
+def test_a_click_waiting_for_a_double_click_is_dropped_when_the_rows_change(qapp):
+    from PySide6.QtTest import QTest
+
+    widget = _abundance(["S1", "S2", "S3"])
+    widget.update_abundance_from_data("Alanine", _eics(["S1", "S2", "S3"]), np.asarray([3e6, 2e6, 1e6]))
+    _shown(widget, 300)
+    activated = []
+    widget.sample_activated.connect(activated.append)
+    try:
+        for kind in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+            _mouse(widget, "S3", kind)
+        widget.update_abundance_from_data("Lactate", _eics(["T1"]), np.asarray([5e5]))
+        QTest.qWait(QApplication.doubleClickInterval() + 100)
+        assert activated == []
+    finally:
+        widget.deleteLater()
+
+
 @pytest.mark.parametrize("make", [_abundance, _ratios])
 def test_rebuilding_a_summary_keeps_its_name_size_and_shortening(qapp, make):
     # The grid's selection rebuilds the chart with an unchanged plot area.

@@ -244,6 +244,10 @@ class BarRows(QObject):
         name), or with none given, under the pointer once the layout has settled; hide it
         where there is none."""
         if pointer is None:
+            if self._click is not None:
+                # A waiting click names a row of the old data; new rows may hold other samples.
+                self._click.stop()
+                self._clicked = None
             self._settled.start()
         else:
             self._show_at(pointer)

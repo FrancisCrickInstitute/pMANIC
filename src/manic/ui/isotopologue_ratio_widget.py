@@ -87,6 +87,7 @@ class IsotopologueRatioWidget(QWidget):
             self.chart_view,
             lambda row: self.sample_activated.emit(self._current_sample_names[row]),
             lambda row, _value: self.hover_text(row),
+            waits_for_double_click=True,
         )
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))
@@ -141,7 +142,7 @@ class IsotopologueRatioWidget(QWidget):
     def update_ratios(self, compound_name: str, eics: List[EIC]) -> None:
         """Integrate ``eics`` and chart each sample's isotopologue ratios."""
         if not eics or not compound_name:
-            self._clear_chart()
+            self.clear()
             return
 
         self._current_eics = eics
@@ -150,7 +151,7 @@ class IsotopologueRatioWidget(QWidget):
         ratios, total_abundances = self._calculate_integrated_data(eics, compound_name)
 
         if ratios is None:
-            self._clear_chart()
+            self.clear()
             return
 
         self._last_total_abundances = total_abundances
@@ -158,7 +159,7 @@ class IsotopologueRatioWidget(QWidget):
 
         if eics[0].intensity.ndim == 1:
             # Single trace - don't show isotopologue chart (it would just be 100%)
-            self._clear_chart()
+            self.clear()
             return
 
         # Reversed for horizontal bars, which QtCharts draws bottom to top. A reversed
@@ -343,7 +344,7 @@ class IsotopologueRatioWidget(QWidget):
         self.chart.addAxis(y_axis, Qt.AlignLeft)
         self.value_axis.set_axis("", value_axis_ticks(x_axis))
 
-    def _clear_chart(self) -> None:
+    def clear(self) -> None:
         """Clear the chart when no data is available."""
         self.chart.removeAllSeries()
         for axis in self.chart.axes():

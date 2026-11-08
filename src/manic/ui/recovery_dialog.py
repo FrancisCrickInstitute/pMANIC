@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -23,6 +23,8 @@ from manic.ui.dialog_kit import (
 
 class RecoveryDialog(QDialog):
     """Lists soft-deleted items (compounds or samples) and restores the chosen ones."""
+
+    restored = Signal(list)
 
     def __init__(
         self,
@@ -66,9 +68,6 @@ class RecoveryDialog(QDialog):
 
         self._load_items()
 
-    def _emit_restored(self, names: list[str]) -> None:
-        raise NotImplementedError
-
     def _load_items(self) -> None:
         self.item_list.clear()
         deleted = self._load_deleted()
@@ -106,7 +105,7 @@ class RecoveryDialog(QDialog):
         if self._restore(names) > 0:
             # The UI refreshes from the database, so emitting the requested names
             # is fine even if some were already restored elsewhere.
-            self._emit_restored(names)
+            self.restored.emit(names)
             self.accept()
         else:
             QMessageBox.warning(self, "Restore Failed", f"No {self._noun}s were restored.")

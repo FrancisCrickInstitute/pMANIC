@@ -338,19 +338,52 @@ def test_a_peak_area_too_small_to_draw_reads_as_its_popup_value(qapp, monkeypatc
 
 
 @pytest.mark.parametrize("make", [_abundance, _ratios])
-def test_a_click_on_a_summary_row_selects_its_sample(qapp, make):
+def test_a_click_on_a_summary_row_selects_its_sample_and_a_double_click_only_enlarges(
+    qapp, make, monkeypatch
+):
+    from PySide6.QtTest import QTest
+
+    from manic.ui.chart_popup_dialog import ChartPopupDialog
+
     names = ["S1", "S2", "S3"]
     widget = make(names)
     if make is _abundance:
         widget.update_abundance_from_data("Alanine", _eics(names), np.asarray([3e6, 0.0, 1e6]))
     _shown(widget, 300)
+    activated, enlarged = [], []
+    widget.sample_activated.connect(activated.append)
+    monkeypatch.setattr(ChartPopupDialog, "exec", lambda self: enlarged.append(True) or 0)
+    monkeypatch.setattr("manic.ui.total_abundance_widget.peak_area_label", lambda _c: "Peak area")
+    click = (QEvent.MouseButtonPress, QEvent.MouseButtonRelease)
+    try:
+        for name in ("S3", "S2"):
+            for kind in click:
+                _mouse(widget, name, kind)
+            QTest.qWait(QApplication.doubleClickInterval() + 100)
+        assert activated == ["S3", "S2"]
+        # What Qt delivers for a double-click.
+        for kind in click + (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick) + click[1:]:
+            _mouse(widget, "S1", kind)
+        QTest.qWait(QApplication.doubleClickInterval() + 100)
+        assert enlarged == [True] and activated == ["S3", "S2"]
+    finally:
+        widget.deleteLater()
+
+
+def test_a_click_waiting_for_a_double_click_is_dropped_when_the_rows_change(qapp):
+    from PySide6.QtTest import QTest
+
+    widget = _abundance(["S1", "S2", "S3"])
+    widget.update_abundance_from_data("Alanine", _eics(["S1", "S2", "S3"]), np.asarray([3e6, 2e6, 1e6]))
+    _shown(widget, 300)
     activated = []
     widget.sample_activated.connect(activated.append)
     try:
-        for name in ("S3", "S2"):
-            _mouse(widget, name, QEvent.MouseButtonPress)
-            _mouse(widget, name, QEvent.MouseButtonRelease)
-        assert activated == ["S3", "S2"]
+        for kind in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+            _mouse(widget, "S3", kind)
+        widget.update_abundance_from_data("Lactate", _eics(["T1"]), np.asarray([5e5]))
+        QTest.qWait(QApplication.doubleClickInterval() + 100)
+        assert activated == []
     finally:
         widget.deleteLater()
 
@@ -409,3 +442,61 @@ def _tip_background():
         if w.objectName() == "qtooltip_label" and w.isVisible()
     ]
     return tip.palette().color(tip.backgroundRole())
+
+
+def test_a_plot_click_highlights_its_sample_in_the_summary_without_rebuilding_it(
+    qapp, monkeypatch
+):
+    from PySide6.QtTest import QTest
+
+    from conftest import _make_window
+    from manic.io.compound_reader import Compound
+    from manic.models import database
+
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms) VALUES ('Cmp', 1.0, 0.1, 0.1, 217.0, 2)"
+        )
+    reads = []
+
+    def eics(compound, samples, **_kwargs):
+        time = np.linspace(0.8, 1.2, 81)
+        return [
+            SimpleNamespace(
+                sample_name=s, compound_name=compound, time=time,
+                intensity=np.vstack([np.ones(81) * (i + 1), np.ones(81), np.ones(81)]),
+            )
+            for i, s in enumerate(samples)
+        ]
+
+    compound = Compound(
+        compound_name="Cmp", retention_time=1.0, loffset=0.1, roffset=0.1, mass0=217.0, label_atoms=2
+    )
+    monkeypatch.setattr("manic.ui.graphs.get_eics_for_compound", eics)
+    monkeypatch.setattr("manic.ui.graphs.read_compound_with_session", lambda *_a: compound)
+    # What the Summary reads its areas from.
+    monkeypatch.setattr(
+        "manic.processors.eic_processing.get_eics_for_compound",
+        lambda compound, samples, **kwargs: reads.append(samples) or eics(compound, samples),
+    )
+    monkeypatch.setattr("manic.ui.integration_window_widget.get_eics_for_compound", eics)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    try:
+        window.resize(2400, 1300)
+        window.compound_data_loaded = window.cdf_data_loaded = True
+        window.toolbar.update_label_colours(True, True)
+        window.toolbar.update_compound_list(["Cmp"])
+        window.toolbar.update_sample_list(["S1", "S2", "S3"])
+        window._refresh_shell()
+        window.show()
+        window.show_summary_action.setChecked(True)
+        charts = (window.summary.total_abundance, window.summary.isotopologue_ratios)
+        reads.clear()
+        plot = next(p for p in window.graph_view._current_plots if p.sample_name == "S2")
+        QTest.mouseClick(plot.viewport(), Qt.LeftButton)
+        QTest.qWait(50)
+        assert [_selected(chart) for chart in charts] == [["S2"], ["S2"]]
+        assert reads == []
+    finally:
+        window.close()

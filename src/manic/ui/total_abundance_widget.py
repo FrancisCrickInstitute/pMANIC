@@ -88,6 +88,7 @@ class TotalAbundanceWidget(QWidget):
             self.chart_view,
             lambda row: self.sample_activated.emit(self._current_sample_names[row]),
             lambda row, _value: self.hover_text(row),
+            waits_for_double_click=True,
         )
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))
@@ -131,7 +132,7 @@ class TotalAbundanceWidget(QWidget):
         This avoids duplicate integration calculations.
         """
         if not eics or not compound_name or abundances is None:
-            self._clear_chart()
+            self.clear()
             return
 
         self._current_compound = compound_name
@@ -249,7 +250,7 @@ class TotalAbundanceWidget(QWidget):
         self.chart.addAxis(y_axis, Qt.AlignLeft)
         self.value_axis.set_axis("", value_axis_ticks(x_axis))
 
-    def _clear_chart(self) -> None:
+    def clear(self) -> None:
         """Clear the chart when no data is available."""
         self.chart.removeAllSeries()
         for axis in self.chart.axes():

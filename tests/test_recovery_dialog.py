@@ -2,24 +2,20 @@ from PySide6.QtCore import QEvent, QPoint
 from PySide6.QtGui import QHelpEvent
 from PySide6.QtWidgets import QApplication, QToolTip
 
-from manic.ui import compound_recovery_dialog, sample_recovery_dialog
-from manic.ui.compound_recovery_dialog import CompoundRecoveryDialog
-from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
+from manic.ui.recovery_dialog import RecoveryDialog
 
 
-def test_compound_recovery_restores_selected_names(qapp, monkeypatch):
+def _samples(names):
+    return RecoveryDialog("sample", lambda: names, lambda _names: 0)
+
+
+def test_compound_recovery_restores_selected_names(qapp):
     restored = []
-    monkeypatch.setattr(
-        compound_recovery_dialog, "get_deleted_compounds", lambda: ["Citrate", "Malate"]
+    dialog = RecoveryDialog(
+        "compound", lambda: ["Citrate", "Malate"], lambda names: restored.extend(names) or len(names)
     )
-    monkeypatch.setattr(
-        compound_recovery_dialog,
-        "restore_compounds",
-        lambda names: restored.extend(names) or len(names),
-    )
-    dialog = CompoundRecoveryDialog()
     emitted = []
-    dialog.compounds_restored.connect(emitted.append)
+    dialog.restored.connect(emitted.append)
     assert dialog.windowTitle() == "Recover Deleted Compounds — MANIC"
     assert not dialog.restore_btn.isEnabled()
 
@@ -30,12 +26,11 @@ def test_compound_recovery_restores_selected_names(qapp, monkeypatch):
 
     assert restored == ["Malate"]
     assert emitted == [["Malate"]]
-    assert dialog.result() == CompoundRecoveryDialog.Accepted
+    assert dialog.result() == RecoveryDialog.Accepted
 
 
-def test_sample_recovery_shows_empty_state(qapp, monkeypatch):
-    monkeypatch.setattr(sample_recovery_dialog, "get_deleted_samples", lambda: [])
-    dialog = SampleRecoveryDialog()
+def test_sample_recovery_shows_empty_state(qapp):
+    dialog = _samples([])
     assert dialog.item_list.count() == 0
     assert dialog.title.text() == "No deleted samples"
     for widget in (dialog.item_list, dialog.status_label):
@@ -44,10 +39,8 @@ def test_sample_recovery_shows_empty_state(qapp, monkeypatch):
     assert visible == ["Close"]
 
 
-def test_sample_recovery_fits_its_names_without_a_void(qapp, monkeypatch):
-    names = ["Bio_001", "Bio_002", "Bio_003"]
-    monkeypatch.setattr(sample_recovery_dialog, "get_deleted_samples", lambda: names)
-    dialog = SampleRecoveryDialog()
+def test_sample_recovery_fits_its_names_without_a_void(qapp):
+    dialog = _samples(["Bio_001", "Bio_002", "Bio_003"])
     dialog.show()
     qapp.processEvents()
     try:
@@ -59,13 +52,12 @@ def test_sample_recovery_fits_its_names_without_a_void(qapp, monkeypatch):
         dialog.close()
 
 
-def test_recovery_keeps_long_names_apart_and_shows_them_in_full_on_hover(qapp, monkeypatch):
+def test_recovery_keeps_long_names_apart_and_shows_them_in_full_on_hover(qapp):
     names = [
         f"2026-10-28_GCMS_StableIsotope_Experiment_17_Batch04_Replicate_00{i}_Rerun_02"
         for i in (1, 2)
     ]
-    monkeypatch.setattr(sample_recovery_dialog, "get_deleted_samples", lambda: names)
-    dialog = SampleRecoveryDialog()
+    dialog = _samples(names)
     dialog.show()
     qapp.processEvents()
     try:

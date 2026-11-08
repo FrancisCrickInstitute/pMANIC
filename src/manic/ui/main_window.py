@@ -428,12 +428,7 @@ class MainWindow(QMainWindow):
         self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy)
 
         # Clicking a Summary row, or a row in a summary popup, highlights that sample's plot.
-        for chart in (
-            self.summary.targeted_qc,
-            self.summary.total_abundance,
-            self.summary.isotopologue_ratios,
-        ):
-            chart.sample_activated.connect(self._on_qc_sample_activated)
+        self.summary.sample_activated.connect(self._on_qc_sample_activated)
 
         self.start_panel.load_compounds_requested.connect(
             self.load_compound_action.trigger
@@ -1414,9 +1409,7 @@ class MainWindow(QMainWindow):
         self.graph_view.clear_all_plots()
         self.toolbar.integration.populate_fields_from_plots(compound_name, [], [])
         self.toolbar.integration.populate_tr_window_field(compound_name)
-        self.summary.isotopologue_ratios._clear_chart()
-        self.summary.total_abundance._clear_chart()
-        self.summary.targeted_qc.clear()
+        self.summary.clear()
         self._refresh_shell()
 
     def _get_current_eics(self):
@@ -1537,15 +1530,12 @@ class MainWindow(QMainWindow):
             )
 
         if abundances is None:
-            self.summary.total_abundance._clear_chart()
+            self.summary.total_abundance.clear()
             return
         self.summary.total_abundance.update_abundance_from_data(
             compound_name, eics, abundances
         )
-        selected = self.graph_view.get_selected_samples()
-        self.summary.total_abundance.set_highlighted(selected)
-        self.summary.isotopologue_ratios.set_highlighted(selected)
-        self.summary.targeted_qc.set_highlighted(selected)
+        self.summary.set_highlighted(self.graph_view.get_selected_samples())
 
     def _update_targeted_qc(self, identity) -> None:
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
@@ -1715,8 +1705,8 @@ class MainWindow(QMainWindow):
                 current_compound, selected_samples, all_samples
             )
 
-            # Verdicts do not depend on the selection; the charts only re-highlight.
-            self._refresh_mode_charts(current_compound, all_samples, skip_qc=True)
+            # Verdicts and areas do not depend on the selection; the charts only re-highlight.
+            self.summary.set_highlighted(selected_samples)
 
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")
@@ -2756,9 +2746,7 @@ class MainWindow(QMainWindow):
                 QCoreApplication.processEvents()
 
                 self.graph_view.clear_all_plots()
-                self.summary.isotopologue_ratios._clear_chart()
-                self.summary.total_abundance._clear_chart()
-                self.summary.targeted_qc.clear()
+                self.summary.clear()
 
                 self.graph_view.repaint()
 

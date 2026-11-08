@@ -85,6 +85,14 @@ def _rgba(qcolor, alpha: float) -> str:
 
 # Same meaning as on the grid tiles: dashed steel blue bounds the
 # integration window, solid grey marks the target tR or m/z.
+def _show_empty(plot: MatplotlibPlotWidget, title: str) -> None:
+    """Draws the empty state now, so the previous sample's traces never stay under it."""
+    plot.clear_plot()
+    plot.set_title(title)
+    # Not finalize_plot: a failed plot may have failed there.
+    plot.canvas.draw_idle()
+
+
 class DetailedPlotDialog(QDialog):
     """
     Modal dialog for detailed compound-sample visualization.
@@ -472,8 +480,7 @@ class DetailedPlotDialog(QDialog):
     def _plot_eic(self):
         """Plot the EIC data with integration boundaries."""
         if not self.eic_data or not self.compound_info:
-            self.eic_plot.clear_plot()
-            self.eic_plot.set_title("Extracted ion chromatogram (no data)")
+            _show_empty(self.eic_plot, "Extracted ion chromatogram (no data)")
             return
 
         self._eic_plot_error = None
@@ -537,9 +544,7 @@ class DetailedPlotDialog(QDialog):
         except Exception as e:
             logger.error(f"Failed to plot EIC: {e}")
             self._eic_plot_error = str(e)
-            self.eic_plot.set_title(
-                "Extracted ion chromatogram (plot failed)"
-            )
+            _show_empty(self.eic_plot, "Extracted ion chromatogram (plot failed)")
 
     def _add_baseline_lines(self, left_bound: float, right_bound: float, prepared):
         if not self.compound_info or not self.eic_data:
@@ -777,8 +782,7 @@ class DetailedPlotDialog(QDialog):
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""
         if not self.tic_data:
-            self.tic_plot.clear_plot()
-            self.tic_plot.set_title("Total ion chromatogram (no data)")
+            _show_empty(self.tic_plot, "Total ion chromatogram (no data)")
             return
 
         try:
@@ -802,13 +806,12 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot TIC: {e}")
-            self.tic_plot.set_title("Total ion chromatogram (plot failed)")
+            _show_empty(self.tic_plot, "Total ion chromatogram (plot failed)")
 
     def _plot_ms(self):
         """Plot the mass spectrum data."""
         if not self.ms_data:
-            self.ms_plot.clear_plot()
-            self.ms_plot.set_title("Mass spectrum (no data)")
+            _show_empty(self.ms_plot, "Mass spectrum (no data)")
             return
 
         try:
@@ -854,7 +857,7 @@ class DetailedPlotDialog(QDialog):
 
         except Exception as e:
             logger.error(f"Failed to plot MS: {e}")
-            self.ms_plot.set_title("Mass spectrum (plot failed)")
+            _show_empty(self.ms_plot, "Mass spectrum (plot failed)")
 
     def _update_info_label(self):
         """tR, the observed apex and the integration window: what the EIC is read against."""

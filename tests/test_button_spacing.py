@@ -91,11 +91,10 @@ def _dialogs(monkeypatch):
     from manic.ui.add_compound_dialog import AddCompoundDialog
     from manic.ui.analysis_mode_dialog import AnalysisModeDialog
     from manic.ui.chart_popup_dialog import ChartPopupDialog
-    from manic.ui.compound_recovery_dialog import CompoundRecoveryDialog
     from manic.ui.detailed_plot_dialog import DetailedPlotDialog
     from manic.ui.export_options_dialog import ExportOptionsDialog
     from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
-    from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
+    from manic.ui.recovery_dialog import RecoveryDialog
     from manic.ui.update_old_data_dialog import UpdateOldDataDialog
 
     monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
@@ -106,8 +105,8 @@ def _dialogs(monkeypatch):
         "chart popup": lambda: ChartPopupDialog(
             "total_abundance", "Total Abundance", np.array([1.0, 2.0]), ["S1", "S2"]
         ),
-        "compound recovery": lambda: CompoundRecoveryDialog(),
-        "sample recovery": lambda: SampleRecoveryDialog(),
+        "compound recovery": lambda: RecoveryDialog("compound", lambda: [], lambda _names: 0),
+        "sample recovery": lambda: RecoveryDialog("sample", lambda: [], lambda _names: 0),
         "detailed view": lambda: DetailedPlotDialog("Alanine", "S1", samples=["S1", "S2"]),
         "export options": lambda: ExportOptionsDialog(False, offer_carbon_enrichment=True),
         "checklist": lambda: PostLoadChecklistDialog(

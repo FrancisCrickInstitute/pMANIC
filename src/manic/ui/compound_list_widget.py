@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from manic.models.database import get_deleted_compounds, soft_delete_compound
-from manic.ui.compound_recovery_dialog import CompoundRecoveryDialog
+from manic.models.database import get_deleted_compounds, restore_compounds, soft_delete_compound
+from manic.ui.recovery_dialog import RecoveryDialog
 from manic.ui.theme import set_style_property
 
 
@@ -185,6 +185,6 @@ class CompoundListWidget(QListWidget):
 
     def _show_recovery_dialog(self):
         """Show the compound recovery dialog"""
-        dialog = CompoundRecoveryDialog(self)
-        dialog.compounds_restored.connect(self.compounds_restored.emit)
+        dialog = RecoveryDialog("compound", get_deleted_compounds, restore_compounds, self)
+        dialog.restored.connect(self.compounds_restored.emit)
         dialog.exec()

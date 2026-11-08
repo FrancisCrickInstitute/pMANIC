@@ -14,6 +14,7 @@ from PySide6.QtCharts import (
 )
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
 import numpy as np
 from types import SimpleNamespace
@@ -281,6 +282,7 @@ def test_identity_chart_click_emits_sample_name(qapp):
                 viewport,
                 QMouseEvent(kind, pos, viewport.mapToGlobal(pos), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier),
             )
+        QTest.qWait(QApplication.doubleClickInterval() + 100)  # a click waits out a double-click
         assert activated == ["S1"]
     finally:
         widget.deleteLater()

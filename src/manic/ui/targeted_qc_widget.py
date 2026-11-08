@@ -84,6 +84,7 @@ class TargetedQcWidget(QWidget):
             self.chart_view,
             lambda row: self.sample_activated.emit(self._identity.samples[-1 - row].sample_name),
             self._row_tip,
+            waits_for_double_click=True,
         )
 
         style_chart(self.chart, QMargins(0, 0, 0, 0))

@@ -688,6 +688,7 @@ def test_long_sidebar_names_shorten_to_fit_instead_of_running_off(qapp):
             Qt.LeftButton,
             pos=widget.chart_view.mapFromScene(widget.chart.mapToScene(point)),
         )
+        QTest.qWait(QApplication.doubleClickInterval() + 100)  # a click waits out a double-click
         assert activated == ["Sample_04_ratio_fail"]
     finally:
         widget.deleteLater()

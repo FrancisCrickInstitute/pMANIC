@@ -428,12 +428,7 @@ class MainWindow(QMainWindow):
         self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy)
 
         # Clicking a Summary row, or a row in a summary popup, highlights that sample's plot.
-        for chart in (
-            self.summary.targeted_qc,
-            self.summary.total_abundance,
-            self.summary.isotopologue_ratios,
-        ):
-            chart.sample_activated.connect(self._on_qc_sample_activated)
+        self.summary.sample_activated.connect(self._on_qc_sample_activated)
 
         self.start_panel.load_compounds_requested.connect(
             self.load_compound_action.trigger
@@ -1414,9 +1409,7 @@ class MainWindow(QMainWindow):
         self.graph_view.clear_all_plots()
         self.toolbar.integration.populate_fields_from_plots(compound_name, [], [])
         self.toolbar.integration.populate_tr_window_field(compound_name)
-        self.summary.isotopologue_ratios._clear_chart()
-        self.summary.total_abundance._clear_chart()
-        self.summary.targeted_qc.clear()
+        self.summary.clear()
         self._refresh_shell()
 
     def _get_current_eics(self):
@@ -1537,7 +1530,7 @@ class MainWindow(QMainWindow):
             )
 
         if abundances is None:
-            self.summary.total_abundance._clear_chart()
+            self.summary.total_abundance.clear()
             return
         self.summary.total_abundance.update_abundance_from_data(
             compound_name, eics, abundances
@@ -2753,9 +2746,7 @@ class MainWindow(QMainWindow):
                 QCoreApplication.processEvents()
 
                 self.graph_view.clear_all_plots()
-                self.summary.isotopologue_ratios._clear_chart()
-                self.summary.total_abundance._clear_chart()
-                self.summary.targeted_qc.clear()
+                self.summary.clear()
 
                 self.graph_view.repaint()
 

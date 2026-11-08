@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from manic.models.analysis import AnalysisMode
@@ -22,6 +22,9 @@ def summary_width_for(window_width: int) -> int:
 
 class SummaryPanel(QWidget):
     """Label incorporation (Identity when unlabelled) over Peak area, both always in view."""
+
+    # A sample's row clicked in any chart or its popup.
+    sample_activated = Signal(str)
 
     def __init__(self, analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED):
         super().__init__()
@@ -47,9 +50,15 @@ class SummaryPanel(QWidget):
         # Unused in this mode, but the window clears and highlights all three alike.
         other.setParent(self)
         other.hide()
+        for chart in self._charts():
+            chart.sample_activated.connect(self.sample_activated)
 
     def _charts(self):
         return self.targeted_qc, self.total_abundance, self.isotopologue_ratios
+
+    def clear(self) -> None:
+        for chart in self._charts():
+            chart.clear()
 
     def set_highlighted(self, sample_names) -> None:
         for chart in self._charts():

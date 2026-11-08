@@ -9,8 +9,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from manic.models.database import get_deleted_samples, soft_delete_samples
-from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
+from manic.models.database import get_deleted_samples, restore_samples, soft_delete_samples
+from manic.ui.recovery_dialog import RecoveryDialog
 from manic.ui.theme import set_style_property
 
 
@@ -215,6 +215,6 @@ class SampleListWidget(QListWidget):
 
     def _show_recovery_dialog(self):
         """Show the sample recovery dialog"""
-        dialog = SampleRecoveryDialog(self)
-        dialog.samples_restored.connect(self.samples_restored.emit)
+        dialog = RecoveryDialog("sample", get_deleted_samples, restore_samples, self)
+        dialog.restored.connect(self.samples_restored.emit)
         dialog.exec()

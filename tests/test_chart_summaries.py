@@ -97,14 +97,14 @@ def _rows_in_view(widget) -> list[str]:
     ]
 
 
-def _mouse(widget, name, kind=QEvent.MouseMove) -> None:
+def _mouse(widget, name, kind=QEvent.MouseMove, button=Qt.LeftButton) -> None:
     """A mouse event halfway along a sample's first bar segment (its row's start if empty)."""
     series = widget.chart.series()[0]
     index = list(widget.chart.axes(Qt.Vertical)[0].categories()).index(name)
     point = widget.chart.mapToPosition(QPointF(series.barSets()[0].at(index) / 2, index), series)
     pos = QPointF(widget.chart_view.mapFromScene(widget.chart.mapToScene(point)))
     viewport = widget.chart_view.viewport()
-    button = Qt.NoButton if kind == QEvent.MouseMove else Qt.LeftButton
+    button = Qt.NoButton if kind == QEvent.MouseMove else button
     QApplication.sendEvent(
         viewport,
         QMouseEvent(kind, pos, viewport.mapToGlobal(pos), button, button, Qt.NoModifier),
@@ -366,6 +366,35 @@ def test_a_click_on_a_summary_row_selects_its_sample_and_a_double_click_only_enl
             _mouse(widget, "S1", kind)
         QTest.qWait(QApplication.doubleClickInterval() + 100)
         assert enlarged == [True] and activated == ["S3", "S2"]
+    finally:
+        widget.deleteLater()
+
+
+@pytest.mark.parametrize("button", [Qt.LeftButton, Qt.RightButton], ids=["left", "right"])
+def test_the_first_click_after_a_double_click_selects(qapp, monkeypatch, button):
+    # A modal popup opened by the double-click takes its trailing release, and a right
+    # double-click ends with a right release; either way the next left click must select.
+    from PySide6.QtTest import QTest
+
+    from manic.ui.chart_popup_dialog import ChartPopupDialog
+
+    names = ["S1", "S2", "S3"]
+    widget = _abundance(names)
+    widget.update_abundance_from_data("Alanine", _eics(names), np.asarray([3e6, 2e6, 1e6]))
+    _shown(widget, 300)
+    activated = []
+    widget.sample_activated.connect(activated.append)
+    monkeypatch.setattr(ChartPopupDialog, "exec", lambda self: 0)
+    try:
+        for kind in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.MouseButtonPress,
+                     QEvent.MouseButtonDblClick):
+            _mouse(widget, "S1", kind, button)
+        if button == Qt.RightButton:
+            _mouse(widget, "S1", QEvent.MouseButtonRelease, button)
+        for kind in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+            _mouse(widget, "S2", kind)
+        QTest.qWait(QApplication.doubleClickInterval() + 100)
+        assert activated == ["S2"]
     finally:
         widget.deleteLater()
 

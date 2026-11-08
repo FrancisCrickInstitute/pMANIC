@@ -83,8 +83,6 @@ def _rgba(qcolor, alpha: float) -> str:
     return f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
 
 
-# Same meaning as on the grid tiles: dashed steel blue bounds the
-# integration window, solid grey marks the target tR or m/z.
 def _show_empty(plot: MatplotlibPlotWidget, title: str) -> None:
     """Draws the empty state now, so the previous sample's traces never stay under it."""
     plot.clear_plot()
@@ -93,6 +91,8 @@ def _show_empty(plot: MatplotlibPlotWidget, title: str) -> None:
     plot.canvas.draw_idle()
 
 
+# Same meaning as on the grid tiles: dashed steel blue bounds the
+# integration window, solid grey marks the target tR or m/z.
 class DetailedPlotDialog(QDialog):
     """
     Modal dialog for detailed compound-sample visualization.

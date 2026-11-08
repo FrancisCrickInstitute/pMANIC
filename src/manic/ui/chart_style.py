@@ -289,7 +289,14 @@ class BarRows(QObject):
             self._show_at(None)
         elif kind == QEvent.Resize:
             self.refresh()
-        elif kind == QEvent.MouseButtonDblClick and self._click is not None:
+        elif kind == QEvent.MouseButtonPress:
+            # The release that ends a double-click can be lost to the popup it opened.
+            self._doubled = False
+        elif (
+            kind == QEvent.MouseButtonDblClick
+            and event.button() == Qt.LeftButton
+            and self._click is not None
+        ):
             self._click.stop()
             self._clicked = None
             self._doubled = True

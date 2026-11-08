@@ -424,3 +424,61 @@ def _tip_background():
         if w.objectName() == "qtooltip_label" and w.isVisible()
     ]
     return tip.palette().color(tip.backgroundRole())
+
+
+def test_a_plot_click_highlights_its_sample_in_the_summary_without_rebuilding_it(
+    qapp, monkeypatch
+):
+    from PySide6.QtTest import QTest
+
+    from conftest import _make_window
+    from manic.io.compound_reader import Compound
+    from manic.models import database
+
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
+            "mass0, label_atoms) VALUES ('Cmp', 1.0, 0.1, 0.1, 217.0, 2)"
+        )
+    reads = []
+
+    def eics(compound, samples, **_kwargs):
+        time = np.linspace(0.8, 1.2, 81)
+        return [
+            SimpleNamespace(
+                sample_name=s, compound_name=compound, time=time,
+                intensity=np.vstack([np.ones(81) * (i + 1), np.ones(81), np.ones(81)]),
+            )
+            for i, s in enumerate(samples)
+        ]
+
+    compound = Compound(
+        compound_name="Cmp", retention_time=1.0, loffset=0.1, roffset=0.1, mass0=217.0, label_atoms=2
+    )
+    monkeypatch.setattr("manic.ui.graphs.get_eics_for_compound", eics)
+    monkeypatch.setattr("manic.ui.graphs.read_compound_with_session", lambda *_a: compound)
+    # What the Summary reads its areas from.
+    monkeypatch.setattr(
+        "manic.processors.eic_processing.get_eics_for_compound",
+        lambda compound, samples, **kwargs: reads.append(samples) or eics(compound, samples),
+    )
+    monkeypatch.setattr("manic.ui.integration_window_widget.get_eics_for_compound", eics)
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    try:
+        window.resize(2400, 1300)
+        window.compound_data_loaded = window.cdf_data_loaded = True
+        window.toolbar.update_label_colours(True, True)
+        window.toolbar.update_compound_list(["Cmp"])
+        window.toolbar.update_sample_list(["S1", "S2", "S3"])
+        window._refresh_shell()
+        window.show()
+        window.show_summary_action.setChecked(True)
+        charts = (window.summary.total_abundance, window.summary.isotopologue_ratios)
+        reads.clear()
+        plot = next(p for p in window.graph_view._current_plots if p.sample_name == "S2")
+        QTest.mouseClick(plot.viewport(), Qt.LeftButton)
+        QTest.qWait(50)
+        assert [_selected(chart) for chart in charts] == [["S2"], ["S2"]]
+        assert reads == []
+    finally:
+        window.close()

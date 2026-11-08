@@ -1542,10 +1542,7 @@ class MainWindow(QMainWindow):
         self.summary.total_abundance.update_abundance_from_data(
             compound_name, eics, abundances
         )
-        selected = self.graph_view.get_selected_samples()
-        self.summary.total_abundance.set_highlighted(selected)
-        self.summary.isotopologue_ratios.set_highlighted(selected)
-        self.summary.targeted_qc.set_highlighted(selected)
+        self.summary.set_highlighted(self.graph_view.get_selected_samples())
 
     def _update_targeted_qc(self, identity) -> None:
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
@@ -1715,8 +1712,8 @@ class MainWindow(QMainWindow):
                 current_compound, selected_samples, all_samples
             )
 
-            # Verdicts do not depend on the selection; the charts only re-highlight.
-            self._refresh_mode_charts(current_compound, all_samples, skip_qc=True)
+            # Verdicts and areas do not depend on the selection; the charts only re-highlight.
+            self.summary.set_highlighted(selected_samples)
 
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")

@@ -47,3 +47,10 @@ class SummaryPanel(QWidget):
         # Unused in this mode, but the window clears and highlights all three alike.
         other.setParent(self)
         other.hide()
+
+    def _charts(self):
+        return self.targeted_qc, self.total_abundance, self.isotopologue_ratios
+
+    def set_highlighted(self, sample_names) -> None:
+        for chart in self._charts():
+            chart.set_highlighted(sample_names)

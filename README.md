@@ -42,10 +42,11 @@ export sheets, and scientific rationale) is in
 
 ## Upgrading to MANIC 5
 
-> **⚠️ The Corrected Values sheet changes in 5.0. Ratio sheets move by less than half a percentage point; the largest change we found was 45.3% → 45.8%. Calibrated nmol amounts move by under 2.5%.**
+> **⚠️ Exported numbers change in 5.0. Corrected Values change for every labelled compound. The ratio sheets change most for small and unlabelled peaks, because correction now runs once on the integrated areas. Reprocess older data with 5.0 before comparing any sheet.**
 
-Two processing changes in 5.0 alter exported numbers. Both are measured below
-on two real lab datasets.
+Three processing changes in 5.0 alter exported numbers. The first two are
+measured below on two real lab datasets, the third on the synthetic bench
+dataset.
 
 ### The short version
 
@@ -53,8 +54,12 @@ on two real lab datasets.
   baseline clamp (next section). On dataset_1, 11.8% of channel areas moved,
   by a median of 0.12%, and 90% of those that moved did so by under 1.9%.
 - **Isotope Ratio, % Label Incorporation, % Carbons Labelled.** Move by less
-  than half a percentage point. The largest change found anywhere was an
-  Isotope Ratio of 45.30% becoming 45.78%. Your 4.x results stand.
+  than half a percentage point from the correction fix alone. The largest
+  change found anywhere was an Isotope Ratio of 45.30% becoming 45.78%.
+  Correcting the integrated areas moves small and empty peaks further: on the
+  synthetic labelled bench dataset, % Label Incorporation moved by a median of
+  0.04 percentage points, mostly down, and peaks with no raw signal that used
+  to show 100% label now show 0%.
 - **Abundances (nmol) for compounds calibrated against MM files.** Change by
   under 2.5%, and typically by about 0.1%. Your 4.x results stand.
 - **Abundances for compounds with no MM-file calibration.** Drop by 15 to 35%.
@@ -82,6 +87,14 @@ response factor (MRRF) is computed from the same inflated values and inflates
 by the same amount. The only place it did not cancel is a compound whose
 response factor could not be computed and was assumed to be 1.0. Those
 abundances carried the full inflation.
+
+**Correction order.** Up to 4.x, MANIC corrected every scan, set negative
+scans to zero and then integrated. Noise in an isotopologue with no real
+label swings above and below zero, so zeroing each negative scan kept only
+the positive swings and added false label. The smaller the peak, the more
+false label. 5.0 integrates the raw traces first and corrects the integrated
+areas once. Raw Values do not change. See
+[Correct the Integrated Areas](docs/Reference_Natural_Isotope_Correction.md#3-correct-the-integrated-areas).
 
 **Baseline clamp.** When a compound has baseline correction on, MANIC fits a
 straight line under the peak and subtracts the area beneath it. In 4.x, if

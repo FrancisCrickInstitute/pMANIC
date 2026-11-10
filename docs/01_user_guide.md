@@ -541,11 +541,11 @@ Rebuild a labelled export from the "Raw Values" (integrated peak areas) of an ol
 
 MANIC reads the raw areas from the workbook, pairs them with the compound list, and writes five sheets: **Raw Values**, **Corrected Values**, **Isotope Ratio**, **% Label Incorporation**, and **Abundances**.
 
-> **Scientific limitation: Approximate Mode**
+> **Scientific limitation: No re-integration**
 >
-> Because the original raw data (CDF) is missing, MANIC cannot perform the standard "per-timepoint" correction. Instead, it applies a mathematical approximation to the **total integrated area**.
+> MANIC corrects the integrated areas in both workflows, so the correction itself is the same. Because the original raw data (CDF) is missing, MANIC uses the areas in your workbook as they are.
 >
-> * **Result:** The "Corrected Values" may differ slightly from a full re-analysis of raw CDFs.
+> * **Result:** The "Corrected Values" differ from a full re-analysis of raw CDFs wherever the original integration differs from MANIC's (window, baseline correction, deconvolution, or integration units).
 > * **Restriction:** You cannot adjust integration boundaries or view chromatograms in this mode.
 
 **Full explanation:** [Process External Data](Workflow_Process_External_Data.md)
@@ -559,7 +559,7 @@ For users upgrading from the MATLAB version of MANIC (v3.3.0), please note the f
 | Feature | v3.3.0 (Legacy) | v4.0.0 (Python) |
 | :--- | :--- | :--- |
 | **Integration** | Unit-spacing (large values) | Time-based (physically meaningful). *Legacy mode available.* |
-| **NA Correction** | Applied *after* integration | Applied *before* integration (per timepoint) for higher accuracy. |
+| **NA Correction** | Applied *after* integration | Applied *before* integration (per timepoint). MANIC 5.0 applies it *after* integration again, because correcting every scan added false label. |
 | **MRRF** | Sum-based calculation | Mean-based calculation (more robust to sample count variations). |
 | **Validation** | Manual visual check | Automatic **Below threshold** badges on weak peaks. |
 

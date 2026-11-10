@@ -12,7 +12,10 @@ from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
     deconvolve_channel_matrix,
 )
-from manic.processors.eic_correction_manager import make_time_series_corrector
+from manic.processors.eic_correction_manager import (
+    make_area_corrector,
+    make_time_series_corrector,
+)
 from manic.processors.integration import calculate_peak_areas, integrate_bundle_areas
 
 
@@ -153,14 +156,16 @@ def integrated_display_areas(
             compound, "deconvolution_noise_gate", "balanced"
         ),
     )
-    prepared = plot_display(time, raw, compound, use_corrected=use_corrected)
+    correct_areas = (
+        make_area_corrector(compound) if use_corrected and raw.ndim > 1 else None
+    )
+    prepared = plot_display(time, raw, compound, use_corrected=False)
     if prepared.display is not None:
-        apply_correction = make_time_series_corrector(compound)
-        _raw_areas, corrected_areas = integrate_bundle_areas(
+        _, areas = integrate_bundle_areas(
             time,
             prepared.display.bundle,
             raw,
-            correct_time_series=apply_correction,
+            correct_areas=correct_areas,
             baseline_correction=bool(getattr(compound, "baseline_correction", 0)),
             use_legacy=use_legacy,
             retention_time=compound.retention_time,
@@ -169,18 +174,8 @@ def integrated_display_areas(
             label_atoms=label_atoms,
             channel_count=channel_count,
         )
-        if use_corrected and apply_correction is not None:
-            return corrected_areas
-        return _raw_areas
-    if use_corrected and make_time_series_corrector(compound) is not None:
-        return calculate_peak_areas(
-            time,
-            np.asarray(prepared.intensity, dtype=np.float64).ravel(),
-            label_atoms,
-            chromatographic_peak_deconvolution_stringency="off",
-            **common,
-        )
-    return calculate_peak_areas(
+        return areas
+    areas = calculate_peak_areas(
         time,
         raw.ravel(),
         label_atoms,
@@ -189,3 +184,6 @@ def integrated_display_areas(
         ),
         **common,
     )
+    if correct_areas is None:
+        return areas
+    return [float(area) for area in correct_areas(areas)]

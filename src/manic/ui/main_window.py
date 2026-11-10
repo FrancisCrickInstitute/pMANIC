@@ -2047,20 +2047,7 @@ class MainWindow(QMainWindow):
         )
 
         try:
-            pending_update = self.toolbar.integration._pending_session_update
-            if pending_update is not None:
-                if pending_update.regenerated_sample_names:
-                    logger.info(
-                        f"Refreshing bounds for "
-                        f"{len(pending_update.regenerated_sample_names)} "
-                        f"regenerated samples"
-                    )
-                    self.toolbar.integration.refresh_data_window_bounds(
-                        pending_update.compound_name,
-                        list(pending_update.regenerated_sample_names),
-                    )
-
-                self.toolbar.integration._pending_session_update = None
+            self.toolbar.integration._pending_session_update = None
 
             current_compound = self.graph_view.get_current_compound()
             current_selected = self.graph_view.get_selected_samples()

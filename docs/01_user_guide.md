@@ -198,7 +198,7 @@ On a short window, such as a laptop screen with **Samples** open, the rows under
 2.  Click **Apply**, or press Enter in a field. With plots selected, the line above the fields names them; with none selected, **Apply** changes every shown sample.
 3.  The plots will refresh immediately to show the new boundaries.
 
-> **Auto-Regeneration Feature:** If you widen the boundaries beyond the data MANIC originally extracted from the CDF file, the software will automatically re-read the raw file to fetch the missing data. A progress bar will appear during this process.
+> **Auto-Regeneration Feature:** When you change the `tR`, or widen an offset past the tR Window, MANIC re-reads the raw file around the new `tR`. Each plot stays centred on its sample's `tR`. Changing only the offsets inside the tR Window is instant. A progress bar appears while MANIC reads the files.
 
 #### 6. Troubleshooting: Fixing Cut-off Peaks
 Sometimes a peak may shift so far that part of it is completely missing from the plot (cut off by the edge of the extracted data). You cannot integrate what isn't there.
@@ -356,7 +356,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
     3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, and internal standard.
-* **Moved peak windows:** Where a saved tR or offset puts the peak window outside the data extracted for a sample, the import re-extracts that sample from its CDF file, as **Apply** does. You do not need to click **Apply** on each compound. If a CDF file has moved, the import names the compounds it could not re-extract.
+* **Moved peak windows:** Where a saved tR differs from the one a sample's data was extracted around, or a saved offset is wider than its tR Window, the import re-extracts that sample from its CDF file, as **Apply** does. You do not need to click **Apply** on each compound. If a CDF file has moved, the import names the compounds it could not re-extract.
 * **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current internal standard unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared.
 
 ---

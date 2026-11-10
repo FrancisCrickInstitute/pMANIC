@@ -529,6 +529,51 @@ def import_eics(
     return inserted
 
 
+def eic_needs_reextraction(
+    time: np.ndarray,
+    rt_window: float | None,
+    retention_time: float,
+    loffset: float,
+    roffset: float,
+) -> bool:
+    """False only when extracting ±rt_window around the tR would return ``time`` and covers both offsets."""
+    if not rt_window or time.size < 2 or max(loffset, roffset) > rt_window:
+        return True
+    scan = np.median(np.diff(np.sort(time)))
+    start, end = retention_time - rt_window, retention_time + rt_window
+    first, last = time.min(), time.max()
+    return not (start <= first < start + scan and end - scan < last <= end)
+
+
+def samples_needing_reextraction(
+    compound_name: str, sample_values: Mapping[str, tuple[float, float, float]]
+) -> list[str]:
+    """Samples whose stored EIC is missing or not centred on their (tR, left offset, right offset)."""
+    placeholders = ", ".join("?" * len(sample_values))
+    with get_connection() as conn:
+        stored = {
+            row["sample_name"]: row
+            for row in conn.execute(
+                f"""
+                SELECT sample_name, x_axis, rt_window FROM eic
+                WHERE compound_name = ? AND deleted = 0
+                  AND sample_name IN ({placeholders})
+                """,
+                (compound_name, *sample_values),
+            )
+        }
+    return [
+        sample_name
+        for sample_name, values in sample_values.items()
+        if sample_name not in stored
+        or eic_needs_reextraction(
+            np.frombuffer(zlib.decompress(stored[sample_name]["x_axis"]), dtype=np.float64),
+            stored[sample_name]["rt_window"],
+            *values,
+        )
+    ]
+
+
 def regenerate_compound_eics(
     compound_name: str,
     tr_window: float,
@@ -786,7 +831,7 @@ def regenerate_compound_eics(
 
 
 def reextract_session_eics(mass_tol: float = DEFAULT_MASS_TOLERANCE) -> list[str]:
-    """Re-extract the session-edited samples whose integration window left their stored EIC.
+    """Re-extract the session-edited samples whose stored EIC is not centred on their tR.
 
     A session import writes tR and offsets only, so the EICs stay cut around the
     compound-list tR and a moved window can integrate to zero. This re-extracts the
@@ -813,11 +858,8 @@ def reextract_session_eics(mass_tol: float = DEFAULT_MASS_TOLERANCE) -> list[str
     for row in rows:
         stored = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
         rt = row["retention_time"]
-        # The slack Apply allows (check_boundaries_within_window).
-        if (
-            stored.size
-            and rt - row["loffset"] >= stored.min() - 0.001
-            and rt + row["roffset"] <= stored.max() + 0.001
+        if not eic_needs_reextraction(
+            stored, row["rt_window"], rt, row["loffset"], row["roffset"]
         ):
             continue
         compound = row["compound_name"]

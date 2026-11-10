@@ -20,3 +20,15 @@ measured against a reference.
 | --- | --- | ---: |
 | labelled | Raw Values, Corrected Values, Isotope Ratio, % Label Incorporation, % Carbons Labelled, Abundances | 52,569 |
 | unlabelled | Raw Values, Abundances, Qualifier QC | 45,082 |
+## 2026-11-10, #284
+
+The Qualifier QC sheet is laid out as a matrix like Raw Values, with one block of columns per compound. No number is computed differently.
+
+**unlabelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Raw Values | 3200 | 0 |  |  |  |
+| Abundances | 3200 | 0 |  |  |  |
+| Qualifier QC | 17797 | 161 | 1e+02% | 1e+02% | 77155 |
+

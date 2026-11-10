@@ -193,7 +193,7 @@ On a short window, such as a laptop screen with **Samples** open, the rows under
 * **Left offset / Right offset:** Controls the width of the window. Increase these to capture wider peaks; decrease to exclude adjacent peaks.
 * **tR:** Shifts the center of the window. Use this to align the window with shifted peaks.
 
-*Note: If multiple samples are selected with different values, the fields will display a range (e.g., `0.2 - 0.4`). Typing a new value will overwrite all selected samples with that single value.*
+*Note: If multiple samples are selected with different values, the fields will display a range (e.g., `0.2 - 0.4`). Typing a new value will overwrite all selected samples with that single value. A field you leave as a range keeps each sample's own value when you click **Apply**.*
 
 #### 5. Applying Changes
 1.  Enter your new values in the text fields.
@@ -259,6 +259,7 @@ You can delete samples or compounds directly from their respective list widgets.
 
 *   You cannot delete *all* samples or *all* compounds. At least one must remain.
 *   Deleted items are excluded from plots, calculations, and exports.
+*   Deleting the internal standard compound clears the internal standard. Recovering that compound does not select it again; choose it again from the **Internal standard** row.
 *   Deletion is reversible. See below.
 
 ### Recovering Deleted Items
@@ -358,7 +359,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
     2.  Load your Raw Data CDFs (Step 2).
     3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, and internal standard.
 * **Moved peak windows:** Where a saved tR or offset puts the peak window outside the data extracted for a sample, the import re-extracts that sample from its CDF file, as **Apply** does. You do not need to click **Apply** on each compound. If a CDF file has moved, the import names the compounds it could not re-extract.
-* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current internal standard unchanged.
+* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current internal standard unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared.
 
 ---
 

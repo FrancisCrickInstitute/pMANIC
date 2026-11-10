@@ -1,9 +1,5 @@
 """Shared legend labels for EIC channel traces."""
 
-from collections.abc import Sequence
-
-from manic.models.analysis import IonChannel
-
 
 def has_defined_channel(compound, channel_index: int) -> bool:
     """True when ``channel_index`` names a real analysis channel."""
@@ -28,7 +24,3 @@ def channel_legend_label(compound, channel_index: int) -> str:
             f"{len(channels)} analysis channels"
         )
     return channels[channel_index].label
-
-
-def channel_legend_text(channels: Sequence[IonChannel]) -> str:
-    return "  ".join(channel.label for channel in channels)

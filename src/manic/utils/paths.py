@@ -72,12 +72,3 @@ def docs_path(*parts: str) -> str:
         base = _frozen_base()
         return str(base.joinpath('docs', *parts))
     return str(_project_base().joinpath('docs', *parts))
-
-
-def project_path(*parts: str) -> str:
-    """Resolve an absolute path relative to the project root directory."""
-    if _is_frozen():
-        # When frozen we typically do not expose project structure; fall back to base
-        return str(_frozen_base().joinpath(*parts))
-    return str(_project_base().joinpath(*parts))
-

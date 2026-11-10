@@ -22,7 +22,7 @@ def integration(monkeypatch):
     monkeypatch.setattr(f"{module}.read_compound_with_session", lambda _compound, _sample: None)
     monkeypatch.setattr(
         f"{module}.integrated_display_areas",
-        lambda _time, intensity, _compound, use_corrected: list(intensity.sum(axis=1)),
+        lambda _time, intensity, _compound, use_corrected, use_legacy: list(intensity.sum(axis=1)),
     )
 
 

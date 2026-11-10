@@ -104,7 +104,7 @@ def _open_and_close_every_popup(scheme: str) -> None:
     total_abundance_widget.peak_area_label = lambda _compound: "Peak area"
     isotopologue_ratio_widget.read_compound_with_session = lambda _compound, _sample: None
     isotopologue_ratio_widget.integrated_display_areas = (
-        lambda _time, intensity, _compound, use_corrected: list(intensity.sum(axis=1))
+        lambda _time, intensity, _compound, use_corrected, use_legacy: list(intensity.sum(axis=1))
     )
     errors = []
 

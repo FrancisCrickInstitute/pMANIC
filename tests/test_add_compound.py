@@ -534,11 +534,14 @@ def test_dialog_parses_numbers_in_the_user_locale(qapp):
         _fill_unlabelled(dialog)
         dialog.qualifier1_ratio.setText("0,25")
         dialog.int_std_amount.setText("1.000,5")
+        # A decimal point is never a thousands separator: 0.125 must not become 125.
+        dialog.amount_in_std_mix.setText("0.125")
         record = dialog.build_record()
     finally:
         QLocale.setDefault(previous)
     assert record.channels[1].expected_ratio == 0.25
     assert record.int_std_amount == 1000.5
+    assert record.amount_in_std_mix == 0.125
 
 
 def _write_labelled_list(path, **overrides):

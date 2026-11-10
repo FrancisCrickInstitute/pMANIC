@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic import ValidationError
-from PySide6.QtCore import QEvent, QLocale, QPoint, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
 from PySide6.QtGui import QDoubleValidator, QValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -586,11 +586,12 @@ class AddCompoundDialog(QDialog):
         text = edit.text().strip()
         if not text:
             return None
-        # The validator accepts the user's locale ("0,25" in de_DE); fall back to
-        # C so "0.25" still parses in a comma locale.
-        value, ok = edit.validator().locale().toDouble(text)
-        if not ok:
-            value, ok = QLocale.c().toDouble(text)
+        # A plain decimal point first: in a comma locale "0.125" would otherwise read as
+        # 125, the point taken for a thousands separator. Then the user's locale ("0,25").
+        try:
+            return float(text)
+        except ValueError:
+            value, ok = edit.validator().locale().toDouble(text)
         if not ok:
             raise ValueError(f"{text!r} is not a number")
         return value

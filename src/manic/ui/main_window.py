@@ -73,6 +73,7 @@ from manic.models.session_export import (
     get_method_info,
     import_session_overrides,
     read_session_internal_standard,
+    read_session_processing_settings,
     resolve_session_internal_standard,
     validate_method_file,
 )
@@ -2131,6 +2132,8 @@ class MainWindow(QMainWindow):
                 self.analysis_mode,
                 internal_standard=self.toolbar.get_internal_standard(),
                 internal_standard_reference_isotope=self.internal_standard_reference_isotope,
+                mass_tolerance=self.mass_tolerance,
+                min_peak_height_ratio=self.min_peak_height_ratio,
             )
 
             if success:
@@ -2241,6 +2244,7 @@ class MainWindow(QMainWindow):
             )
 
             if success:
+                processing = read_session_processing_settings(file_path)
                 # The EICs must follow the restored tRs, or the user has to Apply each compound.
                 QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
                 try:
@@ -2285,6 +2289,13 @@ class MainWindow(QMainWindow):
                 show_status_toast(self.statusBar(), message, hover=file_path)
                 logger.info(f"Session overrides imported from {file_path}")
                 self._refresh_after_session_import()
+                # Last: a changed tolerance regenerates every EIC in the background. The
+                # re-extraction above ran at the current tolerance, so a sample whose
+                # regeneration fails keeps EICs of one tolerance, not a mix of two.
+                if processing.min_peak_height_ratio is not None:
+                    self.apply_min_peak_area_ratio(processing.min_peak_height_ratio)
+                if processing.mass_tolerance is not None:
+                    self.apply_mass_tolerance(processing.mass_tolerance)
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -2998,6 +3009,7 @@ class MainWindow(QMainWindow):
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
+            exporter.set_mass_tolerance(self.mass_tolerance)
             exporter.set_internal_standard_reference_isotope(
                 self.internal_standard_reference_isotope
             )

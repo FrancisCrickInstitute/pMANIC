@@ -263,6 +263,10 @@ The project maintains a test suite covering:
 
 Developers: the performance suite lives in `bench/` and is documented in [bench/README.md](bench/README.md).
 
+### Changing a result
+
+Every number MANIC exports for two synthetic datasets is recorded in `bench/reference/`, and CI fails when the code no longer reproduces them. If your change is meant to alter results, run `uv run python bench/reference.py update --pr <number> --why "<one sentence>"` and commit what it writes. `bench/reference/HISTORY.md` is the list of every pull request that changed a result. See `bench/README.md`.
+
 ### Building Executables
 
 To attach installers to a GitHub Release from any machine, follow

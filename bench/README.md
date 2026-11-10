@@ -28,6 +28,20 @@ artifact:
 2. **A JSON file when `--benchmark-autosave` is passed** in `.benchmarks/<platform>/`, named `<id>_<git sha>_<timestamp>.json`, holding every timing plus machine, workload, and commit info. This is the run history. Always select its id explicitly when comparing.
 3. **A plot per stage** in `.benchmarks/plots/run-<stage>.svg`. With `--benchmark-compare` the baseline sits beside the current run; `plot_next` labels every target separately. Open them in a browser or the editor. They are overwritten each run; copy them if you want to keep one.
 
+## Reference results
+
+The bench times code. `bench/reference/` records what the code computes, so a change to any exported number is seen and has a history.
+
+- `labelled.tsv` and `unlabelled.tsv` hold every cell of the full Excel export of the two bench datasets: about 98,000 numbers.
+- `HISTORY.md` has one entry per pull request that changed them, with the reason and the size of the change on each sheet.
+
+```bash
+uv run python bench/reference.py check                          # does the code still give these results?
+uv run python bench/reference.py update --pr 281 --why "..."    # this pull request means to change them
+```
+
+`check` fails when a number moved by more than one part in a million, or when any text or cell appeared or disappeared. CI runs it on every pull request, on macOS only, because fits differ in their last digits between maths libraries. A pull request that changes results on purpose runs `update` and commits the two files and the new history entry, so the reviewer sees how much moved. The comparison uses the bench datasets only; a change that real data would show and these do not is not caught.
+
 ## Saved runs
 
 Saved runs stay local. `.benchmarks/` is gitignored because timings from different machines are not comparable, and a fresh baseline costs 90 s, so there is nothing worth sharing. Save a baseline before you start, compare against it while you work, and delete the directory whenever you like.

@@ -36,3 +36,27 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -q
+
+  science:
+    # One platform: fits differ in their last digits between maths libraries, and the
+    # reference was made on Apple silicon.
+    name: exported results match the reference
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Generate the synthetic datasets
+        run: uv run python scripts/generate_bench_data.py --mode both
+
+      - name: Compare the exported results with bench/reference
+        run: uv run python bench/reference.py check

@@ -4,6 +4,7 @@ import logging
 from typing import List
 
 from manic.models.database import get_connection
+from manic.processors.calibration import internal_standard_amount
 from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
 from manic.validation.peak_verdict import PeakVerdict
 
@@ -215,14 +216,10 @@ def write(
                 if internal_std_data and 0 <= idx < len(internal_std_data)
                 else 0.0
             )
-            # No fallback between the two: they describe different sample preparations.
-            sample_internal_std_amount = float(
-                (
-                    internal_std_mix_amount
-                    if sample_name in internal_std_mm_samples
-                    else internal_std_int_amount
-                )
-                or 0.0
+            sample_internal_std_amount = internal_standard_amount(
+                internal_std_int_amount,
+                internal_std_mix_amount,
+                sample_name in internal_std_mm_samples,
             )
         else:
             internal_std_signal = 1.0

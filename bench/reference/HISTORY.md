@@ -34,7 +34,7 @@ The Qualifier QC sheet is laid out as a matrix like Raw Values, with one block o
 
 ## 2026-11-10, #283
 
-Samples where the internal standard has no signal or no known amount can no longer be calibrated, so their abundances are now left empty instead of reporting raw peak areas or zeros, and their peaks are flagged as failing validation.
+Samples where the internal standard has no signal or no known amount can no longer be calibrated, so their abundances are now left empty instead of reporting raw peak areas or zeros. Where the standard has no signal, the sample's peaks also fail validation.
 
 **labelled**
 

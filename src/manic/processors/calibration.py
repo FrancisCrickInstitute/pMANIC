@@ -73,13 +73,11 @@ def internal_standard_amount(
 ) -> float:
     """Known internal standard amount in one sample, or 0.0 when it is unknown.
 
-    Unlabelled lists: MM files contain the standard mix, so they use
-    ``amount_in_std_mix`` when it is set; every other sample, and an MM file
-    without it, uses ``int_std_amount``. Labelled exports keep the two apart.
+    MM files contain the standard mix, so they use ``amount_in_std_mix``; every
+    other sample uses ``int_std_amount``. Neither stands in for the other: they
+    describe different sample preparations.
     """
-    if is_mm_sample and amount_in_std_mix and float(amount_in_std_mix) > 0:
-        return float(amount_in_std_mix)
-    return float(int_std_amount or 0.0)
+    return float((amount_in_std_mix if is_mm_sample else int_std_amount) or 0.0)
 
 
 def calculate_mrrf_values(

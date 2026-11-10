@@ -32,3 +32,15 @@ The Qualifier QC sheet is laid out as a matrix like Raw Values, with one block o
 | Abundances | 3200 | 0 |  |  |  |
 | Qualifier QC | 17797 | 161 | 1e+02% | 1e+02% | 77155 |
 
+## 2026-11-10, #297
+
+Each compound on the Qualifier QC sheet gains an Outcome column (Pass, Partial, Fail, Not detected or No qualifiers). No number is computed differently.
+
+**unlabelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Raw Values | 3200 | 0 |  |  |  |
+| Abundances | 3200 | 0 |  |  |  |
+| Qualifier QC | 17797 | 11636 | 1e+02% | 1e+02% | 14330 |
+

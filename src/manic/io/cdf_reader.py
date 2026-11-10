@@ -17,6 +17,17 @@ class CdfFileData:
     total_intensity: np.ndarray
 
 
+def _plain(values) -> np.ndarray:
+    # netCDF4 returns masked arrays, and slicing one per scan is slow; keep the
+    # mask only where a fill value actually hides data.
+    if np.ma.is_masked(values):
+        return values
+    data = np.ma.getdata(values)
+    # Masked-array arithmetic promotes float32 to float64, so plain data must
+    # too, or float32 files would round differently.
+    return data.astype(np.float64, copy=False) if data.dtype.kind == "f" else data
+
+
 def read_cdf_file(
     path: str | Path, rt_range: tuple[float, float] | None = None
 ) -> CdfFileData:
@@ -36,12 +47,12 @@ def read_cdf_file(
         return CdfFileData(
             sample_name=path.stem,
             file_path=str(path),
-            scan_time=scan_time[scans],
-            mass=variables["mass_values"][points],
-            intensity=variables["intensity_values"][points],
-            scan_index=index,
-            point_count=variables["point_count"][scans],
-            total_intensity=variables["total_intensity"][scans],
+            scan_time=_plain(scan_time[scans]),
+            mass=_plain(variables["mass_values"][points]),
+            intensity=_plain(variables["intensity_values"][points]),
+            scan_index=_plain(index),
+            point_count=_plain(variables["point_count"][scans]),
+            total_intensity=_plain(variables["total_intensity"][scans]),
         )
 
 

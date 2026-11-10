@@ -1,4 +1,3 @@
-import gc
 import logging
 import time
 import zlib
@@ -501,11 +500,9 @@ def import_eics(
                     inserted += len(eic_batch)
 
         finally:
-            # CRITICAL MEMORY MANAGEMENT: Explicit cleanup to prevent RAM accumulation
-            # CDF files can be 500MB-2GB each. Without explicit cleanup, memory usage
-            # would grow linearly with number of files processed, leading to OOM errors.
+            # CDF files can be 500MB-2GB each. The arrays hold no reference cycles,
+            # so dropping the last reference frees them without a gc.collect().
             del cdf_data
-            gc.collect()  # Force Python garbage collection to free CDF data immediately
 
     # Report additional data storage statistics
     if tic_count > 0 or ms_count > 0:
@@ -980,7 +977,6 @@ def regenerate_all_eics_with_mass_tolerance(
             # Explicit memory cleanup
             if "cdf_data" in locals():
                 del cdf_data
-            gc.collect()
 
     # Recalculate natural abundance corrections for all compounds
     if corrections_needed > 0:

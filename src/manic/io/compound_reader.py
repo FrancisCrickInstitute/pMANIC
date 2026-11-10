@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
@@ -119,7 +122,43 @@ def read_compound(compound_name: str) -> Compound:
     )
 
 
+_render_scope = threading.local()
+
+
+@contextmanager
+def compound_reads_cached(compound_name: str, sample_names: list[str]):
+    """Within the block, read each compound record once on this thread.
+
+    A plot reads the same per-sample records from several widgets. The block
+    must not change compound or session data, or later reads would be stale.
+    """
+    previous = getattr(_render_scope, "cache", None)
+    cache = {} if previous is None else previous
+    try:
+        primed = read_compounds_with_session(compound_name, list(sample_names))
+    except LookupError:
+        primed = {}
+    for sample_name, compound in primed.items():
+        cache.setdefault((compound_name, sample_name), compound)
+    _render_scope.cache = cache
+    try:
+        yield
+    finally:
+        _render_scope.cache = previous
+
+
 def read_compound_with_session(compound_name: str, sample_name: Optional[str] = None) -> Compound:
+    cache = getattr(_render_scope, "cache", None)
+    if cache is None:
+        return _read_compound_with_session(compound_name, sample_name)
+    key = (compound_name, sample_name)
+    if key not in cache:
+        cache[key] = _read_compound_with_session(compound_name, sample_name)
+    # A copy, as each uncached read returns a fresh object callers may change.
+    return dataclasses.replace(cache[key])
+
+
+def _read_compound_with_session(compound_name: str, sample_name: Optional[str] = None) -> Compound:
     """
     Read compound data with optional session activity override.
     
@@ -158,6 +197,43 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
         session_row = conn.execute(session_sql, (compound_name, sample_name)).fetchone()
         fit_row = conn.execute(fit_sql, (compound_name, sample_name)).fetchone()
 
+    return _apply_session(base_compound, session_row, fit_row, sample_name)
+
+
+def read_compounds_with_session(
+    compound_name: str, sample_names: list[str]
+) -> dict[str, Compound]:
+    """``read_compound_with_session`` for many samples in three queries."""
+    base_compound = read_compound(compound_name)
+    # Both tables are unique on (compound_name, sample_name).
+    with get_connection() as conn:
+        sessions = {
+            row["sample_name"]: row
+            for row in conn.execute(
+                "SELECT sample_name, retention_time, loffset, roffset "
+                "FROM session_activity WHERE compound_name = ? AND sample_deleted = 0",
+                (compound_name,),
+            )
+        }
+        fits = {
+            row["sample_name"]: row
+            for row in conn.execute(
+                "SELECT sample_name, fit_type FROM sample_fit_type WHERE compound_name = ?",
+                (compound_name,),
+            )
+        }
+    return {
+        sample_name: _apply_session(
+            dataclasses.replace(base_compound),
+            sessions.get(sample_name),
+            fits.get(sample_name),
+            sample_name,
+        )
+        for sample_name in sample_names
+    }
+
+
+def _apply_session(base_compound: Compound, session_row, fit_row, sample_name) -> Compound:
     fit_type = (
         fit_row["fit_type"]
         if fit_row is not None
@@ -170,7 +246,7 @@ def read_compound_with_session(compound_name: str, sample_name: Optional[str] = 
         return base_compound
 
     logger.debug(
-        f"Using session data for {compound_name} / {sample_name}: "
+        f"Using session data for {base_compound.compound_name} / {sample_name}: "
         f"RT={session_row['retention_time']:.3f}"
     )
     return Compound(

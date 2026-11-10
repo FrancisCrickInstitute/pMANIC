@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+from contextlib import nullcontext
 
 import pytest
+from PySide6.QtCore import QSignalBlocker
 
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
@@ -20,14 +22,17 @@ def _clear_fit_caches() -> None:
     _fit_joint_component_model_cached.cache_clear()
 
 
-def _make_window(case, qapp):
+def _make_window(case, qapp, *, plot: bool = True):
+    """A shown window with both lists filled. Filling them plots the first
+    compound unless ``plot`` is False, which keeps the grid and caches cold."""
     MainWindow._check_for_updates = lambda self: None
     apply_app_stylesheet(qapp)
     window = MainWindow(AnalysisContext(case.mode))
     names = list_compound_names()
     samples = list_active_samples()
-    window.toolbar.update_compound_list(names)
-    window.toolbar.update_sample_list(samples)
+    with QSignalBlocker(window.toolbar) if not plot else nullcontext():
+        window.toolbar.update_compound_list(names)
+        window.toolbar.update_sample_list(samples)
     window.resize(1600, 1000)
     window.show()
     qapp.processEvents()
@@ -40,10 +45,10 @@ def _assert_grid(window, case, compound: str) -> None:
     assert len(plots) == case.n_samples
     assert all(plot.chart().series() for plot in plots)
     if case.labelled:
-        ratios = window.toolbar.isotopologue_ratios._current_ratios
+        ratios = window.summary.isotopologue_ratios._current_ratios
         assert ratios is not None and ratios.shape[0] == case.n_samples
     else:
-        abundances = window.toolbar.total_abundance._current_abundances
+        abundances = window.summary.total_abundance._current_abundances
         assert abundances is not None and len(abundances) == case.n_samples
 
 
@@ -66,7 +71,8 @@ def test_plot_first(case, db, qapp, benchmark, repeat):
 
     def setup():
         _clear_fit_caches()
-        window, names, samples = _make_window(case, qapp)
+        window, names, samples = _make_window(case, qapp, plot=False)
+        assert window.graph_view._current_plots == []
         windows.append((window, names))
         return (window, names[0], samples), {}
 

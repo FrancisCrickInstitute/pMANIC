@@ -886,7 +886,9 @@ class MatplotlibPlotWidget(QWidget):
 
             self.ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))
 
-        self.canvas.draw()
+        # Deferred, so it merges with the redraw the canvas needs once the
+        # dialog is shown at its final size, instead of drawing twice.
+        self.canvas.draw_idle()
 
     def cleanup(self):
         """Properly cleanup matplotlib resources to prevent memory leaks."""

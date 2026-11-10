@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 from pydantic import BaseModel, ValidationError, validator
 
 from manic.models.analysis import (
@@ -32,6 +31,16 @@ from manic.processors.natural_abundance_correction import (
     NaturalAbundanceCorrectionError,
     formula_element_counts,
 )
+
+class _LazyPandas:
+    # pandas takes ~0.2 s to import; load it with the first compound list.
+    def __getattr__(self, name):
+        import pandas
+
+        return getattr(pandas, name)
+
+
+pd = _LazyPandas()
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +384,7 @@ def import_compound_excel(
     return len(params)
 
 
-def _optional_float(row: pd.Series, key: str) -> Optional[float]:
+def _optional_float(row: "pd.Series", key: str) -> Optional[float]:
     if key not in row or pd.isna(row[key]):
         return None
     if isinstance(row[key], str) and not row[key].strip():
@@ -383,7 +392,7 @@ def _optional_float(row: pd.Series, key: str) -> Optional[float]:
     return float(row[key])
 
 
-def _import_unlabelled_dataframe(df: pd.DataFrame, path: Path) -> int:
+def _import_unlabelled_dataframe(df: "pd.DataFrame", path: Path) -> int:
     """Import a targeted quantifier/qualifier compound list."""
 
     required = {"name", "tr", "loffset", "roffset", "quantion", "qualifierion1"}

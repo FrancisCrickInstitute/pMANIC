@@ -70,7 +70,7 @@ To add one compound without a spreadsheet, choose **File → Add Compound...** o
 The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) to bin detected masses.
 
 * To check or change this: Go to **Settings → Extraction**, **Mass tolerance (Da)**, before or after loading data.
-* If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder.
+* If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder. Each EIC keeps its tR window, including one set with **Apply window**.
 
 **Procedure**   
 
@@ -433,7 +433,7 @@ Settings has one page per topic: **Appearance**, then **Extraction**, **Integrat
 
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
-* **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder.
+* **Impact:** If CDFs are loaded, the change regenerates every EIC at its current tR window. You do not re-import the folder.
 * **Reference:** [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Integration

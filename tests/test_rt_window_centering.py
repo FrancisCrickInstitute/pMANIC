@@ -1281,6 +1281,7 @@ class TestRegenerationCompletion:
             raise RuntimeError("thread unavailable")
 
         window = SimpleNamespace(
+            _running_background_thread=lambda: None,
             _build_progress_dialog=_cannot_build,
             _regeneration_failed=lambda error: errors.append(error),
         )

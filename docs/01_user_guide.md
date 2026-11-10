@@ -70,7 +70,7 @@ To add one compound without a spreadsheet, choose **File → Add Compound...** o
 The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) to bin detected masses.
 
 * To check or change this: Go to **Settings → Extraction**, **Mass tolerance (Da)**, before or after loading data.
-* If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder.
+* If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder. Each EIC keeps its tR window, including one set with **Apply window**.
 * If a sample's CDF file is missing or unreadable at that point, the sample keeps its old-tolerance EICs. Its plot captions say **old mass tolerance**, export asks you to confirm before it writes the file, and its cells in the exported workbook are light gold. Put the file back, export, and choose **Rebuild Stale Samples** in that warning. MANIC rebuilds only the marked samples at the current tolerance and clears the mark of each one it can read.
 
 **Procedure**   
@@ -202,6 +202,8 @@ On a short window, such as a laptop screen with **Samples** open, the rows under
 3.  The plots will refresh immediately to show the new boundaries.
 
 > **Auto-Regeneration Feature:** If you widen the boundaries beyond the data MANIC originally extracted from the CDF file, the software will automatically re-read the raw file to fetch the missing data. A progress bar will appear during this process.
+>
+> Only one re-extraction runs at a time. Until it finishes, an **Apply** that needs a re-extraction, **Apply window**, **Add Compound**, a mass tolerance change, a session import and an export show "Operation in progress" and change nothing.
 
 #### 6. Troubleshooting: Fixing Cut-off Peaks
 Sometimes a peak may shift so far that part of it is completely missing from the plot (cut off by the edge of the extracted data). You cannot integrate what isn't there.
@@ -437,7 +439,7 @@ Settings has one page per topic: **Appearance**, then **Extraction**, **Integrat
 
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
-* **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder. If the regeneration cannot start or no sample can be read, the setting goes back to its previous value. If only some samples can be read, the unreadable ones keep their previous EICs and the setting keeps the new value. If the regeneration stops with an error partway through, the setting also keeps the new value, and the error message warns that some samples may still hold EICs built at the previous tolerance.
+* **Impact:** If CDFs are loaded, the change regenerates every EIC at its current tR window. You do not re-import the folder. If the regeneration cannot start or no sample can be read, the setting goes back to its previous value. If only some samples can be read, the unreadable ones keep their previous EICs and the setting keeps the new value. If the regeneration stops with an error partway through, the setting also keeps the new value, and the error message warns that some samples may still hold EICs built at the previous tolerance.
 * **Reference:** [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Integration

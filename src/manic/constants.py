@@ -98,8 +98,13 @@ def minimum_extract_rt_window(
     loffset: float,
     roffset: float,
     buffer: float = DEFAULT_RT_WINDOW_BUFFER,
+    rt_tolerance: float | None = None,
 ) -> float:
-    return max(float(loffset or 0.0), float(roffset or 0.0)) + buffer
+    # An unlabelled list's tR Window widens the extract; labelled lists leave it NULL.
+    return max(
+        max(float(loffset or 0.0), float(roffset or 0.0)) + buffer,
+        float(rt_tolerance or 0.0),
+    )
 
 # Peak area validation
 DEFAULT_MIN_PEAK_HEIGHT_RATIO = 0.005  # Fraction of internal standard reference peak area for minimum peak validation (0.5%)

@@ -12,7 +12,6 @@ from PySide6.QtCore import (
     QSignalBlocker,
     Qt,
     QThread,
-    QTimer,
     QUrl,
 )
 from PySide6.QtGui import (
@@ -1766,28 +1765,14 @@ class MainWindow(QMainWindow):
             current_samples = self.graph_view.get_current_samples()
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
+            # The refresh re-selects the tiles, and selection_changed refills the fields.
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )
-
-            # The delay lets the plot refresh finish before the fields update.
-
-            def update_integration_window():
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                if compound_name:
-                    self.toolbar.integration.populate_fields_from_plots(
-                        compound_name, current_selected, all_samples
-                    )
-
-            QTimer.singleShot(100, update_integration_window)
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data update: {e}")
@@ -1804,25 +1789,11 @@ class MainWindow(QMainWindow):
 
         try:
             current_samples = self.graph_view.get_current_samples()
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(identity=identity)
-
-            def update_integration_window():
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                if compound_name:
-                    self.toolbar.integration.populate_fields_from_plots(
-                        compound_name, current_selected, all_samples
-                    )
-
-            # The delay lets the plot refresh finish before the fields update.
-            QTimer.singleShot(100, update_integration_window)
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data restore: {e}")
@@ -1847,16 +1818,13 @@ class MainWindow(QMainWindow):
             current_samples = self.graph_view.get_current_samples()
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )
-
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(
@@ -2063,16 +2031,11 @@ class MainWindow(QMainWindow):
                 self.toolbar.integration._pending_session_update = None
 
             current_compound = self.graph_view.get_current_compound()
-            current_selected = self.graph_view.get_selected_samples()
             current_samples = self.graph_view.get_current_samples()
 
             if current_compound and current_samples:
                 if self._validation_provider is not None:
                     self._validation_provider.invalidate_cache()
-
-                self.toolbar.integration.populate_fields_from_plots(
-                    current_compound, current_selected, current_samples
-                )
 
                 self.toolbar.integration.populate_tr_window_field(current_compound)
 

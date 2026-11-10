@@ -468,14 +468,6 @@ def import_eics(
                     "(sample_name, file_name, deleted) VALUES (?,?,0)",
                     (cdf_data.sample_name, str(cdf_path)),
                 )
-                # An import that failed part-way has already stored earlier files;
-                # importing again must replace their EICs, not add a second copy.
-                for table in ("eic", "eic_corrected"):
-                    conn.execute(
-                        f"DELETE FROM {table} WHERE sample_name = ?",
-                        (cdf_data.sample_name,),
-                    )
-
                 # Extract and store Total Ion Chromatogram data
                 tic_times, tic_intensities = _extract_tic_from_cdf(cdf_data)
                 if len(tic_times) > 0:

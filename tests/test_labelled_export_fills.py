@@ -50,9 +50,9 @@ def _cells_for(sheet, sample: str, compound: str):
 def test_labelled_raw_values_fill_a_rejected_peak(empty_db, tmp_path):
     _insert_compound("Target", 1.0, 100.0)
     _insert_compound("Std", 2.0, 200.0)
-    time = [0.0, 1.0, 2.0, 3.0]
-    _insert_eic("S1", "Target", time, [[0.0, 10.0, 0.0, 0.0], [0.0, 4.0, 0.0, 0.0]])
-    _insert_eic("S1", "Std", time, [[0.0, 0.0, 20.0, 0.0], [0.0, 0.0, 6.0, 0.0]])
+    time = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    _insert_eic("S1", "Target", time, [[0, 2, 10, 2, 0, 0, 0], [0, 1, 4, 1, 0, 0, 0]])
+    _insert_eic("S1", "Std", time, [[0, 0, 0, 5, 20, 5, 0], [0, 0, 0, 2, 6, 2, 0]])
     set_peak_review("Target", "S1", PeakReview.REJECTED)
 
     exporter = DataExporter(AnalysisMode.LABELLED)

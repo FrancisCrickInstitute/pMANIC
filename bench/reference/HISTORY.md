@@ -44,3 +44,18 @@ Each compound on the Qualifier QC sheet gains an Outcome column (Pass, Partial, 
 | Abundances | 3200 | 0 |  |  |  |
 | Qualifier QC | 17797 | 11636 | 1e+02% | 1e+02% | 14330 |
 
+## 2026-11-10, #283
+
+Samples where the internal standard has no signal or no known amount can no longer be calibrated, so their abundances are now left empty instead of reporting raw peak areas or zeros. Where the standard has no signal, the sample's peaks also fail validation.
+
+**labelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Abundances | 2665 | 0 |  |  | 470 |
+
+**unlabelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Abundances | 2903 | 0 |  |  | 297 |

@@ -105,5 +105,8 @@ This ensures that if you verify your standard files in the "Abundances" sheet, t
 ### The Internal Standard Itself
 In the Abundances sheet, the row for the Internal Standard compound does not undergo calculation. Instead, it simply reports the **Known Amount** (`int_std_amount` or `amount_in_std_mix`) to confirm what value was used for that sample.
 
+### Missing Internal Standard Signal
+If an Internal Standard is selected but calibration cannot be applied in a sample, the Abundances cell for every other compound in that sample is left empty. This happens when the standard's reference peak area is 0 (for example, a failed injection), when the sample's known standard amount is missing or 0, or when the compound's MRRF is not positive. The known amount is `amount_in_std_mix` in MM files and `int_std_amount` in every other sample, so a missing `int_std_amount` empties only the non-MM samples. The standard's own cell is also empty when its known amount is missing. An empty cell is not a measured zero. The peaks in a sample with no standard signal or no known standard amount are also flagged **Below threshold** (see Peak Validation).
+
 ### No matching MM files (standard mixture)
 If a compound has no `mm_files` pattern, or the pattern matches no loaded samples, or the MRRF inputs are incomplete, MANIC sets MRRF to 1.0. A compound whose MRRF could not be computed is reported as Relative.

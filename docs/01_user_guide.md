@@ -201,6 +201,8 @@ On a short window, such as a laptop screen with **Samples** open, the rows under
 3.  The plots will refresh immediately to show the new boundaries.
 
 > **Auto-Regeneration Feature:** If you widen the boundaries beyond the data MANIC originally extracted from the CDF file, the software will automatically re-read the raw file to fetch the missing data. A progress bar will appear during this process.
+>
+> Only one re-extraction runs at a time. Until it finishes, an **Apply** that needs a re-extraction, **Apply window**, **Add Compound**, a mass tolerance change, a session import and an export show "Operation in progress" and change nothing.
 
 #### 6. Troubleshooting: Fixing Cut-off Peaks
 Sometimes a peak may shift so far that part of it is completely missing from the plot (cut off by the edge of the extracted data). You cannot integrate what isn't there.

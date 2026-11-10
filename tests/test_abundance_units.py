@@ -188,6 +188,27 @@ class TestAbundanceExportLogic:
         }
         assert rows == {5: [1.0, 0.25, 0.5], 6: [None, None, None]}
 
+    def test_zero_amount_in_std_mix_leaves_mm_cells_empty(self, setup_base_mocks):
+        """amount_in_std_mix 0: an MM sample must not borrow the biological samples' amount."""
+        workbook, worksheet, provider = setup_base_mocks
+        exporter = MagicMock()
+        exporter.internal_standard_compound = "ISTD"
+        exporter.internal_standard_reference_isotope = 0
+        provider.get_all_samples.return_value = ["MM_01", "S1"]
+        provider.resolve_mm_samples.return_value = ["MM_01"]
+        provider.get_all_compounds.return_value[0].update(
+            amount_in_std_mix=0.0, mm_files="MM"
+        )
+
+        write(workbook, exporter, None, 0, 100, provider=provider)
+
+        mm_row = [
+            c.args[2]
+            for c in worksheet.write.call_args_list
+            if c.args[0] == 5 and c.args[1] >= 2
+        ]
+        assert mm_row == [None, None, None]
+
 
 def _unlabelled_abundance_rows(bulk, int_std_amount=5.0, mm_samples=()):
     from io import BytesIO

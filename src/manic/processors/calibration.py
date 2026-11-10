@@ -73,8 +73,9 @@ def internal_standard_amount(
 ) -> float:
     """Known internal standard amount in one sample, or 0.0 when it is unknown.
 
-    MM files contain the standard mix, so they use ``amount_in_std_mix``;
-    every other sample uses ``int_std_amount``.
+    Unlabelled lists: MM files contain the standard mix, so they use
+    ``amount_in_std_mix`` when it is set; every other sample, and an MM file
+    without it, uses ``int_std_amount``. Labelled exports keep the two apart.
     """
     if is_mm_sample and amount_in_std_mix and float(amount_in_std_mix) > 0:
         return float(amount_in_std_mix)

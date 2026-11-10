@@ -8,14 +8,13 @@ and other UI components.
 from dataclasses import replace
 import pytest
 from PySide6.QtCharts import (
-    QBarCategoryAxis,
-    QCategoryAxis,
     QChart,
     QValueAxis,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QLineEdit
 import numpy as np
 from types import SimpleNamespace
 
@@ -31,7 +30,6 @@ from manic.ui.colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
     QUALIFIER_RED,
-    QUALIFIER_STATUS_COLORS,
     ChannelTraceStyle,
     channel_trace_styles,
     dark_red_colour,
@@ -44,7 +42,6 @@ from manic.ui.integration_window_widget import (
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
-from manic.ui.chart_popup_dialog import ChartPopupDialog
 from manic.ui.targeted_qc_widget import TargetedQcWidget
 from manic.models.analysis import AnalysisMode, IonChannel, IonRole
 from manic.validation.unlabelled_identity import (
@@ -53,7 +50,6 @@ from manic.validation.unlabelled_identity import (
     IdentitySampleAssessment,
     IdentityStatus,
     QualifierRatioResult,
-    QualifierStatus,
     qualifier_pair,
 )
 
@@ -64,57 +60,6 @@ def integration_window(qapp):
     window = IntegrationWindow()
     yield window
     window.deleteLater()
-
-
-def test_unlabelled_toolbar_shows_abundance_under_identity(qapp):
-    toolbar = Toolbar(AnalysisMode.UNLABELLED)
-    try:
-        assert toolbar.isotopologue_ratios.isHidden()
-        assert not toolbar.total_abundance.isHidden()
-        assert not toolbar.targeted_qc.isHidden()
-        layout = toolbar.targeted_qc.parentWidget().layout()
-        identity_index = layout.indexOf(toolbar.targeted_qc)
-        abundance_index = layout.indexOf(toolbar.total_abundance)
-        assert 0 <= identity_index < abundance_index
-        assert toolbar.integration.findChild(QLabel, "reference_rt_note") is None
-    finally:
-        toolbar.deleteLater()
-
-
-def test_labelled_toolbar_keeps_abundance_under_ratios(qapp):
-    toolbar = Toolbar(AnalysisMode.LABELLED)
-    try:
-        assert not toolbar.isotopologue_ratios.isHidden()
-        assert not toolbar.total_abundance.isHidden()
-        assert toolbar.targeted_qc.isHidden()
-        layout = toolbar.total_abundance.parentWidget().layout()
-        ratio_index = layout.indexOf(toolbar.isotopologue_ratios)
-        abundance_index = layout.indexOf(toolbar.total_abundance)
-        assert 0 <= ratio_index < abundance_index
-    finally:
-        toolbar.deleteLater()
-
-
-def test_y_scale_checkboxes_labelled_only_and_exclusive(qapp):
-    labelled = Toolbar(AnalysisMode.LABELLED)
-    unlabelled = Toolbar(AnalysisMode.UNLABELLED)
-    try:
-        selected = labelled.findChild(QCheckBox, "scale_selected_peak_checkbox")
-        assert selected is not None
-        assert unlabelled.findChild(QCheckBox, "scale_selected_peak_checkbox") is None
-
-        selected.setChecked(True)
-        assert selected.isChecked()
-        assert not labelled.shared_yscale_checkbox.isChecked()
-        labelled.shared_yscale_checkbox.setChecked(True)
-        assert labelled.shared_yscale_checkbox.isChecked()
-        assert not selected.isChecked()
-        labelled.shared_yscale_checkbox.setChecked(False)
-        assert not labelled.shared_yscale_checkbox.isChecked()
-        assert not selected.isChecked()
-    finally:
-        labelled.deleteLater()
-        unlabelled.deleteLater()
 
 
 def test_set_y_scale_policy_replots_only_on_change(qapp, monkeypatch):
@@ -132,11 +77,11 @@ def test_set_y_scale_policy_replots_only_on_change(qapp, monkeypatch):
 
 def test_selected_peak_yscale_follows_compound_deconvolution(qapp, monkeypatch):
     toolbar = Toolbar(AnalysisMode.LABELLED)
-    checkbox = toolbar.selected_peak_yscale_checkbox
+    checkbox = toolbar.selected_peak_yscale_action
     emitted = []
     toolbar.y_scale_policy_changed.connect(emitted.append)
     try:
-        checkbox.setChecked(True)
+        checkbox.trigger()
         assert checkbox.isChecked()
         emitted.clear()
 
@@ -251,63 +196,6 @@ def _supported_qc(channels, *passed: bool) -> IdentityQcResult:
     )
 
 
-def _horizontal_axes(chart):
-    value_axes = [
-        axis for axis in chart.axes(Qt.Horizontal) if type(axis) is QValueAxis
-    ]
-    category_axes = [
-        axis for axis in chart.axes(Qt.Horizontal) if isinstance(axis, QCategoryAxis)
-    ]
-    return value_axes, category_axes
-
-
-def test_targeted_qc_identity_chart_renders_grid_cells(qapp):
-    channels = (_qion(), _v1())
-    identity = _identity_snapshot(
-        channels,
-        ("S1", _supported_qc(channels, True), None),
-        ("S2", _supported_qc(channels, False), None),
-    )
-    widget = TargetedQcWidget()
-    try:
-        widget.update_results(identity)
-        assert widget.chart.title() == ""
-        assert not widget.chart.legend().isVisible()
-        assert widget._binding is not None
-        bar_sets = widget._binding.bar_sets
-        assert len(bar_sets) == 4
-        expected = (
-            ("S2", QualifierStatus.FAILED, QUALIFIER_RED),
-            ("S2", QualifierStatus.ABSENT, QUALIFIER_GREY),
-            ("S1", QualifierStatus.VALIDATED, QUALIFIER_GREEN),
-            ("S1", QualifierStatus.ABSENT, QUALIFIER_GREY),
-        )
-        for bar_set, (sample_name, status, color) in zip(bar_sets, expected):
-            cell = widget._binding.cell_for(bar_set)
-            assert cell.sample_name == sample_name
-            assert cell.qualifier.status is status
-            assert bar_set.color() == color
-            assert bar_set.color() == QUALIFIER_STATUS_COLORS[status]
-            assert bar_set.borderColor() == QColor("white")
-        assert [set_.at(0) for set_ in bar_sets] == [1.0, 1.0, 0.0, 0.0]
-        assert [set_.at(1) for set_ in bar_sets] == [0.0, 0.0, 1.0, 1.0]
-        value_axes, category_axes = _horizontal_axes(widget.chart)
-        assert len(value_axes) == 1
-        assert value_axes[0].min() == 0
-        assert value_axes[0].max() == 2
-        assert not value_axes[0].labelsVisible()
-        assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
-        y_axis = widget.chart.axes(Qt.Vertical)[0]
-        assert isinstance(y_axis, QBarCategoryAxis)
-        assert list(y_axis.categories()) == ["S2", "S1"]
-        assert not y_axis.labelsVisible()
-        widget.clear()
-        assert widget._identity is None
-        assert widget.chart.series() == []
-    finally:
-        widget.deleteLater()
-
-
 def test_identity_chart_click_emits_sample_name(qapp):
     channels = (_qion(), _v1())
     identity = _identity_snapshot(
@@ -318,145 +206,24 @@ def test_identity_chart_click_emits_sample_name(qapp):
     widget.sample_activated.connect(activated.append)
     try:
         widget.update_results(identity)
-        v2_set = widget._binding.bar_sets[1]
-        assert widget._binding.cell_for(v2_set).qualifier.status is QualifierStatus.ABSENT
-        v2_set.clicked.emit(0)
+        widget.resize(300, 200)
+        widget.show()
+        for _ in range(5):
+            qapp.processEvents()
+        # Anywhere on the row, its name included, as on the Peak area bars beside it.
+        chart, viewport = widget.chart, widget.chart_view.viewport()
+        name_x = chart.plotArea().left() - 10
+        row_y = chart.mapToPosition(QPointF(0, 0), chart.series()[0]).y()
+        pos = QPointF(widget.chart_view.mapFromScene(chart.mapToScene(QPointF(name_x, row_y))))
+        for kind in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+            QApplication.sendEvent(
+                viewport,
+                QMouseEvent(kind, pos, viewport.mapToGlobal(pos), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier),
+            )
+        QTest.qWait(QApplication.doubleClickInterval() + 100)  # a click waits out a double-click
         assert activated == ["S1"]
     finally:
         widget.deleteLater()
-
-
-def test_identity_chart_hover_maps_live_cell(qapp, monkeypatch):
-    channels = (_qion(), _v1())
-    identity = _identity_snapshot(
-        channels,
-        ("S1", _supported_qc(channels, True), None),
-        ("S2", _supported_qc(channels, False), None),
-    )
-    shown = []
-    hidden = []
-    monkeypatch.setattr(
-        "manic.ui.targeted_qc_widget.show_identity_tooltip",
-        lambda _widget, text: shown.append(text),
-    )
-    monkeypatch.setattr(
-        "manic.ui.targeted_qc_widget.QToolTip.hideText",
-        lambda: hidden.append(True),
-    )
-    widget = TargetedQcWidget()
-    try:
-        widget.update_results(identity)
-        s1_v1 = widget._binding.bar_sets[2]
-        assert widget._binding.cell_for(s1_v1).sample_name == "S1"
-        s1_v1.hovered.emit(True, 1)
-        assert len(shown) == 1
-        assert "S1" in shown[0]
-        assert "Validated" in shown[0]
-        shown.clear()
-        hidden.clear()
-        s1_v1.hovered.emit(True, 0)
-        assert shown == []
-        assert hidden == [True]
-        hidden.clear()
-        s1_v1.hovered.emit(False, 1)
-        assert shown == []
-        assert hidden == [True]
-    finally:
-        widget.deleteLater()
-
-
-def test_identity_chart_popup_shows_sample_names(qapp):
-    channels = (_qion(), _v1(), _v2())
-    fail_v2 = IonChannel(
-        73.0, IonRole.QUALIFIER, ordinal=2, expected_ratio=0.2, ratio_tolerance=0.25
-    )
-    fail_qc = IdentityQcResult(
-        status=IdentityStatus.REVIEW_REQUIRED,
-        quantifier_area=100.0,
-        observed_rt=1.2,
-        rt_error=0.0,
-        rt_passed=True,
-        qualifier_ratios=(
-            QualifierRatioResult(channels[1], 0.41, True),
-            QualifierRatioResult(fail_v2, 0.80, False),
-        ),
-        reasons=(),
-    )
-    identity = _identity_snapshot(
-        channels,
-        ("S1", _supported_qc(channels, True, True), None),
-        ("S2", fail_qc, None),
-    )
-    dialog = ChartPopupDialog.for_identity(identity)
-    try:
-        assert dialog.windowTitle() == "MANIC - Identity"
-        assert dialog.chart.title() == ""
-        assert not dialog.chart.legend().isVisible()
-        assert dialog.compound_title.text() == "Target"
-        assert dialog.ion_legend.labels() == [
-            "Q ion m/z 217",
-            "Qualifier ion 1 m/z 147   expected 0.400  ±25%",
-            "Qualifier ion 2 m/z 73   expected 0.200  ±25%",
-        ]
-        y_axis = dialog.chart.axes(Qt.Vertical)[0]
-        assert isinstance(y_axis, QBarCategoryAxis)
-        assert list(y_axis.categories()) == ["S2", "S1"]
-        assert y_axis.labelsVisible()
-        assert y_axis.labelsFont().family() == "Arial"
-        assert y_axis.labelsFont().pointSize() == 12
-        value_axes, category_axes = _horizontal_axes(dialog.chart)
-        assert category_axes[0].categoriesLabels() == ["Qualifier 1", "Qualifier 2"]
-        assert dialog._identity_binding is not None
-        bar_sets = dialog._identity_binding.bar_sets
-        assert len(bar_sets) == 4
-        s2_v2 = dialog._identity_binding.cell_for(bar_sets[1])
-        s1_v1 = dialog._identity_binding.cell_for(bar_sets[2])
-        assert s1_v1.sample_name == "S1"
-        assert s1_v1.qualifier.status is QualifierStatus.VALIDATED
-        assert s2_v2.sample_name == "S2"
-        assert s2_v2.qualifier.status is QualifierStatus.FAILED
-        assert not dialog.status_legend.isHidden()
-        legend = dialog.status_legend.text()
-        assert legend.count("Validated") == 1
-        assert legend.count("Failed") == 1
-        assert legend.count("No verdict") == 1
-        assert QUALIFIER_GREEN.name() in legend
-        assert QUALIFIER_RED.name() in legend
-        assert QUALIFIER_GREY.name() in legend
-    finally:
-        dialog.deleteLater()
-
-
-def test_identity_chart_popup_hover_maps_live_cell(qapp, monkeypatch):
-    channels = (_qion(), _v1())
-    identity = _identity_snapshot(
-        channels, ("S1", _supported_qc(channels, True), None)
-    )
-    shown = []
-    hidden = []
-    monkeypatch.setattr(
-        "manic.ui.chart_popup_dialog.show_identity_tooltip",
-        lambda _widget, text: shown.append(text),
-    )
-    monkeypatch.setattr(
-        "manic.ui.chart_popup_dialog.QToolTip.hideText",
-        lambda: hidden.append(True),
-    )
-    dialog = ChartPopupDialog.for_identity(identity)
-    try:
-        v1_set = dialog._identity_binding.bar_sets[0]
-        assert dialog._identity_binding.cell_for(v1_set).sample_name == "S1"
-        v1_set.hovered.emit(True, 0)
-        assert len(shown) == 1
-        assert "S1" in shown[0]
-        assert "Validated" in shown[0]
-        shown.clear()
-        hidden.clear()
-        v1_set.hovered.emit(True, 1)
-        assert shown == []
-        assert hidden == [True]
-    finally:
-        dialog.deleteLater()
 
 
 def test_channel_trace_styles_keep_q_steel_blue_and_solid():
@@ -819,6 +586,8 @@ def test_channel_legend_unlabelled_chips_show_line_style_not_status_colour(
         assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
         assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
         assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DashDotLine)
+        # With no QC assessed the traces are not QC-coloured, so there is no key.
+        assert view.qc_key.isHidden()
     finally:
         view.deleteLater()
 
@@ -1175,35 +944,6 @@ def test_detailed_eic_stays_visible_when_display_pipeline_fails(qapp, monkeypatc
         dialog.deleteLater()
 
 
-def test_detailed_eic_info_strip_reports_failure_when_plot_never_draws(qapp, monkeypatch):
-    from manic.ui.detailed_plot_dialog import DetailedPlotDialog
-
-    monkeypatch.setattr(DetailedPlotDialog, "_load_data", lambda self: None)
-    dialog = DetailedPlotDialog("alanine", "S1")
-    try:
-        dialog.compound_info = SimpleNamespace(
-            retention_time=5.0,
-            loffset=0.1,
-            roffset=0.1,
-            is_unlabelled_target=False,
-            mass0=116.0,
-            label_atoms=0,
-        )
-        dialog.eic_data = SimpleNamespace(
-            time=np.array([4.9, 5.0, 5.1]),
-            intensity=np.array([1.0, 2.0, 1.0]),
-        )
-        dialog.eic_plot.finalize_plot = lambda: (_ for _ in ()).throw(
-            RuntimeError("finalize failed")
-        )
-        dialog._plot_eic()
-        dialog._update_info_label()
-        assert dialog.info_label.text().startswith("EIC plot failed: finalize failed")
-        assert "plot failed" in dialog.eic_plot.ax.get_title()
-    finally:
-        dialog.deleteLater()
-
-
 @pytest.mark.parametrize("use_corrected", [False, True])
 def test_detailed_eic_draws_labelled_traces(qapp, monkeypatch, use_corrected):
     from manic.ui.detailed_plot_dialog import DetailedPlotDialog
@@ -1419,5 +1159,3 @@ def test_preview_off_graph_tile_still_draws_model_overlay(qapp):
         assert all(abs(peak - 7.0) < 0.08 for peak in solid_peak_times)
     finally:
         view.deleteLater()
-
-

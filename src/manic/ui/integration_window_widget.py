@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QValidator
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut, QValidator
 from PySide6.QtWidgets import (
-    QGroupBox,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from manic.constants import DEFAULT_RT_WINDOW_BUFFER, minimum_extract_rt_window
@@ -21,8 +23,8 @@ from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_processing import get_eics_for_compound
-from manic.utils.paths import resource_path
-from manic.utils.utils import load_stylesheet
+from manic.ui.sidebar_widgets import CollapsibleSection
+from manic.ui.theme import set_style_property
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +37,32 @@ def toolbar_decimal_text_is_allowed(text: str) -> bool:
     return _TOOLBAR_DECIMAL_RE.fullmatch(text or "") is not None
 
 
+PEAK_FIELDS = ("lo_input", "tr_input", "ro_input")
+# Non-breaking, so a wrapped caption never strands "·" or "not" at a line end.
+NOT_APPLIED = "\u00a0·\u00a0not\u00a0applied"
+
+
+def _field_value(text: str) -> str:
+    """A field's text as a value, so "0.10" and "0.1" are the same edit."""
+    text = " ".join(text.split())
+    try:
+        return repr(float(text))
+    except ValueError:
+        return text
+
+
+def _differs(texts: Dict[str, str], other: Dict[str, str]) -> bool:
+    return any(
+        _field_value(texts.get(name, "")) != _field_value(other.get(name, ""))
+        for name in PEAK_FIELDS
+    )
+
+
 class ToolbarDecimalValidator(QValidator):
     def validate(self, text, pos):
         if toolbar_decimal_text_is_allowed(text):
             return QValidator.State.Acceptable, text, pos
         return QValidator.State.Invalid, text, pos
-
-
-# ─────────────────────── RT Window Boundary Checking Functions ───────────────────────
-# These pure functions handle the logic for determining when EIC data needs to be reloaded
-# due to integration boundaries falling outside the currently stored data window.
 
 
 def _parse_rt_text(rt_text: str) -> tuple[str, float, Optional[tuple[float, float]]]:
@@ -65,7 +83,6 @@ def _parse_rt_text(rt_text: str) -> tuple[str, float, Optional[tuple[float, floa
     if not text:
         raise ValueError("Retention time cannot be empty")
 
-    # Robust range parsing: allow whitespace variations around '-'
     m = re.match(r"^\s*([0-9]*\.?[0-9]+)\s*-\s*([0-9]*\.?[0-9]+)\s*$", text)
     if m:
         min_rt = float(m.group(1))
@@ -172,7 +189,7 @@ def check_boundaries_within_window(
             right_boundary <= window_max + tolerance)
 
 
-class IntegrationWindow(QGroupBox):
+class IntegrationWindow(QWidget):
     """
     Integration window widget for modifying compound parameters.
 
@@ -181,13 +198,13 @@ class IntegrationWindow(QGroupBox):
     The apply button is only enabled when plots are selected.
     """
 
-    # Signal emitted when apply button is clicked and session data is updated
     session_data_applied = Signal(str, list)  # compound_name, sample_names
 
-    # Signal emitted when restore button is clicked and session data is cleared
     session_data_restored = Signal(str, list)  # compound_name, sample_names
 
-    # Signal emitted when regenerate button is clicked (for future implementation)
+    # The fields, the selection or an unapplied edit changed.
+    state_changed = Signal()
+
     data_regeneration_requested = Signal(
         str, float, list, object
     )  # compound_name, tr_window, sample_names, retention_time
@@ -199,43 +216,36 @@ class IntegrationWindow(QGroupBox):
         analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
         parent=None,
     ):
-        super().__init__("Selected Plots: All", parent)
+        super().__init__(parent)
         self.setObjectName("integrationWindow")
         self.analysis_mode = AnalysisMode.coerce(analysis_mode)
 
-        # Track current state for apply button management
         self._current_compound: str = ""
         self._selected_samples: List[str] = []
         self._all_samples: List[str] = []
 
-        # Track data window bounds for reload detection (per-sample)
         # Maps (compound_name, sample_name) to (min_time, max_time) of stored EIC data
         self._data_window_bounds: Dict[Tuple[str, str], Tuple[float, float]] = {}
 
         self._pending_session_update: PendingRegeneration | None = None
+        # What the peak fields last loaded, and each target's unapplied edit until Apply or Reset.
+        self._loaded: Dict[str, str] = {}
+        self._drafts: Dict[Tuple[str, FrozenSet[str]], Dict[str, str]] = {}
+        # The tR window is per compound, whatever the selection, so its draft is too.
+        self._window_compound = ""
+        self._loaded_window = ""
+        self._window_drafts: Dict[str, str] = {}
+        # With both drafts open, only the one typed in last gets the primary button.
+        self._last_draft = "peak"
 
         self._build_ui()
-        self._setup_apply_button_state()
-
-        # Load and apply the stylesheet
-        stylesheet = load_stylesheet(
-            resource_path("resources", "integration_window.qss")
-        )
-        # Replace placeholder with actual checkmark path for the checkbox indicator
-        checkmark_path = resource_path("resources", "checkmark.svg").replace("\\", "/")
-        stylesheet = stylesheet.replace("CHECKMARK_PATH", checkmark_path)
-        self.setStyleSheet(stylesheet)
-
-        font = self.font()
-        font.setBold(True)
-        self.setFont(font)
+        self._update_apply_button_state()
 
     def _get_main_window(self):
         """Get the main window instance to use its message box helper."""
         widget = self
         while widget.parent():
             widget = widget.parent()
-            # Check if this widget has the _create_message_box method (i.e., it's the MainWindow)
             if hasattr(widget, "_create_message_box"):
                 return widget
         return None
@@ -245,75 +255,195 @@ class IntegrationWindow(QGroupBox):
     ):
         """Show a message using the main window's styled message box helper."""
         main_window = self._get_main_window()
-        if main_window and hasattr(main_window, "_create_message_box"):
-            create_box = getattr(main_window, "_create_message_box")
-            msg_box = create_box(msg_type, title, text, informative_text, self)
-            return msg_box.exec()
+        if main_window:
+            main_window._create_message_box(msg_type, title, text, informative_text, self).exec()
         else:
-            # Fallback to standard message box if main window not found
-            if msg_type == "question":
-                return QMessageBox.question(self, title, text)
-            else:
-                getattr(QMessageBox, msg_type)(self, title, text)
-                return None
+            getattr(QMessageBox, msg_type)(self, title, text)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
-        # Integration parameter fields
-        for label_text, obj_name in [
-            ("Left Offset", "lo_input"),
-            ("tR", "tr_input"),
-            ("Right Offset", "ro_input"),
-        ]:
-            row = QHBoxLayout()
+        # The offsets and the Reset/Apply that acts on them stay whole together;
+        # on a short sidebar the rows below fold instead.
+        self.editor = QWidget()
+        editor_layout = QVBoxLayout(self.editor)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(8)
+
+        self.scope_label = QLabel()
+        self.scope_label.setObjectName("peakScope")
+        self.scope_label.setProperty("role", "secondary")
+        self.scope_label.setWordWrap(True)
+        editor_layout.addWidget(self.scope_label)
+
+        fields = QGridLayout()
+        fields.setContentsMargins(0, 0, 0, 0)
+        fields.setHorizontalSpacing(12)
+        fields.setVerticalSpacing(4)
+        fields.setColumnStretch(1, 1)
+        for row, (label_text, obj_name, tip) in enumerate(
+            [
+                ("Left offset", "lo_input", "Minutes before tR where integration starts"),
+                ("tR", "tr_input", "Retention time in minutes"),
+                ("Right offset", "ro_input", "Minutes after tR where integration ends"),
+            ]
+        ):
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
+            lbl.setToolTip(tip)
             edt = QLineEdit()
             edt.setObjectName(obj_name)
+            edt.setToolTip(tip)
             edt.setValidator(ToolbarDecimalValidator(edt))
-            # Enable Enter key to trigger apply (same as clicking Apply button)
             edt.returnPressed.connect(self._on_apply_clicked)
-            row.addWidget(lbl)
-            row.addWidget(edt, 1)
-            layout.addLayout(row)
+            edt.textEdited.connect(lambda: self._draft_edited("peak"))
+            lbl.setBuddy(edt)  # names the field for a screen reader
+            fields.addWidget(lbl, row, 0)
+            fields.addWidget(edt, row, 1)
+        editor_layout.addLayout(fields)
 
-        # Action buttons
-        button_row = QHBoxLayout()
-        self.apply_button = QPushButton("Apply")
-        self.apply_button.setObjectName("ApplyButton")
-        self.apply_button.clicked.connect(self._on_apply_clicked)
-        button_row.addWidget(self.apply_button)
-
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(8)
         self.restore_button = QPushButton("Reset")
         self.restore_button.setObjectName("RestoreButton")
         self.restore_button.clicked.connect(self._on_restore_clicked)
-        button_row.addWidget(self.restore_button)
+        action_row.addWidget(self.restore_button, 1)
 
-        layout.addLayout(button_row)
+        self.apply_button = QPushButton("Apply")
+        self.apply_button.setObjectName("ApplyButton")
+        self.apply_button.clicked.connect(self._on_apply_clicked)
+        apply_key = QKeySequence("Ctrl+Return")
+        self._apply_key_text = apply_key.toString(QKeySequence.SequenceFormat.NativeText)
+        for key in (apply_key, QKeySequence("Ctrl+Enter")):
+            QShortcut(
+                key, self, self.apply_button.click, Qt.ShortcutContext.WidgetWithChildrenShortcut
+            )
+        action_row.addWidget(self.apply_button, 2)
+        editor_layout.addLayout(action_row)
+        layout.addWidget(self.editor)
 
-        # tR Window field for data regeneration
         tr_window_row = QHBoxLayout()
-        tr_window_lbl = QLabel("tR Window")
-        tr_window_lbl.setStyleSheet("QLabel { background-color: white; border: none; }")
+        tr_window_row.setSpacing(8)
+        tr_window_lbl = QLabel("tR window")
+        tr_window_lbl.setToolTip(
+            "Width of the extracted chromatogram around tR, in minutes"
+        )
         self.tr_window_edit = QLineEdit()
         self.tr_window_edit.setObjectName("tr_window_input")
+        self.tr_window_edit.setToolTip(tr_window_lbl.toolTip())
+        # Room for a window such as 0.125 whole (with the style's 8 px padding a side):
+        # a cut-off number reads as another value.
+        self.tr_window_edit.setMinimumWidth(
+            self.tr_window_edit.fontMetrics().horizontalAdvance("0.125") + 2 * 8 + 8
+        )
+        tr_window_lbl.setBuddy(self.tr_window_edit)
         self.tr_window_edit.setValidator(ToolbarDecimalValidator(self.tr_window_edit))
-        # Enable Enter key to trigger regeneration (same as clicking Update tR Window button)
         self.tr_window_edit.returnPressed.connect(self._on_regenerate_clicked)
+        self.tr_window_edit.textEdited.connect(lambda: self._draft_edited("window"))
+        self.regenerate_button = QPushButton("Apply window")
+        self.regenerate_button.setObjectName("RegenerateButton")
+        self.regenerate_button.setToolTip("Ignores the plot selection")
+        self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
         tr_window_row.addWidget(tr_window_lbl)
         tr_window_row.addWidget(self.tr_window_edit, 1)
-        layout.addLayout(tr_window_row)
+        tr_window_row.addWidget(self.regenerate_button)
+        window_group = QWidget()
+        window_layout = QVBoxLayout(window_group)
+        window_layout.setContentsMargins(0, 0, 0, 0)
+        window_layout.setSpacing(4)
+        window_layout.addLayout(tr_window_row)
+        # Apply window ignores the selection, so it states its own scope.
+        self.window_scope_label = QLabel()
+        self.window_scope_label.setObjectName("windowScope")
+        self.window_scope_label.setProperty("role", "hint")
+        self.window_scope_label.setWordWrap(True)
+        window_layout.addWidget(self.window_scope_label)
+        rows = QWidget()
+        rows_layout = QVBoxLayout(rows)
+        rows_layout.setContentsMargins(0, 0, 0, 0)
+        rows_layout.setSpacing(4)
+        rows_layout.addWidget(window_group)
+        # Plain rows when they fit; on a short sidebar the toolbar folds them behind a
+        # heading that names them, so the editor above stays whole.
+        self.more = CollapsibleSection("Baseline, tR window", rows, sub=True)
+        self.more.set_headless(True)
+        layout.addWidget(self.more)
+        layout.addStretch(1)
+        # Folded, the rows open beside the sidebar, so the lists keep their rows.
+        self._popover = QFrame(self, Qt.WindowType.Popup)
+        self._popover.setObjectName("lowerPopover")
+        self._popover.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)
+        QVBoxLayout(self._popover).setContentsMargins(12, 10, 12, 10)
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self._popover, self._popover.close)
+        self._popover.installEventFilter(self)
+        self.more.toggled.connect(self._open_popover)
 
-        # Regeneration button
-        regen_button_row = QHBoxLayout()
-        self.regenerate_button = QPushButton("Update tR Window")
-        self.regenerate_button.setObjectName("RegenerateButton")
-        self.regenerate_button.clicked.connect(self._on_regenerate_clicked)
-        regen_button_row.addWidget(self.regenerate_button)
+    def set_folded(self, folded: bool) -> None:
+        """Fold the rows below the editor behind their heading, where they open in the
+        popover, or show them as plain rows."""
+        rows = self.more.body
+        home = self._popover if folded else self.more
+        if rows.parentWidget() is not home:
+            self._popover.close()
+            rows.setMinimumWidth(0)
+            rows.setMaximumWidth(16777215)
+            home.layout().addWidget(rows)
+        self.more.set_headless(not folded)
 
-        layout.addLayout(regen_button_row)
+    def _open_popover(self, expanded: bool) -> None:
+        if not expanded or self.more.header.isHidden():
+            return
+        rows = self.more.body
+        rows.setFixedWidth(self.width())  # wraps as it does in the sidebar
+        # Settle the wrapped hint at that width before measuring.
+        self._popover.layout().activate()
+        self._popover.resize(self._popover.sizeHint())
+        heading = self.more.header
+        # Past the sidebar's edge, its bottom level with the heading's.
+        corner = heading.mapToGlobal(QPoint(heading.width() + 24, heading.height()))
+        screen = heading.screen().availableGeometry()
+        top = max(corner.y() - self._popover.height(), screen.top())
+        self._popover.move(min(corner.x(), screen.right() - self._popover.width()), top)
+        self._popover.show()
+        rows.focusNextChild()
+
+    def eventFilter(self, watched, event):
+        if watched is self._popover and event.type() == QEvent.Type.Hide:
+            self.more.set_expanded(False)
+        return super().eventFilter(watched, event)
+
+    def _editor_height(self, width: int) -> int:
+        height = self.editor.heightForWidth(width)
+        return height if height >= 0 else self.editor.sizeHint().height()
+
+    def editor_height(self) -> int:
+        """The editor's height counting the scope line whether or not it shows,
+        so a selection never moves what sits around the Peak window."""
+        height = self._editor_height(self.width())
+        if self.scope_label.isHidden():
+            height += self.scope_label.fontMetrics().height() + self.editor.layout().spacing()
+        return height
+
+    def hasHeightForWidth(self) -> bool:
+        # A parent asks a layout for height-for-width, which would count the rows below
+        # at their last fitted height; the size hint counts every one.
+        return False
+
+    def lower_height(self, whole: bool) -> int:
+        """Height of the rows below the editor: all of them as plain rows, or their heading
+        once folded (they open in a popover)."""
+        if whole or self.more.header.isHidden():
+            return self.more.body.sizeHint().height()
+        return self.more.header.minimumHeight()
+
+    def sizeHint(self) -> QSize:
+        hint = super().sizeHint()
+        height = (
+            self._editor_height(self.width()) + self.layout().spacing() + self.lower_height(True)
+        )
+        return QSize(hint.width(), height)
 
     def _format_number(self, value: float) -> str:
         if value == 0:
@@ -327,7 +457,6 @@ class IntegrationWindow(QGroupBox):
         to compound defaults if no EIC data exists yet.
         """
         try:
-            # Try to get RT window from actual EIC data (persisted value)
             from manic.models.database import get_connection
 
             tr_window_value = None
@@ -344,26 +473,39 @@ class IntegrationWindow(QGroupBox):
                 if row and row["rt_window"] is not None:
                     tr_window_value = row["rt_window"]
 
-            # Fall back to compound default if no EIC data exists
             if tr_window_value is None:
                 compound_data = read_compound(compound_name)
                 tr_window_value = getattr(compound_data, "tr_window", 0.2)
 
-            tr_window_field = self.findChild(QLineEdit, "tr_window_input")
-            if tr_window_field:
-                tr_window_field.setText(self._format_number(tr_window_value))
-
-
+            field = self.tr_window_edit
+            if self.has_window_draft():
+                self._window_drafts[self._window_compound] = field.text()
+            else:
+                self._window_drafts.pop(self._window_compound, None)
+            field.setText(self._format_number(tr_window_value))
+            self._window_compound = compound_name
+            self._loaded_window = field.text()
+            draft = self._window_drafts.pop(compound_name, None)
+            if draft is not None and _field_value(draft) != _field_value(self._loaded_window):
+                field.setText(draft)
+            self._update_apply_button_state()
         except Exception as e:
             logger.exception("Error populating tR window field: %s", e)
 
     def populate_fields(self, compound_dict):
         """Populate the line edit fields with compound data"""
         if compound_dict is None:
+            # A cleared session leaves no edit to come back to.
             self._clear_fields()
+            self.tr_window_edit.clear()
+            self._drafts.clear()
+            self._window_drafts.clear()
+            self._loaded = self._field_texts()
+            self._loaded_window = ""
+            self._update_apply_button_state()
             return
 
-        # Map compound data to UI fields (excluding tR window - only updated on compound change)
+        # The tR window is left out: it changes only with the compound.
         field_mappings = {
             "lo_input": compound_dict.get("loffset", ""),
             "tr_input": compound_dict.get("retention_time", ""),
@@ -379,46 +521,62 @@ class IntegrationWindow(QGroupBox):
                     line_edit.setText("")
 
     def _clear_fields(self):
-        """Clear all line edit fields"""
-        for obj_name in ["lo_input", "tr_input", "ro_input", "tr_window_input"]:
-            line_edit = self.findChild(QLineEdit, obj_name)
-            if line_edit:
-                line_edit.clear()
+        """Clear the peak fields; the tR window has its own loader and draft."""
+        for obj_name in PEAK_FIELDS:
+            self.findChild(QLineEdit, obj_name).clear()
+
+    def _field_texts(self) -> Dict[str, str]:
+        return {name: self.findChild(QLineEdit, name).text() for name in PEAK_FIELDS}
+
+    def _draft_key(self) -> Tuple[str, FrozenSet[str]]:
+        # The same samples picked in another order are the same target.
+        return self._current_compound, frozenset(self._selected_samples or self._all_samples)
+
+    def _has_draft(self) -> bool:
+        return bool(self._current_compound) and _differs(self._field_texts(), self._loaded)
+
+    def has_window_draft(self) -> bool:
+        return bool(self._window_compound) and _field_value(
+            self.tr_window_edit.text()
+        ) != _field_value(self._loaded_window)
 
     def populate_fields_from_plots(
         self, compound_name: str, selected_samples: list, all_samples: Optional[list] = None
     ):
-        """Populate fields based on plot selection state
+        """Show the stored peak window for the selection, or the shown samples without one.
 
-        Args:
-            compound_name: Name of the current compound
-            selected_samples: List of currently selected sample names
-            all_samples: List of all visible sample names (for fallback when no selection)
-        """
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.debug(f"populate_fields_from_plots: compound={compound_name}, selected={len(selected_samples) if selected_samples else 0}, all={len(all_samples) if all_samples else 0}")
-        
-        # Validate inputs
+        An unapplied edit is kept for its compound and target, and comes back with them."""
+        if self._has_draft():
+            self._drafts[self._draft_key()] = self._field_texts()
+        else:
+            self._drafts.pop(self._draft_key(), None)
+        self._load_fields(compound_name, selected_samples, all_samples)
+        self._loaded = self._field_texts()
+        draft = self._drafts.get(self._draft_key())
+        if draft is not None and _differs(draft, self._loaded):
+            for name, text in draft.items():
+                self.findChild(QLineEdit, name).setText(text)
+        else:
+            # Applied (the store now holds it) or never made.
+            self._drafts.pop(self._draft_key(), None)
+        self._update_apply_button_state()
+
+    def _load_fields(
+        self, compound_name: str, selected_samples: list, all_samples: Optional[list]
+    ) -> None:
         if not compound_name:
             self._clear_fields()
-            self._update_apply_button_state()
             return
 
-        # Update internal state for apply button management
         self._current_compound = compound_name
         self._selected_samples = selected_samples.copy() if selected_samples else []
         self._all_samples = all_samples.copy() if all_samples else []
 
         try:
-            # Case 1: No plots selected - show range for all visible plots
             if not selected_samples and all_samples:
                 self._populate_range_fields(compound_name, all_samples)
-                self.setTitle("Selected Plots: All")
-                self._update_apply_button_state()
                 return
 
-            # Case 2: No plots selected and no samples provided - use compound defaults
             if not selected_samples:
                 compound_data = read_compound(compound_name)
                 compound_dict = {
@@ -428,15 +586,11 @@ class IntegrationWindow(QGroupBox):
                     "tr_window": getattr(compound_data, "tr_window", 0.2),
                 }
                 self.populate_fields(compound_dict)
-                self.setTitle("Selected Plots: All")
-                self._update_apply_button_state()
                 return
 
-            # Case 3: Single plot selected - show specific values (with session data if available)
             if len(selected_samples) == 1:
                 sample_name = selected_samples[0]
 
-                # Get EIC data to capture data window bounds (per-sample)
                 try:
                     eics = get_eics_for_compound(compound_name, [sample_name])
                     if eics and len(eics) > 0 and len(eics[0].time) > 0:
@@ -454,29 +608,18 @@ class IntegrationWindow(QGroupBox):
                     "tr_window": getattr(compound_data, "tr_window", 0.2),
                 }
                 self.populate_fields(compound_dict)
-                self.setTitle("Selected Plots: 1 sample")
-                self._update_apply_button_state()
                 return
 
-            # Case 4: Multiple plots selected - show ranges
             self._populate_range_fields(compound_name, selected_samples)
-            self.setTitle(f"Selected Plots: {len(selected_samples)} samples")
-            self._update_apply_button_state()
 
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Error populating integration window fields: {e}")
             self._clear_fields()
-            self._update_apply_button_state()
 
     def _populate_range_fields(self, compound_name: str, sample_names: list):
         """Populate fields with ranges for multiple samples"""
-        import logging
-        logger = logging.getLogger(__name__)
         
         try:
-            # Get EIC data for all specified samples
             eics = get_eics_for_compound(compound_name, sample_names)
 
             if not eics:
@@ -484,14 +627,12 @@ class IntegrationWindow(QGroupBox):
                 self._clear_fields()
                 return
 
-            # Store data window bounds for all samples
             for idx, sample_name in enumerate(sample_names):
                 if idx < len(eics) and len(eics[idx].time) > 0:
                     time_data = eics[idx].time
                     key = (compound_name, sample_name)
                     self._data_window_bounds[key] = (time_data.min(), time_data.max())
 
-            # Get compound data for each sample (including session overrides)
             rt_times = []
             loffsets = []
             roffsets = []
@@ -504,14 +645,13 @@ class IntegrationWindow(QGroupBox):
                 roffsets.append(compound_data.roffset)
                 tr_windows.append(getattr(compound_data, "tr_window", 0.2))
 
-            # Format ranges or single values (excluding tR window - only updated on compound change)
+            # The tR window is left out: it changes only with the compound.
             field_values = {
                 "lo_input": self._format_range(loffsets),
                 "tr_input": self._format_range(rt_times),
                 "ro_input": self._format_range(roffsets),
             }
 
-            # Populate fields
             for obj_name, value in field_values.items():
                 line_edit = self.findChild(QLineEdit, obj_name)
                 if line_edit:
@@ -526,7 +666,6 @@ class IntegrationWindow(QGroupBox):
         if not values:
             return ""
 
-        # Remove None values and convert to float
         clean_values = []
         for v in values:
             if v is not None:
@@ -541,11 +680,9 @@ class IntegrationWindow(QGroupBox):
         min_val = min(clean_values)
         max_val = max(clean_values)
 
-        # If all values are the same (or very close), show single value
         if abs(max_val - min_val) < 1e-6:
             return self._format_number(min_val)
         else:
-            # Show range with consistent formatting
             min_str = self._format_number(min_val)
             max_str = self._format_number(max_val)
             return f"{min_str} - {max_str}"
@@ -563,7 +700,6 @@ class IntegrationWindow(QGroupBox):
         from manic.models.database import get_connection
         
         with get_connection() as conn:
-            # Try session override first if we have selected samples
             if self._selected_samples:
                 row = conn.execute(
                     """
@@ -576,7 +712,6 @@ class IntegrationWindow(QGroupBox):
                 if row and row["retention_time"] is not None:
                     return row["retention_time"]
             
-            # Fall back to compound default
             row = conn.execute(
                 """
                 SELECT retention_time FROM compounds
@@ -587,35 +722,75 @@ class IntegrationWindow(QGroupBox):
             
             return row["retention_time"] if row and row["retention_time"] else 0.0
 
-    def _setup_apply_button_state(self):
-        """Setup initial apply button state and styling"""
+    def _draft_edited(self, draft: str) -> None:
+        self._last_draft = draft
         self._update_apply_button_state()
 
-    def _update_apply_button_state(self):
-        """Update button states and tooltips based on selection"""
-        # Both buttons are always enabled, styling handled by QSS
-        self.apply_button.setEnabled(True)
-        self.restore_button.setEnabled(True)
-
-        # Update tooltips based on selection state
-        if not self._selected_samples:
-            apply_tooltip = "Apply changes to all plots"
-            restore_tooltip = "Restore all plots to defaults"
+    def _update_apply_button_state(self, *_args):
+        """Name whom Apply and Reset change: a selection in the caption, all shown samples
+        (the default) on hover. An unapplied edit says so. Apply window states its own."""
+        selected = self._selected_samples
+        targets = selected or self._all_samples
+        for button in (self.apply_button, self.restore_button, self.regenerate_button):
+            button.setEnabled(bool(targets))
+        count = len(targets)
+        edited = self._has_draft()
+        if not self._current_compound:
+            scope = "Select a compound to edit its peak window."
+        elif edited:
+            # The tR window's draft caption, "All 30 shown · not applied", in the same words.
+            who = (
+                f"All {count} shown"
+                if not selected
+                else selected[0]
+                if count == 1
+                else f"{count} selected"
+            )
+            scope = who + NOT_APPLIED
+        elif selected:
+            scope = (
+                f"Applies to {selected[0]}"
+                if count == 1
+                else f"Applies to {count} selected samples"
+            )
         else:
-            sample_count = len(self._selected_samples)
-            if sample_count == 1:
-                apply_tooltip = f"Apply changes to {self._selected_samples[0]}"
-                restore_tooltip = f"Restore {self._selected_samples[0]} to defaults"
-            else:
-                apply_tooltip = f"Apply changes to {sample_count} selected samples"
-                restore_tooltip = f"Restore {sample_count} selected samples to defaults"
-
-        self.apply_button.setToolTip(apply_tooltip)
-        self.restore_button.setToolTip(restore_tooltip)
-
-        # Set tooltip for regenerate button
-        regenerate_tooltip = "Update tR window and recalculate EIC data"
-        self.regenerate_button.setToolTip(regenerate_tooltip)
+            scope = ""  # all shown samples, the default; the canvas explains an empty grid
+        self.scope_label.setText(scope)
+        window_edited = self.has_window_draft()
+        lead = self._last_draft if edited and window_edited else "peak" if edited else "window"
+        # Primary only while there is an edit to apply; still enabled to re-apply a mixed selection.
+        set_style_property(
+            self.apply_button, "variant", "primary" if edited and lead == "peak" else None
+        )
+        self.scope_label.setVisible(bool(scope))
+        set_style_property(
+            self.scope_label,
+            "state",
+            "edited" if edited else "selected" if selected else None,
+        )
+        if selected:
+            self.apply_button.setToolTip(self._apply_key_text)
+            self.restore_button.setToolTip("Restore the compound's default peak window")
+        else:
+            self.apply_button.setToolTip(f"Apply to all shown samples ({self._apply_key_text})")
+            self.restore_button.setToolTip(
+                "Restore all shown samples to the compound's default peak window"
+            )
+        shown = len(self._all_samples)
+        # One line in the sidebar: an unapplied window drops the verb for its note.
+        self.window_scope_label.setText(
+            f"All {shown} shown{NOT_APPLIED}"
+            if window_edited
+            else f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
+        )
+        self.window_scope_label.setVisible(bool(self._current_compound and shown))
+        set_style_property(self.window_scope_label, "state", "edited" if window_edited else None)
+        set_style_property(
+            self.regenerate_button,
+            "variant",
+            "primary" if window_edited and lead == "window" else None,
+        )
+        self.state_changed.emit()
 
     def _get_samples_needing_reload(
         self,
@@ -640,21 +815,16 @@ class IntegrationWindow(QGroupBox):
         Returns:
             List of sample names that need reload (empty if none need reload)
         """
-        import logging
-        logger = logging.getLogger(__name__)
         
         samples_needing_reload = []
         
-        # Calculate new integration boundaries using tested helper function
         left_boundary, right_boundary = calculate_integration_boundaries(
             new_rt, new_loffset, new_roffset
         )
         
-        # Check each sample independently
         for sample_name in samples_to_check:
             key = (self._current_compound, sample_name)
             
-            # If no bounds info, reload to be safe
             if key not in self._data_window_bounds:
                 logger.debug(f"No bounds info for {sample_name} - marking for reload")
                 samples_needing_reload.append(sample_name)
@@ -662,7 +832,6 @@ class IntegrationWindow(QGroupBox):
             
             window_min, window_max = self._data_window_bounds[key]
             
-            # Check if boundaries fit within this sample's window using tested helper
             boundaries_fit = check_boundaries_within_window(
                 left_boundary, right_boundary, window_min, window_max
             )
@@ -687,9 +856,7 @@ class IntegrationWindow(QGroupBox):
 
         This supports "offset-only" applies when the UI shows a tR range.
         """
-        import logging
 
-        logger = logging.getLogger(__name__)
 
         samples_needing_reload: List[str] = []
 
@@ -729,8 +896,6 @@ class IntegrationWindow(QGroupBox):
             compound_name: Name of the compound to refresh bounds for
             sample_names: List of sample names to refresh bounds for
         """
-        import logging
-        logger = logging.getLogger(__name__)
         
         try:
             for sample_name in sample_names:
@@ -760,7 +925,6 @@ class IntegrationWindow(QGroupBox):
             self._show_message("warning", "No Compound", "No compound selected.")
             return
 
-        # Determine which samples to apply to
         samples_to_apply = (
             self._selected_samples if self._selected_samples else self._all_samples
         )
@@ -772,7 +936,6 @@ class IntegrationWindow(QGroupBox):
             return
 
         try:
-            # Get and validate input values
             input_values = self._get_validated_inputs()
             if input_values is None:
                 return  # Validation failed, error already shown
@@ -792,8 +955,6 @@ class IntegrationWindow(QGroupBox):
 
             preserve_sample_rts = (len(samples_to_apply) > 1 and rt_mode == "range")
 
-            # Determine which samples need reload (check each sample independently)
-            # In offset-only mode, use each sample's existing RT for boundary checks.
             if preserve_sample_rts:
                 sample_rts = {
                     sample_name: read_compound_with_session(
@@ -810,14 +971,11 @@ class IntegrationWindow(QGroupBox):
                 )
 
             if samples_needing_reload:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.info(
                     f"Checking {len(samples_to_apply)} samples: "
                     f"{len(samples_needing_reload)} need reload"
                 )
                 
-                # Get current RT window value
                 tr_window_field = self.findChild(QLineEdit, "tr_window_input")
                 current_tr_window = (
                     float(tr_window_field.text()) if tr_window_field and tr_window_field.text() else 0.2
@@ -853,7 +1011,6 @@ class IntegrationWindow(QGroupBox):
                 )
                 return
 
-            # No reload needed - update session activity data immediately
             if preserve_sample_rts:
                 SessionActivityService.update_offsets_preserve_rt(
                     compound_name=self._current_compound,
@@ -870,7 +1027,6 @@ class IntegrationWindow(QGroupBox):
                     roffset=roffset,
                 )
 
-            # Emit signal to trigger plot refresh
             self.session_data_applied.emit(self._current_compound, samples_to_apply)
 
         except Exception as e:
@@ -884,7 +1040,6 @@ class IntegrationWindow(QGroupBox):
             self._show_message("warning", "No Compound", "No compound selected.")
             return
 
-        # Determine which samples to restore
         samples_to_restore = (
             self._selected_samples if self._selected_samples else self._all_samples
         )
@@ -895,27 +1050,30 @@ class IntegrationWindow(QGroupBox):
             )
             return
 
-        # Confirm restore action
         sample_count = len(samples_to_restore)
-        if self._selected_samples:
-            if sample_count == 1:
-                message = f"Restore {samples_to_restore[0]} to default values?"
-            else:
-                message = f"Restore {sample_count} selected samples to default values?"
+        if not self._selected_samples:
+            target = f"all {sample_count} shown samples"
+        elif sample_count == 1:
+            target = samples_to_restore[0]
         else:
-            message = f"Restore all {sample_count} samples to default values?"
-
-        reply = self._show_message("question", "Confirm Restore", message)
-
-        if reply == QMessageBox.StandardButton.Yes:
+            target = f"{sample_count} selected samples"
+        main_window = self._get_main_window()
+        if main_window is not None and main_window._confirm(
+            "Reset Peak Window",
+            f"Reset {target} to the compound's default peak window?",
+            "",
+            "Reset Peak Window",
+            self,
+        ):
+            # Reset discards the unapplied edit along with the stored one.
+            self._drafts.pop(self._draft_key(), None)
+            self._loaded = self._field_texts()
             try:
-                # Remove session data to restore defaults
                 SessionActivityService.restore_samples_to_defaults(
                     compound_name=self._current_compound,
                     sample_names=samples_to_restore,
                 )
 
-                # Emit signal to trigger plot refresh
                 self.session_data_restored.emit(
                     self._current_compound, samples_to_restore
                 )
@@ -935,7 +1093,6 @@ class IntegrationWindow(QGroupBox):
             Tuple of (retention_time, loffset, roffset) if validation passes, None otherwise
         """
         try:
-            # Get field values
             lo_field = self.findChild(QLineEdit, "lo_input")
             ro_field = self.findChild(QLineEdit, "ro_input")
             tr_field = self.findChild(QLineEdit, "tr_input")
@@ -943,7 +1100,6 @@ class IntegrationWindow(QGroupBox):
             if lo_field is None or ro_field is None or tr_field is None:
                 raise ValueError("Could not find required input fields")
 
-            # Parse and validate retention time
             try:
                 rt_mode, retention_time, _rt_range = _parse_rt_text(tr_field.text())
             except ValueError:
@@ -955,12 +1111,10 @@ class IntegrationWindow(QGroupBox):
                 tr_field.setFocus()
                 return None
 
-            # Parse and validate left offset
             try:
                 loffset_text = lo_field.text().strip()
                 if not loffset_text:
                     raise ValueError("Left offset cannot be empty")
-                # Handle range format (e.g., "1.2 - 1.5") by taking first value
                 if " - " in loffset_text:
                     loffset_text = loffset_text.split(" - ")[0]
                 loffset = float(loffset_text)
@@ -971,12 +1125,10 @@ class IntegrationWindow(QGroupBox):
                 lo_field.setFocus()
                 return None
 
-            # Parse and validate right offset
             try:
                 roffset_text = ro_field.text().strip()
                 if not roffset_text:
                     raise ValueError("Right offset cannot be empty")
-                # Handle range format
                 if " - " in roffset_text:
                     roffset_text = roffset_text.split(" - ")[0]
                 roffset = float(roffset_text)
@@ -987,7 +1139,6 @@ class IntegrationWindow(QGroupBox):
                 ro_field.setFocus()
                 return None
 
-            # Basic validation
             if retention_time <= 0:
                 self._show_message(
                     "warning", "Invalid Input", "Retention time must be positive"
@@ -1023,7 +1174,6 @@ class IntegrationWindow(QGroupBox):
             self._show_message("warning", "No Compound", "No compound selected.")
             return
 
-        # Get and validate tR window input
         tr_window_field = self.findChild(QLineEdit, "tr_window_input")
         if not tr_window_field:
             self._show_message(
@@ -1040,7 +1190,6 @@ class IntegrationWindow(QGroupBox):
                 tr_window_field.setFocus()
                 return
 
-            # Handle range format (take first value like other fields)
             if " - " in tr_window_text:
                 tr_window_text = tr_window_text.split(" - ")[0]
 

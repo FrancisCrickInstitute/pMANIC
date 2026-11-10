@@ -1,6 +1,5 @@
-# Reference: Integration Methods
+# Integration Methods
 
-## Overview
 Integration is the process of calculating the "area under the curve" for a chromatogram peak. This area represents the total abundance of the ion detected during the elution window.   
 
 MANIC offers two distinct algorithms for this calculation. The choice of method fundamentally changes the numerical scale of your results.   
@@ -13,6 +12,7 @@ This is the standard, scientifically accurate method.
 
 ### How It Works
 It calculates the area using the **Trapezoidal Rule** with the actual retention time stamps from the raw data file.
+
 * **X-Axis:** Time (minutes)
 * **Y-Axis:** Intensity (counts)
 * **Resulting Unit:** Intensity $\times$ Minutes
@@ -36,6 +36,7 @@ This method is provided **solely** for backward compatibility with the legacy MA
 
 ### How It Works
 It calculates the area using the Trapezoidal Rule but ignores the time timestamps, assuming a fixed distance of `1` between every data point.   
+
 * **X-Axis:** Scan Index (unitless steps)
 * **Y-Axis:** Intensity (counts)
 * **Resulting Unit:** Intensity Sum (approximate)
@@ -54,14 +55,15 @@ $$\text{Area} = \sum_{i=start}^{end-1} \frac{(I_i + I_{i+1})}{2} \times 1$$
 
 ## Configuration
 
-**Settings → Integration** has two radios.
+**Settings → Integration** has two **Method** radios.
 
 * **Time-based (recommended)** (default): uses time-based integration on screen.
 * **Legacy**: uses unit-spacing integration on screen.
 
-Export asks again in **Export Options**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
+Export asks again in **Export Data**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
 
 ### Boundary Handling (Technical Note)
 Both methods utilize the same "Strict Boundary" logic to determine which points are included in the sum:
+
 * Points typically must fall **strictly inside** the integration window boundaries (`tR - loffset` and `tR + roffset`).
 * Points exactly *on* the boundary line are generally excluded to prevent double-counting in adjacent windows.

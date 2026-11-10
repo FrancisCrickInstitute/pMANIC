@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from PySide6.QtCore import QEvent, QSettings
 from PySide6.QtWidgets import QApplication
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -34,6 +35,14 @@ def empty_db(tmp_path, monkeypatch):
     return db_path
 
 
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path):
+    """Every QSettings() starts empty, in an INI file under the test's tmp_path."""
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path / "settings"))
+    QSettings().clear()
+
+
 def _make_window(monkeypatch, mode=None):
     if mode is None:
         mode = AnalysisMode.LABELLED
@@ -52,6 +61,22 @@ def cleanup_env():
     yield
     if "MANIC_DB_PATH" in os.environ:
         del os.environ["MANIC_DB_PATH"]
+
+
+@pytest.fixture(autouse=True)
+def delete_test_windows():
+    """A scheme switch restyles every live widget, so windows a test leaves behind slow
+    every later switch: thousands of widgets by the end of the suite."""
+    app = QApplication.instance()
+    before = set(app.topLevelWidgets()) if app is not None else set()
+    yield
+    app = QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        if widget not in before:
+            widget.deleteLater()
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def pytest_configure(config):

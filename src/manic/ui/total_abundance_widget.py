@@ -12,13 +12,44 @@ from PySide6.QtCharts import (
     QHorizontalBarSeries,
     QValueAxis,
 )
-from PySide6.QtCore import QMargins, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QMouseEvent
-from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QMargins, Qt, Signal
+from PySide6.QtGui import QMouseEvent, QPainter, QPen
+from PySide6.QtWidgets import (
+    QFrame,
+    QGraphicsSimpleTextItem,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
+from manic.io.compound_reader import read_compound
 from manic.io.eic_reader import EIC
+from manic.ui import theme
+from manic.ui.chart_header import ChartHeader
+from manic.ui.chart_popup_dialog import PinnedAxis, bar_value_text, value_axis_ticks
+from manic.ui.chart_style import (
+    BarRows,
+    abundance_scale,
+    fit_category_names,
+    fit_name_font,
+    place_row_notes,
+    scale_text,
+    set_nice_ticks,
+    style_axis,
+    style_chart,
+)
+from manic.ui.sidebar_widgets import SummaryChartArea
+
+from manic.ui.theme import color
 
 logger = logging.getLogger(__name__)
+
+
+def peak_area_label(compound_name: str) -> str:
+    """What the bars measure, as DataProvider.get_compound_total_area takes it."""
+    if read_compound(compound_name).is_unlabelled_target:
+        return "Q-ion peak area"
+    return "Peak area, sum of isotopologues"
 
 
 def abundances_from_provider(provider, compound_name: str, sample_names: list[str]) -> np.ndarray:
@@ -32,54 +63,62 @@ def abundances_from_provider(provider, compound_name: str, sample_names: list[st
 
 
 class TotalAbundanceWidget(QWidget):
-    """
-    Horizontal bar chart showing total abundance for each sample.
+    """Horizontal bar chart of each sample's peak area (peak_area_label names it).
 
-    Shows the sum of all isotopologue areas for each sample, representing
-    the total amount of compound detected (ignoring isotopic distribution).
-
-    Companion to the isotopologue ratio widget - same integration logic but
-    displays total abundance instead of relative ratios.
+    Companion to the isotopologue ratio widget: same integration, but the
+    summed area instead of the ratios.
     """
+
+    sample_activated = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("totalAbundanceWidget")
 
-        # Create chart and chart view
         self.chart = QChart()
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.Antialiasing)
         self.chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
-        # Enable double-click on chart view
+        self.chart_view.setFrameShape(QFrame.NoFrame)
+        self.chart_view.setStyleSheet("QChartView { background: transparent; border: none; }")
+
         self.chart_view.mouseDoubleClickEvent = self._chart_view_double_click
+        self._rows = BarRows(
+            self.chart,
+            self.chart_view,
+            lambda row: self.sample_activated.emit(self._current_sample_names[row]),
+            lambda row, _value: self.hover_text(row),
+            waits_for_double_click=True,
+        )
 
-        # Setup chart appearance
-        self.chart.setBackgroundVisible(False)
-        self.chart.setPlotAreaBackgroundVisible(True)
-        self.chart.setPlotAreaBackgroundBrush(QColor(255, 255, 255))
-        self.chart.legend().setVisible(False)
-        self.chart.setTitle("Total Abundance")
-        self.chart.setTitleFont(QFont("Arial", 12, QFont.Bold))
-        self.chart.setTitleBrush(QColor("black"))
-        self.chart.setMargins(QMargins(5, 5, 5, 5))
+        style_chart(self.chart, QMargins(8, 0, 8, 0))
 
-        # Layout
+        self.header = ChartHeader("Peak area")
+        self.header.expand_button.clicked.connect(self._show_popup_chart)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.chart_view)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+        layout.addWidget(self.header)
+        # The value axis stays above the rows while they scroll, as in the popup.
+        self.value_axis = PinnedAxis(self.chart_view)
+        layout.addWidget(self.value_axis)
+        self.chart_area = SummaryChartArea(self.chart_view, 4)
+        layout.addWidget(self.chart_area)
+        self.chart.plotAreaChanged.connect(self._fit_names)
+        # A bar too short to see reads as the popup prints it: "0", "<0.01" or "—".
+        self._row_notes: list[QGraphicsSimpleTextItem] = []
+        self.chart.plotAreaChanged.connect(self._place_row_notes)
+        theme.notifier.changed.connect(self._place_row_notes)
 
-        # Responsive height to match isotopologue widget
-        self.setMinimumHeight(200)
-        self.setMaximumHeight(330)
+        # The grid's selected samples, drawn in the accent colour.
+        self._highlighted: set[str] = set()
+        theme.notifier.changed.connect(self._paint_highlight)
+
+        # No taller than its rows, so the panel stacks the next chart right under it.
+        layout.setSizeConstraint(QVBoxLayout.SetMinAndMaxSize)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
-        # Single color for all bars - dark teal (not in isotopologue palette)
-        self.bar_color = QColor(0, 128, 128)  # Dark teal
-
-        # Data storage
-        self._current_eics: Optional[List[EIC]] = None
         self._current_compound: str = ""
         self._current_abundances: Optional[np.ndarray] = None
         self._current_sample_names: Optional[List[str]] = None
@@ -93,157 +132,138 @@ class TotalAbundanceWidget(QWidget):
         This avoids duplicate integration calculations.
         """
         if not eics or not compound_name or abundances is None:
-            self._clear_chart()
+            self.clear()
             return
 
-        self._current_eics = eics
         self._current_compound = compound_name
 
-        # Order to match graph window layout
-        ordered_eics, ordered_abundances = self._order_like_graph_window(
-            eics, abundances
-        )
-
         # Reverse order so top graph corresponds to top bar
-        ordered_eics.reverse()
-        ordered_abundances = np.flip(ordered_abundances)  # Flip array
+        ordered_eics = eics[::-1]
+        ordered_abundances = np.flip(abundances)
         
-        # Store current data for popup
         self._current_abundances = ordered_abundances
         self._current_sample_names = [eic.sample_name for eic in ordered_eics]
 
-        # Update chart
         self._update_chart(
             ordered_abundances, self._current_sample_names
         )
 
-    def _order_like_graph_window(
-        self, eics: List[EIC], abundances: np.ndarray
-    ) -> tuple[List[EIC], np.ndarray]:
-        """
-        Order EICs and abundances to match the graph window's grid layout.
-        Same logic as isotopologue widget.
-        """
-        import math
-
-        num = len(eics)
-        if num == 0:
-            return eics, abundances
-
-        # Same grid calculation as graph window
-        cols = math.ceil(math.sqrt(num))
-        math.ceil(num / cols)
-
-        # Graph processes EICs in database order, so no reordering needed
-        return eics, abundances
-
     def _update_chart(self, abundances: np.ndarray, sample_names: List[str]) -> None:
-        """
-        Update the horizontal bar chart with new abundance data.
-
-        Args:
-            abundances: Array of total abundance values
-            sample_names: List of sample names for y-axis labels
-        """
-        # Clear existing data
+        """One horizontal bar per sample, labelled with ``sample_names``."""
         self.chart.removeAllSeries()
 
-        # Create horizontal bar series (not stacked)
         bar_series = QHorizontalBarSeries()
 
         # Make bars same width as isotopologue chart
         bar_series.setBarWidth(0.8)
 
-        # Create single bar set with all abundance values
         bar_set = QBarSet("Total Abundance")
-        bar_set.setColor(self.bar_color)
+        # Neutral ink, so the accent marks only the grid's selection (see _paint_highlight).
+        bar_set.setColor(color("text_tertiary"))
+        bar_set.setPen(QPen(Qt.NoPen))
 
-        # Calculate scaling for display like EIC plots
-        max_abundance = float(np.max(abundances)) if len(abundances) > 0 else 1.0
-        scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
-        scale_factor = 10**scale_exp if scale_exp != 0 else 1
-
-        # Add scaled abundance values
+        _top, scale_exp = abundance_scale(abundances)
         for abundance in abundances:
-            scaled_abundance = abundance / scale_factor
-            bar_set.append(scaled_abundance)
+            bar_set.append(abundance / 10**scale_exp if np.isfinite(abundance) else 0.0)
 
         bar_series.append(bar_set)
 
-        # Add series to chart
         self.chart.addSeries(bar_series)
+        self.chart_area.set_rows(len(sample_names))
 
-        # Setup axes
         self._setup_axes(sample_names, abundances)
 
-        # Attach series to axes
         bar_series.attachAxis(self.chart.axes(Qt.Horizontal)[0])
         bar_series.attachAxis(self.chart.axes(Qt.Vertical)[0])
+        # New axes start with full names at the axis size; the plot area may not change to refit them.
+        self._fit_names()
+        self._paint_highlight()
+        self._place_row_notes()
+        self._rows.refresh()
+
+    def _place_row_notes(self, *_args) -> None:
+        texts = {}
+        if self._has_data():
+            _top, scale_exp = abundance_scale(self._current_abundances)
+            for row, value in enumerate(self._current_abundances / 10**scale_exp):
+                text = bar_value_text(value)
+                if text in ("—", "0", "<0.01"):
+                    texts[row] = text
+        place_row_notes(self.chart, self._row_notes, texts)
+
+    def _fit_names(self, *_args) -> None:
+        axes = self.chart.axes(Qt.Vertical)
+        if self._current_sample_names and axes:
+            fit_name_font(self.chart, axes[0])
+            fit_category_names(axes[0], self._current_sample_names, self.chart_view.width())
+
+    def set_highlighted(self, sample_names) -> None:
+        """Mark the bars of the samples selected in the grid and scroll to them."""
+        self._highlighted = set(sample_names)
+        self._paint_highlight()
+        names = self._current_sample_names or []
+        self.chart_area.show_rows(
+            self.chart, [i for i, name in enumerate(names) if name in self._highlighted]
+        )
+
+    def _paint_highlight(self, *_args) -> None:
+        if not self.chart.series() or not self._has_data():
+            return
+        bar_set = self.chart.series()[0].barSets()[0]
+        bar_set.setSelectedColor(color("accent"))
+        bar_set.deselectAllBars()
+        bar_set.selectBars(
+            [
+                i
+                for i, name in enumerate(self._current_sample_names)
+                if name in self._highlighted
+            ]
+        )
+
+    def hover_text(self, index: int) -> str:
+        value = float(self._current_abundances[index])
+        shown = f"{value:.3g}" if np.isfinite(value) else "—"
+        return f"{self._current_sample_names[index]}\nPeak area  {shown}"
 
     def _setup_axes(self, sample_names: List[str], abundances: np.ndarray) -> None:
         """Setup chart axes for horizontal layout."""
-        # Remove existing axes
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
 
-        # X-axis (horizontal): Abundance values with EIC-style scaling
         x_axis = QValueAxis()
-        max_abundance = float(np.max(abundances)) if len(abundances) > 0 else 1.0
+        max_abundance, scale_exp = abundance_scale(abundances)
+        scaled_max = max_abundance / 10**scale_exp
+        x_axis.setRange(0, scaled_max * 1.05)
+        set_nice_ticks(x_axis, 0, scaled_max * 1.05, max_ticks=2)
 
-        # Calculate scaling factor like EIC plots
-        scale_exp = int(np.floor(np.log10(max_abundance))) if max_abundance > 0 else 0
-        scale_factor = 10**scale_exp if scale_exp != 0 else 1
-
-        # Scale the range and data
-        scaled_max = max_abundance / scale_factor
-        x_axis.setRange(0, scaled_max * 1.05)  # Add 5% padding
-
-        # Store scale info for later use
-        self._scale_exp = scale_exp
-        self._scale_factor = scale_factor
-
-        # Format labels like EIC plots (simple numbers)
-        x_axis.setLabelFormat("%.1f")  # Simple decimal format
-        x_axis.setLabelsFont(QFont("Arial", 8))
-        x_axis.setGridLineVisible(False)
+        style_axis(x_axis, grid=True)
         x_axis.setLineVisible(False)
-        x_axis.setTickCount(5)  # Same as graph plots - prevents overcrowding
-        x_axis.setLabelsVisible(True)
+        x_axis.setLabelsVisible(False)
+        self.header.set_has_data(True, scale_text(scale_exp))
 
-        # Set scaling factor as axis title with larger font
-        if scale_exp != 0:
-
-            def superscript(n):
-                sup_map = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
-                return str(n).translate(sup_map)
-
-            # Use larger font for entire title (since HTML doesn't work in axis titles)
-            x_axis.setTitleText(f"×10{superscript(scale_exp)}")
-            x_axis.setTitleFont(QFont("Arial", 14))  # Larger font for better visibility
-
-        # Y-axis (vertical): Sample names - hidden to save space (same as isotopologue)
         y_axis = QBarCategoryAxis()
         y_axis.append(sample_names)
-        y_axis.setLabelsFont(QFont("Arial", 8))
-        y_axis.setGridLineVisible(False)
+        style_axis(y_axis)
         y_axis.setLineVisible(False)
-        y_axis.setLabelsVisible(False)  # Hide sample names to save space
 
-        # Add axes to chart
-        self.chart.addAxis(x_axis, Qt.AlignBottom)
+        self.chart.addAxis(x_axis, Qt.AlignTop)
         self.chart.addAxis(y_axis, Qt.AlignLeft)
+        self.value_axis.set_axis("", value_axis_ticks(x_axis))
 
-    def _clear_chart(self) -> None:
+    def clear(self) -> None:
         """Clear the chart when no data is available."""
         self.chart.removeAllSeries()
         for axis in self.chart.axes():
             self.chart.removeAxis(axis)
+        self.header.set_has_data(False)
+        self.value_axis.set_axis("", [])
+        self.chart_area.set_rows(0)
 
-        # Reset data
-        self._current_eics = None
         self._current_compound = ""
         self._current_abundances = None
         self._current_sample_names = None
+        self._place_row_notes()
+        self._rows.refresh()
 
     def _chart_view_double_click(self, event: QMouseEvent):
         """Handle double-click on chart view to show popup chart."""
@@ -269,11 +289,15 @@ class TotalAbundanceWidget(QWidget):
             
             dialog = ChartPopupDialog(
                 chart_type="total_abundance",
-                title="Total Abundance",
+                title="Peak area",
                 data=self._current_abundances,
                 sample_names=self._current_sample_names,
-                parent=self
+                parent=self,
+                compound_name=self._current_compound,
+                highlighted=self._highlighted,
+                quantity=peak_area_label(self._current_compound),
             )
+            dialog.sample_activated.connect(self.sample_activated)
             dialog.exec()
             
         except Exception as e:

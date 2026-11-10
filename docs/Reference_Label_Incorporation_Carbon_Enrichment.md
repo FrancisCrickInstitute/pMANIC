@@ -1,6 +1,4 @@
-# Reference: Label Incorporation & Carbon Enrichment
-
-## Overview
+# Label Incorporation & Carbon Enrichment
 
 MANIC produces two distinct metrics to quantify isotopic labelling. While they are related, they answer different biological questions:
 
@@ -17,7 +15,7 @@ In addition to that theoretical correction, both metrics rely on **Empirical Bac
 
 Before calculating either metric, MANIC establishes a "base level" using the files defined in the `mm_files` column.
 
-Even after theoretical natural isotope correction, "unlabelled" standards (MM files) often show a small residual amount of "labelled" signal due to instrument noise. MANIC calculates the average background signal in the MM files and subtracts it from the biological samples to ensure that unlabelled controls report as **0%**.
+Even after theoretical natural isotope correction, "unlabelled" standards (MM files) often show a small residual amount of "labelled" signal, from impurities in the standard, imperfect natural abundance constants, or instrument noise and baseline integration error. MANIC calculates the average background in the MM files and subtracts it from the biological samples so that unlabelled controls report as **0%**.
 
 > **Note:** If no MM files are defined for a compound, the base level defaults to 0.
 
@@ -36,6 +34,7 @@ $$\text{Labelled Signal}_{corr} = \sum_{i=1}^{N} \text{Area}_{M+i} - (\text{Rati
 $$\text{% Label Inc} = \frac{\text{Labelled Signal}_{corr}}{\text{Total Area}} \times 100$$
 
 **Where:**
+
 * **$\sum \text{Area}_{M+i}$**: The sum of all labelled isotopologues (M+1 to M+N).
 * **$\text{Ratio}_{MM}$**: The average ratio of $(\text{Labelled} / \text{M+0})$ found in the Standard Mixture files.
 * **$\text{Total Area}$**: The sum of all isotopologues (M+0 to M+N).
@@ -48,10 +47,6 @@ The result is clamped to **0%** if the subtraction results in a negative number.
 
 The **% Carbons Labelled** is a metric that quantifies the *excess* isotopic labelling within a metabolite pool, relative to the Standard Mixture (MM) background.
 
-### The Calculation
-
-The calculation is performed in two steps:
-
 ### Step 1: Calculate Weighted Enrichment
 
 For each sample, calculate the weighted average enrichment on the **Natural Isotope Abundance Corrected** data:
@@ -59,6 +54,7 @@ For each sample, calculate the weighted average enrichment on the **Natural Isot
 $$\text{Enrichment}_{sample} = \frac{\sum_{i=0}^{N} (i \times \text{Area}_{M+i})}{N \times \sum_{i=0}^{N} \text{Area}_{M+i}} \times 100$$
 
 **Where:**
+
 * **$i$**: The isotopologue number (number of labelled atoms).
     * M+0 has weight 0.
     * M+1 has weight 1.
@@ -71,8 +67,6 @@ $$\text{Enrichment}_{sample} = \frac{\sum_{i=0}^{N} (i \times \text{Area}_{M+i})
 Calculate the same enrichment for all Standard Mixture (MM) files, average them, then subtract:
 
 $$\text{% Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
-
-The result is clamped to 0 to prevent negative values.
 
 ---
 

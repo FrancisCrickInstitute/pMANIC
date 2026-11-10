@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
+
 from pydantic import ValidationError
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
+from PySide6.QtCore import QEvent, QLocale, QPoint, Qt, QTimer
 from PySide6.QtGui import QDoubleValidator, QValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -47,6 +49,12 @@ from manic.ui.dialog_kit import (
 )
 from manic.ui.sidebar_widgets import divider
 from manic.ui.theme import set_style_property
+
+
+# Every number field reads a decimal point and no thousands separator, whatever the
+# system locale. In a comma locale Qt reads "0.125" as 125, a thousand times too large.
+NUMBER_LOCALE = QLocale.c()
+NUMBER_LOCALE.setNumberOptions(QLocale.NumberOption.RejectGroupSeparator)
 
 
 class _BlankZero:
@@ -119,6 +127,7 @@ class AddCompoundDialog(QDialog):
         taken_names: frozenset[str] | set[str] = frozenset(),
     ):
         super().__init__(parent)
+        self.setLocale(NUMBER_LOCALE)
         self._mode = AnalysisMode.coerce(analysis_mode)
         self._taken_names = frozenset(taken_names)
         self._record: CompoundRow | UnlabelledCompoundRecord | None = None
@@ -578,6 +587,7 @@ class AddCompoundDialog(QDialog):
         edit.setPlaceholderText(placeholder)
         validator = QDoubleValidator()
         validator.setNotation(QDoubleValidator.StandardNotation)
+        validator.setLocale(NUMBER_LOCALE)
         edit.setValidator(validator)
         return edit
 
@@ -586,12 +596,7 @@ class AddCompoundDialog(QDialog):
         text = edit.text().strip()
         if not text:
             return None
-        # A plain decimal point first: in a comma locale "0.125" would otherwise read as
-        # 125, the point taken for a thousands separator. Then the user's locale ("0,25").
-        try:
-            return float(text)
-        except ValueError:
-            value, ok = edit.validator().locale().toDouble(text)
-        if not ok:
+        value, ok = NUMBER_LOCALE.toDouble(text)
+        if not ok or not math.isfinite(value):
             raise ValueError(f"{text!r} is not a number")
         return value

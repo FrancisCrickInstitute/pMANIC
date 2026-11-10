@@ -40,7 +40,7 @@ uv run python bench/reference.py check                          # does the code 
 uv run python bench/reference.py update --pr 281 --why "..."    # this pull request means to change them
 ```
 
-`check` fails when a number moved by more than one part in a million, or when any text or cell appeared or disappeared. CI runs it on every pull request, on macOS only, because fits differ in their last digits between maths libraries. A pull request that changes results on purpose runs `update` and commits the two files and the new history entry, so the reviewer sees how much moved. The comparison uses the bench datasets only; a change that real data would show and these do not is not caught.
+`check` fails when a number moved by more than 0.05%, or when any text or cell appeared or disappeared. The tolerance is there because the same code gives slightly different fits on another machine: a CI runner differed from the machine that made the reference in 22 of 52,569 numbers, by 0.004% at most. CI runs the check on every pull request, on macOS only. A pull request that changes results on purpose runs `update` and commits the two files and the new history entry, so the reviewer sees how much moved. The comparison uses the bench datasets only; a change that real data would show and these do not is not caught.
 
 ## Saved runs
 

@@ -4,9 +4,8 @@
     uv run python bench/reference.py update --pr 281 --why "EMG tail no longer clipped"
 
 `check` exports both datasets with the current code and compares every cell with
-bench/reference/<dataset>.tsv. It fails when a number moved by more than one part
-in a million, or when any text, sheet or cell appeared or disappeared. CI runs it
-on every pull request.
+bench/reference/<dataset>.tsv. It fails when a number moved by more than 0.05%, or
+when any text, sheet or cell appeared or disappeared. CI runs it on every pull request.
 
 `update` rewrites those files and adds an entry to bench/reference/HISTORY.md saying
 which pull request changed the results, why, and by how much on each sheet. A pull
@@ -32,8 +31,10 @@ from openpyxl import load_workbook
 
 REFERENCE = Path(__file__).parent / "reference"
 HISTORY = REFERENCE / "HISTORY.md"
-# Fits differ in their last digits between machines and maths libraries.
-RELATIVE_TOLERANCE = 1e-6
+# The same code gives slightly different fits on another machine: a GitHub macOS runner
+# differed from the Apple M1 Pro that made the reference in 22 of 52,569 numbers, by
+# 0.004% at most. 0.05% clears that noise and is far below any change that matters.
+RELATIVE_TOLERANCE = 5e-4
 ABSOLUTE_TOLERANCE = 1e-9
 
 Sheets = dict[str, list[list[str]]]
@@ -109,7 +110,7 @@ def _summary(title: str, sheet: dict) -> str:
     moved = sheet["moved"]
     if not moved and not sheet["other"]:
         return f"| {title} | {sheet['numbers']} | 0 | | | |"
-    # Two significant digits, so a change of a few parts per million still reads as one.
+    # Two significant digits, so a change far below 0.01% still reads as one.
     typical = f"{statistics.median(moved) * 100:.2g}%" if moved else ""
     largest = f"{max(moved) * 100:.2g}%" if moved else ""
     return (

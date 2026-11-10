@@ -5,7 +5,7 @@ full Excel export of the two synthetic bench datasets, kept in `labelled.tsv` an
 `unlabelled.tsv` beside this file. `bench/reference.py update` writes the entries; see
 `bench/README.md`.
 
-"Changed" counts numbers that moved by more than one part in a million. "Typical" is the
+"Changed" counts numbers that moved by more than 0.05%. "Typical" is the
 median relative change among those, and "Largest" the biggest.
 
 ## 2026-11-10, #275

@@ -36,7 +36,7 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 ## Procedure
 
 ### Prerequisites
-* **Legacy Results File:** An Excel (`.xlsx`) or CSV file containing a table of uncorrected peak areas.
+* **Legacy Results File:** An Excel (`.xlsx`) workbook with a **Raw Values** sheet of uncorrected peak areas, laid out like MANIC's own Raw Values export. CSV files are not accepted. Each compound needs label atoms + 1 isotopologue columns. If a compound has a different number, the rebuild stops before writing anything and names that compound.
 * **Matching Compound List:** A Compound Definition file (Step 1) that matches the metabolite names in your legacy file. This is required to provide the *Molecular Formulas* and *Label Atoms* needed for correction.
 
 ### Steps

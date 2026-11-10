@@ -146,7 +146,14 @@ def _extract_tic_from_cdf(cdf):
 
 
 def _extract_all_eics_for_file(
-    cdf_data, compounds, mass_tol, rt_window, progress_cb, done_so_far, total_work
+    cdf_data,
+    compounds,
+    mass_tol,
+    rt_window,
+    progress_cb,
+    done_so_far,
+    total_work,
+    skip=ValueError,
 ):
     """
     PERFORMANCE-OPTIMIZED batch EIC extraction for a single CDF file.
@@ -212,9 +219,10 @@ def _extract_all_eics_for_file(
             )
             eic_batch.append(eic_data)
 
-        except EmptyRtWindowError:
-            # Not every compound elutes in every sample; any other error means
-            # corrupt CDF data and must reach the caller
+        except skip:
+            # Not every compound elutes in every sample. A reload passes
+            # EmptyRtWindowError, so corrupt CDF data reaches it instead of
+            # looking like a compound with no scans.
             skipped_count += 1
 
         # Maintain original progress reporting behavior for GUI consistency
@@ -982,6 +990,7 @@ def regenerate_all_eics_with_mass_tolerance(
                 progress_cb,
                 done,
                 total_work,
+                skip=EmptyRtWindowError,
             )
 
             # Replace this sample's EICs only after extraction succeeded

@@ -2028,22 +2028,30 @@ class MainWindow(QMainWindow):
             f"Regenerated {_eics(regenerated_count)} at {self.mass_tolerance} Da mass tolerance",
         )
 
-    def _mass_tolerance_reload_failed(self, error_msg: str):
+    def _mass_tolerance_reload_failed(self, error_msg: str, eics_replaced: bool = False):
         """Handle mass tolerance reload failure"""
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
 
         logger.error(f"Mass tolerance reload failed: {error_msg}")
 
-        # No EIC was rebuilt, so the setting must stay at the tolerance they were built with.
-        self.mass_tolerance = self._mass_tolerance_before_reload
+        previous = self._mass_tolerance_before_reload
+        if eics_replaced:
+            detail = (
+                f"The mass tolerance setting is now {self.mass_tolerance} Da. "
+                f"Some samples may still hold EICs built at {previous} Da."
+            )
+        else:
+            # No EIC was rebuilt, so the setting must stay at the tolerance they were built with.
+            self.mass_tolerance = previous
+            detail = f"The mass tolerance stays at {self.mass_tolerance} Da."
         self._re_enable_ui_actions()
 
         msg_box = self._create_message_box(
             "critical",
             "Regeneration Failed",
             f"Failed to regenerate EICs: {error_msg}",
-            f"The mass tolerance stays at {self.mass_tolerance} Da.",
+            detail,
         )
         msg_box.exec()
 

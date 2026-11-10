@@ -1,4 +1,5 @@
 import time
+import zlib
 from unittest import mock
 
 import numpy as np
@@ -32,6 +33,14 @@ def _write_cdf(path):
         }
         for name, (dimension, values) in variables.items():
             cdf.createVariable(name, np.asarray(values).dtype, (dimension,))[:] = values
+
+
+def _wait_for_reload(window, messages):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not (
+        messages and window._running_background_thread() is None
+    ):
+        QCoreApplication.processEvents()
 
 
 def _samples(tmp_path, readable):
@@ -84,14 +93,52 @@ def test_stored_mass_tolerance_after_a_failed_reload(
 
     page.spin.setValue(0.35)
     settings.save_button.click()
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline and not (
-        messages and window._running_background_thread() is None
-    ):
-        QCoreApplication.processEvents()
+    _wait_for_reload(window, messages)
 
     assert messages == messages_shown
     assert window.mass_tolerance == stored_tolerance
     assert page.spin.value() == stored_tolerance
     settings.close()
+    window.close()
+
+
+def test_reload_that_stops_after_rebuilding_a_sample_keeps_the_new_tolerance(
+    qapp, empty_db, tmp_path, monkeypatch
+):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    messages = []
+    monkeypatch.setattr(
+        window,
+        "_create_message_box",
+        lambda *args: messages.append(args[0]) or mock.Mock(),
+    )
+    rebuilt = tmp_path / "S1.cdf"
+    _write_cdf(rebuilt)
+    with Dataset(rebuilt, "a") as cdf:
+        cdf["mass_values"][:] = [100.75] * 6  # matched by 0.35 Da, not by 0.2 Da
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    _write_cdf(locked / "S2.cdf")
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms) "
+            "VALUES ('Alanine', 5.0, 100.0, 0)"
+        )
+        conn.execute(
+            "INSERT INTO samples (sample_name, file_name) VALUES ('S1', ?), ('S2', ?)",
+            (str(rebuilt), str(locked / "S2.cdf")),
+        )
+    window.cdf_data_loaded = True
+    locked.chmod(0)
+    try:
+        window.apply_mass_tolerance(0.35)
+        _wait_for_reload(window, messages)
+    finally:
+        locked.chmod(0o700)
+
+    with database.get_connection() as conn:
+        [row] = conn.execute("SELECT y_axis FROM eic WHERE sample_name = 'S1'").fetchall()
+    assert np.frombuffer(zlib.decompress(row["y_axis"])).tolist() == [20.0, 20.0, 20.0]
+    assert messages == ["critical"]
+    assert window.mass_tolerance == 0.35
     window.close()

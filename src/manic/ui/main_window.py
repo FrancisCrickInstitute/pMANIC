@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from manic.__version__ import APP_NAME
+from manic.__version__ import APP_NAME, __version__
 from manic.constants import (
     DEFAULT_MIN_PEAK_HEIGHT_RATIO,
     DEFAULT_RT_WINDOW,
@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
         self.analysis_context = analysis_context or AnalysisContext()
         self.analysis_mode = self.analysis_context.mode
         self.setWindowTitle(
-            f"{APP_NAME} — {self.analysis_mode.display_name} analysis"
+            f"{APP_NAME} v{__version__} — {self.analysis_mode.display_name} analysis"
         )
         self.setAcceptDrops(True)
         self.setObjectName("mainWindow")

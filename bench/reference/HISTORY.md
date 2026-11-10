@@ -20,3 +20,26 @@ measured against a reference.
 | --- | --- | ---: |
 | labelled | Raw Values, Corrected Values, Isotope Ratio, % Label Incorporation, % Carbons Labelled, Abundances | 52,569 |
 | unlabelled | Raw Values, Abundances, Qualifier QC | 45,082 |
+## 2026-11-10, #0
+
+Samples where the internal standard has no signal or no known amount can no longer be calibrated, so their abundances are now left empty instead of reporting raw peak areas or zeros, and their peaks are flagged as failing validation.
+
+**labelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Raw Values | 14388 | 0 |  |  |  |
+| Corrected Values | 14388 | 0 |  |  |  |
+| Isotope Ratio | 14388 | 0 |  |  |  |
+| % Label Incorporation | 3135 | 0 |  |  |  |
+| % Carbons Labelled | 3135 | 0 |  |  |  |
+| Abundances | 2665 | 0 |  |  | 470 |
+
+**unlabelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Raw Values | 3200 | 0 |  |  |  |
+| Abundances | 2903 | 0 |  |  | 297 |
+| Qualifier QC | 38682 | 0 |  |  |  |
+

@@ -9,6 +9,8 @@ use [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md).
 
 ## Step 1: Load Compound Definitions
 
+![The MANIC window before anything is loaded, with a Load compound list button](_assets/screenshots/start_labelled.png)
+
 **File Requirements**   
 
 Prepare an Excel (`.xlsx`, `.xls`) or CSV (`.csv`) file containing the columns listed below.
@@ -94,6 +96,8 @@ A progress bar will appear as the application:
 
 After the import finishes, MANIC opens a **Check your data setup** dialog. It shows the internal standard and whether each compound's `mmfiles` pattern matches any loaded sample. Weak peaks are flagged only when an internal standard is set. Click **Continue** to keep the setup as it is. If you choose a different internal standard in the dialog, click **Apply** to use it, or **Continue without changes** to keep the current one. Run the same check later from **Help → Check Data Setup...**. The dialog names the loaded compound list with **Open File** and **Show in Folder**.
 
+![Check your data setup dialog with nor-Leucine chosen as internal standard and every MM pattern matched](_assets/screenshots/checklist_labelled.png)
+
 **Changing an MM pattern.** Click **How do I change a pattern?** under the table for the short version. For a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. For a compound not in the list, use **File → Add Compound...**, which sets its pattern without reloading.
 
 **Prerequisites**   
@@ -123,6 +127,8 @@ The compound you are reviewing is highlighted in the **Compounds** list and name
 ---
 
 ## Step 4: Review Integration
+
+![The plot grid for Pyruvate with two plots selected, one Accepted and one Marked bad, the sidebar on the left and the Summary panel on the right](_assets/screenshots/review_selected.png)
 
 **The Main Graph View**   
 
@@ -178,6 +184,8 @@ Click a plot so the grid has keyboard focus. Move the focus between plots with t
 #### 4. Adjusting Boundaries (Peak window)
 Locate the **Peak window** section of the sidebar, below the compound list.
 
+![The sidebar: data status, Compounds, Samples, Peak window and Deconvolution](_assets/screenshots/sidebar.png)
+
 On a short window, such as a laptop screen with **Samples** open, the rows under **Apply** fold behind a **Baseline, tR window** heading. Click it to open those rows beside the sidebar.
 
 * **Left offset / Right offset:** Controls the width of the window. Increase these to capture wider peaks; decrease to exclude adjacent peaks.
@@ -215,6 +223,9 @@ If you make a mistake or want to revert to the original library definitions:
 3.  This removes all session-specific overrides for those samples.
 
 ### Fix a missing qualifier ratio
+
+![Settings, Qualifier ratios page in unlabelled mode](_assets/screenshots/settings_qualifier_ratios.png)
+
 In unlabelled mode, Identity QC checks a qualifier ion only when it has an expected ratio and a tolerance. Expected ratios come only from the compound list, in the `Qualifier 1 Ratio` and `Qualifier 2 Ratio` columns (qualifier area / Q area). A missing tolerance does not need a reload: set it in **Settings → Qualifier ratios**.
 
 To add an expected ratio:
@@ -269,6 +280,8 @@ When you export data, the changelog file will include a **"Deleted Items"** sect
 ---
 
 ## Step 5: Export Results
+
+![Export Data dialog](_assets/screenshots/export_options.png)
 
 **Prerequisites**   
 
@@ -349,6 +362,11 @@ MANIC can save the state of your analysis, including compound definitions, integ
 ## 7. Advanced Visualization
 
 ### Plot right-click menu
+
+![Right-click menu on a plot](_assets/screenshots/context_menu.png)
+
+![The Review menu in the macOS menu bar, with its keys](_assets/screenshots/review_menu.png)
+
 Right-click a plot for these commands. The **Review** menu in the menu bar offers the same review commands with the same labels and counts.
 
 * **Select All Plots**
@@ -364,6 +382,9 @@ Right-click a plot for these commands. The **Review** menu in the menu bar offer
 **Select Only This Sample**, **Inspect *sample*...**, **Accept Peak (Below Threshold)**, **Mark Peak as Bad**, and **Curve Fit** need a plot under the pointer. When that plot is selected, the review commands act on every selected plot and name the count, for example **Mark 3 Peaks as Bad** or **Curve Fit for 3 Samples**. **Show Only Selected Samples** needs at least one selected plot. On a plot outside the selection it reads **Show Only This Sample** and shows that plot alone.
 
 ### Detailed Sample View
+
+![Detailed view of one sample: extracted ion chromatogram, total ion chromatogram and mass spectrum](_assets/screenshots/detail_view.png)
+
 Right-click any plot in the main grid and select **Inspect *sample*...**, or double-click the plot, to open the inspection window. This view is essential for verifying peak purity and identity.
 
 * **Extracted ion chromatogram (EIC):** The specific trace for the target compound, showing the integration window boundaries.
@@ -373,6 +394,9 @@ Right-click any plot in the main grid and select **Inspect *sample*...**, or dou
 Use the **‹ ›** buttons in the header, or the left and right arrow keys, to move to the previous or next sample in grid order without closing the window.
 
 ### Summary Panel
+
+![Label incorporation chart enlarged from the Summary panel](_assets/screenshots/label_incorporation_popup.png)
+
 The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
 
 * **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. The panel opens on its own only in a window with room for three columns of plots beside it. Narrowing the window past that closes it, and widening it again brings it back. You can still open it in a narrower window, as long as two columns of plots fit.
@@ -396,6 +420,8 @@ Settings has one page per topic: **Appearance**, then **Extraction**, **Integrat
 ### Mass Tolerance
 **Settings → Extraction**, **Mass tolerance (Da)**
 
+![Settings, Extraction page](_assets/screenshots/settings_extraction.png)
+
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
 * **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder.
@@ -404,6 +430,8 @@ Settings has one page per topic: **Appearance**, then **Extraction**, **Integrat
 ### Integration
 **Settings → Integration**
 
+![Settings, Integration page](_assets/screenshots/settings_integration.png)
+
 * Two **Method** radios: **Time-based (recommended)** (default) and **Legacy**.
 * The choice changes on-screen peak areas only.
 * Export asks again in **Export Data**. Those radios are **Time-based (recommended)** and **Legacy (MATLAB-compatible unit spacing)**.
@@ -411,6 +439,8 @@ Settings has one page per topic: **Appearance**, then **Extraction**, **Integrat
 
 ### Minimum Peak Area
 **Settings → Peak validation**, **Minimum area ratio**
+
+![Settings, Peak validation page](_assets/screenshots/settings_peak_validation.png)
 
 * **Default:** `0.005` (0.5%)
 * **Function:** Sets the validation threshold. Peaks with a total area less than 0.5% of the Internal Standard's area get a light red **Below threshold** badge.
@@ -435,6 +465,10 @@ Two toggles in the grid header, **Shared Y** and **Scale to peak**, set how samp
 **Sidebar → Deconvolution**, or **Settings → Deconvolution**
 
 The **Deconvolution** section of the sidebar, under **Peak window**, shows the selected compound's **Resolution**, **Fit type** and **Noise gate**. A pick there is saved for that compound at once and the plots redraw, so you can try a level and see the result. Collapsed, its heading names the setting, for example **Level 4 · Auto** or **Off**. **Apply to all compounds** and the **Per-sample curve fit** table are on the Settings page.
+
+![Resolution choices in the sidebar Deconvolution section](_assets/screenshots/sidebar_deconvolution_levels.png)
+
+![Settings, Deconvolution page with the per-sample curve fit table](_assets/screenshots/settings_deconvolution.png)
 
 * **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes around the expected retention time and selects the component nearest that time whose centre sits inside the dashed loffset/roffset window. This can separate overlapping peaks before area calculation.
@@ -461,6 +495,8 @@ The **Deconvolution** section of the sidebar, under **Peak window**, shows the s
 
 ### Natural Abundance Correction
 **Settings → Natural abundance**
+
+![Settings, Natural abundance page](_assets/screenshots/settings_natural_abundance.png)
 
 * Checkbox: **Show corrected data**. Off by default.
 * **Function:** Controls what the main chromatogram plots and the Label incorporation bars show.

@@ -270,6 +270,8 @@ Natural-abundance correction is **not** applied in this mode.
 
 ### Step D. Review compounds
 
+![Unlabelled mode: quantifier and qualifier traces per sample, with QC fail and Not detected badges and the Identity chart](_assets/screenshots/main_unlabelled.png)
+
 1. Select a compound and the samples of interest.
 2. Inspect the EIC tiles and the **Identity** chart in the **Summary** panel on the right.
 3. Adjust tR or offsets in the **Peak window** section where peaks have
@@ -315,6 +317,8 @@ the compound-list tR.
 ---
 
 ## 7. Identity QC statuses
+
+![Identity chart enlarged: one row per sample, one column per qualifier](_assets/screenshots/identity_popup.png)
 
 For each sample × compound, MANIC assesses:
 

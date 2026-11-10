@@ -8,6 +8,13 @@
 
 Built with Python and PySide6, it serves as a successor to the legacy MATLAB [MANIC application](https://doi.org/10.1016/j.ab.2011.04.009). It provides a workflow for extracting ion chromatograms, correcting for natural isotope abundance, validating peak quality, and calculating absolute metabolite concentrations.
 
+![MANIC in labelled mode: one plot per sample for the selected compound, with review badges, the sidebar and the Summary charts](docs/_assets/screenshots/main_labelled.png)
+
+<p align="center">
+  <img src="docs/_assets/screenshots/main_dark.png" alt="The same window in dark appearance" width="49%">
+  <img src="docs/_assets/screenshots/main_unlabelled.png" alt="Unlabelled targeted mode with qualifier-ion identity checks" width="49%">
+</p>
+
 If MANIC is useful in your lab, star the
 [FrancisCrickInstitute/pMANIC](https://github.com/FrancisCrickInstitute/pMANIC)
 repository on GitHub. Stars are a public metric of usefulness and help

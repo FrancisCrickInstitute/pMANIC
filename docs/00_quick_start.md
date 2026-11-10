@@ -1,5 +1,7 @@
 # Quick Start
 
+![Choose Analysis Mode dialog](_assets/screenshots/mode_chooser.png)
+
 1. In **Choose Analysis Mode**, click **Labelled** or **Unlabelled**. The mode is fixed for the session.
 2. Choose **File → Load Compounds/Parameter List** and select your spreadsheet.
 3. Choose **File → Load Raw Data (CDF)** and select the folder of ANDI/AIA NetCDF files.
@@ -7,6 +9,8 @@
 5. Select a compound and check each sample's plot.
 6. For a plot with a **Below threshold** badge, click it, then press **A** to accept the peak or **B** to mark it bad. The **Review** menu and the plot's right-click menu hold the same commands. See [Review Integration](01_user_guide.md#step-4-review-integration).
 7. Choose **File → Export Data...**, confirm the integration method and save the workbook. [Export Results](01_user_guide.md#step-5-export-results) explains the options.
+
+![The plot grid after review: one peak Accepted, one Marked bad](_assets/screenshots/review_selected.png)
 
 ## Review from the keyboard
 

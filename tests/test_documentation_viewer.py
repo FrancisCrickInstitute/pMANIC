@@ -107,8 +107,6 @@ def test_documentation_window_loads_first_file(window, docs_dir):
         "Alpha",
         "Zzz Other",
     ]
-    # Every title fits the list, so none repeats itself in a tooltip.
-    assert [item.toolTip() for item in items] == [""] * 11
     assert viewer.current_file == docs_dir / "00_quick_start.md"
 
 

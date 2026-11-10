@@ -35,7 +35,8 @@ def test_session_export_names_the_file_it_wrote_and_opens_its_folder(
         written = tmp_path / "manic_session_export" / "labelled-session.json"
         assert written.is_file()
         toast = _toast(window)
-        assert toast.findChild(QLabel, "toastLabel").text() == (
+        # The label cuts a message short where the platform's font is wider.
+        assert toast.findChild(QLabel, "toastLabel").full_text() == (
             "Exported labelled-session.json to manic_session_export"
         )
         toast.action_button.click()

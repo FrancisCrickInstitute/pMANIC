@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from PySide6.QtWidgets import QLabel, QMessageBox
 
@@ -40,7 +42,7 @@ def test_session_export_names_the_file_it_wrote_and_opens_its_folder(
             "Exported labelled-session.json to manic_session_export"
         )
         toast.action_button.click()
-        assert [url.toLocalFile() for url in opened] == [str(written.parent)]
+        assert [Path(url.toLocalFile()) for url in opened] == [written.parent]
     finally:
         window.close()
 

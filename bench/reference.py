@@ -177,10 +177,11 @@ def main(argv: list[str]) -> int:
     entry = [f"## {date.today().isoformat()}, #{args.pr}", "", args.why, ""]
     for name, sheets in results.items():
         write(sheets, REFERENCE / f"{name}.tsv")
-        if _changed(reports[name]):
-            entry += [f"**{name}**", "", *_table(reports[name]), ""]
+        changed = {t: sheet for t, sheet in reports[name].items() if sheet["moved"] or sheet["other"]}
+        if changed:
+            entry += [f"**{name}**", "", *_table(changed), ""]
     with HISTORY.open("a", encoding="utf-8") as history:
-        history.write("\n".join(entry) + "\n")
+        history.write("\n" + "\n".join(entry))
     print("\n".join(entry))
     return 0
 

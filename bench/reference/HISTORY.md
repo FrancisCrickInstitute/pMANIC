@@ -59,3 +59,19 @@ Samples where the internal standard has no signal or no known amount can no long
 | Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Abundances | 2903 | 0 |  |  | 297 |
+
+## 2026-11-10, #313
+
+Natural-isotope correction now runs once on the integrated isotopologue areas instead of on every scan, so noise in channels with no real label no longer adds false label; corrected values, ratios and abundances of labelled compounds move, most for small or empty peaks, while raw values, the internal standard and unlabelled exports do not.
+
+**labelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Corrected Values | 14388 | 1076 | 15% | 1e+02% |  |
+| Isotope Ratio | 14388 | 1456 | 5.5% | 1e+02% |  |
+| % Label Incorporation | 3135 | 735 | 0.17% | 1e+02% |  |
+| % Carbons Labelled | 3135 | 1027 | 0.2% | 1e+02% |  |
+| Abundances | 2665 | 739 | 0.1% | 1e+02% | 1 |
+
+The one other cell is Glycerol's Abundances unit, nmol to Relative: its MM-file peaks have no raw signal, and the old per-scan correction gave them a corrected area from noise alone, so an MRRF was computed from nothing. Unlabelled numbers did not change.

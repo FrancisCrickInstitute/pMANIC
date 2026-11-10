@@ -473,7 +473,7 @@ def integrate_bundle_areas(
     bundle,
     raw_intensity: np.ndarray,
     *,
-    correct_time_series=None,
+    correct_areas=None,
     baseline_correction: bool,
     use_legacy: bool,
     retention_time,
@@ -488,10 +488,11 @@ def integrate_bundle_areas(
     if bundle.channels and all(channel.result.empty for channel in bundle.channels):
         return zeros, zeros
 
-    def apply_correction(matrix: np.ndarray) -> np.ndarray:
-        if correct_time_series is None:
-            return np.asarray(matrix, dtype=np.float64)
-        return np.asarray(correct_time_series(matrix), dtype=np.float64)
+    def with_corrected(raw_areas: List[float]) -> Tuple[List[float], List[float]]:
+        if correct_areas is None:
+            return raw_areas, list(raw_areas)
+        corrected = correct_areas(np.asarray(raw_areas, dtype=np.float64))
+        return raw_areas, [float(area) for area in corrected]
 
     if bundle.uses_model_areas():
         td = np.asarray(time_data, dtype=np.float64)
@@ -500,11 +501,8 @@ def integrate_bundle_areas(
             for channel in bundle.channels
         ]
         if use_legacy:
-            # Correct the selected stack before integrating so cross-ion correction sees every ion.
-            selected_stack = bundle.selected_scan_stack()
-
-            def legacy_areas(matrix: np.ndarray) -> List[float]:
-                return [
+            return with_corrected(
+                [
                     _integrate_deconvolved_trace(
                         td,
                         row,
@@ -512,12 +510,8 @@ def integrate_bundle_areas(
                         use_legacy=True,
                         baseline_correction=baseline_correction,
                     )
-                    for row, mask in zip(matrix, masks)
+                    for row, mask in zip(bundle.selected_scan_stack(), masks)
                 ]
-
-            return (
-                legacy_areas(selected_stack),
-                legacy_areas(apply_correction(selected_stack)),
             )
 
         fitted = next(
@@ -542,22 +536,15 @@ def integrate_bundle_areas(
             ]
         )
         scan_times = [td[mask] for mask in masks]
-        raw_areas = _integrate_dense_rows(
-            grid,
-            raw_dense,
-            scan_times,
-            [selected_matrix[i, masks[i]] for i in range(len(masks))],
-            baseline_correction=baseline_correction,
+        return with_corrected(
+            _integrate_dense_rows(
+                grid,
+                raw_dense,
+                scan_times,
+                [selected_matrix[i, masks[i]] for i in range(len(masks))],
+                baseline_correction=baseline_correction,
+            )
         )
-        corrected_selected = apply_correction(selected_matrix)
-        corrected_areas = _integrate_dense_rows(
-            grid,
-            apply_correction(raw_dense),
-            scan_times,
-            [corrected_selected[i, masks[i]] for i in range(len(masks))],
-            baseline_correction=baseline_correction,
-        )
-        return raw_areas, corrected_areas
 
     def scan_areas(matrix: np.ndarray) -> List[float]:
         return calculate_peak_areas(
@@ -573,7 +560,7 @@ def integrate_bundle_areas(
             chromatographic_peak_deconvolution_stringency="off",
         )
 
-    return scan_areas(raw_matrix), scan_areas(apply_correction(raw_matrix))
+    return with_corrected(scan_areas(raw_matrix))
 
 
 def _integrate_model_component(

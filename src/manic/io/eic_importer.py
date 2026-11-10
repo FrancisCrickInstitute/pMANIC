@@ -914,6 +914,11 @@ def regenerate_all_eics_with_mass_tolerance(
     regenerated = 0
     failed_samples = []
 
+    # Each sample clears its flag in the transaction that replaces its EICs, so
+    # a reload that fails or stops partway leaves the rest marked.
+    with get_connection() as conn:
+        conn.execute("UPDATE samples SET eics_stale = 1")
+
     # Process each sample file
     for sample_row in sample_rows:
         sample_name = sample_row["sample_name"]
@@ -1038,12 +1043,6 @@ def regenerate_all_eics_with_mass_tolerance(
             # Explicit memory cleanup
             if "cdf_data" in locals():
                 del cdf_data
-
-    with get_connection() as conn:
-        conn.executemany(
-            "UPDATE samples SET eics_stale = 1 WHERE sample_name = ?",
-            [(name,) for name in failed_samples],
-        )
 
     # Recalculate natural abundance corrections for all compounds
     if corrections_needed > 0:

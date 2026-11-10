@@ -56,7 +56,7 @@ from manic.io.compounds_import import (
 from manic.io.data_provider import DataProvider
 from manic.io.eic_importer import reextract_session_eics
 from manic.io.list_compound_names import list_compound_names
-from manic.io.sample_reader import list_active_samples
+from manic.io.sample_reader import list_active_samples, list_stale_samples
 from manic.io.compound_reader import (
     compound_reads_cached,
     list_compound_mm_files,
@@ -2953,6 +2953,19 @@ class MainWindow(QMainWindow):
                 self,
             )
             if options.exec() != QDialog.Accepted:
+                return
+
+            active = set(list_active_samples())
+            stale = [name for name in list_stale_samples() if name in active]
+            if stale and not self._confirm(
+                "Samples at an Old Mass Tolerance",
+                f"{', '.join(stale)} still {'has' if len(stale) == 1 else 'have'} "
+                "EICs from an earlier mass tolerance. Export anyway?",
+                "Their CDF files could not be read when the tolerance changed, so "
+                "their values do not match the other samples. Put the files back "
+                "and change the tolerance again to rebuild them.",
+                "Export",
+            ):
                 return
 
             file_path, _ = QFileDialog.getSaveFileName(

@@ -1,6 +1,8 @@
 import sqlite3
+from pathlib import Path
 
 import openpyxl
+import pytest
 
 from manic.io.data_exporter import DataExporter
 from manic.io.eic_importer import regenerate_all_eics_with_mass_tolerance
@@ -66,3 +68,35 @@ def test_database_from_before_stale_tracking_loads_with_no_stale_samples(
     database.init_db()
 
     assert list_stale_samples() == []
+
+
+def test_a_reload_that_stops_partway_leaves_unreached_samples_marked(
+    tmp_path, monkeypatch
+):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, "
+            "label_atoms, formula) VALUES ('Pyruvate', 5.0, 100.0, 1, 'C6H12O3NSi')"
+        )
+        for sample in ("s1", "s2", "s3", "s4"):
+            _write_cdf(tmp_path / f"{sample}.cdf")
+            conn.execute(
+                "INSERT INTO samples (sample_name, file_name) VALUES (?, ?)",
+                (sample, str(tmp_path / f"{sample}.cdf")),
+            )
+    regenerate_all_eics_with_mass_tolerance(0.2)
+
+    (tmp_path / "s2.cdf").rename(tmp_path / "s2.moved")
+    # chmod cannot make a directory unreadable on Windows CI, so patch the check.
+    real_exists = Path.exists
+
+    def exists(path, *args, **kwargs):
+        if path.name == "s3.cdf":
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_exists(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    with pytest.raises(PermissionError):
+        regenerate_all_eics_with_mass_tolerance(0.3)
+
+    assert list_stale_samples() == ["s2", "s3", "s4"]

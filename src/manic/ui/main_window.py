@@ -1273,10 +1273,14 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self._show_message("warning", "Add Compound", str(exc))
                 return
-            required = minimum_extract_rt_window(compound.loffset, compound.roffset)
-            tr_window = max(DEFAULT_RT_WINDOW, required)
-            if compound.rt_tolerance is not None:
-                tr_window = max(tr_window, float(compound.rt_tolerance))
+            tr_window = max(
+                DEFAULT_RT_WINDOW,
+                minimum_extract_rt_window(
+                    compound.loffset,
+                    compound.roffset,
+                    rt_tolerance=compound.rt_tolerance,
+                ),
+            )
             self.on_data_regeneration_requested(
                 compound_name,
                 tr_window,
@@ -1958,14 +1962,7 @@ class MainWindow(QMainWindow):
             self._mass_tol_thread.start()
 
         except Exception as e:
-            logger.error(f"Failed to start mass tolerance reload: {e}")
-            self._re_enable_ui_actions()
-            msg_box = self._create_message_box(
-                "critical",
-                "Reload Error",
-                f"Failed to start EIC regeneration: {str(e)}",
-            )
-            msg_box.exec()
+            self._mass_tolerance_reload_failed(f"could not start the reload. {e}")
 
     def _update_mass_tolerance_progress(self, current: int, total: int):
         """Update mass tolerance regeneration progress dialog"""
@@ -1982,6 +1979,12 @@ class MainWindow(QMainWindow):
         self, regenerated_count: int, failed_samples: list
     ):
         """Handle mass tolerance reload completion"""
+        if failed_samples and not regenerated_count:
+            self._mass_tolerance_reload_failed(
+                f"no sample could be read: {', '.join(failed_samples)}"
+            )
+            return
+
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
 
@@ -2007,7 +2010,8 @@ class MainWindow(QMainWindow):
                 "warning",
                 "Regeneration Incomplete",
                 f"Regenerated {_eics(regenerated_count)} at {self.mass_tolerance} Da mass tolerance. "
-                f"These samples could not be read and keep their previous EICs: {', '.join(failed_samples)}",
+                f"These samples could not be read and keep their previous EICs: {', '.join(failed_samples)}. "
+                f"The mass tolerance setting is now {self.mass_tolerance} Da.",
             ).exec()
             return
 
@@ -2016,19 +2020,30 @@ class MainWindow(QMainWindow):
             f"Regenerated {_eics(regenerated_count)} at {self.mass_tolerance} Da mass tolerance",
         )
 
-    def _mass_tolerance_reload_failed(self, error_msg: str):
+    def _mass_tolerance_reload_failed(self, error_msg: str, eics_replaced: bool = False):
         """Handle mass tolerance reload failure"""
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
 
         logger.error(f"Mass tolerance reload failed: {error_msg}")
 
+        previous = self._mass_tolerance_before_reload
+        if eics_replaced:
+            detail = (
+                f"The mass tolerance setting is now {self.mass_tolerance} Da. "
+                f"Some samples may still hold EICs built at {previous} Da."
+            )
+        else:
+            # No EIC was rebuilt, so the setting must stay at the tolerance they were built with.
+            self.mass_tolerance = previous
+            detail = f"The mass tolerance stays at {self.mass_tolerance} Da."
         self._re_enable_ui_actions()
 
         msg_box = self._create_message_box(
             "critical",
             "Regeneration Failed",
             f"Failed to regenerate EICs: {error_msg}",
+            detail,
         )
         msg_box.exec()
 
@@ -2628,6 +2643,7 @@ class MainWindow(QMainWindow):
         if new_value == self.mass_tolerance:
             return
         logger.info(f"Mass tolerance changed from {self.mass_tolerance} to {new_value} Da")
+        self._mass_tolerance_before_reload = self.mass_tolerance
         self.mass_tolerance = new_value
         if self.cdf_data_loaded:
             self._on_mass_tolerance_changed(new_value)

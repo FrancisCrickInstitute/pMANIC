@@ -1493,6 +1493,7 @@ class MainWindow(QMainWindow):
                 loffset=compound.loffset,
                 roffset=compound.roffset,
                 channel_count=channel_count,
+                use_legacy=self.use_legacy_integration,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
                 chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
@@ -1547,6 +1548,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         current_eics = self._get_current_eics()
         if self.analysis_mode is AnalysisMode.LABELLED:
+            self.summary.isotopologue_ratios.use_legacy = self.use_legacy_integration
             self.summary.isotopologue_ratios.update_ratios(
                 compound_name, current_eics
             )

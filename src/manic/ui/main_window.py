@@ -1,6 +1,6 @@
 import logging
 import os
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -1249,12 +1249,13 @@ class MainWindow(QMainWindow):
         first_compound = not self.compound_data_loaded
         samples = list_active_samples() if self.cdf_data_loaded else []
         # With samples it has no EICs yet, so plotting it now shows "Missing data".
-        self.toolbar.update_compound_list(
-            list_compound_names(),
-            selected_name=(
-                self.toolbar.get_selected_compound() if samples else compound_name
-            ),
-        )
+        with QSignalBlocker(self.toolbar) if samples else nullcontext():
+            self.toolbar.update_compound_list(
+                list_compound_names(),
+                selected_name=(
+                    self.toolbar.get_selected_compound() if samples else compound_name
+                ),
+            )
         if first_compound:
             self.compound_data_loaded = True
             self.toolbar.update_label_colours(False, True)
@@ -1282,11 +1283,6 @@ class MainWindow(QMainWindow):
                 compound.retention_time,
                 select_when_done=True,
             )
-
-    def _select_regenerated_compound(self, _count: int) -> None:
-        self.toolbar.update_compound_list(
-            list_compound_names(), selected_name=self.sender().compound_name
-        )
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(
@@ -1912,9 +1908,18 @@ class MainWindow(QMainWindow):
 
             self._regen_worker.progress.connect(self._update_regeneration_progress)
 
-            if select_when_done:
-                self._regen_worker.finished.connect(self._select_regenerated_compound)
             self._regen_worker.finished.connect(self._regeneration_completed)
+            if select_when_done:
+                # This runs on the worker's thread; the timer selects on the window's.
+                self._regen_worker.finished.connect(
+                    lambda _count: QTimer.singleShot(
+                        0,
+                        self,
+                        lambda: self.toolbar.update_compound_list(
+                            list_compound_names(), selected_name=compound_name
+                        ),
+                    )
+                )
             self._regen_worker.failed.connect(self._regeneration_failed)
             self._regen_worker.finished.connect(self._regen_thread.quit)
             self._regen_worker.failed.connect(self._regen_thread.quit)

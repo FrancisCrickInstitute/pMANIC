@@ -2989,6 +2989,8 @@ class MainWindow(QMainWindow):
                 box.exec()
                 if box.clickedButton() is rebuild:
                     if not self._background_work_running("rebuilding stale samples"):
+                        # A rebuild keeps the setting, so a failed one has nothing to roll back.
+                        self._mass_tolerance_before_reload = self.mass_tolerance
                         self._on_mass_tolerance_changed(self.mass_tolerance, stale)
                     return
                 if box.clickedButton() is not export:

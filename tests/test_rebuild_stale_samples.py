@@ -1,3 +1,6 @@
+import sys
+
+import pytest
 import numpy as np
 import shiboken6
 from PySide6.QtWidgets import QDialog, QMessageBox
@@ -108,3 +111,22 @@ def test_rebuild_with_the_cdf_still_missing_keeps_the_sample_stale(
         assert len(later) == 1 and later[0].endswith(": s2")
     finally:
         window.close()
+
+
+@pytest.mark.parametrize("earlier_change", [True, False])
+def test_failed_rebuild_keeps_the_mass_tolerance(qapp, tmp_path, monkeypatch, earlier_change):
+    window, later = _rebuild_from_export_warning(qapp, tmp_path, monkeypatch)
+    if not earlier_change:
+        window.close()
+        window = _make_window(monkeypatch)
+        regenerate_all_eics_with_mass_tolerance(0.2, sample_names=["s1"])
+    before = window.mass_tolerance
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda typ, val, tb: errors.append(str(val)))
+
+    _run(qapp, window)
+
+    assert window.mass_tolerance == before
+    assert errors == []
+    assert list_stale_samples() == ["s2"]
+    window.close()

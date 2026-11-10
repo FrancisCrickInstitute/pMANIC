@@ -14,7 +14,14 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-15
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The two platforms MANIC ships installers for.
+        os: [macos-15, windows-latest]
     env:
       QT_QPA_PLATFORM: offscreen
     steps:

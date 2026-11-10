@@ -71,6 +71,7 @@ The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) 
 
 * To check or change this: Go to **Settings → Extraction**, **Mass tolerance (Da)**, before or after loading data.
 * If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder.
+* If a sample's CDF file is missing or unreadable at that point, the sample keeps its old-tolerance EICs. Its plot captions say **old mass tolerance** and its cells in the exported workbook are light gold. Put the file back and change the tolerance again to rebuild the sample and clear the mark.
 
 **Procedure**   
 
@@ -333,6 +334,7 @@ The Excel file contains five worksheets by default. A sixth sheet is optional.
 **Validation & Errors**   
 
 * **Invalid Peaks:** Cells corresponding to peaks that failed the minimum area validation (plots with a **Below threshold** badge) will be highlighted with a **light red background** in the Excel file.
+* **Old mass tolerance:** Every cell of a sample whose EICs were built at an earlier mass tolerance has a **light gold background**. This mark replaces any validation colour for that sample.
 * **Abundance Errors:** If the internal standard is missing required calibration fields (`int_std_amount` or `amount_in_std_mix`), MANIC will prompt you to either **cancel** and fix the compound list, or **continue** in unnormalized **Peak Area** mode for that export.
 
 ---

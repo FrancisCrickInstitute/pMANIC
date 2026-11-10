@@ -215,6 +215,12 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         logger.error(f"Migration error for compounds table: {e}")
         pass
 
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(samples)")]
+    if columns and "eics_stale" not in columns:
+        logger.info("Adding eics_stale column to samples table")
+        conn.execute("ALTER TABLE samples ADD COLUMN eics_stale INTEGER DEFAULT 0")
+        conn.commit()
+
 
 
 @contextmanager

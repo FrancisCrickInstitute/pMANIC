@@ -517,7 +517,7 @@ Rebuild a labelled export from the "Raw Values" (integrated peak areas) of an ol
 
 **Prerequisites**
 
-1.  **Old Results File:** An Excel or CSV file containing a sheet/table of uncorrected peak areas (Raw Values).
+1.  **Old Results File:** An Excel (`.xlsx`) workbook with a **Raw Values** sheet of uncorrected peak areas. CSV files are not accepted.
 2.  **Compound List:** A labelled compound definition file (see Step 1), with **mass0** and **labelAtoms** columns, that matches the metabolites in your old results. This is required to provide the molecular formulas and atom counts needed for the new correction math.
 
 **Procedure**

@@ -249,6 +249,10 @@ pip install uv
 uv sync
 ```
 
+### Tracking speed over time
+
+`bench/history.tsv` records how long each benchmarked action took, by commit and machine. `uv run python scripts/record_bench.py` prints it as a table. `bench/README.md` explains how to record a run.
+
 ### Running Tests
 The project maintains a test suite covering:
 * **Mathematical Correctness:** Verifies mass binning, integration algorithms, and natural abundance correction logic against standard scientific principles and legacy MATLAB behavior.

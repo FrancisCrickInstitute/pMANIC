@@ -53,7 +53,7 @@ To see when a result last changed, read `HISTORY.md`, or run `git log -p -- benc
 
 ## Saved runs
 
-Saved runs stay local. `.benchmarks/` is gitignored because timings from different machines are not comparable, and a fresh baseline costs 90 s, so there is nothing worth sharing. Save a baseline before you start, compare against it while you work, and delete the directory whenever you like.
+Saved runs in `.benchmarks/` stay local; the tracked record is `bench/history.tsv` (below). `.benchmarks/` is gitignored because timings from different machines are not comparable, and a fresh baseline costs 90 s, so there is nothing worth sharing. Save a baseline before you start, compare against it while you work, and delete the directory whenever you like.
 
 To see every saved run on this machine as a table, or as plots:
 
@@ -67,6 +67,33 @@ Compare only runs with the same workload. Each benchmark id carries the workload
 the compound name. Each JSON also records the hostname and CPU.
 
 The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
+
+## Performance history
+
+`bench/history.tsv` is the permanent, tracked record: one row per stage per
+run, holding the median of that stage's benchmarks in milliseconds. Record a
+run from a committed, clean checkout:
+
+```bash
+uv run python -m pytest bench --bench-repeat 3 --benchmark-json=RUN.json
+uv run python scripts/record_bench.py RUN.json --machine "Apple M1 Pro, 8 cores"
+uv run python scripts/record_bench.py                  # print the history as a table
+```
+
+Record only from a quiet machine. Use the same machine label every time for the
+same machine, and compare only rows with the same label. The hostname is never
+written.
+
+A run also depends on the bench itself. `510ce490` and `a48f5ec8` were measured
+before the UI redesign with the harness of that time, so their window stages
+(`resize`, `session_roundtrip`, `clear_session` and the plot stages) are not
+comparable with later runs. When a change to `bench/` alters what a stage does,
+say so in the commit message.
+
+Record a run when a pull request that is meant to change speed has merged, and before a
+release. Reading the table: a stage moves by a few percent between identical runs, and
+the short stages (`resize`, `detailed_plot`, `deconvolve_hard_windows`) by more, so treat
+a change under 10% as noise until a second run repeats it.
 
 ## What is measured
 

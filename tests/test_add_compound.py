@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 
 import pandas as pd
@@ -106,7 +107,8 @@ def test_labelled_insert_matches_import_column_set(empty_db, tmp_path):
                 "Amount in StdMix": 10.0,
                 "Int Std amount": 1.5,
                 "MM Files": "*MM*",
-            }
+            },
+            {"name": None, "tR": 6.37},
         ]
     ).to_csv(path, index=False)
     assert import_compound_excel(path, AnalysisMode.LABELLED) == 1
@@ -242,6 +244,7 @@ def test_labelled_dialog_builds_record(qapp):
 def test_unlabelled_dialog_builds_record(qapp):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
     _fill_unlabelled(dialog)
+    dialog.qualifier1_tolerance.setText("0")
     record = dialog.build_record()
     assert isinstance(record, UnlabelledCompoundRecord)
     assert record.compound_name == "Citrate"
@@ -255,7 +258,7 @@ def test_unlabelled_dialog_builds_record(qapp):
         IonRole.QUALIFIER,
     ]
     assert record.channels[1].expected_ratio == pytest.approx(0.42)
-    assert record.channels[1].ratio_tolerance == pytest.approx(0.25)
+    assert record.channels[1].ratio_tolerance == 0.0
 
 
 def test_blank_optional_numeric_maps_to_none(qapp):
@@ -486,3 +489,118 @@ def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
     assert regen[0][0] == "New"
     assert regen[0][2] == ["S1"]
     assert regen[0][3] == 5.5
+
+
+@pytest.mark.parametrize(
+    "label_type, label_atoms, message",
+    [
+        ("O", 3, "label type 'O' is not supported"),
+        ("c", 3, "label type 'c' is not supported"),
+        ("C", 4, "label_atoms=4 exceeds C count 3"),
+    ],
+)
+def test_labelled_dialog_rejects_impossible_label(qapp, label_type, label_atoms, message):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
+    _fill_labelled(dialog)
+    dialog.label_type.setText(label_type)
+    dialog.label_atoms.setValue(label_atoms)
+    _add_button(dialog).click()
+    assert dialog.record is None
+    shown = _shown_errors(dialog)
+    assert len(shown) == 1 and message in shown[0]
+
+
+@pytest.mark.parametrize(
+    "field, message",
+    [
+        ("qualifier1_ratio", "Qualifier 1 expected ratio cannot be negative."),
+        ("rt_window", "tR window cannot be negative."),
+        ("int_std_amount", "Int std amount cannot be negative."),
+    ],
+)
+def test_unlabelled_dialog_rejects_negative_values_before_closing(qapp, field, message):
+    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
+    _fill_unlabelled(dialog)
+    getattr(dialog, field).setText("-1")
+    _add_button(dialog).click()
+    assert dialog.record is None
+    assert _shown_errors(dialog) == [message]
+    assert getattr(dialog, field).text() == "-1"
+
+
+@pytest.mark.parametrize("locale", ["de_DE", "en_US"])
+@pytest.mark.parametrize("typed", ["0.125", "0,125"])
+def test_a_typed_point_or_comma_is_the_decimal_mark_in_any_locale(qapp, locale, typed):
+    from PySide6.QtCore import QLocale
+    from PySide6.QtTest import QTest
+
+    previous = QLocale()
+    QLocale.setDefault(QLocale(locale))
+    try:
+        dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
+        _fill_unlabelled(dialog)
+        # Typed as a user does. Qt's own parsing gave 125 for one of these in each locale.
+        for field in (dialog.retention_time, dialog.amount_in_std_mix):
+            field.selectAll()
+            QTest.keyClicks(field, typed)
+        record = dialog.build_record()
+    finally:
+        QLocale.setDefault(previous)
+    assert (record.retention_time, record.amount_in_std_mix) == (0.125, 0.125)
+
+
+
+def _write_labelled_list(path, **overrides):
+    row = {
+        "name": "Water",
+        "tR": 1.2,
+        "Mass0": 18,
+        "lOffset": 0.1,
+        "rOffset": 0.1,
+        "LabelAtoms": 1,
+        "Formula": "H2O",
+        "LabelType": "H",
+        "TBDMS": 0,
+        "MeOX": 0,
+        "Me": 0,
+        "Amount in StdMix": None,
+        "Int Std amount": None,
+        "MM Files": None,
+    }
+    row.update(overrides)
+    pd.DataFrame([row]).to_csv(path, index=False)
+    return path
+
+
+@pytest.mark.parametrize(
+    "overrides, message",
+    [
+        ({"LabelType": "O"}, "row 2 (Water): label type 'O' is not supported"),
+        ({"LabelType": "H", "LabelAtoms": 3}, "row 2 (Water): label_atoms=3 exceeds H count 2"),
+        ({"Amount in StdMix": -1}, "row 2 (Water): amount_in_std_mix cannot be negative"),
+        ({"Int Std amount": -1}, "row 2 (Water): int_std_amount cannot be negative"),
+    ],
+)
+def test_labelled_import_rejects_invalid_row(empty_db, tmp_path, overrides, message):
+    path = _write_labelled_list(tmp_path / "labelled.csv", **overrides)
+    with pytest.raises(ValueError, match=re.escape(message)):
+        import_compound_excel(path, AnalysisMode.LABELLED)
+    assert taken_compound_names() == set()
+
+
+@pytest.mark.parametrize(
+    "column, message",
+    [
+        ("AmountInStdMix", "row 2: amount_in_std_mix cannot be negative"),
+        ("IntStdAmount", "row 2: int_std_amount cannot be negative"),
+        ("Qualifier1Ratio", "row 2: qualifier 1 expected ratio cannot be negative"),
+    ],
+)
+def test_unlabelled_import_rejects_negative_values(empty_db, tmp_path, column, message):
+    row = {"name": "Citrate", "tR": 9.1, "lOffset": 0.1, "rOffset": 0.1,
+           "QIon": 273, "QualifierIon1": 147, column: -1}
+    path = tmp_path / "unlabelled.csv"
+    pd.DataFrame([row]).to_csv(path, index=False)
+    with pytest.raises(ValueError, match=re.escape(message)):
+        import_compound_excel(path, AnalysisMode.UNLABELLED)
+    assert taken_compound_names() == set()

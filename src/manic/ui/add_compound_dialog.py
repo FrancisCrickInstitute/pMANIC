@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
+
 from pydantic import ValidationError
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
+from PySide6.QtCore import QEvent, QLocale, QPoint, Qt, QTimer
 from PySide6.QtGui import QDoubleValidator, QValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -49,6 +51,18 @@ from manic.ui.sidebar_widgets import divider
 from manic.ui.theme import set_style_property
 
 
+# Every number field reads a point or a comma as the decimal mark and has no thousands
+# separator, whatever the system locale. Left to the locale, Qt reads "0.125" as 125 in
+# a comma locale, and with the comma simply refused a typed "0,125" lost it and gave 125.
+NUMBER_LOCALE = QLocale.c()
+NUMBER_LOCALE.setNumberOptions(QLocale.NumberOption.RejectGroupSeparator)
+
+
+class _DecimalValidator(QDoubleValidator):
+    def validate(self, text: str, pos: int):
+        return super().validate(text.replace(",", "."), pos)
+
+
 class _BlankZero:
     """Shows the placeholder for a blank field and reads it back as 0; a typed 0 stays."""
 
@@ -63,7 +77,7 @@ class _BlankZero:
     def validate(self, text: str, pos: int):
         if not text.strip():
             return (QValidator.Acceptable, text, pos)
-        return super().validate(text, pos)
+        return super().validate(text.replace(",", "."), pos)
 
 
 class _BlankZeroSpinBox(_BlankZero, QDoubleSpinBox):
@@ -119,6 +133,7 @@ class AddCompoundDialog(QDialog):
         taken_names: frozenset[str] | set[str] = frozenset(),
     ):
         super().__init__(parent)
+        self.setLocale(NUMBER_LOCALE)
         self._mode = AnalysisMode.coerce(analysis_mode)
         self._taken_names = frozenset(taken_names)
         self._record: CompoundRow | UnlabelledCompoundRecord | None = None
@@ -272,6 +287,24 @@ class AddCompoundDialog(QDialog):
                 problems.append(((field,), f"Enter {noun}."))
             elif field.value() <= 0:
                 problems.append(((field,), f"{label} must be greater than 0."))
+        optional = [
+            (self.amount_in_std_mix, "Amount in std mix"),
+            (self.int_std_amount, "Int std amount"),
+        ]
+        if self._mode is AnalysisMode.UNLABELLED:
+            optional += [
+                (self.rt_window, "tR window"),
+                (self.qualifier1_ratio, "Qualifier 1 expected ratio"),
+                (self.qualifier2_ratio, "Qualifier 2 expected ratio"),
+            ]
+        for field, label in optional:
+            try:
+                value = self._optional_float(field)
+            except ValueError:
+                problems.append(((field,), f"{label} is not a number."))
+                continue
+            if value is not None and value < 0:
+                problems.append(((field,), f"{label} cannot be negative."))
         return problems
 
     def _locate_error(self, exc: Exception) -> tuple[tuple[QWidget, ...], str]:
@@ -558,8 +591,9 @@ class AddCompoundDialog(QDialog):
     def _optional_float_edit(placeholder: str = "Optional") -> QLineEdit:
         edit = QLineEdit()
         edit.setPlaceholderText(placeholder)
-        validator = QDoubleValidator()
+        validator = _DecimalValidator()
         validator.setNotation(QDoubleValidator.StandardNotation)
+        validator.setLocale(NUMBER_LOCALE)
         edit.setValidator(validator)
         return edit
 
@@ -568,4 +602,7 @@ class AddCompoundDialog(QDialog):
         text = edit.text().strip()
         if not text:
             return None
-        return float(text)
+        value, ok = NUMBER_LOCALE.toDouble(text)
+        if not ok or not math.isfinite(value):
+            raise ValueError(f"{text!r} is not a number")
+        return value

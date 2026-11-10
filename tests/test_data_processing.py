@@ -318,3 +318,26 @@ def test_get_eics_for_compound_normalise(monkeypatch):
     assert eics[1].intensity.max() == 1.0
 
 
+def test_a_masked_scan_index_extracts_the_same_eic_as_a_plain_one():
+    """netCDF4 masks any scan index equal to the variable's fill value, often the first, 0."""
+    scans, points = 6, 4
+    plain = CdfFileData(
+        sample_name="S",
+        file_path="S.cdf",
+        scan_time=np.arange(scans, dtype=np.float64) * 60.0,
+        mass=np.tile(np.array([100.0, 101.0, 102.0, 103.0], dtype=np.float32), scans),
+        intensity=np.arange(scans * points, dtype=np.float32),
+        scan_index=np.arange(scans) * points,
+        point_count=np.full(scans, points),
+        total_intensity=np.zeros(scans),
+    )
+    masked = CdfFileData(
+        **{name: getattr(plain, name) for name in plain.__dataclass_fields__ if name != "scan_index"},
+        scan_index=np.ma.masked_equal(plain.scan_index, 0),
+    )
+
+    expected = extract_eic("Cmp", 2.5, 101.0, plain, rt_window=10, label_atoms=1)
+    eic = extract_eic("Cmp", 2.5, 101.0, masked, rt_window=10, label_atoms=1)
+    np.testing.assert_array_equal(eic.intensity, expected.intensity)
+    np.testing.assert_array_equal(eic.time, expected.time)
+    assert eic.intensity.sum() > 0

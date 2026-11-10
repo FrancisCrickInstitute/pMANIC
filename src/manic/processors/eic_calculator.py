@@ -76,7 +76,10 @@ def _extract_eic_with_times(
         ends = np.append(cdf.scan_index[idx[1:]], len(cdf.mass))
 
     start_end_array = np.array([starts, ends]).T
-    plain = not (np.ma.isMaskedArray(cdf.mass) or np.ma.isMaskedArray(cdf.intensity))
+    # A masked scan index cannot bound a slice, so it keeps the per-scan path too.
+    plain = not any(
+        np.ma.isMaskedArray(values) for values in (cdf.mass, cdf.intensity, starts, ends)
+    )
     if plain and np.array_equal(starts[1:], ends[:-1]):
         # Consecutive scans are one contiguous run of points: slice it once.
         # Masked arrays keep the per-scan path, which concatenates them unmasked.

@@ -12,8 +12,6 @@ from __future__ import annotations
 import re
 from typing import Iterable, List, Optional
 
-_TOKEN_CACHE: dict = {}
-
 
 def parse_mm_tokens(mm_files_field: Optional[str]) -> List[str]:
     """Split an ``mm_files`` pattern list on commas, semicolons, tabs and newlines."""
@@ -23,26 +21,12 @@ def parse_mm_tokens(mm_files_field: Optional[str]) -> List[str]:
     return [t.strip() for t in raw.split(",") if t.strip()]
 
 
-def _token_regex(token: str) -> "re.Pattern[str]":
-    """* means "anything" (SQL LIKE %); every other character is literal."""
-    cached = _TOKEN_CACHE.get(token)
-    if cached is None:
-        parts = ["^"]
-        for ch in token:
-            if ch == "*":
-                parts.append(".*")
-            else:
-                parts.append(re.escape(ch))
-        parts.append("$")
-        cached = re.compile("".join(parts), re.IGNORECASE)
-        _TOKEN_CACHE[token] = cached
-    return cached
-
-
 def mm_token_matches(token: str, sample_name: str) -> bool:
     """A token holding a ``*`` anchors at both ends; a bare token is a substring match."""
     if "*" in token:
-        return _token_regex(token).match(sample_name) is not None
+        # * means "anything"; every other character is literal.
+        pattern = ".*".join(re.escape(part) for part in token.split("*"))
+        return re.fullmatch(pattern, sample_name, re.IGNORECASE) is not None
     return token.lower() in sample_name.lower()
 
 

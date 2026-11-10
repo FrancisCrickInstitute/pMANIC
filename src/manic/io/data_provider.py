@@ -973,6 +973,7 @@ class DataProvider:
                     "WHERE sample_name = ? AND compound_name = ? AND deleted = 0",
                     (sample_name, compound_name),
                 ).fetchone()
+            correct_now = row is None and label_atoms > 0 and not use_deconvolved_correction
             if row is None:
                 row = conn.execute(
                     "SELECT x_axis, y_axis as y FROM eic "
@@ -986,6 +987,20 @@ class DataProvider:
             intensity_data = np.frombuffer(
                 zlib.decompress(row["y"]), dtype=np.float64
             )
+            # Export stores this same correction before it integrates, so the
+            # tiles must not wait for an export to see corrected areas (#202).
+            n_channels = label_atoms + 1
+            if (
+                correct_now
+                and meta["formula"]
+                and intensity_data.size == n_channels * time_data.size
+            ):
+                try:
+                    intensity_data = self._correct_time_series(
+                        intensity_data.reshape(n_channels, -1), meta
+                    ).ravel()
+                except NaturalAbundanceCorrectionError:
+                    pass
             baseline_flag = (
                 bool(meta["baseline_correction"])
                 if meta["baseline_correction"]

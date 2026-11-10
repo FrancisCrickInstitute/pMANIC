@@ -794,6 +794,61 @@ def regenerate_compound_eics(
     return len(extracted_eics)
 
 
+def reextract_session_eics(mass_tol: float = DEFAULT_MASS_TOLERANCE) -> list[str]:
+    """Re-extract the session-edited samples whose integration window left their stored EIC.
+
+    A session import writes tR and offsets only, so the EICs stay cut around the
+    compound-list tR and a moved window can integrate to zero. This re-extracts the
+    samples Apply would, by the same test, so the import matches the session that was
+    exported. Returns one message per compound that failed.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT sa.compound_name, sa.sample_name, e.rt_window, e.x_axis,
+                   COALESCE(sa.retention_time, c.retention_time) AS retention_time,
+                   COALESCE(sa.loffset, c.loffset, 0) AS loffset,
+                   COALESCE(sa.roffset, c.roffset, 0) AS roffset
+            FROM session_activity sa
+            JOIN compounds c ON c.compound_name = sa.compound_name AND c.deleted = 0
+            JOIN samples s ON s.sample_name = sa.sample_name AND s.deleted = 0
+            JOIN eic e ON e.compound_name = sa.compound_name
+                      AND e.sample_name = sa.sample_name AND e.deleted = 0
+            WHERE sa.sample_deleted = 0
+            """
+        ).fetchall()
+    retention_times: dict[str, dict[str, float]] = {}
+    windows: dict[str, float] = {}
+    for row in rows:
+        stored = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
+        rt = row["retention_time"]
+        # The slack Apply allows (check_boundaries_within_window).
+        if (
+            stored.size
+            and rt - row["loffset"] >= stored.min() - 0.001
+            and rt + row["roffset"] <= stored.max() + 0.001
+        ):
+            continue
+        compound = row["compound_name"]
+        retention_times.setdefault(compound, {})[row["sample_name"]] = rt
+        windows[compound] = max(windows.get(compound, 0.0), row["rt_window"] or 0.0)
+
+    failed = []
+    for compound, sample_rts in retention_times.items():
+        try:
+            regenerate_compound_eics(
+                compound,
+                windows[compound],
+                list(sample_rts),
+                mass_tol=mass_tol,
+                retention_time=sample_rts,
+            )
+        except Exception as error:
+            logger.error(f"Session re-extraction failed for '{compound}': {error}")
+            failed.append(f"{compound}: {error}")
+    return failed
+
+
 def regenerate_all_eics_with_mass_tolerance(
     mass_tol: float,
     rt_window: float = 0.2,

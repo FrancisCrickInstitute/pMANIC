@@ -71,7 +71,7 @@ The import process uses the global **Mass Tolerance** setting (Default: 0.2 Da) 
 
 * To check or change this: Go to **Settings → Extraction**, **Mass tolerance (Da)**, before or after loading data.
 * If CDFs are already loaded, changing the tolerance regenerates every EIC. You do not re-import the folder. Each EIC keeps its tR window, including one set with **Apply window**.
-* If a sample's CDF file is missing or unreadable at that point, the sample keeps its old-tolerance EICs. Its plot captions say **old mass tolerance**, export asks you to confirm before it writes the file, and its cells in the exported workbook are light gold. Put the file back and change the tolerance again to rebuild the sample and clear the mark.
+* If a sample's CDF file is missing or unreadable at that point, the sample keeps its old-tolerance EICs. Its plot captions say **old mass tolerance**, export asks you to confirm before it writes the file, and its cells in the exported workbook are light gold. Put the file back, export, and choose **Rebuild Stale Samples** in that warning. MANIC rebuilds only the marked samples at the current tolerance and clears the mark of each one it can read.
 
 **Procedure**   
 

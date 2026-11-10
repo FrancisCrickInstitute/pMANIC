@@ -4,7 +4,7 @@ import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Collection, Optional
 
 import numpy as np
 
@@ -916,6 +916,7 @@ def regenerate_all_eics_with_mass_tolerance(
     mass_tol: float,
     rt_window: float = 0.2,
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    sample_names: Optional[Collection[str]] = None,
 ) -> tuple[int, list[str]]:
     """
     Regenerate all EIC data with a new mass tolerance value.
@@ -935,6 +936,8 @@ def regenerate_all_eics_with_mass_tolerance(
         EIC in a sample. A stored EIC keeps its own window. Default: 0.2
     progress_cb : Callable[[done, total], None] | None
         Optional callback for GUI progress bars
+    sample_names : Collection[str] | None
+        Only these samples are marked stale and rebuilt. Default: every sample
 
     Returns
     -------
@@ -949,6 +952,8 @@ def regenerate_all_eics_with_mass_tolerance(
         sample_rows = conn.execute(
             "SELECT sample_name, file_name FROM samples"
         ).fetchall()
+    if sample_names is not None:
+        sample_rows = [row for row in sample_rows if row["sample_name"] in sample_names]
 
     if not sample_rows:
         raise NothingToRegenerateError("No samples found in database")
@@ -981,7 +986,10 @@ def regenerate_all_eics_with_mass_tolerance(
     # Each sample clears its flag in the transaction that replaces its EICs, so
     # a reload that fails or stops partway leaves the rest marked.
     with get_connection() as conn:
-        conn.execute("UPDATE samples SET eics_stale = 1")
+        conn.executemany(
+            "UPDATE samples SET eics_stale = 1 WHERE sample_name = ?",
+            [(row["sample_name"],) for row in sample_rows],
+        )
 
     # Process each sample file
     for sample_row in sample_rows:

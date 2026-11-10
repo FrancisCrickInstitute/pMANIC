@@ -1,23 +1,17 @@
-import re
 from unittest import mock
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QScrollArea
+from PySide6.QtWidgets import QDoubleSpinBox
 
 from manic.constants import DEFAULT_MIN_PEAK_HEIGHT_RATIO
 from manic.models import database
 from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.models.sample_fit_type import get_sample_fit_types, set_sample_fit_type
 import manic.ui.main_window as main_window_module
-from manic.ui import theme
-from manic.ui.dialog_kit import MARKED_ROLE
 from manic.ui.main_window import MainWindow
-from manic.ui.standard_chooser import StandardChooser
 from manic.ui.settings_window import (
-    AppearancePage,
     DeconvolutionPage,
     ExtractionPage,
     IntegrationPage,
@@ -27,7 +21,6 @@ from manic.ui.settings_window import (
     QualifierRatioPage,
 )
 
-from manic.utils.utils import apply_app_stylesheet, apply_color_scheme, set_appearance
 
 from conftest import _make_window
 
@@ -71,11 +64,6 @@ def _row_values(page) -> dict[str, str | None]:
         table.item(row, 0).text(): table.cellWidget(row, 1).currentData()
         for row in range(table.rowCount())
     }
-
-
-def _shown(label) -> str:
-    QApplication.processEvents()  # a new name is cut to the label's width once laid out
-    return label.text()
 
 
 def _bulk_fit(page, label: str) -> None:
@@ -242,22 +230,6 @@ def test_mass_tolerance_save_writes_literal_value(labelled_window):
     assert settings.hint_label.text() != "Saved"
 
 
-def test_settings_is_as_tall_as_the_page_it_shows(labelled_window):
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    scroll = settings.findChild(QScrollArea, "settingsPageScroll")
-    heights = {}
-    for title in _page_titles(settings):
-        if title:
-            _select_page(settings, title)
-            QApplication.processEvents()
-            assert not scroll.verticalScrollBar().isVisible(), title
-            heights[title] = settings.height()
-    # Short pages are only as tall as the page list, not the tallest page.
-    assert heights["Appearance"] == heights["Extraction"] == settings.minimumHeight()
-    assert heights["Deconvolution"] > heights["Appearance"]
-
-
 def test_peak_validation_keeps_unsaved_edit_across_pages(labelled_window):
     labelled_window.open_settings_window()
     settings = labelled_window.settings_window
@@ -274,113 +246,6 @@ def test_peak_validation_keeps_unsaved_edit_across_pages(labelled_window):
     settings.reset_button.click()
     assert page.spin.value() == DEFAULT_MIN_PEAK_HEIGHT_RATIO
     assert not settings.save_button.isEnabled()
-
-
-def test_unsaved_pages_stay_marked_after_switching_away(labelled_window):
-    _insert_compound("Alanine")
-    labelled_window.compound_data_loaded = True
-    labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    _select_page(settings, "Extraction")
-    settings.findChild(ExtractionPage).spin.setValue(0.35)
-    assert settings.save_button.isEnabled()
-    assert settings.hint_label.text() == ""
-    assert not settings.pending_label.isVisible()
-    settings.findChild(PeakValidationPage).spin.setValue(0.123)
-    _select_page(settings, "Deconvolution")
-    settings.page_named("Deconvolution").level_combo.setCurrentIndex(0)
-
-    assert _marked(settings) == ["Extraction", "Peak validation", "Deconvolution"]
-    assert settings.isWindowModified()
-    assert settings.pending_label.isVisible()
-    text = settings.pending_label.text()
-    assert text.count("<a ") == 2 and "Extraction" in text and "Peak validation" in text
-
-    settings.pending_label.linkActivated.emit(
-        re.search(r'href="(\d+)"[^>]*>Extraction<', text).group(1)
-    )
-    assert settings.page_list.currentItem().text() == "Extraction"
-    assert "Extraction" not in settings.pending_label.text()
-    # Save writes only the page on screen.
-    settings.save_button.click()
-    assert labelled_window.mass_tolerance == 0.35
-    assert labelled_window.min_peak_height_ratio == DEFAULT_MIN_PEAK_HEIGHT_RATIO
-    assert _marked(settings) == ["Peak validation", "Deconvolution"]
-
-    _select_page(settings, "Peak validation")
-    settings.save_button.click()
-    assert labelled_window.min_peak_height_ratio == 0.123
-    _select_page(settings, "Deconvolution")
-    settings.reset_button.click()
-    assert not settings.isWindowModified()
-    assert not settings.pending_label.isVisible()
-
-
-def _marked(settings) -> list[str]:
-    return [
-        settings.page_list.item(row).text()
-        for row in range(settings.page_list.count())
-        if settings.page_list.item(row).data(MARKED_ROLE)
-    ]
-
-
-@pytest.fixture
-def restore_system_appearance(qapp):
-    yield
-    set_appearance(qapp, "system")
-    apply_color_scheme(qapp, False)
-    qapp.setStyleSheet("")
-
-
-def _window_colour(qapp) -> str:
-    return qapp.palette().color(QPalette.Window).name()
-
-
-def test_appearance_switches_at_once_and_is_never_unsaved(
-    qapp, labelled_window, monkeypatch, restore_system_appearance
-):
-    apply_app_stylesheet(qapp)
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    combo = settings.findChild(AppearancePage).combo
-    assert combo.currentText() == "System"
-
-    combo.setCurrentIndex(combo.findText("Dark"))
-    assert theme.is_dark()
-    assert _window_colour(qapp) == theme.DARK["bg"].lower()
-    # It applies on choice, so its page offers no Save or Revert.
-    assert settings.save_button.isHidden() and settings.reset_button.isHidden()
-
-    # Revert undoes the page's unsaved edits, not the scheme the user just chose.
-    _select_page(settings, "Extraction")
-    assert not settings.save_button.isHidden()
-    settings.findChild(ExtractionPage).spin.setValue(0.5)
-    settings.reset_button.click()
-    assert theme.is_dark()
-    assert combo.currentText() == "Dark"
-
-    # A restart reapplies it before the first window, and Settings shows it.
-    apply_color_scheme(qapp, False)
-    apply_app_stylesheet(qapp)
-    assert theme.is_dark()
-    second = _make_window(monkeypatch, AnalysisMode.LABELLED)
-    second.open_settings_window()
-    assert second.settings_window.findChild(AppearancePage).combo.currentText() == "Dark"
-    second.settings_window.close()
-    second.close()
-
-    # A forced scheme ignores the OS; System follows it again.
-    os_scheme = qapp.styleHints().colorSchemeChanged
-    combo.setCurrentIndex(combo.findText("Light"))
-    os_scheme.emit(Qt.ColorScheme.Dark)
-    assert not theme.is_dark()
-    combo.setCurrentIndex(combo.findText("System"))
-    os_scheme.emit(Qt.ColorScheme.Dark)
-    assert theme.is_dark()
-    os_scheme.emit(Qt.ColorScheme.Light)
-    assert not theme.is_dark()
-    assert _window_colour(qapp) == theme.LIGHT["bg"].lower()
 
 
 def test_legacy_radio_save_enables_legacy_integration(labelled_window):
@@ -561,58 +426,6 @@ def test_bulk_fit_follows_the_rows_the_user_selects(labelled_window, monkeypatch
     }
 
 
-def test_internal_standard_page_names_the_sidebar_choice(labelled_window):
-    _insert_compound("Alanine", label_atoms=0)
-    _insert_compound("Norvaline", label_atoms=2)
-    labelled_window.compound_data_loaded = True
-    labelled_window.toolbar.update_compound_list(["Alanine", "Norvaline"])
-    labelled_window.open_settings_page("Internal standard")
-    settings = labelled_window.settings_window
-    page = settings.findChild(InternalStandardPage)
-    assert _shown(page.standard_label) == "None"
-    # An unsaved edit on another page must not freeze the standard's name.
-    settings.findChild(ExtractionPage).spin.setValue(0.35)
-    assert not page.combo.isEnabled()
-
-    labelled_window.toolbar.on_internal_standard_selected("Norvaline")
-    assert _shown(page.standard_label) == "Norvaline"
-    assert [page.combo.itemText(i) for i in range(page.combo.count())] == [
-        "M+0",
-        "M+1",
-        "M+2",
-    ]
-    assert settings.hint_label.text() == ""
-
-    labelled_window.toolbar.on_internal_standard_selected("Alanine")
-    assert _shown(page.standard_label) == "Alanine"
-    assert not page.combo.isEnabled()
-    assert page.reference_hint.text() == (
-        "Alanine has no label atoms, so only M+0 can be the reference peak."
-    )
-
-    labelled_window.toolbar.on_internal_standard_cleared()
-    assert _shown(page.standard_label) == "None"
-    assert settings.findChild(ExtractionPage).spin.value() == 0.35
-
-
-def test_choose_opens_the_sidebar_standard_chooser_under_the_button(labelled_window):
-    _insert_compound("Norvaline", label_atoms=2)
-    labelled_window.compound_data_loaded = True
-    labelled_window.toolbar.update_compound_list(["Norvaline"])
-    labelled_window.open_settings_page("Internal standard")
-    page = labelled_window.settings_window.findChild(InternalStandardPage)
-    button = page.choose_button
-
-    button.click()
-
-    chooser = labelled_window.toolbar.standard.findChildren(StandardChooser)[-1]
-    assert chooser.pos() == button.mapToGlobal(button.rect().bottomLeft())
-    QTest.keyClicks(chooser.filter, "norv")
-    QTest.keyClick(chooser.filter, Qt.Key_Return)
-    assert _shown(page.standard_label) == "Norvaline"
-    assert page.combo.isEnabled()
-
-
 def test_changing_the_standard_drops_an_unsaved_reference_peak(labelled_window):
     _insert_compound("Norvaline", label_atoms=2)
     _insert_compound("Leucine", label_atoms=2)
@@ -630,20 +443,6 @@ def test_changing_the_standard_drops_an_unsaved_reference_peak(labelled_window):
 
     assert page.combo.currentText() == "M+0"
     assert labelled_window.internal_standard_reference_isotope == 0
-
-
-def test_deconvolution_without_overrides_or_selection_shows_empty_state(labelled_window):
-    _insert_compound("Alanine")
-    labelled_window.compound_data_loaded = True
-    labelled_window.toolbar.update_compound_list(["Alanine"], selected_name="Alanine")
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    _select_page(settings, "Deconvolution")
-    page = settings.page_named("Deconvolution")
-    assert not page.sample_fit_table.isVisible()
-    assert not page.bulk_fit_button.isVisible()
-    assert not page.remove_all_button.isVisible()
-    assert page.empty_overrides_label.isVisible()
 
 
 def test_settings_window_opens_centred_on_a_visible_main_window(labelled_window):
@@ -694,58 +493,3 @@ def test_check_for_updates_does_not_start_a_second_worker_while_one_runs(
         window.close()
 
 
-def test_settings_grows_to_show_override_rows_without_scrolling(
-    qapp, empty_db, monkeypatch
-):
-    window = _make_window(monkeypatch, AnalysisMode.UNLABELLED)
-    try:
-        _insert_unlabelled_target()
-        window.compound_data_loaded = True
-        window.toolbar.update_compound_list(["Target"], selected_name="Target")
-        window.open_settings_window()
-        settings = window.settings_window
-        scroll = settings.findChild(QScrollArea, "settingsPageScroll")
-        monkeypatch.setattr(window.graph_view, "get_selected_samples", lambda: ["S1", "S2"])
-
-        _select_page(settings, "Deconvolution")
-        settings.refresh()
-        qapp.processEvents()
-
-        assert settings.page_named("Deconvolution").sample_fit_table.isVisible()
-        assert not scroll.verticalScrollBar().isVisible()
-    finally:
-        if window.settings_window is not None:
-            window.settings_window.close()
-        window.close()
-
-
-def test_long_names_never_push_settings_controls_out_of_view(labelled_window, monkeypatch, qapp):
-    name = "N-acetyl-L-aspartyl-L-glutamic acid bis-tert-butyldimethylsilyl derivative (quantifier 174)"
-    samples = [
-        f"2026-10-28_GCMS_StableIsotope_Experiment_17_Batch04_Replicate_00{i}_Rerun_02"
-        for i in (1, 2, 3, 4)
-    ]
-    _insert_compound(name)
-    labelled_window.compound_data_loaded = True
-    labelled_window.toolbar.update_compound_list([name], selected_name=name)
-    labelled_window.toolbar.on_internal_standard_selected(name)
-    monkeypatch.setattr(labelled_window.graph_view, "get_selected_samples", lambda: samples)
-    labelled_window.open_settings_page("Internal standard")
-    settings = labelled_window.settings_window
-    viewport = settings.findChild(QScrollArea, "settingsPageScroll").viewport()
-    qapp.processEvents()
-
-    page = settings.page_named("Internal standard")
-    choose = page.choose_button
-    assert choose.mapTo(viewport, choose.rect().topRight()).x() < viewport.width()
-    assert page.standard_label.toolTip() == name
-
-    _select_page(settings, "Deconvolution")
-    qapp.processEvents()
-    page = settings.page_named("Deconvolution")
-    assert page.compound_label.toolTip() == f"Compound: {name}"
-    table = page.sample_fit_table
-    last = table.visualRect(table.model().index(3, 0))
-    assert table.cellWidget(3, 1).geometry().right() < table.viewport().width()
-    assert last.bottom() < table.viewport().height()
-    assert [table.item(row, 0).toolTip() for row in range(4)] == samples

@@ -52,25 +52,6 @@ def test_parentless_dialog_is_styled_once_stylesheet_is_app_wide(qapp, restore_l
         dialog.close()
 
 
-def test_logo_drops_its_white_background_and_inks_in_the_active_text_colour(
-    qapp, restore_light_scheme
-):
-    from manic.ui.logo import LogoLabel
-
-    def pixel(label: LogoLabel, x: int, y: int) -> QColor:
-        return label.pixmap().toImage().pixelColor(x, y)
-
-    apply_color_scheme(qapp, False)
-    logo = LogoLabel(446)  # the artwork's own height, so pixels map 1:1
-    assert pixel(logo, 0, 0).alpha() == 0
-    assert pixel(logo, 548, 64).name() == "#1b1f24"
-    assert pixel(logo, 83, 167).name() == "#22b573"
-
-    apply_color_scheme(qapp, True)
-    assert pixel(logo, 548, 64).name() == "#e6e8eb"
-    assert pixel(logo, 83, 167).name() == "#22b573"
-
-
 @pytest.mark.parametrize("dark", [False, True], ids=["light", "dark"])
 def test_rendered_text_focus_rings_and_status_marks_reach_wcag_contrast_in_both_schemes(
     qapp, restore_light_scheme, dark

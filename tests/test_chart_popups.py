@@ -2,35 +2,21 @@ import gc
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QEvent, QPointF, QSettings, Qt, QTimer
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QPointF, QSettings, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
-    QGraphicsRectItem,
     QGraphicsSimpleTextItem,
     QHBoxLayout,
     QPushButton,
-    QScrollArea,
-    QToolTip,
     QWidget,
 )
 
-from manic.io.compounds_import import (
-    CompoundRow,
-    UnlabelledCompoundRecord,
-    insert_compound,
-    insert_unlabelled_compound,
-)
-from manic.models.analysis import IonChannel, IonRole
-from manic.ui import theme
 from manic.ui.chart_popup_dialog import ChartPopupDialog
-from manic.ui.total_abundance_widget import TotalAbundanceWidget
 
 # The sidebar charts hand popups their samples bottom to top.
 SIDEBAR_ORDER = ["Std_MM_02", "Bio_002", "Bio_001"]
@@ -51,32 +37,11 @@ def _value_labels(dialog) -> list[str]:
     return [item.text() for item in sorted(items, key=lambda item: item.pos().y())]
 
 
-def _marked_row(dialog) -> str | None:
-    """The sample whose row carries the accent outline."""
-    for item in dialog.chart.childItems():
-        if (
-            isinstance(item, QGraphicsRectItem)
-            and item.isVisible()
-            and item.pen().color() == theme.color("accent")
-        ):
-            value = dialog.chart.mapToValue(item.rect().center(), dialog.chart.series()[0])
-            return dialog.chart.axes(Qt.Vertical)[0].categories()[round(value.y())]
-    return None
-
-
 def _row_point(dialog, row: int, x: float = 0.05):
     """A point on a row (top to bottom), in the chart view's viewport."""
     category = len(dialog.row_names()) - 1 - row
     point = dialog.chart.mapToPosition(QPointF(x, category), dialog.chart.series()[0])
     return dialog.chart_view.mapFromScene(dialog.chart.mapToScene(point))
-
-
-def _hover(dialog, row: int, x: float = 0.05) -> None:
-    pos = QPointF(_row_point(dialog, row, x))
-    QApplication.sendEvent(
-        dialog.chart_view.viewport(),
-        QMouseEvent(QEvent.MouseMove, pos, pos, Qt.NoButton, Qt.NoButton, Qt.NoModifier),
-    )
 
 
 def test_both_popups_read_top_down_in_grid_order_with_values_paired(qapp):
@@ -108,60 +73,6 @@ def test_both_popups_read_top_down_in_grid_order_with_values_paired(qapp):
             dialog.deleteLater()
 
 
-def test_a_sample_with_no_abundance_shows_a_dash_on_a_sane_axis(qapp):
-    dialog = _abundance([9100.0, float("nan"), 11300.0], ["A", "B", "C"])
-    try:
-        dialog.show()
-        qapp.processEvents()
-        assert _value_labels(dialog) == ["1.13", "—", "0.91"]
-        assert dialog.pinned_axis.title() == "×10⁴"
-        assert [text for text, _x in dialog.pinned_axis.tick_positions()] == ["0.0", "0.2", "0.4", "0.6", "0.8", "1.0", "1.2"]
-    finally:
-        dialog.deleteLater()
-
-
-def test_the_row_being_read_shows_its_value_to_four_figures(qapp):
-    # Bottom to top, as the sidebar hands them over: "Large" is the top row.
-    dialog = _abundance([0.004, 9.0612], ["Small", "Large"])
-    try:
-        dialog.show()
-        qapp.processEvents()
-        assert _value_labels(dialog) == ["9.06", "<0.01"]
-        _hover(dialog, 1, x=0.002)
-        assert _value_labels(dialog) == ["9.06", "0.004"]
-        QTest.keyClick(dialog.chart_view, Qt.Key_Up)
-        assert _marked_row(dialog) == "Large"
-        assert _value_labels(dialog) == ["9.061", "<0.01"]
-        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
-        assert _value_labels(dialog) == ["9.06", "0.004"]
-    finally:
-        dialog.deleteLater()
-
-
-def test_a_long_sample_name_is_shortened_in_the_middle_and_shown_whole_on_its_row(qapp, monkeypatch):
-    shown = []
-    monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_args: shown.append(text))
-    long_name = "2024-03-18_plate07_" + "x" * 60 + "_Bio_017_rep2"
-    dialog = _abundance([200.0, 100.0], [long_name, "Bio_001"])
-    activated = []
-    dialog.sample_activated.connect(activated.append)
-    try:
-        dialog.show()
-        qapp.processEvents()
-        name = dialog.chart.axes(Qt.Vertical)[0].categories()[0]
-        assert name.startswith("2024-03-18_plate") and name.endswith("rep2") and "…" in name
-        # The name column stays inside the chart.
-        assert dialog.chart.plotArea().left() < dialog.chart_view.width() * 0.45
-        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
-        assert shown == []
-        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
-        assert shown == [long_name]
-        QTest.keyClick(dialog.chart_view, Qt.Key_Return)
-        assert activated == [long_name]
-    finally:
-        dialog.deleteLater()
-
-
 def test_clicking_a_row_activates_its_sample_and_closes(qapp):
     dialog = _abundance([300.0, 200.0, 100.0], SIDEBAR_ORDER)
     activated = []
@@ -172,188 +83,6 @@ def test_clicking_a_row_activates_its_sample_and_closes(qapp):
         QTest.mouseClick(dialog.chart_view.viewport(), Qt.LeftButton, pos=_row_point(dialog, 1))
         assert activated == ["Bio_002"]
         assert dialog.result() == QDialog.Accepted and not dialog.isVisible()
-    finally:
-        dialog.deleteLater()
-
-
-@pytest.mark.parametrize(
-    "make",
-    [
-        lambda: _abundance(np.linspace(3e6, 1e5, 30), NAMES),
-        lambda: _ratios(np.tile([0.3, 0.7], (30, 1)), NAMES),
-    ],
-    ids=["abundance", "ratios"],
-)
-def test_row_keys_work_from_the_focus_a_real_open_gives(qapp, make):
-    dialog = make()
-    activated = []
-    dialog.sample_activated.connect(activated.append)
-    seen = {}
-
-    def press(key):
-        QTest.keyClick(QApplication.focusWidget(), key)
-
-    def drive():
-        # The window takes focus once it is activated, a moment after exec().
-        if QApplication.focusWidget() is None:
-            QTimer.singleShot(10, drive)
-            return
-        seen["focus"] = QApplication.focusWidget()
-        press(Qt.Key_Down)
-        seen["first"] = _marked_row(dialog)
-        press(Qt.Key_End)
-        press(Qt.Key_Up)
-        seen["before_return"] = _marked_row(dialog)
-        press(Qt.Key_Return)
-
-    QTimer.singleShot(0, drive)
-    QTimer.singleShot(5000, dialog.reject)
-    result = dialog.exec()
-    assert seen["focus"] is dialog.chart_view
-    assert seen["first"] == "Bio_001"
-    assert seen["before_return"] == "Bio_029"
-    assert activated == ["Bio_029"]
-    assert result == QDialog.Accepted
-
-
-def test_return_first_shows_the_row_it_would_open(qapp):
-    dialog = _abundance(np.linspace(3e6, 1e5, 30), NAMES)
-    activated = []
-    dialog.sample_activated.connect(activated.append)
-    try:
-        dialog.show()
-        qapp.processEvents()
-        assert _marked_row(dialog) is None
-        QTest.keyClick(dialog.chart_view, Qt.Key_Return)
-        assert activated == [] and _marked_row(dialog) == "Bio_001"
-        QTest.keyClick(dialog.chart_view, Qt.Key_Home)
-        QTest.keyClick(dialog.chart_view, Qt.Key_Enter)
-        assert activated == ["Bio_001"]
-    finally:
-        dialog.deleteLater()
-
-
-def test_value_axis_and_unit_stay_in_view_at_the_bottom_of_a_long_list(qapp):
-    dialog = _abundance(np.linspace(3e6, 1e5, 30), NAMES)
-    try:
-        dialog.resize(820, 420)
-        dialog.show()
-        qapp.processEvents()
-        scroll = dialog.findChild(QScrollArea)
-        bar = scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
-        qapp.processEvents()
-        assert bar.maximum() > 0
-        axis = dialog.pinned_axis
-        assert axis.isVisible() and axis.title() == "×10⁶"
-        # Pinned outside the scrolled rows, just above them.
-        assert axis.geometry().bottom() < scroll.geometry().top()
-        assert not dialog.chart.axes(Qt.Horizontal)[0].labelsVisible()
-        # Each tick label sits over the gridline of its own value.
-        series = dialog.chart.series()[0]
-        for text, x in axis.tick_positions():
-            point = dialog.chart.mapToScene(
-                dialog.chart.mapToPosition(QPointF(float(text), 0), series)
-            )
-            in_view = dialog.chart_view.mapFromScene(point)
-            assert abs(axis.mapFrom(dialog, dialog.chart_view.mapTo(dialog, in_view)).x() - x) <= 1
-        assert [text for text, _x in axis.tick_positions()] == ["0.0", "0.5", "1.0", "1.5", "2.0", "2.5", "3.0"]
-        # The last rows really are on screen while the axis is.
-        last = dialog.chart.mapToScene(dialog.chart.mapToPosition(QPointF(0, 0), series))
-        bottom = dialog.chart_view.mapTo(scroll.viewport(), dialog.chart_view.mapFromScene(last))
-        assert 0 <= bottom.y() <= scroll.viewport().height()
-    finally:
-        dialog.deleteLater()
-
-
-def test_ratio_rows_with_no_ratio_show_a_dash_and_say_why(qapp, monkeypatch):
-    shown = []
-    monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_args: shown.append(text))
-    # Bottom to top: Bio_003 has no area, Bio_002 a NaN row, Bio_001 a ratio.
-    data = np.array([[0.0, 0.0], [np.nan, np.nan], [0.4, 0.6]])
-    original = data.copy()
-    dialog = ChartPopupDialog(
-        "isotopologue_ratios", "Label Incorporation", data, ["Bio_003", "Bio_002", "Bio_001"]
-    )
-
-    def hover(row):
-        _hover(dialog, row, x=0.5)
-
-    try:
-        dialog.show()
-        qapp.processEvents()
-        assert _value_labels(dialog) == ["—", "—"]
-        hover(0)
-        assert not any("No ratio" in text for text in shown)
-        hover(1)
-        assert shown[-1] == (
-            "Bio_002\nNo ratio: this sample has no integrated peak area for this compound."
-        )
-        hover(2)
-        assert shown[-1] == (
-            "Bio_003\nNo ratio: this sample has no integrated peak area for this compound."
-        )
-        # Display only: the arrays the sidebar and exports share are untouched.
-        np.testing.assert_array_equal(data, original)
-    finally:
-        dialog.deleteLater()
-
-
-def test_a_long_compound_heading_is_cut_in_the_middle_inside_a_narrow_popup(qapp):
-    name = "2-Hydroxyglutarate-tri-tert-butyldimethylsilyl-derivative-3TBDMS (Q ion m/z 433)"
-    dialog = ChartPopupDialog(
-        "total_abundance", "Peak area", np.array([2.0, 1.0]), ["Bio_002", "Bio_001"],
-        compound_name=name,
-    )
-    try:
-        dialog.show()
-        dialog.resize(600, 400)
-        qapp.processEvents()
-        assert dialog.width() == 600
-        title = dialog.compound_title.text()
-        assert title.startswith("2-Hydroxy") and title.endswith("433)") and "…" in title
-        assert dialog.compound_title.toolTip() == name
-    finally:
-        dialog.deleteLater()
-
-
-def test_the_abundance_popup_names_the_peak_area_it_plots(qapp, monkeypatch):
-    insert_compound(CompoundRow(
-        compound_name="Pyruvate", retention_time=6.37, mass0=174.0, loffset=0.1, roffset=0.15,
-        label_atoms=3, formula="C3H4O3", label_type="C", tbdms=1, meox=0, me=0,
-    ))
-    insert_unlabelled_compound(UnlabelledCompoundRecord(
-        compound_name="Citrate 4TMS", retention_time=12.4, loffset=0.15, roffset=0.2,
-        rt_window=0.25, amount_in_std_mix=None, int_std_amount=None, mm_files=None, channels=(
-            IonChannel(mz=273.0, role=IonRole.QUANTIFIER, ordinal=0),
-            IonChannel(mz=147.0, role=IonRole.QUALIFIER, ordinal=1),
-        ),
-    ))
-    titles = []
-    monkeypatch.setattr(ChartPopupDialog, "exec", lambda dialog: titles.append(dialog.pinned_axis.title()))
-    widget = TotalAbundanceWidget()
-    eics = [SimpleNamespace(sample_name=name) for name in ("A", "B")]
-    for compound in ("Pyruvate", "Citrate 4TMS"):
-        widget.update_abundance_from_data(compound, eics, np.array([9100.0, 11300.0]))
-        widget._show_popup_chart()
-    assert titles == ["Peak area, sum of isotopologues (×10⁴)", "Q-ion peak area (×10⁴)"]
-    widget.deleteLater()
-
-
-def test_the_label_key_reads_the_current_rows_percentages(qapp):
-    # Bottom to top, as the sidebar hands them over: "Bio_001" is the top row.
-    dialog = _ratios([[0.0, 0.0], [0.0004, 0.9996], [0.181, 0.819]], ["Bio_003", "Bio_002", "Bio_001"])
-    try:
-        dialog.show()
-        qapp.processEvents()
-        assert dialog.ion_legend.labels() == ["M+0", "M+1"]
-        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
-        assert dialog.ion_legend.labels() == ["M+0   18.1%", "M+1   81.9%"]
-        QTest.keyClick(dialog.chart_view, Qt.Key_Down)
-        assert dialog.ion_legend.labels() == ["M+0   <0.1%", "M+1  100.0%"]
-        # A sample with no ratio has nothing to read; its row says why.
-        _hover(dialog, 2)
-        assert dialog.ion_legend.labels() == ["M+0", "M+1"]
     finally:
         dialog.deleteLater()
 

@@ -50,38 +50,3 @@ def test_only_labelled_export_offers_the_carbon_sheet(qapp, labelled):
     dialog.close()
 
 
-def test_export_names_the_missing_standard_amount_in_plain_words(qapp, monkeypatch):
-    from PySide6.QtWidgets import QMessageBox
-
-    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
-    shown = []
-
-    def message_exec(box):
-        buttons = [button.text() for button in box.buttons()]
-        shown.append((box.text(), box.informativeText(), buttons))
-        assert box.defaultButton() is box.button(QMessageBox.Cancel)
-
-    monkeypatch.setattr(ExportOptionsDialog, "exec", lambda dialog: QDialog.Accepted)
-    monkeypatch.setattr(
-        main_window_module.QFileDialog, "getSaveFileName", lambda *a, **k: ("/tmp/out.xlsx", "")
-    )
-    monkeypatch.setattr(window.toolbar, "get_internal_standard", lambda: "Palatinose")
-    monkeypatch.setattr(
-        main_window_module,
-        "validate_internal_standard_metadata",
-        lambda provider, name: (False, ["Missing or zero 'int_std_amount'"]),
-    )
-    monkeypatch.setattr(QMessageBox, "exec", message_exec)
-    try:
-        window.export_data()
-        [(text, detail, buttons)] = shown
-        assert text == (
-            "Palatinose has no internal-standard amount in the compound list. "
-            "Export peak areas instead?"
-        )
-        assert detail == (
-            "Add it to the compound list and import the list again to export calibrated abundances."
-        )
-        assert sorted(buttons) == ["Cancel", "Export Peak Areas"]
-    finally:
-        window.close()

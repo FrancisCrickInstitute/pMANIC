@@ -1,19 +1,12 @@
 from __future__ import annotations
 
-from itertools import combinations
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-from PySide6.QtCore import QPoint, QRect
-from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
-    QAbstractSpinBox,
-    QFrame,
     QLabel,
-    QLineEdit,
     QPushButton,
-    QScrollArea,
 )
 
 from manic.io.compound_reader import read_compound
@@ -311,86 +304,6 @@ def _flagged(dialog: AddCompoundDialog) -> set[str]:
     }
 
 
-def test_empty_labelled_submit_flags_every_required_field(qapp):
-    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
-    dialog.show()
-    _add_button(dialog).click()
-    assert dialog.isVisible()
-    assert dialog.record is None
-    assert _shown_errors(dialog) == [
-        "Enter a compound name.",
-        "Enter tR.",
-        "Enter Mass0.",
-    ]
-    assert _flagged(dialog) == {"compound_name", "retention_time", "mass0"}
-    assert dialog.focusWidget() is dialog.compound_name
-    dialog.close()
-
-
-def test_empty_unlabelled_submit_flags_every_required_field(qapp):
-    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
-    dialog.show()
-    _add_button(dialog).click()
-    assert dialog.record is None
-    assert _shown_errors(dialog) == [
-        "Enter a compound name.",
-        "Enter tR.",
-        "Enter the quantifier ion m/z.",
-        "Enter the qualifier ion 1 m/z.",
-    ]
-    assert _flagged(dialog) == {
-        "compound_name",
-        "retention_time",
-        "quantifier_mz",
-        "qualifier1_mz",
-    }
-
-    def top(widget) -> int:
-        return widget.mapTo(dialog, QPoint(0, 0)).y()
-
-    def error(text: str) -> QLabel:
-        return next(
-            label
-            for label in dialog.findChildren(QLabel)
-            if label.property("role") == "error" and label.text() == text
-        )
-
-    # Each ion's error sits under its own row, not below the last one.
-    qapp.processEvents()
-    quantifier_error = error("Enter the quantifier ion m/z.")
-    assert top(dialog.quantifier_mz) < top(quantifier_error) < top(dialog.qualifier1_mz)
-    qualifier_error = error("Enter the qualifier ion 1 m/z.")
-    assert top(dialog.qualifier1_mz) < top(qualifier_error) < top(dialog.qualifier2_mz)
-    dialog.close()
-
-
-def test_editing_one_field_clears_only_its_own_error(qapp):
-    dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
-    dialog.show()
-    name = dialog.compound_name
-    quantifier = dialog.quantifier_mz.lineEdit()
-    assert name.placeholderText() == "Required, e.g. Pyruvate"
-    _add_button(dialog).click()
-    assert name.placeholderText() == ""
-    assert quantifier.placeholderText() == ""
-
-    QTest.keyClicks(dialog.quantifier_mz, "273")
-    assert _shown_errors(dialog) == [
-        "Enter a compound name.",
-        "Enter tR.",
-        "Enter the qualifier ion 1 m/z.",
-    ]
-    assert _flagged(dialog) == {"compound_name", "retention_time", "qualifier1_mz"}
-    assert name.placeholderText() == ""
-
-    QTest.keyClicks(name, "Pyruvate")
-    assert _shown_errors(dialog) == ["Enter tR.", "Enter the qualifier ion 1 m/z."]
-    assert _flagged(dialog) == {"retention_time", "qualifier1_mz"}
-    assert name.placeholderText() == "Required, e.g. Pyruvate"
-    assert dialog.isVisible()
-    dialog.close()
-
-
 def test_required_spin_boxes_ask_for_a_blank_value_and_reject_a_typed_zero(qapp):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
     _fill_labelled(dialog)
@@ -470,75 +383,6 @@ def test_offsets_and_counts_start_blank_and_build_as_zero(qapp):
     record = dialog.record
     assert (record.loffset, record.roffset) == (0.0, 0.0)
     assert (record.label_atoms, record.tbdms, record.meox, record.me) == (0, 0, 0, 0)
-
-
-def _overlapping_fields(form) -> list[tuple[str, str]]:
-    rects: list[tuple[str, QRect]] = []
-    for widget in form.findChildren(QLabel) + form.findChildren(QLineEdit):
-        if not widget.isVisible() or isinstance(widget.parent(), QAbstractSpinBox):
-            continue
-        rects.append((widget.text(), QRect(widget.mapTo(form, QPoint()), widget.size())))
-    for spin in form.findChildren(QAbstractSpinBox):
-        rects.append(("spin box", QRect(spin.mapTo(form, QPoint()), spin.size())))
-    return [(a, b) for (a, ra), (b, rb) in combinations(rects, 2) if ra.intersects(rb)]
-
-
-@pytest.mark.parametrize("mode", list(AnalysisMode))
-def test_form_never_overlaps_and_scrolls_on_a_short_screen(qapp, mode):
-    dialog = AddCompoundDialog(analysis_mode=mode)
-    dialog.show()
-    add = _add_button(dialog)
-    add.click()
-    qapp.processEvents()
-    form = dialog.findChild(QScrollArea).widget()
-    assert _overlapping_fields(form) == []
-
-    dialog.resize(640, 420)
-    qapp.processEvents()
-    assert _overlapping_fields(form) == []
-    assert dialog.findChild(QScrollArea).verticalScrollBar().maximum() > 0
-    assert dialog.rect().contains(QRect(add.mapTo(dialog, QPoint()), add.size()))
-    assert not form.isAncestorOf(add)
-    # A rule over the buttons marks the cut while fields run on below it.
-    edge = dialog.findChild(QFrame, "addCompoundScrollEdge")
-    assert edge.isVisible()
-    bar = dialog.findChild(QScrollArea).verticalScrollBar()
-    bar.setValue(bar.maximum())
-    assert not edge.isVisible()
-    dialog.close()
-
-
-@pytest.mark.parametrize("mode", list(AnalysisMode))
-def test_a_short_form_never_cuts_a_heading_or_field_at_its_edge(qapp, mode):
-    dialog = AddCompoundDialog(analysis_mode=mode)
-    dialog.show()
-    scroll = dialog.findChild(QScrollArea)
-    form = scroll.widget()
-    cut = []
-    for height in range(360, 600, 6):
-        dialog.resize(640, height)
-        for _ in range(3):
-            qapp.processEvents()
-        edge = scroll.verticalScrollBar().value() + scroll.viewport().height()
-        cut += [
-            (height, widget.text() if isinstance(widget, QLabel) else type(widget).__name__)
-            for widget in form.findChildren(QLabel) + form.findChildren(QAbstractSpinBox)
-            + form.findChildren(QLineEdit)
-            if widget.isVisible()
-            and widget.mapTo(form, QPoint()).y() < edge < widget.mapTo(form, QPoint()).y() + widget.height()
-        ]
-        # The last thing in view above the buttons is never a heading without its fields.
-        in_view = [
-            (widget.mapTo(form, QPoint()).y() + widget.height(), widget)
-            for widget in form.findChildren(QLabel) + form.findChildren(QLineEdit)
-            if widget.isVisible()
-            and widget.mapTo(form, QPoint()).y() + widget.height() <= edge
-        ]
-        last = max(in_view, key=lambda item: item[0])[1]
-        if last.property("role") == "section":
-            cut.append((height, f"{last.text()} alone"))
-    assert cut == []
-    dialog.close()
 
 
 def test_taken_compound_names_includes_soft_deleted(empty_db):

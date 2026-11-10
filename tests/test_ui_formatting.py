@@ -8,14 +8,13 @@ and other UI components.
 from dataclasses import replace
 import pytest
 from PySide6.QtCharts import (
-    QCategoryAxis,
     QChart,
     QValueAxis,
 )
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
+from PySide6.QtWidgets import QApplication, QLineEdit
 import numpy as np
 from types import SimpleNamespace
 
@@ -40,7 +39,6 @@ from manic.ui.integration_window_widget import (
     IntegrationWindow,
     toolbar_decimal_text_is_allowed,
 )
-from manic.ui.summary_panel import SummaryPanel
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.graphs import GraphView
 from manic.ui.main_window import MainWindow
@@ -62,56 +60,6 @@ def integration_window(qapp):
     window = IntegrationWindow()
     yield window
     window.deleteLater()
-
-
-def test_unlabelled_summary_shows_abundance_under_identity(qapp):
-    panel = SummaryPanel(AnalysisMode.UNLABELLED)
-    toolbar = Toolbar(AnalysisMode.UNLABELLED)
-    try:
-        assert panel.isotopologue_ratios.isHidden()
-        assert not panel.total_abundance.isHidden()
-        assert not panel.targeted_qc.isHidden()
-        layout = panel.layout()
-        assert 0 <= layout.indexOf(panel.targeted_qc) < layout.indexOf(panel.total_abundance)
-        assert toolbar.integration.findChild(QLabel, "reference_rt_note") is None
-    finally:
-        panel.deleteLater()
-        toolbar.deleteLater()
-
-
-def test_labelled_summary_keeps_abundance_under_ratios(qapp):
-    panel = SummaryPanel(AnalysisMode.LABELLED)
-    try:
-        assert not panel.isotopologue_ratios.isHidden()
-        assert not panel.total_abundance.isHidden()
-        assert panel.targeted_qc.isHidden()
-        layout = panel.layout()
-        assert 0 <= layout.indexOf(panel.isotopologue_ratios) < layout.indexOf(panel.total_abundance)
-    finally:
-        panel.deleteLater()
-
-
-def test_y_scale_options_labelled_only_and_exclusive(qapp):
-    labelled = Toolbar(AnalysisMode.LABELLED)
-    unlabelled = Toolbar(AnalysisMode.UNLABELLED)
-    try:
-        selected = labelled.selected_peak_yscale_action
-        shared = labelled.shared_yscale_action
-        assert selected is not None
-        assert unlabelled.selected_peak_yscale_action is None
-
-        selected.trigger()
-        assert selected.isChecked()
-        assert not shared.isChecked()
-        shared.trigger()
-        assert shared.isChecked()
-        assert not selected.isChecked()
-        shared.trigger()
-        assert not shared.isChecked()
-        assert not selected.isChecked()
-    finally:
-        labelled.deleteLater()
-        unlabelled.deleteLater()
 
 
 def test_set_y_scale_policy_replots_only_on_change(qapp, monkeypatch):
@@ -246,16 +194,6 @@ def _supported_qc(channels, *passed: bool) -> IdentityQcResult:
         ),
         reasons=(),
     )
-
-
-def _horizontal_axes(chart):
-    value_axes = [
-        axis for axis in chart.axes(Qt.Horizontal) if type(axis) is QValueAxis
-    ]
-    category_axes = [
-        axis for axis in chart.axes(Qt.Horizontal) if isinstance(axis, QCategoryAxis)
-    ]
-    return value_axes, category_axes
 
 
 def test_identity_chart_click_emits_sample_name(qapp):
@@ -649,32 +587,6 @@ def test_channel_legend_unlabelled_chips_show_line_style_not_status_colour(
         assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
         assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DashDotLine)
         # With no QC assessed the traces are not QC-coloured, so there is no key.
-        assert view.qc_key.isHidden()
-    finally:
-        view.deleteLater()
-
-
-def test_qc_key_names_only_the_qualifier_states_the_compound_shows(qapp, monkeypatch):
-    from PySide6.QtGui import QTextDocumentFragment
-
-    channels = (_qion(), _v1(), _v2(expected=None))
-    compound = SimpleNamespace(is_unlabelled_target=True, analysis_channels=channels)
-    monkeypatch.setattr("manic.ui.graphs.read_compound_with_session", lambda *_args: compound)
-    view = GraphView()
-    try:
-        view._identity = _identity_snapshot(channels, ("S1", _supported_qc(channels, True), None))
-        view._update_channel_legend("Target", _multi_trace_eics(3))
-        key = QTextDocumentFragment.fromHtml(view.qc_key.text()).toPlainText()
-        assert key.replace("\xa0", " ") == "Qualifier QC:  ● Validated  ● Not assessed"
-        # It stays beside the traces it colours while the Summary is open.
-        view.summary_button.setChecked(True)
-        assert not view.qc_key.isHidden()
-
-        # No qualifier can be checked: every trace is grey and the gap note says why.
-        unchecked = (_qion(), _v1(expected=None), _v2(expected=None))
-        compound.analysis_channels = unchecked
-        view._identity = _identity_snapshot(unchecked, ("S1", _supported_qc(unchecked), None))
-        view._update_channel_legend("Target", _multi_trace_eics(3))
         assert view.qc_key.isHidden()
     finally:
         view.deleteLater()

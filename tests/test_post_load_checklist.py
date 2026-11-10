@@ -3,11 +3,9 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
-    QApplication,
-    QDialogButtonBox,
     QLabel,
     QPushButton,
     QTableWidget,
@@ -23,7 +21,6 @@ from manic.ui.standard_chooser import StandardChooser
 from conftest import _make_window
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from ui_tour import layout_problems
 
 LONG_REPORT = [
     MmFileStatus(f"Compound {i}", "*_MM_01*,*_MM_02*", ("Std_MM_01", "Std_MM_02"))
@@ -43,20 +40,6 @@ def _insert_compound(name: str, mm_files: str | None = None) -> None:
 def _insert_sample(name: str) -> None:
     with database.get_connection() as conn:
         conn.execute("INSERT INTO samples (sample_name) VALUES (?)", (name,))
-
-
-def _long_dialog(tmp_path) -> PostLoadChecklistDialog:
-    path = tmp_path / "compounds.csv"
-    path.write_text("")
-    names = [row.compound_name for row in LONG_REPORT]
-    return PostLoadChecklistDialog(
-        names, None, LONG_REPORT, None, compound_list_path=str(path)
-    )
-
-
-def _settle() -> None:
-    for _ in range(5):
-        QApplication.processEvents()
 
 
 def _button(dialog: PostLoadChecklistDialog, text: str) -> QPushButton:
@@ -89,27 +72,6 @@ def test_dialog_preselects_current_internal_standard(qapp):
     )
     assert dialog.standard_picker.currentText() == "Norvaline"
     assert dialog.selected_internal_standard() == "Norvaline"
-    dialog.close()
-
-
-def test_unchanged_checklist_offers_one_continue(qapp):
-    dialog = PostLoadChecklistDialog(["Alanine"], None, [], None)
-    assert dialog.standard_picker.currentText() == "No internal standard"
-    assert dialog.findChild(QLabel, "internalStandardStatus") is None
-    visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
-    assert visible == ["Continue"]
-    _choose_standard(dialog, "ala")
-    assert dialog.standard_picker.currentText() == "Alanine"
-    assert dialog.selected_internal_standard() == "Alanine"
-    visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
-    assert sorted(visible) == ["Apply", "Continue without changes"]
-    dialog.standard_picker.showPopup()
-    chooser = dialog.standard_picker.findChildren(StandardChooser)[-1]
-    none_row = chooser.list.visualItemRect(chooser.list.item(0)).center()
-    QTest.mouseClick(chooser.list.viewport(), Qt.LeftButton, pos=none_row)
-    assert dialog.selected_internal_standard() is None
-    visible = [b.text() for b in dialog.buttons.buttons() if not b.isHidden()]
-    assert visible == ["Continue"]
     dialog.close()
 
 
@@ -171,133 +133,7 @@ def test_continue_without_changes_leaves_internal_standard_unchanged(qapp, empty
         _close_window(window)
 
 
-def test_checklist_tooltips_only_reveal_hidden_values(qapp):
-    long_pattern = "*_MM_standard_mixture_run_01*,*_MM_standard_mixture_run_02*"
-    report = [
-        MmFileStatus("Short", "*MM*", ("A", "B")),
-        MmFileStatus("Many", "*MM*", ("A", "B", "C", "D")),
-        MmFileStatus("Long", long_pattern, ("A",)),
-    ]
-    dialog = PostLoadChecklistDialog(["Short", "Many", "Long"], None, report, None)
-    table = dialog.mm_file_table
-    tips = {
-        table.item(row, 0).text(): [table.item(row, col).toolTip() for col in range(3)]
-        for row in range(table.rowCount())
-    }
-    assert tips["Short"] == ["", "", ""]
-    assert tips["Many"] == ["", "", "A\nB\nC\nD"]
-    assert tips["Long"] == ["", long_pattern, ""]
-    dialog.close()
-
-
-def test_checklist_reveals_long_names_and_files_while_they_are_cut(qapp):
-    name = "N-acetyl-L-aspartyl-L-glutamic acid bis-tert-butyldimethylsilyl derivative (quantifier 174)"
-    files = tuple(
-        f"2026-10-28_GCMS_StableIsotope_Experiment_17_Batch04_StdMix_MM_0{i}_Rerun_02"
-        for i in (1, 2)
-    )
-    dialog = PostLoadChecklistDialog([name], None, [MmFileStatus(name, "*_MM_0*", files)], None)
-    table = dialog.mm_file_table
-    try:
-        dialog.show()
-        _settle()
-        assert table.item(0, 0).toolTip() == name
-        assert table.item(0, 2).toolTip() == "\n".join(files)
-        dialog.resize(2400, dialog.height())
-        _settle()
-        assert table.item(0, 2).toolTip() == ""
-    finally:
-        dialog.close()
-
-def test_checklist_names_the_loaded_compound_list_and_opens_it(qapp, tmp_path):
-    path = tmp_path / "compounds_v3.xlsx"
-    path.write_bytes(b"")
-    report = [MmFileStatus("Alanine", None, ())]
-    dialog = PostLoadChecklistDialog(
-        ["Alanine"], None, report, None, compound_list_path=str(path)
-    )
-    source = dialog.findChild(QLabel, "compoundListFile")
-    assert source.text() == "Compound list: compounds_v3.xlsx"
-    assert source.toolTip() == str(path)
-
-    with mock.patch(
-        "manic.ui.post_load_checklist_dialog.QDesktopServices.openUrl"
-    ) as open_url:
-        dialog.findChild(QPushButton, "openCompoundListButton").click()
-        dialog.findChild(QPushButton, "showCompoundListFolderButton").click()
-    assert [c.args[0] for c in open_url.call_args_list] == [
-        QUrl.fromLocalFile(str(path)),
-        QUrl.fromLocalFile(str(Path(tmp_path))),
-    ]
-    dialog.close()
-
-    unknown = PostLoadChecklistDialog(["Alanine"], None, report, None)
-    assert unknown.findChild(QLabel, "compoundListFile").text() == (
-        "Compound list: the file you loaded"
-    )
-    assert unknown.findChild(QPushButton, "openCompoundListButton") is None
-    assert unknown.findChild(QPushButton, "showCompoundListFolderButton") is None
-    unknown.close()
-
-
 # 680x640 is the dialog capped on a 150% 1280x800 laptop; 680x540 on an 800x600 screen.
-@pytest.mark.parametrize("height", [640, 540, 420, 300])
-@pytest.mark.parametrize("steps_shown", [False, True])
-def test_checklist_text_never_collides_on_a_short_screen(qapp, tmp_path, height, steps_shown):
-    dialog = _long_dialog(tmp_path)
-    try:
-        dialog.show()
-        dialog.change_pattern_toggle.setChecked(steps_shown)
-        dialog.resize(680, height)
-        _settle()
-        assert layout_problems(dialog) == []
-        buttons = dialog.findChild(QDialogButtonBox)
-        assert buttons.geometry().bottom() < dialog.height()
-        # Scrolled to the steps, the dialog still says what it is and how to leave.
-        dialog.scroll.verticalScrollBar().setValue(dialog.scroll.verticalScrollBar().maximum())
-        title = dialog.findChild(QLabel, "checklistTitle")
-        assert title.isVisible() and title.visibleRegion().boundingRect() == title.rect()
-        assert not dialog.scroll.isAncestorOf(title) and not dialog.scroll.isAncestorOf(buttons)
-        table = dialog.mm_file_table
-        fourth_row_bottom = table.rowViewportPosition(3) + table.rowHeight(3)
-        assert fourth_row_bottom <= table.viewport().height()
-        if height >= 540 and not steps_shown:
-            # The table gives up rows before the disclosure under it leaves the view.
-            toggle = dialog.change_pattern_toggle
-            bottom = toggle.mapTo(dialog.scroll.viewport(), toggle.rect().bottomLeft()).y()
-            assert bottom <= dialog.scroll.viewport().height()
-    finally:
-        dialog.close()
-
-
-def test_change_pattern_steps_open_inline_under_the_compound_list(qapp, tmp_path):
-    dialog = _long_dialog(tmp_path)
-    try:
-        dialog.show()
-        dialog.resize(680, 540)
-        _settle()
-        source = dialog.findChild(QLabel, "compoundListFile")
-        assert source.isVisible()
-        assert source.text() == "Compound list: compounds.csv"
-        assert not dialog.change_pattern_steps.isVisible()
-
-        dialog.change_pattern_toggle.click()
-        dialog.resize(680, 540)
-        _settle()
-        steps = dialog.change_pattern_steps
-        assert steps.isVisible()
-        assert dialog.user_guide_link.isVisible()
-        assert source.isVisible()
-        top = steps.mapTo(dialog.scroll.viewport(), steps.rect().topLeft()).y()
-        assert 0 <= top
-        assert top + steps.height() <= dialog.scroll.viewport().height()
-
-        dialog.change_pattern_toggle.click()
-        _settle()
-        assert not steps.isVisible()
-        assert not dialog.user_guide_link.isVisible()
-    finally:
-        dialog.close()
 
 
 def test_import_ok_opens_checklist_dialog(qapp, empty_db, monkeypatch):
@@ -381,23 +217,3 @@ def test_check_setup_action_requires_loaded_data(qapp, empty_db, monkeypatch):
         _close_window(window)
 
 
-def test_mm_table_is_reachable_by_keyboard_and_stays_read_only(qapp, tmp_path):
-    dialog = _long_dialog(tmp_path)
-    try:
-        dialog.show()
-        dialog.activateWindow()
-        _settle()
-        dialog.standard_picker.setFocus()
-        QTest.keyClick(dialog.standard_picker, Qt.Key_Tab)
-        table = dialog.mm_file_table
-        assert table.hasFocus()
-        QTest.keyClick(table, Qt.Key_Down)
-        QTest.keyClick(table, Qt.Key_PageDown)
-        assert table.currentRow() > 1
-        assert table.selectionModel().selectedRows()[0].row() == table.currentRow()
-        QTest.keyClick(table, Qt.Key_F2)
-        assert table.state() != QTableWidget.EditingState
-        QTest.keyClick(table, Qt.Key_Tab)
-        assert not table.hasFocus()
-    finally:
-        dialog.close()

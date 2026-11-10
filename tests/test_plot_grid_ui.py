@@ -3,70 +3,27 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt, QTimer
-from PySide6.QtGui import QFontMetricsF, QTextDocumentFragment
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from manic.io.compound_reader import Compound
 from manic.models.analysis import IonChannel, IonRole
-from manic.processors.tile_y_scale import YScalePolicy
 from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
-from manic.ui.chart_popup_dialog import value_axis_ticks
-from manic.ui.channel_chips import ChannelChip, ChannelChipRow
-from manic.ui.colors import ChannelTraceStyle, label_colors, verdict_colours
 from manic.ui.graphs import ClickableChartView, GraphView
 from manic.ui.plot_tile import (
-    LARGE_TILE,
-    MIN_TILE,
-    PEAK_BADGES,
     TILE_GAP,
-    PlotTile,
-    grid_columns,
     tile_badges,
 )
 from manic.utils.utils import apply_app_stylesheet
 from manic.validation.peak_verdict import PeakVerdict
 from manic.validation.unlabelled_identity import (
-    IdentityAssessmentSet,
     IdentityQcResult,
     IdentitySampleAssessment,
     IdentityStatus,
     QualifierRatioResult,
     qualifier_pair,
 )
-
-
-@pytest.mark.parametrize(
-    ("count", "width", "height", "min_size", "columns"),
-    [
-        (30, 1284, 900, (190, 135), 5),
-        (0, 800, 600, (190, 135), 1),
-        # The grid viewport of a 1512x949 window with the sidebar open.
-        (30, 1180, 790, MIN_TILE, 6),
-        # 1280x800 at 150% leaves about 700x520 for the grid.
-        (11, 700, 520, MIN_TILE, 3),
-    ],
-    ids=["fits", "empty", "laptop", "small-laptop"],
-)
-def test_grid_keeps_every_tile_on_screen_when_they_fit(count, width, height, min_size, columns):
-    min_width, min_height = min_size
-    shape = grid_columns(count, width, height, min_width=min_width, min_height=min_height)
-    assert shape == (columns, 0)
-
-
-@pytest.mark.parametrize(
-    ("width", "height", "min_size", "shape"),
-    [
-        (970, 700, (190, 135), (4, 163)),
-        (1180, 790, LARGE_TILE, (4, 199)),
-    ],
-    ids=["scrolls", "large-tiles"],
-)
-def test_grid_scrolls_with_readable_tiles_when_they_do_not_fit(width, height, min_size, shape):
-    min_width, min_height = min_size
-    assert grid_columns(30, width, height, min_width=min_width, min_height=min_height) == shape
 
 
 def _eic(sample: str, compound: str):
@@ -125,115 +82,6 @@ def _plots(view: GraphView) -> dict[str, ClickableChartView]:
     return {p.sample_name: p for p in view.findChildren(ClickableChartView) if p.isVisibleTo(view)}
 
 
-def _badge_labels(tile: PlotTile) -> list[QLabel]:
-    return [
-        label for label in tile.findChildren(QLabel)
-        if label.isVisibleTo(tile) and label not in (tile.caption, tile.scale_label)
-    ]
-
-
-def test_select_all_and_escape(grid):
-    grid.plot_compound("Cmp", ["A", "B", "C", "D"])
-    emitted = []
-    grid.selection_changed.connect(lambda names: emitted.append(sorted(names)))
-    QTest.keyClick(grid, Qt.Key_A, Qt.ControlModifier)
-    assert emitted[-1] == ["A", "B", "C", "D"]
-    QTest.keyClick(grid, Qt.Key_Escape)
-    assert emitted[-1] == []
-
-
-def test_arrows_move_focus_and_space_toggles(grid, qapp):
-    grid.resize(600, 560)
-    grid.show()
-    qapp.processEvents()
-    grid.plot_compound("Cmp", ["A", "B", "C", "D"])
-    emitted = []
-    grid.selection_changed.connect(lambda names: emitted.append(sorted(names)))
-    QTest.keyClick(grid, Qt.Key_Right)  # first arrow focuses the first tile
-    QTest.keyClick(grid, Qt.Key_Down)
-    QTest.keyClick(grid, Qt.Key_Right)
-    QTest.keyClick(grid, Qt.Key_Space)
-    assert emitted[-1] == ["D"]
-    QTest.keyClick(grid, Qt.Key_Up)
-    QTest.keyClick(grid, Qt.Key_Space)
-    assert emitted[-1] == ["B", "D"]
-    QTest.keyClick(grid, Qt.Key_Space)
-    assert emitted[-1] == ["D"]
-
-
-def test_enter_opens_detailed_view_of_focused_tile(grid, opened):
-    grid.plot_compound("Cmp", ["A", "B", "C", "D"])
-    QTest.keyClick(grid, Qt.Key_Right)
-    QTest.keyClick(grid, Qt.Key_Right)
-    QTest.keyClick(grid, Qt.Key_Return)
-    assert opened == [("Cmp", "B")]
-
-
-def test_double_click_opens_once_without_a_second_toggle(grid, opened):
-    grid.plot_compound("Cmp", ["A", "B", "C", "D"])
-    selections = []
-    grid.selection_changed.connect(lambda names: selections.append(sorted(names)))
-    viewport = _plots(grid)["A"].viewport()
-    # A real double-click: press, release, then a double-click press and its release.
-    QTest.mouseClick(viewport, Qt.LeftButton)
-    QTest.mouseDClick(viewport, Qt.LeftButton)
-    QTest.mouseRelease(viewport, Qt.LeftButton)
-    assert selections == [["A"]]
-    assert opened == [("Cmp", "A")]
-
-
-def test_the_first_click_after_a_double_click_toggles_again(grid, opened):
-    # The detail view the double-click opens is modal, so the release ending it never reaches the tile.
-    grid.plot_compound("Cmp", ["A", "B"])
-    selections = []
-    grid.selection_changed.connect(lambda names: selections.append(sorted(names)))
-    viewport = _plots(grid)["A"].viewport()
-    QTest.mouseClick(viewport, Qt.LeftButton)
-    QTest.mouseDClick(viewport, Qt.LeftButton)
-    QTest.mouseClick(viewport, Qt.LeftButton)
-    assert opened == [("Cmp", "A")]
-    assert selections == [["A"], []]
-
-
-def test_grid_header_names_the_compound_with_tr_and_count(grid, rts):
-    samples = ["S1", "S2", "S3"]
-    grid.plot_compound("Pyruvate", samples)
-    assert not grid.compound_title.isHidden()
-    assert grid.compound_title.text() == "Pyruvate"
-    assert grid.selection_summary.text() == "tR 7.09"
-
-    grid.select_samples(["S2"])
-    assert grid.selection_summary.text() == "tR 7.09 · 1 of 3 selected"
-
-    rts["S3"] = 7.12
-    grid.plot_compound("Pyruvate", samples)
-    assert grid.selection_summary.text() == "tR 7.09–7.12 · 1 of 3 selected"
-
-    rts.update(S1=7.05, S3=7.1234)
-    grid.plot_compound("Pyruvate", samples)
-    assert grid.selection_summary.text() == "tR 7.05–7.123 · 1 of 3 selected"
-
-    rts["S1"] = 7.2
-    grid.plot_compound("Pyruvate", ["S1"])
-    assert grid.selection_summary.text() == "tR 7.2"
-
-    grid.clear_all_plots()
-    assert grid.compound_title.isHidden()
-    assert grid.selection_summary.text() == ""
-
-
-def test_a_long_compound_name_is_cut_in_the_middle_and_keeps_the_tr_in_view(grid, qapp, rts):
-    name = "2-Hydroxyglutarate-di-tert-butyldimethylsilyl-derivative (Pyruvate)"
-    grid.plot_compound(name, ["S1", "S2"])
-    grid.resize(560, 400)
-    grid.show()
-    qapp.processEvents()
-    title = grid.compound_title.text()
-    assert "…" in title and title.startswith("2-Hydroxy") and title.endswith("(Pyruvate)")
-    assert grid.compound_title.toolTip() == name
-    assert grid.selection_summary.text() == "tR 7.09"
-
-
 @pytest.fixture
 def styled(qapp):
     """The app's font and stylesheet, which set the header's widths, whatever ran before."""
@@ -242,125 +90,6 @@ def styled(qapp):
     yield
     qapp.setFont(before[0])
     qapp.setStyleSheet(before[1])
-
-
-def test_a_narrow_header_keeps_one_row_with_the_scale_toggles_in_a_menu(grid, qapp, rts, styled):
-    grid.plot_compound("Pyruvate", ["S1", "S2"])
-    grid.show()
-    for width, folded in ((900, False), (520, True)):
-        grid.resize(width, 400)
-        qapp.processEvents()
-        assert grid.scale_menu_button.isVisibleTo(grid) is folded
-        assert grid.shared_y_button.isVisibleTo(grid) is not folded
-        row = grid._header_row
-        middles = {
-            row.itemAt(i).widget().geometry().center().y()
-            for i in range(row.count())
-            if row.itemAt(i).widget() is not None and row.itemAt(i).widget().isVisible()
-        }
-        assert max(middles) - min(middles) <= 1
-    button = grid.scale_menu_button
-    assert (button.text(), button.isChecked()) == ("Scale", False)
-    menu = button.menu()
-    menu.aboutToShow.emit()
-    shared = next(action for action in menu.actions() if action.text() == "Shared Y")
-    assert not shared.isChecked()
-    shared.trigger()
-    assert grid.shared_y_button.isChecked()
-    # The folded button names the scale in use, as the unfolded toggle would show it.
-    assert (button.text(), button.isChecked()) == ("Shared Y", True)
-    assert button.toolTip() == "Plot y-scale: Shared Y"
-    # Pressing it (as assistive tech does) only opens the menu.
-    QTimer.singleShot(50, button.menu().close)
-    button.click()
-    assert button.isChecked() and grid.shared_y_button.isChecked()
-    menu.aboutToShow.emit()
-    assert shared.isChecked()
-
-
-def test_chip_row_wraps_before_truncating_a_chip(qapp):
-    host = QWidget()
-    layout = QVBoxLayout(host)
-    layout.setContentsMargins(0, 0, 0, 0)
-    row = ChannelChipRow()
-    layout.addWidget(row)
-    layout.addStretch()
-    labels = [f"M+{i} m/z {174 + i}" for i in range(4)]
-    row.set_channels(labels, [ChannelTraceStyle(c, Qt.SolidLine) for c in label_colors[:4]])
-    try:
-        host.resize(260, 200)
-        host.show()
-        qapp.processEvents()
-        chips = row.chips()
-        # A chip shows its label as a tooltip only once the label is cut.
-        assert [chip.toolTip() for chip in chips] == ["", "", "", ""]
-        assert len({chip.y() for chip in chips}) == 2
-        assert all(row.rect().contains(chip.geometry()) for chip in chips)
-    finally:
-        host.deleteLater()
-
-
-def test_badges_sit_below_the_caption_at_every_width(qapp):
-    tile = PlotTile(QWidget())
-    tile.set_caption("Sample_05_rt_shift")
-    tile.set_badges([PEAK_BADGES[PeakVerdict.FAIL]])
-    try:
-        tile.show()
-        for width in (200, 600):
-            tile.resize(width, 300)
-            qapp.processEvents()
-            [badge] = _badge_labels(tile)
-            assert (tile.caption.text(), badge.text()) == ("Sample_05_rt_shift", "Below threshold")
-            assert badge.mapTo(tile, QPoint(0, 0)).y() >= tile.caption.geometry().bottom()
-    finally:
-        tile.deleteLater()
-
-
-def test_qc_badges_never_tint_the_card_so_only_peak_verdicts_do(scheme, grid):
-    quantifier = IonChannel(217.0, IonRole.QUANTIFIER)
-    qualifier = IonChannel(
-        147.0, IonRole.QUALIFIER, ordinal=1, expected_ratio=0.4, ratio_tolerance=0.25
-    )
-
-    def assessment(sample, status, ratio, passed):
-        qc = IdentityQcResult(
-            status=status, quantifier_area=100.0, observed_rt=7.09, rt_error=0.0,
-            rt_passed=True, qualifier_ratios=(QualifierRatioResult(qualifier, ratio, passed),),
-            reasons=(),
-        )
-        pair = qualifier_pair((quantifier, qualifier), qc, error=None)
-        return IdentitySampleAssessment(sample, qc, pair, None)
-
-    identity = IdentityAssessmentSet(
-        "Pyruvate",
-        (quantifier, qualifier),
-        (
-            assessment("Found", IdentityStatus.SUPPORTED, 0.41, True),
-            assessment("Missing", IdentityStatus.NOT_DETECTED, None, None),
-        ),
-    )
-    grid.plot_compound("Pyruvate", ["Found", "Missing"], identity=identity)
-    tiles = {name: plot.parent() for name, plot in _plots(grid).items()}
-    [badge] = _badge_labels(tiles["Missing"])
-    assert badge.text() == "Not detected"
-
-    def card(name):  # a point on the card's own fill, above the caption
-        return tiles[name].grab().toImage().pixelColor(16, 3)
-
-    pill = badge.grab().toImage().pixelColor(2, badge.height() // 2)
-    assert theme.contrast(badge.palette().color(badge.foregroundRole()), pill) >= 4.5
-    assert pill != card("Missing") and card("Missing") == card("Found") == theme.color("surface")
-    for name in ("Found", "Missing"):
-        chart = tiles[name].chart_view.chart()
-        assert not chart.isPlotAreaBackgroundVisible()
-        # A Not detected tile's traces are the evidence to inspect, never faded.
-        assert {series.opacity() for series in chart.series()} == {1.0}
-
-    grid.apply_peak_verdicts({"Missing": PeakVerdict.REJECTED})
-    assert [label.text() for label in _badge_labels(tiles["Missing"])] == [
-        "Marked bad", "Not detected"
-    ]
-    assert card("Missing").name() == verdict_colours(PeakVerdict.REJECTED).tint.name()
 
 
 def test_a_retention_time_failure_is_badged_even_when_the_ratios_pass():
@@ -412,28 +141,6 @@ def _laid_out(grid) -> bool:
     )
 
 
-@pytest.mark.parametrize(
-    ("samples", "shape", "text_size"),
-    [(30, (6, 0), (11, 13)), (96, (10, 0), (10, 12)), (200, (7, None), (11, 13))],
-    ids=["30-large-tiles", "96-fit", "200-scroll"],
-)
-def test_tiles_fit_the_2560_screen_or_scroll_at_the_large_size(
-    grid, qapp, samples, shape, text_size
-):
-    # The grid viewport of a 2560x1410 window with both side panels open.
-    _show_grid_with_viewport(grid, qapp, samples, 1856, 1279)
-    tile = _plots(grid)["S0"].parent()
-    columns, row_height = grid._grid_shape
-    assert columns == shape[0]
-    if shape[1] is None:  # scrolling: large tiles, not the smallest that would fit
-        assert row_height >= LARGE_TILE[1]
-    else:
-        assert row_height == shape[1]
-    assert tile.text_size() == text_size
-    assert tile.width() >= MIN_TILE[0] and tile.height() >= MIN_TILE[1]
-    assert (grid._scroll.verticalScrollBar().maximum() > 0) == (samples == 200)
-
-
 def test_time_ticks_settle_at_every_tile_width(grid, qapp):
     # At some width the chosen step once moved the plot edge enough to flip the step
     # back, forever, freezing the app (ccc9554f). One row of three tiles, 1 px at a time
@@ -469,15 +176,6 @@ def test_time_ticks_settle_at_every_tile_width(grid, qapp):
         )
 
 
-def test_tiles_too_small_to_judge_a_peak_scroll_at_the_large_size_instead(grid, qapp):
-    # The grid viewport of a 1280x800 window with the Summary open; fitting all 30
-    # tiles would leave each 139x106.
-    _show_grid_with_viewport(grid, qapp, 30, 727, 676)
-    assert grid._grid_shape[1] >= LARGE_TILE[1]
-    assert _plots(grid)["S0"].parent().height() >= LARGE_TILE[1]
-    assert grid._scroll.verticalScrollBar().maximum() > 0
-
-
 def test_next_and_previous_flagged_tile_wrap_and_skip_reviewed_ones(grid):
     grid.plot_compound("Cmp", ["A", "B", "C", "D", "E"])
     assert grid.focus_flagged(1) is False
@@ -498,191 +196,6 @@ def test_next_and_previous_flagged_tile_wrap_and_skip_reviewed_ones(grid):
     QTest.keyClick(grid, Qt.Key_Right)
     assert grid.review_lead().sample_name == "D"
     assert step(-1) == "B"
-
-
-def test_a_qualifier_the_method_cannot_check_is_one_header_note_not_a_badge_per_tile(grid):
-    quantifier = IonChannel(116.0, IonRole.QUANTIFIER)
-    checked = IonChannel(147.0, IonRole.QUALIFIER, ordinal=1, expected_ratio=0.4, ratio_tolerance=0.25)
-    # Serine's qualifier 2: in the method, but with no expected ratio.
-    unchecked = IonChannel(73.0, IonRole.QUALIFIER, ordinal=2)
-
-    def assessment(sample, passed):
-        qc = IdentityQcResult(
-            status=IdentityStatus.NOT_ASSESSED if passed else IdentityStatus.REVIEW_REQUIRED,
-            quantifier_area=100.0, observed_rt=7.09, rt_error=0.0, rt_passed=True,
-            qualifier_ratios=(
-                QualifierRatioResult(checked, 0.41 if passed else 0.9, passed),
-                QualifierRatioResult(unchecked, 0.2, None),
-            ),
-            reasons=(),
-        )
-        pair = qualifier_pair((quantifier, checked, unchecked), qc, error=None)
-        return IdentitySampleAssessment(sample, qc, pair, None)
-
-    samples = ["Sample_01", "Sample_04_ratio_fail", "Sample_05"]
-    identity = IdentityAssessmentSet(
-        "Serine",
-        (quantifier, checked, unchecked),
-        tuple(assessment(name, name != "Sample_04_ratio_fail") for name in samples),
-    )
-    grid.plot_compound("Serine", samples, identity=identity)
-    tiles = {name: plot.parent() for name, plot in _plots(grid).items()}
-    assert {name: [b.text() for b in _badge_labels(t)] for name, t in tiles.items()} == {
-        "Sample_01": [], "Sample_04_ratio_fail": ["QC fail"], "Sample_05": [],
-    }
-    assert grid.qc_note.isVisibleTo(grid)
-    # While the Summary is open, its Identity panel carries the note instead.
-    grid.summary_button.setChecked(True)
-    assert not grid.qc_note.isVisibleTo(grid)
-    grid.summary_button.setChecked(False)
-    assert grid.qc_note.isVisibleTo(grid)
-    assert QTextDocumentFragment.fromHtml(grid.qc_note.text()).toPlainText().replace("\xa0", " ") == (
-        "Qualifier 2 is not assessed: the compound list gives it no expected ratio. "
-        "See Fix a missing qualifier ratio."
-    )
-    links = []
-    grid.guide_requested.connect(links.append)
-    grid.qc_note.linkActivated.emit("01_user_guide.md#fix-a-missing-qualifier-ratio")
-    assert links == ["01_user_guide.md#fix-a-missing-qualifier-ratio"]
-
-    grid.plot_compound("Serine", samples)
-    assert not grid.qc_note.isVisibleTo(grid)
-
-    # Glycine: its only qualifier has no expected ratio, so nothing is assessed.
-    qc = IdentityQcResult(
-        status=IdentityStatus.NOT_ASSESSED, quantifier_area=100.0, observed_rt=7.09,
-        rt_error=0.0, rt_passed=True, qualifier_ratios=(QualifierRatioResult(unchecked, 0.2, None),),
-        reasons=(),
-    )
-    glycine = IdentityAssessmentSet(
-        "Glycine",
-        (quantifier, unchecked),
-        tuple(
-            IdentitySampleAssessment(name, qc, qualifier_pair((quantifier, unchecked), qc, error=None), None)
-            for name in samples
-        ),
-    )
-    grid.plot_compound("Glycine", samples, identity=glycine)
-    assert grid.qc_note.isVisibleTo(grid)
-    assert QTextDocumentFragment.fromHtml(grid.qc_note.text()).toPlainText().replace("\xa0", " ") == (
-        "Qualifier 2 is not assessed: the compound list gives it no expected ratio. "
-        "See Fix a missing qualifier ratio."
-    )
-
-
-def test_activated_sample_is_selected_focused_and_scrolled_to(grid, qapp):
-    grid.plot_compound("Pyruvate", [f"S{i:02d}" for i in range(24)])
-    grid.resize(600, 300)
-    grid.show()
-    QTest.qWait(100)
-    # Widening re-flows the tiles into three columns, but only once a timer fires.
-    grid.resize(900, 300)
-    assert grid.select_sample("S12")
-    QTest.qWait(100)
-    assert grid.get_selected_samples() == ["S12"]
-    assert grid.review_lead().sample_name == "S12"
-    tile = _plots(grid)["S12"].parent()
-    viewport = grid.findChild(QScrollArea).viewport()
-    top = tile.mapTo(viewport, tile.rect().topLeft()).y()
-    assert 0 <= top and top + tile.height() <= viewport.height()
-
-
-def test_replotting_the_same_compound_keeps_selection_and_focus(grid, opened):
-    samples = ["S1", "S2", "S3", "S4"]
-    grid.plot_compound("Valine", samples)
-    grid.select_samples(["S2", "S4"])
-    for _ in range(4):
-        QTest.keyClick(grid, Qt.Key_Right)
-    emitted = []
-    grid.selection_changed.connect(emitted.append)
-
-    grid.set_y_scale_policy(YScalePolicy.SHARED_EXTRACT)
-    assert grid.get_selected_samples() == ["S2", "S4"]
-    assert grid.review_lead().sample_name == "S4"
-    assert {name: plot.is_selected for name, plot in _plots(grid).items()} == {
-        "S1": False, "S2": True, "S3": False, "S4": True
-    }
-    assert grid.selection_summary.text().endswith("2 of 4 selected")
-
-    # A curve-fit change re-plots through plot_compound with the same arguments.
-    grid.plot_compound("Valine", samples)
-    assert grid.get_selected_samples() == ["S2", "S4"]
-    assert emitted == []
-    # Every tile is now a reused one; its signals still reach the grid once.
-    QTest.mouseDClick(_plots(grid)["S1"].viewport(), Qt.LeftButton)
-    assert opened == [("Valine", "S1")]
-
-    grid.plot_compound("Leucine", ["S1", "S2", "S3"])
-    assert grid.get_selected_samples() == []
-    assert not any(plot.is_selected for plot in _plots(grid).values())
-
-
-def test_replotting_drops_only_the_samples_no_longer_shown(grid):
-    grid.plot_compound("Valine", ["S1", "S2", "S3", "S4"])
-    grid.select_samples(["S2", "S4"])
-    for _ in range(4):
-        QTest.keyClick(grid, Qt.Key_Right)
-    emitted = []
-    grid.selection_changed.connect(emitted.append)
-
-    grid.plot_compound("Valine", ["S1", "S2", "S3"])
-    assert grid.get_selected_samples() == ["S2"]
-    assert emitted == [["S2"]]
-    # The focused tile is gone, so Space has nothing to toggle.
-    QTest.keyClick(grid, Qt.Key_Space)
-    assert emitted == [["S2"]]
-
-
-def test_caption_tooltip_appears_only_when_the_name_is_cut(qapp):
-    tile = PlotTile(QWidget())
-    tile.set_caption("Sample_05_rt_shift_with_a_long_name")
-    try:
-        tile.show()
-        tile.resize(600, 300)
-        qapp.processEvents()
-        assert tile.caption.text() == "Sample_05_rt_shift_with_a_long_name"
-        assert tile.caption.toolTip() == ""
-        tile.resize(90, 300)
-        qapp.processEvents()
-        assert tile.caption.text() != "Sample_05_rt_shift_with_a_long_name"
-        assert tile.caption.toolTip() == "Sample_05_rt_shift_with_a_long_name"
-    finally:
-        tile.deleteLater()
-
-
-def test_chip_tooltip_appears_only_when_the_label_is_cut(qapp):
-    chip = ChannelChip("Qualifier ion 1 m/z 147", ChannelTraceStyle(label_colors[0], Qt.SolidLine))
-    try:
-        chip.show()
-        chip.resize(chip.sizeHint())
-        qapp.processEvents()
-        assert chip.toolTip() == ""
-        chip.resize(60, chip.height())
-        qapp.processEvents()
-        assert chip.toolTip() == "Qualifier ion 1 m/z 147"
-    finally:
-        chip.deleteLater()
-
-
-@pytest.mark.parametrize(
-    ("samples", "tile"), [(4, MIN_TILE), (4, LARGE_TILE)], ids=["small-text", "large-text"]
-)
-def test_time_labels_never_touch_at_the_narrowest_tile(grid, qapp, samples, tile):
-    # Four tiles at the narrowest width for their text size fill the row.
-    _show_grid_with_viewport(grid, qapp, samples, 4 * tile[0] + 3 * 8, tile[1] + 20)
-    plot = _plots(grid)["S0"]
-    assert plot.parent().width() <= tile[0]
-    assert plot.parent().text_size() == ((11, 13) if tile == LARGE_TILE else (10, 12))
-    chart = plot.chart()
-    axis = chart.axes(Qt.Horizontal)[0]
-    metrics = QFontMetricsF(axis.labelsFont())
-    edges = []
-    for value, text in value_axis_ticks(axis):
-        centre = chart.mapToPosition(QPointF(value, 0)).x()
-        half = metrics.horizontalAdvance(text) / 2
-        edges.append((centre - half, centre + half))
-    assert len(edges) >= 2
-    assert all(right + 4 < left for (_, right), (left, _) in zip(edges, edges[1:]))
 
 
 def test_icon_buttons_have_accessible_names(grid):

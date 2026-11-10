@@ -122,7 +122,7 @@ IDENTITY_KEY_TOOLTIP = "Counts are qualifier cells: one per sample for each qual
 
 
 def missing_ratio_note(sample_name: str) -> str:
-    """Hover text for a label-incorporation row with no bar."""
+    """Hover text for an isotopologue-ratio row with no bar."""
     return f"{sample_name}\nNo ratio: this sample has no integrated peak area for this compound."
 
 

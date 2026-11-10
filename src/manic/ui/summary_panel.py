@@ -21,7 +21,7 @@ def summary_width_for(window_width: int) -> int:
 
 
 class SummaryPanel(QWidget):
-    """Label incorporation (Identity when unlabelled) over Peak area, both always in view."""
+    """Isotopologue ratio (Identity when unlabelled) over Peak area, both always in view."""
 
     # A sample's row clicked in any chart or its popup.
     sample_activated = Signal(str)

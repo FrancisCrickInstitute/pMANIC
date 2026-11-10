@@ -43,7 +43,7 @@ Sheets = dict[str, list[list[str]]]
 def _cell(value) -> str:
     if value is None:
         return ""
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
+    if isinstance(value, (int, float)):
         return f"{value:.7g}"
     return str(value).replace("\t", " ").replace("\n", " ")
 
@@ -108,8 +108,6 @@ def compare(old: Sheets, new: Sheets) -> dict[str, dict]:
 
 def _summary(title: str, sheet: dict) -> str:
     moved = sheet["moved"]
-    if not moved and not sheet["other"]:
-        return f"| {title} | {sheet['numbers']} | 0 | | | |"
     # Two significant digits, so a change far below 0.01% still reads as one.
     typical = f"{statistics.median(moved) * 100:.2g}%" if moved else ""
     largest = f"{max(moved) * 100:.2g}%" if moved else ""
@@ -176,7 +174,6 @@ def main(argv: list[str]) -> int:
     if not any(_changed(report) for report in reports.values()):
         print("Nothing changed; reference and history left as they are.")
         return 0
-    REFERENCE.mkdir(exist_ok=True)
     entry = [f"## {date.today().isoformat()}, #{args.pr}", "", args.why, ""]
     for name, sheets in results.items():
         write(sheets, REFERENCE / f"{name}.tsv")

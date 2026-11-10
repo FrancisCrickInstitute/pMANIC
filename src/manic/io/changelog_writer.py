@@ -113,7 +113,7 @@ def generate_changelog(
 - **Quantitative claim:** Peak Area without an internal standard. With an IS, nmol when Amount in StdMix is set, otherwise Relative. Compounds whose MRRF could not be computed are labelled Relative. Single-point response factor, not a calibration curve"""
         sheets_description = """1. **Raw Values** - One column per compound, Q-ion area only. `Mass` is the Q m/z. Qualifier-ion areas are on Qualifier QC
 2. **Abundances** - One column per compound, Q-ion response only. Units row is Peak Area, nmol, or Relative
-3. **Qualifier QC** - Q and qualifier raw areas, observed qualifier/Q, expected ratio, fractional tolerance, per-ion PASS / REVIEW / N/A, and an Outcome column (Pass / Partial / Fail / Not detected / No qualifiers) that colours each row. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
+3. **Qualifier QC** - Same matrix layout, one block of columns per compound: Quant area, then area, observed qualifier/Q ratio and expected ratio for each qualifier. An observed ratio is shaded red when it is outside tolerance and grey when it was not assessed. No shading means it passed. The Tolerance row is the fractional tolerance for each qualifier. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
         key_processing_notes = """- Integration uses the shared Q/qualifier window [tR - lOffset, tR + rOffset]. A qualifier peak outside that window integrates near zero and fails ratio QC
 - Q-ion area alone supplies the analytical response. Qualifier-ion areas are identity evidence
 - Current tR is used for integration and for the in-app identity RT check. Changing tR updates both. That RT check is not written to the workbook

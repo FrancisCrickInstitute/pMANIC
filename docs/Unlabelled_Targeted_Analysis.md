@@ -342,7 +342,7 @@ These layers use different words. Do not mix them.
 
 The enlarged chart's legend groups the grey cells under **Not assessed**.
 
-**Qualifier QC Outcome** on the Excel sheet uses **Pass**, **Partial**, **Fail**, **Not detected**, and **No qualifiers**. Those words are not Identity chart statuses.
+The **Qualifier QC** Excel sheet shades the same per-qualifier result on each observed ratio: red for Failed, grey for Not assessed or Unavailable, no shading for Validated.
 
 The Identity chart encodes **qualifier/Q only**. Check the Q peak against the tR
 line on its tile.
@@ -385,18 +385,26 @@ Those describe an isotopologue envelope that this mode does not have.
 
 ### Qualifier QC
 
-Long-form qualifier-ion ratios plus the raw Q and qualifier areas used to compute them:
-observed ratio, expected ratio, fractional tolerance, per-ion
-`PASS` / `REVIEW` / `N/A`, and an **Outcome** column. Outcome is computed once
-per sample × compound and written on every qualifier row of that group:
+Qualifier-ion ratios in the Raw Values matrix layout: one row per sample and one
+block of columns per compound, with an empty column between compounds. Header
+rows give the compound name, the ion (`Quant`, `Qual 1`, `Qual 2`), its m/z, the
+qualifier's fractional tolerance (0.25 = ±25%), and what the column holds. The
+header rows and sample names stay in view while you scroll.
 
-| Outcome | Meaning | Row colour |
-| :--- | :--- | :--- |
-| **Pass** | Every qualifier ratio check passed | Green |
-| **Partial** | At least one qualifier passed and at least one did not | Orange |
-| **Fail** | Qualifier ratios were scored and none passed | Red |
-| **Not detected** | Q ion was not found, so no ratio could be assessed | Dark grey |
-| **No qualifiers** | No scored qualifier ratio (missing ratio/tolerance, or no qualifier ions) | Grey |
+| Column | Holds |
+| :--- | :--- |
+| **Quant** / Area | Raw Q-ion area |
+| **Qual n** / Area | Raw qualifier-ion area |
+| **Qual n** / Obs ratio | Qualifier area / Q area for that sample |
+| **Qual n** / Exp ratio | Expected ratio from the compound list |
+
+Only the observed ratio is shaded:
+
+| Shading | Meaning |
+| :--- | :--- |
+| None | The ratio is within tolerance |
+| Light red | The ratio is outside tolerance |
+| Light grey | Not assessed: Q was not detected, or the expected ratio or tolerance is missing |
 
 Identity status stays in the app chart, not the workbook.
 

@@ -5,31 +5,11 @@ from typing import Callable
 from manic.io.compound_reader import read_compound
 from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
 from manic.validation.peak_verdict import PeakVerdict
-from manic.validation.unlabelled_identity import (
-    QUALIFIER_OUTCOME_FILL,
-    QualifierOutcome,
-    QualifierRatioResult,
-    qualifier_outcome,
-)
-
-
-def _write_header(worksheet, workbook, headers: list[str]) -> None:
-    header_format = workbook.add_format(
-        {"bold": True, "bg_color": "#D9EAF7", "border": 1}
-    )
-    for column, header in enumerate(headers):
-        worksheet.write(0, column, header, header_format)
-        worksheet.set_column(column, column, max(12, min(36, len(header) + 3)))
+from manic.validation.unlabelled_identity import QualifierRatioResult
 
 
 def _positive(value) -> bool:
     return value is not None and float(value) > 0
-
-
-def _pass_label(passed: bool | None, qc_available: bool) -> str | None:
-    if passed is not None:
-        return "PASS" if passed else "REVIEW"
-    return None if qc_available else "N/A"
 
 
 def _channel_area(areas: list[float] | None, ordinal: int) -> float:
@@ -223,46 +203,45 @@ def _write_qualifier_qc(
     bulk_data,
     progress_callback,
 ) -> None:
-    qc_sheet = workbook.add_worksheet("Qualifier QC")
-    qc_headers = [
-        "Sample",
-        "Compound",
-        "Q Ion m/z",
-        "Q Ion Area",
-        "Qualifier Ion",
-        "Qualifier Ion m/z",
-        "Qualifier Ion Area",
-        "Observed Ratio (Qualifier Ion/Q Ion)",
-        "Expected Ratio",
-        "Fractional Tolerance",
-        "Pass",
-        "Outcome",
-    ]
-    _write_header(qc_sheet, workbook, qc_headers)
-    outcome_formats = {
-        outcome: workbook.add_format(
-            {
-                "bg_color": fill,
-                "font_color": (
-                    "#000000" if outcome is QualifierOutcome.PARTIAL else "#FFFFFF"
-                ),
-            }
-        )
-        for outcome, fill in QUALIFIER_OUTCOME_FILL.items()
+    worksheet = workbook.add_worksheet("Qualifier QC")
+    # Keyed by QualifierRatioResult.passed: outside tolerance, not assessed, passed.
+    verdict_formats = {
+        False: workbook.add_format({"bg_color": "#FFCCCC"}),
+        None: workbook.add_format({"bg_color": "#E7E6E6"}),
+        True: None,
     }
 
-    qc_row = 1
-    total = max(1, len(samples) * len(compounds))
-    completed = 0
+    header_labels = ("Compound Name", "Ion", "Mass", "Tolerance", "Value")
+    first_sample_row = len(header_labels)
+    worksheet.freeze_panes(first_sample_row, 2)
+
     identities = {}
+    header_columns = []
     for compound in compounds:
-        identities[compound.compound_name] = provider.assess_unlabelled_identity_by_sample(
-            compound.compound_name, samples
-        )
+        name = compound.compound_name
+        identities[name] = provider.assess_unlabelled_identity_by_sample(name, samples)
         if progress_callback:
             # Keeps the export cancellable while the identities are read.
             progress_callback(60)
-    for sample in samples:
+        quantifier, *qualifiers = compound.analysis_channels
+        header_columns.append((name, "Quant", quantifier.mz, None, "Area"))
+        header_columns += [
+            (name, f"Qual {channel.ordinal}", channel.mz, channel.ratio_tolerance, value)
+            for channel in qualifiers
+            for value in ("Area", "Obs ratio", "Exp ratio")
+        ]
+        header_columns.append((None,) * len(header_labels))  # empty column between compounds
+
+    # The workbook is constant_memory, so rows are written top to bottom.
+    for row, label in enumerate(header_labels):
+        worksheet.write(row, 0, label)
+        for col, header in enumerate(header_columns, start=2):
+            worksheet.write(row, col, header[row])
+
+    for sample_idx, sample in enumerate(samples):
+        row = first_sample_row + sample_idx
+        worksheet.write(row, 1, sample)
+        col = 2
         for compound in compounds:
             qc = identities[compound.compound_name][sample]
             if isinstance(qc, (LookupError, ValueError)):
@@ -270,11 +249,9 @@ def _write_qualifier_qc(
             elif isinstance(qc, Exception):
                 raise qc
 
-            outcome = qualifier_outcome(qc)
-            row_format = outcome_formats[outcome]
             areas = bulk_data.get(sample, {}).get(compound.compound_name)
-            q_area = _q_area(areas)
-            qualifier_results = (
+            worksheet.write(row, col, _q_area(areas))
+            ratios = (
                 qc.qualifier_ratios
                 if qc is not None
                 else tuple(
@@ -282,25 +259,15 @@ def _write_qualifier_qc(
                     for channel in compound.analysis_channels[1:]
                 )
             )
-            for ratio in qualifier_results:
-                values = [
-                    sample,
-                    compound.compound_name,
-                    compound.analysis_channels[0].mz,
-                    q_area,
-                    ratio.channel.ordinal,
-                    ratio.channel.mz,
-                    _channel_area(areas, ratio.channel.ordinal),
-                    ratio.observed_ratio,
-                    ratio.channel.expected_ratio,
-                    ratio.channel.ratio_tolerance,
-                    _pass_label(ratio.passed, qc_available=qc is not None),
-                    outcome.value,
-                ]
-                for column, value in enumerate(values):
-                    qc_sheet.write(qc_row, column, value, row_format)
-                qc_row += 1
+            for ratio in ratios:
+                channel = ratio.channel
+                worksheet.write(row, col + 1, _channel_area(areas, channel.ordinal))
+                worksheet.write(
+                    row, col + 2, ratio.observed_ratio, verdict_formats[ratio.passed]
+                )
+                worksheet.write(row, col + 3, channel.expected_ratio)
+                col += 3
+            col += 2  # the Quant column and the empty one
 
-            completed += 1
-            if progress_callback:
-                progress_callback(60 + int(completed / total * 40))
+        if progress_callback:
+            progress_callback(60 + int((sample_idx + 1) / len(samples) * 40))

@@ -1858,7 +1858,7 @@ class MainWindow(QMainWindow):
     def on_data_regeneration_requested(
         self,
         compound_name: str,
-        tr_window: float,
+        tr_window: float | dict[str, float],
         sample_names: list,
         retention_time: float | dict[str, float],
         select_when_done: bool = False,

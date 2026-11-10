@@ -200,7 +200,7 @@ On a short window, such as a laptop screen with **Samples** open, the rows under
 2.  Click **Apply**, or press Enter in a field. With plots selected, the line above the fields names them; with none selected, **Apply** changes every shown sample.
 3.  The plots will refresh immediately to show the new boundaries.
 
-> **Auto-Regeneration Feature:** When you change the `tR`, or widen an offset past the tR Window, MANIC re-reads the raw file around the new `tR`. Each plot stays centred on its sample's `tR`. Changing only the offsets inside the tR Window is instant. A progress bar appears while MANIC reads the files.
+> **Auto-Regeneration Feature:** When you change the `tR`, or widen an offset past the tR Window, MANIC re-reads the raw file around the new `tR`. Each plot stays centred on its sample's `tR`. Each sample keeps its own tR Window. Changing only the offsets inside the tR Window is instant. A progress bar appears while MANIC reads the files.
 
 #### 6. Troubleshooting: Fixing Cut-off Peaks
 Sometimes a peak may shift so far that part of it is completely missing from the plot (cut off by the edge of the extracted data). You cannot integrate what isn't there.

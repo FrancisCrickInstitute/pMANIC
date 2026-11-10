@@ -140,8 +140,8 @@ def _widest_offset(text: str) -> float | None:
         return None
 
 
-def _stored_tr_windows(compound_name: str, sample_names: List[str]) -> List[float]:
-    """The stored extract windows of the compound's EICs for these samples, or all when none."""
+def _stored_tr_windows(compound_name: str, sample_names: List[str]) -> Dict[str, float]:
+    """The stored extract window of each of the compound's EICs for these samples, or all when none."""
     from manic.models.database import get_connection
 
     with get_connection() as conn:
@@ -152,11 +152,11 @@ def _stored_tr_windows(compound_name: str, sample_names: List[str]) -> List[floa
             """,
             (compound_name,),
         ).fetchall()
-    return [
-        row["rt_window"]
+    return {
+        row["sample_name"]: row["rt_window"]
         for row in rows
         if not sample_names or row["sample_name"] in sample_names
-    ]
+    }
 
 
 class IntegrationWindow(QWidget):
@@ -176,8 +176,8 @@ class IntegrationWindow(QWidget):
     state_changed = Signal()
 
     data_regeneration_requested = Signal(
-        str, float, list, object
-    )  # compound_name, tr_window, sample_names, retention_time
+        str, object, list, object
+    )  # compound_name, tr_window (one or per sample), sample_names, retention_time
 
 
 
@@ -423,7 +423,7 @@ class IntegrationWindow(QWidget):
         Falls back to the compound default when no EIC data exists yet.
         """
         try:
-            tr_windows = _stored_tr_windows(compound_name, self._all_samples)
+            tr_windows = list(_stored_tr_windows(compound_name, self._all_samples).values())
             if not tr_windows:
                 compound_data = read_compound(compound_name)
                 tr_windows = [getattr(compound_data, "tr_window", 0.2)]
@@ -791,21 +791,30 @@ class IntegrationWindow(QWidget):
                     _parse_offset_text(tr_window_text) if tr_window_text.strip() else 0.2
                 )
                 if current_tr_window is None:
-                    # A range keeps the reloaded samples' own windows, the widest when they differ.
-                    current_tr_window = max(
-                        _stored_tr_windows(self._current_compound, samples_needing_reload),
-                        default=0.2,
+                    # A range keeps each reloaded sample's own window.
+                    stored = _stored_tr_windows(
+                        self._current_compound, samples_needing_reload
                     )
-
-                min_required_window = calculate_minimum_rt_window(
-                    max(values[1] for values in sample_values.values()),
-                    max(values[2] for values in sample_values.values()),
-                    buffer=DEFAULT_RT_WINDOW_BUFFER,
-                )
-                actual_window = max(current_tr_window, min_required_window)
+                    actual_window = {
+                        sample_name: max(
+                            stored.get(sample_name, 0.2),
+                            calculate_minimum_rt_window(
+                                *sample_values[sample_name][1:],
+                                buffer=DEFAULT_RT_WINDOW_BUFFER,
+                            ),
+                        )
+                        for sample_name in samples_needing_reload
+                    }
+                else:
+                    min_required_window = calculate_minimum_rt_window(
+                        max(values[1] for values in sample_values.values()),
+                        max(values[2] for values in sample_values.values()),
+                        buffer=DEFAULT_RT_WINDOW_BUFFER,
+                    )
+                    actual_window = max(current_tr_window, min_required_window)
 
                 logger.info(
-                    f"Regenerating {len(samples_needing_reload)} samples with RT window {actual_window:.3f} min"
+                    f"Regenerating {len(samples_needing_reload)} samples with RT window {actual_window} min"
                 )
 
                 self._pending_session_update = PendingRegeneration(

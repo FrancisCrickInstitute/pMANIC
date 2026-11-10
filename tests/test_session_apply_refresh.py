@@ -31,7 +31,7 @@ def _seed(compounds):
                 )
                 conn.execute(
                     "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, "
-                    "rt_window) VALUES (?, ?, ?, ?, 0.5)",
+                    "rt_window, extraction_rt) VALUES (?, ?, ?, ?, 0.5, 5.0)",
                     (
                         sample,
                         compound,

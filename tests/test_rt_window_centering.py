@@ -228,7 +228,7 @@ def _two_samples_with_different_offsets(qapp):
             )
             conn.execute(
                 "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, "
-                "rt_window) VALUES (?, 'A', ?, ?, 1.0)",
+                "rt_window, extraction_rt) VALUES (?, 'A', ?, ?, 1.0, 5.0)",
                 (
                     sample_name,
                     _compress(time_axis),

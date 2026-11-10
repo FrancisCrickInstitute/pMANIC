@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS eic (
     x_axis         BLOB,   -- pickled list/array of time points
     y_axis         BLOB,   -- pickled list/array of intensities
     rt_window      REAL,
+    extraction_rt  REAL,   -- tR the EIC was cut around, NULL in older databases
     corrected      INTEGER DEFAULT 0,
     deleted        INTEGER DEFAULT 0,
     spectrum_pos   INTEGER,

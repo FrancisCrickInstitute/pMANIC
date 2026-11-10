@@ -70,7 +70,7 @@ class EicRegenerationWorker(QObject):
     def __init__(
         self,
         compound_name: str,
-        tr_window: float,
+        tr_window: float | dict[str, float],
         sample_names: list,
         retention_time: float | dict[str, float],
         pending_regeneration: PendingRegeneration | None = None,

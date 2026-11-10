@@ -28,8 +28,8 @@ def test_import_reextracts_only_samples_whose_tr_moved(monkeypatch):
                 "INSERT INTO samples (sample_name, deleted) VALUES (?, ?)", (sample, deleted)
             )
             conn.execute(
-                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window) "
-                "VALUES (?, 'Cmp', ?, ?, 0.2)",
+                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window, "
+                "extraction_rt) VALUES (?, 'Cmp', ?, ?, 0.2, 5.0)",
                 (sample, stored, stored),
             )
             if session_rt is not None:
@@ -49,7 +49,13 @@ def test_import_reextracts_only_samples_whose_tr_moved(monkeypatch):
 
     assert eic_importer.reextract_session_eics(0.3) == []
     assert calls == [
-        ("Cmp", 0.2, ["Moved", "Nudged"], {"Moved": 5.5, "Nudged": 5.05}, 0.3)
+        (
+            "Cmp",
+            {"Moved": 0.2, "Nudged": 0.2},
+            ["Moved", "Nudged"],
+            {"Moved": 5.5, "Nudged": 5.05},
+            0.3,
+        )
     ]
 
     def missing_file(*_args, **_kwargs):

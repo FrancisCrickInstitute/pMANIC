@@ -26,7 +26,10 @@ def test_an_unapplied_edit_comes_back_with_its_compound_and_says_so(qapp, monkey
     monkeypatch.setattr(
         integration, "_show_message", lambda *a, **k: pytest.fail(f"message box: {a}")
     )
-    monkeypatch.setattr(integration, "_get_samples_needing_reload", lambda *a: [])
+    monkeypatch.setattr(
+        "manic.ui.integration_window_widget.samples_needing_reextraction",
+        lambda *a: [],
+    )
     left = integration.findChild(QLineEdit, "lo_input")
     shown = ["S1", "S2"]
     try:

@@ -223,6 +223,7 @@ def _extract_all_eics_for_file(
                 _compress(eic.time),  # Compressed time array (zlib)
                 _compress(eic.intensity),  # Compressed intensity array (zlib)
                 target_rt_window,  # Retention time window used for extraction
+                target.retention_time,
             )
             eic_batch.append(eic_data)
 
@@ -505,9 +506,9 @@ def import_eics(
                         INSERT INTO eic (
                             sample_name, compound_name,
                             x_axis, y_axis,
-                            rt_window, corrected, deleted,
+                            rt_window, extraction_rt, corrected, deleted,
                             spectrum_pos, chromat_pos
-                        ) VALUES (?,?,?,?,?,0,0,NULL,NULL)
+                        ) VALUES (?,?,?,?,?,?,0,0,NULL,NULL)
                         """,
                         eic_batch,
                     )
@@ -543,9 +544,53 @@ def import_eics(
     return inserted
 
 
+def eic_needs_reextraction(
+    extraction_rt: float | None,
+    rt_window: float | None,
+    retention_time: float,
+    loffset: float,
+    roffset: float,
+) -> bool:
+    """False only when the EIC was cut around this tR with a window covering both offsets."""
+    return (
+        extraction_rt != retention_time
+        or not rt_window
+        or max(loffset, roffset) > rt_window
+    )
+
+
+def samples_needing_reextraction(
+    compound_name: str, sample_values: Mapping[str, tuple[float, float, float]]
+) -> list[str]:
+    """Samples whose stored EIC is missing or not centred on their (tR, left offset, right offset)."""
+    placeholders = ", ".join("?" * len(sample_values))
+    with get_connection() as conn:
+        stored = {
+            row["sample_name"]: row
+            for row in conn.execute(
+                f"""
+                SELECT sample_name, extraction_rt, rt_window FROM eic
+                WHERE compound_name = ? AND deleted = 0
+                  AND sample_name IN ({placeholders})
+                """,
+                (compound_name, *sample_values),
+            )
+        }
+    return [
+        sample_name
+        for sample_name, values in sample_values.items()
+        if sample_name not in stored
+        or eic_needs_reextraction(
+            stored[sample_name]["extraction_rt"],
+            stored[sample_name]["rt_window"],
+            *values,
+        )
+    ]
+
+
 def regenerate_compound_eics(
     compound_name: str,
-    tr_window: float,
+    tr_window: float | Mapping[str, float],
     sample_names: list,
     mass_tol: float = DEFAULT_MASS_TOLERANCE,
     progress_cb: Optional[Callable[[int, int], None]] = None,
@@ -565,8 +610,8 @@ def regenerate_compound_eics(
     ----------
     compound_name : str
         Name of the compound to regenerate
-    tr_window : float
-        New half-window around retention time (min)
+    tr_window : float | Mapping[str, float]
+        New half-window around retention time (min), one or per sample
     sample_names : list
         List of sample names to regenerate
     mass_tol : float
@@ -595,15 +640,30 @@ def regenerate_compound_eics(
     except Exception as e:
         raise RuntimeError(f"Failed to read compound '{compound_name}': {e}")
 
-    tr_window = _extract_rt_window_covering_offsets(
-        tr_window,
-        compound_name,
-        sample_names,
-        compound_data,
-        pending_regeneration,
-    )
+    if isinstance(tr_window, Mapping):
+        tr_windows = {
+            sample_name: _extract_rt_window_covering_offsets(
+                tr_window[sample_name],
+                compound_name,
+                [sample_name],
+                compound_data,
+                pending_regeneration,
+            )
+            for sample_name in sample_names
+        }
+    else:
+        tr_windows = dict.fromkeys(
+            sample_names,
+            _extract_rt_window_covering_offsets(
+                tr_window,
+                compound_name,
+                sample_names,
+                compound_data,
+                pending_regeneration,
+            ),
+        )
     logger.info(
-        f"Starting regeneration for compound '{compound_name}' with tR window {tr_window}"
+        f"Starting regeneration for compound '{compound_name}' with tR window {tr_windows}"
     )
 
     if pending_regeneration is not None:
@@ -666,6 +726,7 @@ def regenerate_compound_eics(
 
     for sample_name, cdf_path in sample_files.items():
         sample_rt = retention_times[sample_name]
+        tr_window = tr_windows[sample_name]
         if not cdf_path.exists():
             raise ValueError(
                 f"Cannot apply retention time {sample_rt:.3f} min: "
@@ -756,16 +817,17 @@ def regenerate_compound_eics(
                     INSERT INTO eic (
                         sample_name, compound_name,
                         x_axis, y_axis,
-                        rt_window, corrected, deleted,
+                        rt_window, extraction_rt, corrected, deleted,
                         spectrum_pos, chromat_pos
-                    ) VALUES (?,?,?,?,?,0,0,NULL,NULL)
+                    ) VALUES (?,?,?,?,?,?,0,0,NULL,NULL)
                     """,
                     (
                         sample_name,
                         compound_name,
                         _compress(eic.time),
                         _compress(eic.intensity),
-                        tr_window,
+                        tr_windows[sample_name],
+                        retention_times[sample_name],
                     ),
                 )
                 if sample_name in corrected_by_sample:
@@ -800,7 +862,7 @@ def regenerate_compound_eics(
 
 
 def reextract_session_eics(mass_tol: float = DEFAULT_MASS_TOLERANCE) -> list[str]:
-    """Re-extract the session-edited samples whose integration window left their stored EIC.
+    """Re-extract the session-edited samples whose stored EIC is not centred on their tR.
 
     A session import writes tR and offsets only, so the EICs stay cut around the
     compound-list tR and a moved window can integrate to zero. This re-extracts the
@@ -810,7 +872,7 @@ def reextract_session_eics(mass_tol: float = DEFAULT_MASS_TOLERANCE) -> list[str
     with get_connection() as conn:
         rows = conn.execute(
             """
-            SELECT sa.compound_name, sa.sample_name, e.rt_window, e.x_axis,
+            SELECT sa.compound_name, sa.sample_name, e.rt_window, e.extraction_rt,
                    COALESCE(sa.retention_time, c.retention_time) AS retention_time,
                    COALESCE(sa.loffset, c.loffset, 0) AS loffset,
                    COALESCE(sa.roffset, c.roffset, 0) AS roffset
@@ -823,20 +885,16 @@ def reextract_session_eics(mass_tol: float = DEFAULT_MASS_TOLERANCE) -> list[str
             """
         ).fetchall()
     retention_times: dict[str, dict[str, float]] = {}
-    windows: dict[str, float] = {}
+    windows: dict[str, dict[str, float]] = {}
     for row in rows:
-        stored = np.frombuffer(zlib.decompress(row["x_axis"]), dtype=np.float64)
         rt = row["retention_time"]
-        # The slack Apply allows (check_boundaries_within_window).
-        if (
-            stored.size
-            and rt - row["loffset"] >= stored.min() - 0.001
-            and rt + row["roffset"] <= stored.max() + 0.001
+        if not eic_needs_reextraction(
+            row["extraction_rt"], row["rt_window"], rt, row["loffset"], row["roffset"]
         ):
             continue
         compound = row["compound_name"]
         retention_times.setdefault(compound, {})[row["sample_name"]] = rt
-        windows[compound] = max(windows.get(compound, 0.0), row["rt_window"] or 0.0)
+        windows.setdefault(compound, {})[row["sample_name"]] = row["rt_window"] or 0.0
 
     failed = []
     for compound, sample_rts in retention_times.items():
@@ -1042,9 +1100,9 @@ def regenerate_all_eics_with_mass_tolerance(
                         INSERT INTO eic (
                             sample_name, compound_name,
                             x_axis, y_axis,
-                            rt_window, corrected, deleted,
+                            rt_window, extraction_rt, corrected, deleted,
                             spectrum_pos, chromat_pos
-                        ) VALUES (?,?,?,?,?,0,0,NULL,NULL)
+                        ) VALUES (?,?,?,?,?,?,0,0,NULL,NULL)
                         """,
                         eic_batch,
                     )

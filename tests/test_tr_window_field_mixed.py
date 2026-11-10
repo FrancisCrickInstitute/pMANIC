@@ -57,4 +57,4 @@ def test_apply_with_a_range_reextracts_at_the_sample_window(window):
 
     window.apply_button.click()
 
-    assert window.emitted == [("Glucose", 0.3, ["s2"], 5.5)]
+    assert window.emitted == [("Glucose", {"s2": 0.3}, ["s2"], 5.5)]

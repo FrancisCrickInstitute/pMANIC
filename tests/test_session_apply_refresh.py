@@ -12,7 +12,8 @@ SAMPLES = ["S1", "S2"]
 
 
 def _seed(compounds):
-    time = np.linspace(4.0, 6.0, 401)
+    # Centred on the tR with rt_window 0.5, as extraction stores it, so an offset edit needs no re-extraction.
+    time = np.linspace(4.5, 5.5, 201)
     peak = _gaussian(time, 5.0, 0.03, 1e5)
     with database.get_connection() as conn:
         for compound in compounds:
@@ -30,7 +31,7 @@ def _seed(compounds):
                 )
                 conn.execute(
                     "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, "
-                    "rt_window) VALUES (?, ?, ?, ?, 0.5)",
+                    "rt_window, extraction_rt) VALUES (?, ?, ?, ?, 0.5, 5.0)",
                     (
                         sample,
                         compound,
@@ -54,9 +55,9 @@ def _drain_events():
     loop.exec()
 
 
-def _apply_tr(window, tr):
+def _apply_loffset(window, loffset):
     integration = window.toolbar.integration
-    integration.findChild(QLineEdit, "tr_input").setText(tr)
+    integration.findChild(QLineEdit, "lo_input").setText(loffset)
     integration.apply_button.click()
 
 
@@ -64,13 +65,13 @@ def test_apply_then_compound_switch_edits_only_shown_compound(qapp, monkeypatch)
     _seed(["A", "B"])
     window = _window(monkeypatch, ["A", "B"])
 
-    _apply_tr(window, "5.01")
+    _apply_loffset(window, "0.2")
     window.toolbar.update_compound_list(["A", "B"], "B")
     _drain_events()
-    _apply_tr(window, "5.02")
+    _apply_loffset(window, "0.3")
 
-    tr = {c: read_compound_with_session(c, "S1").retention_time for c in "AB"}
-    assert tr == {"A": 5.01, "B": 5.02}
+    loffset = {c: read_compound_with_session(c, "S1").loffset for c in "AB"}
+    assert loffset == {"A": 0.2, "B": 0.3}
 
 
 def test_apply_refreshes_fields_and_charts_once(qapp, monkeypatch):
@@ -91,7 +92,7 @@ def test_apply_refreshes_fields_and_charts_once(qapp, monkeypatch):
         lambda *a, **k: calls.append("charts") or refresh_charts(*a, **k),
     )
 
-    _apply_tr(window, "5.01")
+    _apply_loffset(window, "0.2")
     _drain_events()
 
     assert sorted(calls) == ["charts", "fields"]

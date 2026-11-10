@@ -63,6 +63,12 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         logger.debug(f"Migration check: {e}")
         pass
 
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(eic)")]
+    if columns and "extraction_rt" not in columns:
+        logger.info("Adding extraction_rt column to eic table")
+        conn.execute("ALTER TABLE eic ADD COLUMN extraction_rt REAL")
+        conn.commit()
+
     # Migration for TIC and MS data tables (v4.0.0)
     try:
         existing_tables = [

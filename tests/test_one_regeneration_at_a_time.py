@@ -185,10 +185,6 @@ def test_second_regeneration_is_refused_while_one_runs(
     assert [tuple(row) for row in session] == [("A", "S1", 7.0)]
     assert [row[0] for row in compounds] == ["A", "B"]
     assert new_time.min() < 7.0 < new_time.max()
-    assert window.toolbar.integration._data_window_bounds[("A", "S1")] == (
-        new_time.min(),
-        new_time.max(),
-    )
     assert window.mass_tolerance == 0.2
     if window.settings_window is not None:
         assert window.settings_window.findChild(ExtractionPage).spin.value() == 0.2

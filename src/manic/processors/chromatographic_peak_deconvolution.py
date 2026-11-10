@@ -29,6 +29,7 @@ least_squares = _imported_on_first_call("optimize", "least_squares")
 nnls = _imported_on_first_call("optimize", "nnls")
 find_peaks = _imported_on_first_call("signal", "find_peaks")
 peak_widths = _imported_on_first_call("signal", "peak_widths")
+erfc = _imported_on_first_call("special", "erfc")
 erfcx = _imported_on_first_call("special", "erfcx")
 
 ChromatographicPeakDeconvolutionStringency = Literal[
@@ -55,8 +56,6 @@ PEAK_SHAPE_FIT_TYPES: tuple[PeakShapeFitType, ...] = (
 DEFAULT_DECONVOLUTION_LEVEL = "4"
 DEFAULT_DECONVOLUTION_FIT_TYPE = "auto"
 MIN_DECONVOLUTION_CONTEXT_MINUTES = 0.25
-# erfcx(-26) is finite (7.7e293); erfcx(-27) overflows.
-EMG_Z_FLOOR = -26.0
 
 
 @dataclass(frozen=True)
@@ -672,7 +671,6 @@ def _fit_single_from_bytes(
     cheap = dataclasses.replace(
         params,
         max_components=1,
-        shape_models=(params.shape_models[0],),
         max_nfev=min(80, params.max_nfev),
     )
     return _fit_joint_component_model(time, matrix, cheap, target_rt=target_rt)
@@ -1210,8 +1208,15 @@ def _raw_component_shapes(
             values_matrix[:, 2, None],
         )
         return np.exp(-0.5 * ((x_rel[None, :] - center) / sigma) ** 2)
-    u, z_unclipped, _, _ = _emg_terms(x_rel, values_matrix)
-    return np.exp(-0.5 * u**2) * erfcx(np.clip(z_unclipped, EMG_Z_FLOOR, None))
+    u, z, sigma, tau = _emg_terms(x_rel, values_matrix)
+    ratio = sigma / tau
+    # erfcx overflows for z << 0; there the shape equals
+    # exp(ratio**2/2 - u*ratio) * erfc(z), whose exponent is below -ratio**2/2.
+    return np.where(
+        z < 0.0,
+        np.exp(np.minimum(0.5 * ratio**2 - u * ratio, 0.0)) * erfc(z),
+        np.exp(-0.5 * u**2) * erfcx(np.maximum(z, 0.0)),
+    )
 
 
 def _emg_terms(
@@ -1219,10 +1224,8 @@ def _emg_terms(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """EMG reduced variables u and z, plus the floored sigma and tau.
 
-    Stable EMG via the scaled complementary error function; the leading
-    1/(2*tau) constant is dropped because the shape is max-normalized later.
-    Callers clip z at EMG_Z_FLOOR to keep erfcx finite far out in the
-    (negligible) tail.
+    The leading 1/(2*tau) constant is dropped because the shape is
+    max-normalized later.
     """
     eps = np.finfo(np.float64).eps
     center = values_matrix[:, 0, None]
@@ -1266,12 +1269,9 @@ def _component_shape_gradients(
             (raw * u / sigma, sigma_gradient * left, sigma_gradient * ~left), axis=1
         )
     else:
-        u, z_unclipped, sigma, tau = _emg_terms(x_rel, values_matrix)
-        z = np.clip(z_unclipped, EMG_Z_FLOOR, None)
-        # d erfcx(z)/dz = 2 z erfcx(z) - 2/sqrt(pi); zero where z is clipped.
-        through_z = np.exp(-0.5 * u**2) * np.where(
-            z_unclipped < EMG_Z_FLOOR, 0.0, 2.0 * z * erfcx(z) - 2.0 / np.sqrt(np.pi)
-        )
+        u, z, sigma, tau = _emg_terms(x_rel, values_matrix)
+        # d erfcx(z)/dz = 2 z erfcx(z) - 2/sqrt(pi), written via raw to stay finite.
+        through_z = 2.0 * z * raw - 2.0 / np.sqrt(np.pi) * np.exp(-0.5 * u**2)
         raw_gradients = np.stack(
             (
                 raw * u / sigma + through_z / (sigma * np.sqrt(2.0)),

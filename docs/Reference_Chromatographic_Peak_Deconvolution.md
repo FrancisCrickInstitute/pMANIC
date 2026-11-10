@@ -19,7 +19,7 @@ When deconvolution is on and every non-empty ion of the compound in that sample 
 - **Plots** draw the model on a dense grid, with the faint raw EIC underneath. [Natural Abundance Correction preview](#natural-abundance-correction-preview) changes what they draw.
 - **Integration** and export integrate that same densely-evaluated model from the first scan inside the loffset/roffset window to the last, rather than from the offset edges themselves or from the model sampled only at the acquisition scans.
 
-Both views come from the same selected fit, but corrected preview is scan-sampled while time-based export uses the denser grid for a more accurate area. Dense evaluation changes exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks). Legacy (unit-spacing) integration remains scan-point based. The raw trace itself is never smoothed.
+Both views come from the same selected fit, but corrected preview is scan-sampled while time-based export uses the denser grid for a more accurate area. Dense evaluation changes exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks). Legacy (unit-spacing) integration remains scan-point based: it sums each ion's selected component at the scans inside the window, for single-ion and multi-ion compounds alike. The raw trace itself is never smoothed.
 
 If baseline correction is enabled, MANIC keeps the usual edge-based baseline correction but applies it to the selected deconvolved signal. Excluded components are removed before the baseline is estimated.
 
@@ -52,7 +52,7 @@ For a labeled compound, each channel's **selected chromatographic component** fe
 - integrates the selected component to produce the **Raw Values**, and
 - applies natural isotope correction to that *same* selected component (not to the full unresolved trace) before integrating it for the **Corrected Values** (and therefore the **Isotope Ratio**, **% Label Incorporation**, and **Abundances** that derive from them).
 
-In the time-based (non-legacy) path, the selected component is integrated by the same routine for both sheets, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together.
+In both the time-based and legacy paths, the selected component is integrated by the same routine for both sheets, so raw and corrected areas differ only by the isotope correction. Consequently, enabling or disabling deconvolution for a compound moves its raw, corrected, and abundance values together.
 
 Because a single deconvolution pass produces both areas, enabling deconvolution does not double the fitting work at export. Together with caching and the fit-skipping checks described below, this keeps the bulk-export cost manageable.
 
@@ -161,7 +161,7 @@ At export, the per-window curve fit is CPU-bound Python code driving the optimiz
 Deconvolution is designed to degrade gracefully and never block integration. Two checks run **before** the expensive fit (so the fit is skipped entirely in the common cases), and a quality net runs **after** it:
 
 - **Deconvolution off, too few points, or an empty integration window:** the raw trace is used unchanged.
-- **A resolved single peak:** MANIC fits a one-component model so that channel uses the same measurement as any sibling isotopologue or sample that needed a split. The selected curve is the fitted peak, not the raw samples.
+- **A resolved single peak:** MANIC fits a one-component model so that channel uses the same measurement as any sibling isotopologue or sample that needed a split. Under **Auto** it considers the shapes the level allows and keeps the best by BIC, as it does for overlaps. A shape that already fits within the residual limit can end the search early. Each ion chooses its shape on its own. The selected curve is the fitted peak, not the raw samples.
 - **A window that is too messy to be worth fitting (the noise gate):** also before any curve fitting, MANIC measures the smoothness of the window - specifically, whether consecutive steps in the signal tend to share sign (the lag-1 autocorrelation of the trace's first differences). A real peak rises then falls, so its steps largely share sign (a positive score) even when the peak is weak or sparsely sampled; noise alternates sign (a score near -0.5). Windows scoring below the active threshold are skipped: no model is fit, no overlay is drawn, and integration uses the raw trace. This is both a correctness choice (fitting noise is not meaningful) and a major export speedup, as noise-dominated windows are otherwise the most expensive to fit and are then discarded.
 
   The gate is a **per-compound** setting chosen from four presets (stored in `compounds.deconvolution_noise_gate`, mapped to thresholds in `NOISE_GATE_PRESETS`):

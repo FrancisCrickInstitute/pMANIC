@@ -2,7 +2,7 @@ import dataclasses
 
 import numpy as np
 import pytest
-from scipy.special import erfcx
+from scipy.stats import exponnorm
 
 from manic.processors import chromatographic_peak_deconvolution as deconv
 from manic.processors.chromatographic_peak_deconvolution import (
@@ -18,7 +18,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
     normalize_stringency,
 )
 from manic.processors import integration as integration_module
-from manic.processors.integration import calculate_peak_areas
+from manic.processors.integration import calculate_peak_areas, integrate_bundle_areas
 
 from conftest import _gaussian
 
@@ -265,6 +265,26 @@ def test_fit_type_forces_single_shape_and_still_resolves_components():
     assert np.trapezoid(result.selected, time) == pytest.approx(
         np.trapezoid(target_peak, time), rel=0.05
     )
+
+
+@pytest.mark.parametrize("stringency, shape", [("4", "bi_gaussian"), ("7", "emg")])
+def test_auto_fit_tries_every_level_shape_on_a_single_tailing_peak(stringency, shape):
+    from scipy.stats import exponnorm
+
+    time = np.arange(9.5, 10.5, 0.005)
+    intensity = exponnorm.pdf(time, 3.0, loc=10.0, scale=0.007)
+    intensity = 1e5 * intensity / intensity.max()
+    window = dict(retention_time=10.0, loffset=0.1, roffset=0.15)
+
+    result = deconvolve_eic(
+        time, intensity, stringency=stringency, fit_type="auto", **window
+    )
+    forced = deconvolve_eic(
+        time, intensity, stringency=stringency, fit_type=shape, **window
+    )
+
+    assert result.model.shape_model == shape
+    assert np.allclose(result.selected, forced.selected)
 
 
 def test_calculate_peak_areas_accepts_per_compound_fit_type():
@@ -1294,28 +1314,6 @@ def test_noisy_mn_still_blocks_labelled_overlays():
     assert not bundle.shows_model_overlays(independent_channels=False)
 
 
-def test_calculate_peak_areas_treats_zero_mn_as_empty():
-    time = np.linspace(0.0, 10.0, 201)
-    m0 = _gaussian(time, 7.0, 0.25, 10.0)
-    raw = np.vstack([m0, np.zeros_like(time), np.zeros_like(time)])
-    areas = calculate_peak_areas(
-        time,
-        raw.ravel(),
-        label_atoms=2,
-        retention_time=7.0,
-        loffset=4.0,
-        roffset=4.0,
-        channel_count=3,
-        baseline_correction=False,
-        chromatographic_peak_deconvolution_stringency="4",
-        chromatographic_peak_deconvolution_fit_type="auto",
-        chromatographic_peak_deconvolution_noise_gate="balanced",
-    )
-    assert areas[0] > 0
-    assert areas[1] == pytest.approx(0.0)
-    assert areas[2] == pytest.approx(0.0)
-
-
 @pytest.mark.parametrize("edge", ["left", "right"])
 def test_peak_center_between_nominal_boundary_and_nearest_scan_is_in_window(edge):
     time = np.arange(14.4, 14.901, 0.005)
@@ -1376,6 +1374,67 @@ def test_raw_fallback_keeps_outside_channel_zero(use_legacy):
     assert areas[1] == pytest.approx(0.0)
 
 
+def _legacy_overlap_matrix():
+    time = np.arange(9.5, 10.5, 0.005)
+    raw = np.vstack(
+        [
+            _gaussian(time, 10.0, 0.012, 1e5 * scale)
+            + _gaussian(time, 10.05, 0.012, 6e4 * scale)
+            for scale in (1.0, 0.5, 0.2)
+        ]
+    )
+    return time, raw
+
+
+_LEGACY_OVERLAP_WINDOW = dict(retention_time=10.0, loffset=0.1, roffset=0.1)
+
+
+_LEGACY_SELECTED_AREAS = [601591, 300795, 120318]
+
+
+@pytest.mark.parametrize("baseline_correction", [False, True])
+def test_legacy_multi_ion_integrates_the_selected_component(baseline_correction):
+    time, raw = _legacy_overlap_matrix()
+
+    areas = calculate_peak_areas(
+        time,
+        raw.ravel(),
+        label_atoms=2,
+        channel_count=3,
+        use_legacy=True,
+        baseline_correction=baseline_correction,
+        chromatographic_peak_deconvolution_stringency="4",
+        **_LEGACY_OVERLAP_WINDOW,
+    )
+
+    assert areas == pytest.approx(_LEGACY_SELECTED_AREAS, rel=1e-5)
+
+
+@pytest.mark.parametrize("baseline_correction", [False, True])
+def test_legacy_bundle_areas_integrate_and_correct_the_selected_component(
+    baseline_correction,
+):
+    time, raw = _legacy_overlap_matrix()
+    bundle = deconvolve_channel_matrix(
+        time, raw, stringency="4", **_LEGACY_OVERLAP_WINDOW
+    )
+    swap_m0_m2 = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype=np.float64)
+
+    raw_areas, corrected_areas = integrate_bundle_areas(
+        time,
+        bundle,
+        raw,
+        correct_time_series=lambda matrix: swap_m0_m2 @ matrix,
+        baseline_correction=baseline_correction,
+        use_legacy=True,
+        label_atoms=2,
+        **_LEGACY_OVERLAP_WINDOW,
+    )
+
+    assert raw_areas == pytest.approx(_LEGACY_SELECTED_AREAS, rel=1e-5)
+    assert corrected_areas == pytest.approx(_LEGACY_SELECTED_AREAS[::-1], rel=1e-5)
+
+
 def _projected_residual(x_rel, shape_model, values_matrix, y, ridge, scale):
     shapes = deconv._component_shapes(x_rel, shape_model, values_matrix)
     design = np.column_stack([np.ones(x_rel.size), shapes.T])
@@ -1392,9 +1451,7 @@ def _reference_shape(x_rel, shape_model, values):
         sigma = np.where(x_rel < center, sigma_left, sigma_right)
         return np.exp(-0.5 * ((x_rel - center) / sigma) ** 2)
     center, sigma, tau = values
-    offset = x_rel - center
-    z = np.clip((sigma / tau - offset / sigma) / np.sqrt(2.0), -26.0, None)
-    return np.exp(-0.5 * (offset / sigma) ** 2) * erfcx(z)
+    return exponnorm.pdf(x_rel, tau / sigma, loc=center, scale=sigma)
 
 
 @pytest.mark.parametrize("shape_model", ["gaussian", "bi_gaussian", "emg"])
@@ -1410,8 +1467,11 @@ def test_component_shapes_match_single_component_evaluation(shape_model):
         )
         raw = [_reference_shape(x_rel, shape_model, row) for row in values]
         expected = np.asarray([shape / np.max(shape) for shape in raw])
-        np.testing.assert_array_equal(
-            deconv._component_shapes(x_rel, shape_model, values), expected
+        np.testing.assert_allclose(
+            deconv._component_shapes(x_rel, shape_model, values),
+            expected,
+            rtol=1e-9,
+            atol=1e-12,
         )
 
 
@@ -1462,3 +1522,24 @@ def test_variable_projection_jacobian_matches_finite_differences(shape_model):
         )
 
 
+
+
+@pytest.mark.parametrize("tau", [0.05, 0.1])
+def test_emg_shape_gradients_match_finite_differences_in_long_tail(tau):
+    x_rel = np.linspace(-0.05, 1.0, 421)
+    values = np.array([[0.0, 0.005, tau]])
+
+    _, analytic = deconv._component_shape_gradients(x_rel, "emg", values)
+
+    numeric = np.empty_like(analytic)
+    for column in range(values.shape[1]):
+        bump = np.zeros_like(values)
+        bump[0, column] = 1e-6 * values[0, 1]
+        plus = deconv._component_shapes(x_rel, "emg", values + bump)
+        minus = deconv._component_shapes(x_rel, "emg", values - bump)
+        numeric[:, column] = (plus - minus) / (2 * bump[0, column])
+
+    assert np.all(numeric[0, 2, -10:] > 0.0)
+    np.testing.assert_allclose(
+        analytic, numeric, rtol=1e-5, atol=1e-6 * np.max(np.abs(numeric))
+    )

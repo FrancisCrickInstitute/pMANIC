@@ -490,7 +490,7 @@ def _stub_window_extract(monkeypatch) -> list[float]:
 
     monkeypatch.setattr(
         "manic.io.eic_importer.read_cdf_file",
-        lambda _path: SimpleNamespace(sample_name="s1"),
+        lambda _path, _rt_range=None: SimpleNamespace(sample_name="s1"),
     )
     monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
     monkeypatch.setattr(
@@ -573,7 +573,7 @@ class TestRecoveryAfterEmptyExtract:
 
         monkeypatch.setattr(
             "manic.io.eic_importer.read_cdf_file",
-            lambda _path: object(),
+            lambda _path, _rt_range=None: object(),
         )
 
         def _no_scans(*_args, **_kwargs):
@@ -660,7 +660,7 @@ class TestRecoveryAfterEmptyExtract:
         monkeypatch.setattr(database, "DB_FILE", db_path)
         _seed_eic_db(db_path, {"s1": cdf_path})
 
-        def _unreadable(_path):
+        def _unreadable(_path, _rt_range=None):
             raise OSError("invalid CDF")
 
         monkeypatch.setattr(
@@ -699,7 +699,7 @@ class TestRecoveryAfterEmptyExtract:
 
         monkeypatch.setattr(
             "manic.io.eic_importer.read_cdf_file",
-            lambda path: SimpleNamespace(sample_name=Path(path).stem),
+            lambda path, _rt_range=None: SimpleNamespace(sample_name=Path(path).stem),
         )
         replacement_time = np.array([717.0, 717.1], dtype=np.float64)
 
@@ -745,7 +745,7 @@ class TestRecoveryAfterEmptyExtract:
         new_intensity = np.array([2.0, 20.0, 2.0], dtype=np.float64)
         monkeypatch.setattr(
             "manic.io.eic_importer.read_cdf_file",
-            lambda _path: object(),
+            lambda _path, _rt_range=None: object(),
         )
         monkeypatch.setattr(
             "manic.io.eic_importer.extract_eic",
@@ -908,7 +908,7 @@ class TestRecoveryAfterEmptyExtract:
 
         monkeypatch.setattr(
             "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
+            lambda _path, _rt_range=None: SimpleNamespace(sample_name="s1"),
         )
         monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
         monkeypatch.setattr(
@@ -947,7 +947,7 @@ class TestRecoveryAfterEmptyExtract:
         _seed_eic_db(db_path, {"s1": cdf_path})
         monkeypatch.setattr(
             "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
+            lambda _path, _rt_range=None: SimpleNamespace(sample_name="s1"),
         )
         monkeypatch.setattr(
             "manic.io.eic_importer.extract_eic",
@@ -998,7 +998,7 @@ class TestRecoveryAfterEmptyExtract:
         _seed_eic_db(db_path, {"s1": cdf_path})
         monkeypatch.setattr(
             "manic.io.eic_importer.read_cdf_file",
-            lambda _path: SimpleNamespace(sample_name="s1"),
+            lambda _path, _rt_range=None: SimpleNamespace(sample_name="s1"),
         )
         monkeypatch.setattr(
             "manic.io.eic_importer.extract_eic",
@@ -1075,7 +1075,7 @@ class TestRecoveryAfterEmptyExtract:
             )
         monkeypatch.setattr(
             "manic.io.eic_importer.read_cdf_file",
-            lambda _path: object(),
+            lambda _path, _rt_range=None: object(),
         )
         monkeypatch.setattr(
             "manic.io.eic_importer.extract_eic",
@@ -1133,7 +1133,7 @@ class TestRecoveryAfterEmptyExtract:
         _seed_eic_db(db_path, sample_files)
         monkeypatch.setattr(
             "manic.io.eic_importer.read_cdf_file",
-            lambda path: SimpleNamespace(sample_name=Path(path).stem),
+            lambda path, _rt_range=None: SimpleNamespace(sample_name=Path(path).stem),
         )
         seen = []
 

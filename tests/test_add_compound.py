@@ -524,27 +524,25 @@ def test_unlabelled_dialog_rejects_negative_values_before_closing(qapp, field, m
     assert getattr(dialog, field).text() == "-1"
 
 
-def test_number_fields_read_a_decimal_point_in_a_comma_locale(qapp):
+@pytest.mark.parametrize("locale", ["de_DE", "en_US"])
+@pytest.mark.parametrize("typed", ["0.125", "0,125"])
+def test_a_typed_point_or_comma_is_the_decimal_mark_in_any_locale(qapp, locale, typed):
     from PySide6.QtCore import QLocale
     from PySide6.QtTest import QTest
 
     previous = QLocale()
-    QLocale.setDefault(QLocale("de_DE"))
+    QLocale.setDefault(QLocale(locale))
     try:
         dialog = AddCompoundDialog(analysis_mode=AnalysisMode.UNLABELLED)
         _fill_unlabelled(dialog)
-        # Typed, as a user does: Qt's own parser would read 0.125 as 125 here.
-        dialog.retention_time.selectAll()
-        QTest.keyClicks(dialog.retention_time, "0.125")
-        dialog.amount_in_std_mix.setText("0.125")
+        # Typed as a user does. Qt's own parsing gave 125 for one of these in each locale.
+        for field in (dialog.retention_time, dialog.amount_in_std_mix):
+            field.selectAll()
+            QTest.keyClicks(field, typed)
         record = dialog.build_record()
-        dialog.int_std_amount.setText("0,25")
-        refused = [message for _fields, message in dialog._required_problems()]
     finally:
         QLocale.setDefault(previous)
-    assert record.retention_time == 0.125
-    assert record.amount_in_std_mix == 0.125
-    assert refused == ["Int std amount is not a number."]
+    assert (record.retention_time, record.amount_in_std_mix) == (0.125, 0.125)
 
 
 

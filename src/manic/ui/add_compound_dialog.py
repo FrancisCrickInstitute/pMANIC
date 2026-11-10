@@ -51,10 +51,16 @@ from manic.ui.sidebar_widgets import divider
 from manic.ui.theme import set_style_property
 
 
-# Every number field reads a decimal point and no thousands separator, whatever the
-# system locale. In a comma locale Qt reads "0.125" as 125, a thousand times too large.
+# Every number field reads a point or a comma as the decimal mark and has no thousands
+# separator, whatever the system locale. Left to the locale, Qt reads "0.125" as 125 in
+# a comma locale, and with the comma simply refused a typed "0,125" lost it and gave 125.
 NUMBER_LOCALE = QLocale.c()
 NUMBER_LOCALE.setNumberOptions(QLocale.NumberOption.RejectGroupSeparator)
+
+
+class _DecimalValidator(QDoubleValidator):
+    def validate(self, text: str, pos: int):
+        return super().validate(text.replace(",", "."), pos)
 
 
 class _BlankZero:
@@ -71,7 +77,7 @@ class _BlankZero:
     def validate(self, text: str, pos: int):
         if not text.strip():
             return (QValidator.Acceptable, text, pos)
-        return super().validate(text, pos)
+        return super().validate(text.replace(",", "."), pos)
 
 
 class _BlankZeroSpinBox(_BlankZero, QDoubleSpinBox):
@@ -585,7 +591,7 @@ class AddCompoundDialog(QDialog):
     def _optional_float_edit(placeholder: str = "Optional") -> QLineEdit:
         edit = QLineEdit()
         edit.setPlaceholderText(placeholder)
-        validator = QDoubleValidator()
+        validator = _DecimalValidator()
         validator.setNotation(QDoubleValidator.StandardNotation)
         validator.setLocale(NUMBER_LOCALE)
         edit.setValidator(validator)

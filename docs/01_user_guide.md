@@ -223,6 +223,7 @@ If you make a mistake or want to revert to the original library definitions:
 1.  Select the target plots.
 2.  Click the **Reset** button in the **Peak window** section.
 3.  This removes all session-specific overrides for those samples.
+4.  The plots redraw with the default window, and each tile shows its verdict for that window.
 
 ### Fix a missing qualifier ratio
 

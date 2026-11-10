@@ -1799,9 +1799,16 @@ class MainWindow(QMainWindow):
         logger.info(f"Session data restored for {compound_name}, refreshing plots")
 
         try:
+            if self._validation_provider is not None:
+                self._validation_provider.invalidate_cache()
+
             current_samples = self.graph_view.get_current_samples()
+            validation_data = self._peak_verdicts(compound_name, current_samples)
+
             provider, identity = self._identity_snapshot(compound_name, current_samples)
-            self.graph_view.refresh_plots_with_session_data(identity=identity)
+            self.graph_view.refresh_plots_with_session_data(
+                validation_data, identity=identity
+            )
             self._refresh_mode_charts(
                 compound_name, current_samples, identity=identity, provider=provider
             )

@@ -1273,10 +1273,14 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self._show_message("warning", "Add Compound", str(exc))
                 return
-            required = minimum_extract_rt_window(compound.loffset, compound.roffset)
-            tr_window = max(DEFAULT_RT_WINDOW, required)
-            if compound.rt_tolerance is not None:
-                tr_window = max(tr_window, float(compound.rt_tolerance))
+            tr_window = max(
+                DEFAULT_RT_WINDOW,
+                minimum_extract_rt_window(
+                    compound.loffset,
+                    compound.roffset,
+                    rt_tolerance=compound.rt_tolerance,
+                ),
+            )
             self.on_data_regeneration_requested(
                 compound_name,
                 tr_window,

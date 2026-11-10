@@ -79,7 +79,7 @@ def _iter_compounds(conn):
     rows = conn.execute(
         """
         SELECT c.compound_name, c.retention_time, c.mass0, c.label_atoms,
-               c.loffset, c.roffset,
+               c.loffset, c.roffset, c.rt_tolerance,
                ci.mz AS channel_mz
         FROM compounds c
         LEFT JOIN compound_ions ci ON ci.compound_name = c.compound_name
@@ -99,6 +99,7 @@ def _iter_compounds(conn):
                 "label_atoms": int(row["label_atoms"] or 0),
                 "loffset": float(row["loffset"] or 0.0),
                 "roffset": float(row["roffset"] or 0.0),
+                "rt_tolerance": row["rt_tolerance"],
                 "target_mzs": [],
             },
         )
@@ -119,7 +120,7 @@ def _iter_compounds(conn):
             label_atoms=data["label_atoms"],
             target_mzs=target_mzs,
             required_rt_window=minimum_extract_rt_window(
-                data["loffset"], data["roffset"]
+                data["loffset"], data["roffset"], rt_tolerance=data["rt_tolerance"]
             ),
         )
 
@@ -974,7 +975,9 @@ def regenerate_all_eics_with_mass_tolerance(
                     label_atoms=base_target.label_atoms,
                     target_mzs=base_target.target_mzs,
                     required_rt_window=max(
-                        rt_window if stored is None else stored,
+                        max(rt_window, base_target.required_rt_window)
+                        if stored is None
+                        else stored,
                         minimum_extract_rt_window(row["loffset"], row["roffset"]),
                     ),
                 )

@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from manic.constants import DEFAULT_MASS_TOLERANCE
 from manic.io.eic_importer import (
+    NothingToRegenerateError,
     import_eics,
     regenerate_all_eics_with_mass_tolerance,
     regenerate_compound_eics,
@@ -104,7 +105,7 @@ class EicRegenerationWorker(QObject):
 class MassToleranceReloadWorker(QObject):
     progress = Signal(int, int)  # current, total
     finished = Signal(int, list)  # eics regenerated, samples that failed
-    failed = Signal(str)
+    failed = Signal(str, bool)  # error, whether EICs may already be replaced
 
     def __init__(self, mass_tol: float, rt_window: float = 0.2, sample_names=None):
         super().__init__()
@@ -123,7 +124,7 @@ class MassToleranceReloadWorker(QObject):
             )
             self.finished.emit(count, failed_samples)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(str(exc), not isinstance(exc, NothingToRegenerateError))
 
 
 class ExportWorker(QObject):

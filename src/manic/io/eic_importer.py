@@ -24,6 +24,10 @@ from manic.io.ms_reader import store_ms_data_batch
 logger = logging.getLogger(__name__)
 
 
+class NothingToRegenerateError(RuntimeError):
+    """Raised before any sample's EICs were replaced."""
+
+
 @dataclass(frozen=True, slots=True)
 class CompoundExtractionTarget:
     compound_name: str
@@ -892,14 +896,14 @@ def regenerate_all_eics_with_mass_tolerance(
         sample_rows = [row for row in sample_rows if row["sample_name"] in sample_names]
 
     if not sample_rows:
-        raise RuntimeError("No samples found in database")
+        raise NothingToRegenerateError("No samples found in database")
 
     with get_connection() as conn:
         compounds = list(_iter_compounds(conn, include_deleted=True))
     targets_by_name = {target.compound_name: target for target in compounds}
 
     if not compounds:
-        raise RuntimeError("Compounds table is empty")
+        raise NothingToRegenerateError("Compounds table is empty")
 
     # Count compounds that will need correction
     corrections_needed = 0

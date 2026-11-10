@@ -34,6 +34,20 @@ label_colors = [
     QColor(127, 127, 127),   # gray - M+7
     QColor(188, 189, 34),    # olive - M+8
     QColor(23, 190, 207),    # cyan - M+9
+    # M+10 to M+19: the lighter partner of M+0 to M+9 (matplotlib tab20).
+    QColor(174, 199, 232),
+    QColor(255, 187, 120),
+    QColor(152, 223, 138),
+    QColor(255, 152, 150),
+    QColor(197, 176, 213),
+    QColor(196, 156, 148),
+    QColor(247, 182, 210),
+    QColor(199, 199, 199),
+    QColor(219, 219, 141),
+    QColor(158, 218, 229),
+    # M+20 to M+100: golden-angle hue steps keep each new hue far from its neighbours.
+    # shortcut: 100 is the Add compound limit; an imported list with more label atoms repeats colours past M+100.
+    *(QColor.fromHsvF(i * 0.381966 % 1, 0.65, 0.85 if i % 2 else 0.6) for i in range(20, 101)),
 ]
 
 QUALIFIER_GREEN = QColor(QUALIFIER_OUTCOME_FILL[QualifierOutcome.PASS])

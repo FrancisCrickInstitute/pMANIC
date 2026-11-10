@@ -396,9 +396,11 @@ Use the **‹ ›** buttons in the header, or the left and right arrow keys, to 
 
 ### Summary Panel
 
-![Label incorporation chart enlarged from the Summary panel](_assets/screenshots/label_incorporation_popup.png)
+![Isotopologue ratio chart enlarged from the Summary panel](_assets/screenshots/label_incorporation_popup.png)
 
-The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
+The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Isotopologue ratio** and **Peak area**. In unlabelled mode, **Identity** replaces Isotopologue ratio.
+
+**Isotopologue ratio** splits each sample's bar into each isotopologue's share (M+0, M+1, ...) of its total area. With **Show corrected data** ticked, the shares match the **Isotope Ratio** sheet. Unticked (the default), they come from raw areas. The chart is not **% Label Incorporation**, which also subtracts the MM background.
 
 * **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. The panel opens on its own only in a window with room for three columns of plots beside it. Narrowing the window past that closes it, and widening it again brings it back. You can still open it in a narrower window, as long as two columns of plots fit.
 * **Enlarge:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
@@ -500,7 +502,7 @@ The **Deconvolution** section of the sidebar, under **Peak window**, shows the s
 ![Settings, Natural abundance page](_assets/screenshots/settings_natural_abundance.png)
 
 * Checkbox: **Show corrected data**. Off by default.
-* **Function:** Controls what the main chromatogram plots and the Label incorporation bars show.
+* **Function:** Controls what the main chromatogram plots and the Isotopologue ratio bars show.
     * Ticked: Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * Unticked: Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
 * **Usage:** Toggle this to check how correction redistributes the isotopologue signals.

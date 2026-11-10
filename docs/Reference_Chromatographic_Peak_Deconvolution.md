@@ -183,7 +183,7 @@ Whichever check sends a channel to its raw trace, MANIC does not blank the plot 
 
 ## Natural Abundance Correction preview
 
-**Show corrected data** (**Settings → Natural abundance**) changes only what the UI draws and what the Label Incorporation bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
+**Show corrected data** (**Settings → Natural abundance**) changes only what the UI draws and what the Isotopologue ratio bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
 
 Preview on:
 

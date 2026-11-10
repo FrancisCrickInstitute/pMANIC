@@ -2265,9 +2265,7 @@ class MainWindow(QMainWindow):
                 # The EICs must follow the restored tRs, or the user has to Apply each compound.
                 QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
                 try:
-                    not_reextracted = reextract_session_eics(
-                        processing.mass_tolerance or self.mass_tolerance
-                    )
+                    not_reextracted = reextract_session_eics(self.mass_tolerance)
                 finally:
                     QApplication.restoreOverrideCursor()
                 if self._validation_provider is not None:
@@ -2308,8 +2306,9 @@ class MainWindow(QMainWindow):
                 show_status_toast(self.statusBar(), message, hover=file_path)
                 logger.info(f"Session overrides imported from {file_path}")
                 self._refresh_after_session_import()
-                # After the synchronous re-extraction and refresh: a changed tolerance starts
-                # a background regeneration that deletes and rewrites every EIC row.
+                # Last: a changed tolerance regenerates every EIC in the background. The
+                # re-extraction above ran at the current tolerance, so a sample whose
+                # regeneration fails keeps EICs of one tolerance, not a mix of two.
                 if processing.min_peak_height_ratio is not None:
                     self.apply_min_peak_area_ratio(processing.min_peak_height_ratio)
                 if processing.mass_tolerance is not None:

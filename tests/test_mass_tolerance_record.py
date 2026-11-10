@@ -94,9 +94,9 @@ def test_import_applies_session_tolerance_and_threshold(qapp, monkeypatch, tmp_p
 
     calls = _import(monkeypatch, window, session)
 
-    # Re-extraction runs at the session's tolerance, and the full regeneration starts
-    # only after it, so the two never write EIC rows at once.
-    assert calls == [("reextract", 0.5), ("regenerate", 0.5)]
+    # Re-extraction runs at the tolerance the stored EICs have, then the full regeneration
+    # at the session's: a sample whose regeneration fails keeps EICs of one tolerance.
+    assert calls == [("reextract", 0.2), ("regenerate", 0.5)]
     assert (window.mass_tolerance, window.min_peak_height_ratio) == (0.5, 0.02)
     window.close()
 

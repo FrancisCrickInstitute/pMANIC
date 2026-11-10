@@ -712,12 +712,16 @@ class DeconvolutionPage(SettingsPage):
         self.sample_fit_table.setFixedHeight(header + visible_rows * row_h + frame)
 
     def _rebuild_override_table(
-        self, overrides: dict[tuple[str, str], str], selected: list[str]
+        self,
+        overrides: dict[tuple[str, str], str],
+        selected: list[str],
+        staged: dict[str, str | None] | None = None,
     ) -> None:
+        staged = staged or {}
         self._loaded_overrides = {
             sample: fit_type for (_, sample), fit_type in overrides.items()
         }
-        samples = sorted(set(self._loaded_overrides) | set(selected))
+        samples = sorted(set(self._loaded_overrides) | set(selected) | set(staged))
         table = self.sample_fit_table
         with QSignalBlocker(table):
             table.clearSelection()
@@ -728,7 +732,9 @@ class DeconvolutionPage(SettingsPage):
                 item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 table.setItem(row, 0, item)
                 combo = ComboBox()
-                self._fill_fit_options(combo, self._loaded_overrides.get(sample))
+                self._fill_fit_options(
+                    combo, staged.get(sample, self._loaded_overrides.get(sample))
+                )
                 combo.currentIndexChanged.connect(self._on_row_fit_changed)
                 table.setCellWidget(row, 1, combo)
                 if sample in selected:
@@ -757,6 +763,16 @@ class DeconvolutionPage(SettingsPage):
             for row, combo in enumerate(self._row_combos())
             if combo.currentData() != self._loaded_overrides.get(table.item(row, 0).text())
         }
+
+    def refresh(self) -> None:
+        # Unsaved edits stay, but the table still follows the plot selection.
+        if self.is_dirty() and self._compound_name == self.host.selected_compound_name():
+            self._rebuild_override_table(
+                get_sample_fit_types(self._compound_name),
+                list(self.host.selected_sample_names()),
+                self._staged_sample_changes(),
+            )
+        super().refresh()
 
     def load(self) -> None:
         self._compound_name = self.host.selected_compound_name()

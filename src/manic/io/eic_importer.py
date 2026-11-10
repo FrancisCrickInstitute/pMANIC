@@ -663,7 +663,9 @@ def regenerate_compound_eics(
             )
 
         try:
-            cdf = read_cdf_file(cdf_path)
+            cdf = read_cdf_file(
+                cdf_path, (sample_rt - tr_window, sample_rt + tr_window)
+            )
             extracted_eics[sample_name] = extract_eic(
                 compound_name,
                 sample_rt,

@@ -436,23 +436,33 @@ def test_unlabelled_excel_export_uses_targeted_sheets(empty_db, tmp_path):
         rOffset=1.1,
         QIon=217,
         QualifierIon1=147,
-        **{"Qualifier 1 Ratio": 0.4, "Qualifier 1 Tolerance": 0.25},
+        QualifierIon2=73,
+        **{
+            "Qualifier 1 Ratio": 0.4,
+            "Qualifier 1 Tolerance": 0.25,
+            "Qualifier 2 Ratio": 0.2,
+            "Qualifier 2 Tolerance": 0.25,
+        },
+    )
+    _import_targets(
+        tmp_path,
+        name="Failed",
+        tR=1.0,
+        lOffset=1.1,
+        rOffset=1.1,
+        QIon=217,
+        QualifierIon1=147,
+        **{"Qualifier 1 Ratio": 0.8, "Qualifier 1 Tolerance": 0.25},
     )
 
-    _insert_eic(
-        "S1",
-        "Target",
-        [0.0, 1.0, 2.0],
-        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
-        rt_window=1.1,
-    )
-    _insert_eic(
-        "S1",
-        "Passed",
-        [0.0, 1.0, 2.0],
-        [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0]],
-        rt_window=1.1,
-    )
+    for compound, qualifier_2 in (("Target", []), ("Passed", [[0.0, 2.0, 0.0]]), ("Failed", [])):
+        _insert_eic(
+            "S1",
+            compound,
+            [0.0, 1.0, 2.0],
+            [[0.0, 10.0, 0.0], [0.0, 4.0, 0.0], *qualifier_2],
+            rt_window=1.1,
+        )
 
     export_path = tmp_path / "targeted.xlsx"
     assert DataExporter(AnalysisMode.UNLABELLED).export_to_excel(str(export_path))
@@ -477,26 +487,29 @@ def test_unlabelled_excel_export_uses_targeted_sheets(empty_db, tmp_path):
     assert abundances["A3"].value == "tR"
     assert abundances["A4"].value == "Units"
     qc = workbook["Qualifier QC"]
-    assert [cell.value for cell in qc[1][:7]] == [
-        "Sample",
-        "Compound",
-        "Q Ion m/z",
-        "Q Ion Area",
-        "Qualifier Ion",
-        "Qualifier Ion m/z",
-        "Qualifier Ion Area",
+    # C-F Target, G gap, H-N Passed (two qualifiers), O gap, P-S Failed.
+    assert [[cell.value for cell in row] for row in qc.iter_rows()] == [
+        ["Compound Name", None, *["Target"] * 4, None, *["Passed"] * 7, None, *["Failed"] * 4],
+        ["Ion", None, "Quant", *["Qual 1"] * 3, None, "Quant", *["Qual 1"] * 3, *["Qual 2"] * 3]
+        + [None, "Quant", *["Qual 1"] * 3],
+        ["Mass", None, 217, 147, 147, 147, None, 217, 147, 147, 147, 73, 73, 73]
+        + [None, 217, 147, 147, 147],
+        ["Tolerance", None, None, None, None, None, None, None, *[0.25] * 6]
+        + [None, None, 0.25, 0.25, 0.25],
+        ["Value", None, "Area", "Area", "Obs ratio", "Exp ratio", None]
+        + ["Area", *["Area", "Obs ratio", "Exp ratio"] * 2]
+        + [None, "Area", "Area", "Obs ratio", "Exp ratio"],
+        [None, "S1", 10.0, 4.0, 0.4, None, None, 10.0, 4.0, 0.4, 0.4, 2.0, 0.2, 0.2]
+        + [None, 10.0, 4.0, 0.4, 0.8],
     ]
-    assert qc["D2"].value == pytest.approx(10.0)
-    assert qc["G2"].value == pytest.approx(4.0)
-    assert qc["L1"].value == "Outcome"
-    assert qc["B2"].value == "Target"
-    assert qc["L2"].value == "No qualifiers"
-    assert qc["A2"].fill.fgColor.rgb == "FF868E96"
-    assert qc["L2"].fill.fgColor.rgb == "FF868E96"
-    assert qc["B3"].value == "Passed"
-    assert qc["L3"].value == "Pass"
-    assert qc["A3"].fill.fgColor.rgb == "FF2F9E44"
-    assert qc["L3"].fill.fgColor.rgb == "FF2F9E44"
+    # Only observed ratios are shaded: grey not assessed, none passed, red outside.
+    fills = {
+        cell.coordinate: cell.fill.fgColor.rgb
+        for cell in qc[6]
+        if cell.fill.fill_type is not None
+    }
+    assert fills == {"E6": "FFE7E6E6", "R6": "FFFFCCCC"}
+    assert qc.freeze_panes == "C6"
 
 
 def test_unlabelled_excel_export_baseline_off_header_is_blue(empty_db, tmp_path):
@@ -728,8 +741,8 @@ def test_deconvolution_on_quantifies_q_only_and_pairs_vq(empty_db, tmp_path):
     assert raw["C4"].value == pytest.approx(areas[0])
     assert raw["D4"].value is None
     qc = exported["Qualifier QC"]
-    assert qc["D2"].value == pytest.approx(areas[0])
-    assert qc["G2"].value == pytest.approx(areas[1])
+    assert qc["C6"].value == pytest.approx(areas[0])
+    assert qc["D6"].value == pytest.approx(areas[1])
 
 
 def test_raw_calibrated_expected_ratio_fails_after_deconvolution_on(

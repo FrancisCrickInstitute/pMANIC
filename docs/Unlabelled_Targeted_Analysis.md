@@ -265,7 +265,9 @@ Verification:
 
 MANIC extracts one multi-channel EIC per compound per sample: channel 0 is the
 Q ion, subsequent channels are qualifier ions in ordinal order. The extraction window
-is widened if needed so configured `lOffset` / `rOffset` are not clipped.
+is at least the compound's `tR Window`, and is widened if needed so configured
+`lOffset` / `rOffset` are not clipped. A compound gets the same window whether it
+came from the compound list or from **Add Compound**.
 
 Natural-abundance correction is **not** applied in this mode.
 

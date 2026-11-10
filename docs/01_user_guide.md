@@ -526,7 +526,7 @@ Rebuild a labelled export from the "Raw Values" (integrated peak areas) of an ol
 1.  Choose **File → Process External Data...**, or click **Rebuild an export without CDF files…** on the labelled start screen.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**.
-4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen.
+4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen. A standard without both `int_std_amount` and `amount_in_std_mix` is listed under **No amount: exports peak areas**, and choosing it writes **Peak Area** abundances.
 5.  Click **Rebuild export…**.
 6.  In **Save Rebuilt Export**, choose the output workbook and save.
 

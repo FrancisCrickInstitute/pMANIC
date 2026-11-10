@@ -43,7 +43,7 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 1.  Choose **File → Process External Data...**.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**. If a file cannot be used, the reason shows under its field and **Rebuild export…** stays off.
-4.  Optionally choose an **Internal standard**. The list fills in once a compound list is chosen.
+4.  Optionally choose an **Internal standard**. The list fills in once a compound list is chosen. A standard without both `int_std_amount` and `amount_in_std_mix` is listed under **No amount: exports peak areas**, and choosing it writes **Peak Area** abundances.
 5.  Click **Rebuild export…**.
 6.  In **Save Rebuilt Export**, choose the output workbook and save.
 

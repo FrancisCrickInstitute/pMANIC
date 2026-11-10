@@ -68,6 +68,7 @@ class UpdateOldDataDialog(QDialog):
 
         self.compounds_path = None
         self.raw_values_path = None
+        self._lacking: set[str] = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
@@ -135,7 +136,7 @@ class UpdateOldDataDialog(QDialog):
         self._show_error(self._compounds_error, error)
         names = [c["compound_name"] for c in compounds]
         # The rebuild is labelled: calibrating needs both amounts, as in the sidebar.
-        lacking = {
+        lacking = self._lacking = {
             c["compound_name"]
             for c in compounds
             if not all((c[f] or 0) > 0 for f in ("int_std_amount", "amount_in_std_mix"))
@@ -177,4 +178,6 @@ class UpdateOldDataDialog(QDialog):
         return self.compounds_path, self.raw_values_path
 
     def get_internal_standard(self) -> str | None:
-        return self.standard_picker.standard()
+        # The chooser lists a standard without both amounts under "No amount: exports peak areas".
+        name = self.standard_picker.standard()
+        return None if name in self._lacking else name

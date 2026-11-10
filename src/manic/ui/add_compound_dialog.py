@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic import ValidationError
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
+from PySide6.QtCore import QEvent, QLocale, QPoint, Qt, QTimer
 from PySide6.QtGui import QDoubleValidator, QValidator
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -272,6 +272,24 @@ class AddCompoundDialog(QDialog):
                 problems.append(((field,), f"Enter {noun}."))
             elif field.value() <= 0:
                 problems.append(((field,), f"{label} must be greater than 0."))
+        optional = [
+            (self.amount_in_std_mix, "Amount in std mix"),
+            (self.int_std_amount, "Int std amount"),
+        ]
+        if self._mode is AnalysisMode.UNLABELLED:
+            optional += [
+                (self.rt_window, "tR window"),
+                (self.qualifier1_ratio, "Qualifier 1 expected ratio"),
+                (self.qualifier2_ratio, "Qualifier 2 expected ratio"),
+            ]
+        for field, label in optional:
+            try:
+                value = self._optional_float(field)
+            except ValueError:
+                problems.append(((field,), f"{label} is not a number."))
+                continue
+            if value is not None and value < 0:
+                problems.append(((field,), f"{label} cannot be negative."))
         return problems
 
     def _locate_error(self, exc: Exception) -> tuple[tuple[QWidget, ...], str]:
@@ -568,4 +586,11 @@ class AddCompoundDialog(QDialog):
         text = edit.text().strip()
         if not text:
             return None
-        return float(text)
+        # The validator accepts the user's locale ("0,25" in de_DE); fall back to
+        # C so "0.25" still parses in a comma locale.
+        value, ok = edit.validator().locale().toDouble(text)
+        if not ok:
+            value, ok = QLocale.c().toDouble(text)
+        if not ok:
+            raise ValueError(f"{text!r} is not a number")
+        return value

@@ -73,6 +73,7 @@ class IsotopologueRatioWidget(QWidget):
         self.setObjectName("isotopologueRatioWidget")
 
         self.use_corrected = False
+        self.use_legacy = False
 
         self.chart = QChart()
         self.chart_view = QChartView(self.chart)
@@ -92,7 +93,7 @@ class IsotopologueRatioWidget(QWidget):
 
         style_chart(self.chart, QMargins(8, 0, 8, 0))
 
-        self.header = ChartHeader("Label incorporation")
+        self.header = ChartHeader("Isotopologue ratio")
         self.header.expand_button.clicked.connect(self._show_popup_chart)
 
         self.key = QLabel()
@@ -187,6 +188,7 @@ class IsotopologueRatioWidget(QWidget):
                 eic.intensity,
                 compound,
                 use_corrected=self.use_corrected,
+                use_legacy=self.use_legacy,
             )
             total_area = sum(isotope_areas)
             total_abundances.append(total_area)
@@ -409,7 +411,7 @@ class IsotopologueRatioWidget(QWidget):
 
             dialog = ChartPopupDialog(
                 chart_type="isotopologue_ratios",
-                title="Label incorporation",
+                title="Isotopologue ratio",
                 data=self._current_ratios,
                 sample_names=self._current_sample_names,
                 parent=self,

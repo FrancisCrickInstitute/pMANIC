@@ -1497,6 +1497,7 @@ class MainWindow(QMainWindow):
                 loffset=compound.loffset,
                 roffset=compound.roffset,
                 channel_count=channel_count,
+                use_legacy=self.use_legacy_integration,
                 baseline_correction=baseline_correction,
                 chromatographic_peak_deconvolution_stringency=compound.deconvolution_level,
                 chromatographic_peak_deconvolution_fit_type=compound.deconvolution_fit_type,
@@ -1551,6 +1552,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         current_eics = self._get_current_eics()
         if self.analysis_mode is AnalysisMode.LABELLED:
+            self.summary.isotopologue_ratios.use_legacy = self.use_legacy_integration
             self.summary.isotopologue_ratios.update_ratios(
                 compound_name, current_eics
             )
@@ -1595,6 +1597,7 @@ class MainWindow(QMainWindow):
     def on_compound_selected(self, compound_selected):
         samples = self.toolbar.get_selected_samples()
         self.update_deconvolution_indicator(compound_selected)
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy, replot=False)
         self.on_plot_button(compound_selected, samples)
         if self.settings_window is not None:
             self.settings_window.refresh()
@@ -1625,6 +1628,8 @@ class MainWindow(QMainWindow):
 
             if self._validation_provider:
                 self._validation_provider.invalidate_cache()
+
+            self._clear_inactive_internal_standard(active_compounds)
 
             logger.info(f"Deleted {len(compound_names)} compound(s)")
 
@@ -1756,6 +1761,10 @@ class MainWindow(QMainWindow):
             # Verdicts and areas do not depend on the selection; the charts only re-highlight.
             self.summary.set_highlighted(selected_samples)
 
+        # open() refreshes a hidden window, so only a visible one needs it on each click.
+        if self.settings_window is not None and self.settings_window.isVisible():
+            self.settings_window.refresh()
+
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")
 
@@ -1766,28 +1775,14 @@ class MainWindow(QMainWindow):
             current_samples = self.graph_view.get_current_samples()
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
+            # The refresh re-selects the tiles, and selection_changed refills the fields.
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )
-
-            # The delay lets the plot refresh finish before the fields update.
-
-            def update_integration_window():
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                if compound_name:
-                    self.toolbar.integration.populate_fields_from_plots(
-                        compound_name, current_selected, all_samples
-                    )
-
-            QTimer.singleShot(100, update_integration_window)
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data update: {e}")
@@ -1804,25 +1799,11 @@ class MainWindow(QMainWindow):
 
         try:
             current_samples = self.graph_view.get_current_samples()
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(identity=identity)
-
-            def update_integration_window():
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                if compound_name:
-                    self.toolbar.integration.populate_fields_from_plots(
-                        compound_name, current_selected, all_samples
-                    )
-
-            # The delay lets the plot refresh finish before the fields update.
-            QTimer.singleShot(100, update_integration_window)
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data restore: {e}")
@@ -1847,16 +1828,13 @@ class MainWindow(QMainWindow):
             current_samples = self.graph_view.get_current_samples()
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )
-
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(
@@ -2075,16 +2053,11 @@ class MainWindow(QMainWindow):
                 self.toolbar.integration._pending_session_update = None
 
             current_compound = self.graph_view.get_current_compound()
-            current_selected = self.graph_view.get_selected_samples()
             current_samples = self.graph_view.get_current_samples()
 
             if current_compound and current_samples:
                 if self._validation_provider is not None:
                     self._validation_provider.invalidate_cache()
-
-                self.toolbar.integration.populate_fields_from_plots(
-                    current_compound, current_selected, current_samples
-                )
 
                 self.toolbar.integration.populate_tr_window_field(current_compound)
 
@@ -2432,6 +2405,11 @@ class MainWindow(QMainWindow):
             )
             return InternalStandardRestore(InternalStandardRestoreKind.FAILED)
 
+    def _clear_inactive_internal_standard(self, active_compounds: list[str]) -> None:
+        standard = self.toolbar.get_internal_standard()
+        if standard is not None and standard not in active_compounds:
+            self.toolbar.on_internal_standard_cleared()
+
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""
         try:
@@ -2439,6 +2417,7 @@ class MainWindow(QMainWindow):
             active_samples = list_active_samples()
             self.toolbar.update_compound_list(active_compounds)
             self.toolbar.update_sample_list(active_samples)
+            self._clear_inactive_internal_standard(active_compounds)
 
             selected_compound = self.toolbar.get_selected_compound()
             selected_samples = self.toolbar.get_selected_samples()
@@ -2689,6 +2668,7 @@ class MainWindow(QMainWindow):
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
         self.toolbar.sync_selected_peak_scale(self.toolbar.get_selected_compound())
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy, replot=False)
         if replot:
             self._replot_current_selection()
 

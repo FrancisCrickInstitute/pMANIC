@@ -722,11 +722,12 @@ class GraphView(QWidget):
                 return True
         return False
 
-    def set_y_scale_policy(self, policy: YScalePolicy):
+    def set_y_scale_policy(self, policy: YScalePolicy, *, replot: bool = True):
         if policy is self._y_scale_policy:
             return
         self._y_scale_policy = policy
-        self._replot_current()
+        if replot:
+            self._replot_current()
 
     def _replot_current(self) -> None:
         """Re-plot the current compound/samples after a display toggle."""
@@ -1228,10 +1229,11 @@ class GraphView(QWidget):
             force_destroy: If True, completely destroy widgets (slower but prevents artifacts).
                           If False, use pooling (faster but may have visual artifacts).
         """
-        self.clear_selection()
         self._current_compound = ""
         self._current_samples = []
         self._identity = None
+        # After the reset, so selection listeners do not reload a deleted compound.
+        self.clear_selection()
         self._hide_legend()
         self._set_title("")
         self._clear_layout(force_destroy=force_destroy)

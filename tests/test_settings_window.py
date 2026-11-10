@@ -1,5 +1,7 @@
+import zlib
 from unittest import mock
 
+import numpy as np
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
@@ -191,8 +193,9 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
         assert page._ratio_labels[1].text() == "expected ratio 0.4"
         assert page._spins[1].isVisible()
         assert page._spins[2].isVisible()
-        page._spins[1].setValue(0.3)
-        page._spins[2].setValue(0.0)
+        page._spins[1].lineEdit().selectAll()
+        QTest.keyClick(page._spins[1].lineEdit(), Qt.Key_Delete)
+        page._spins[2].setValue(0.3)
         settings.save_button.click()
         with database.get_connection() as conn:
             rows = conn.execute(
@@ -200,10 +203,7 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
                 "WHERE compound_name = 'Target' AND role = 'qualifier' "
                 "ORDER BY ordinal"
             ).fetchall()
-        assert rows[0]["ordinal"] == 1
-        assert rows[0]["ratio_tolerance"] == pytest.approx(0.3)
-        assert rows[1]["ordinal"] == 2
-        assert rows[1]["ratio_tolerance"] is None
+        assert [tuple(row) for row in rows] == [(1, None), (2, 0.3)]
         assert replots == [1]
     finally:
         if window.settings_window is not None:
@@ -259,6 +259,58 @@ def test_legacy_radio_save_enables_legacy_integration(labelled_window):
     assert settings.save_button.isEnabled()
     settings.save_button.click()
     assert labelled_window.use_legacy_integration is True
+
+
+def _seed_irregular_scans(window) -> None:
+    # Irregular scans separate the methods: time-based weights each step by
+    # its width, Legacy treats every step as one unit.
+    time = np.array([0.0, 0.25, 2.0])
+    with database.get_connection() as conn:
+        for name, label_atoms, intensity in (
+            ("Labelled", 1, [[2.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+            ("Single", 0, [2.0, 0.0, 1.0]),
+        ):
+            conn.execute(
+                "INSERT INTO compounds (compound_name, retention_time, loffset, "
+                "roffset, mass0, label_atoms) VALUES (?, 1.0, 2.0, 2.0, 100.0, ?)",
+                (name, label_atoms),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO samples (sample_name, file_name) "
+                "VALUES ('S', 'S.cdf')"
+            )
+            conn.execute(
+                "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, "
+                "rt_window) VALUES ('S', ?, ?, ?, 0.5)",
+                (
+                    name,
+                    zlib.compress(time.tobytes()),
+                    zlib.compress(np.asarray(intensity, dtype=np.float64).tobytes()),
+                ),
+            )
+    window.compound_data_loaded = window.cdf_data_loaded = True
+    window.toolbar.update_sample_list(["S"])
+    window.toolbar.update_compound_list(["Labelled", "Single"])
+
+
+def test_legacy_radio_save_reintegrates_labelled_summary_charts(labelled_window):
+    window = labelled_window
+    _seed_irregular_scans(window)
+
+    window.open_settings_window()
+    settings = window.settings_window
+    _select_page(settings, "Integration")
+    settings.findChild(IntegrationPage).legacy_radio.setChecked(True)
+    settings.save_button.click()
+
+    window.on_plot_button("Labelled", ["S"])
+    assert window.summary.isotopologue_ratios._current_ratios.tolist() == [
+        [2 / 3, 1 / 3]
+    ]
+    assert window.summary.total_abundance._current_abundances.tolist() == [1.5]
+
+    window.on_plot_button("Single", ["S"])
+    assert window.summary.total_abundance._current_abundances.tolist() == [1.5]
 
 
 def test_gear_button_and_menu_action_open_settings(labelled_window):

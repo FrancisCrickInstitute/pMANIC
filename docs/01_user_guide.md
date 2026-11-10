@@ -191,7 +191,7 @@ On a short window, such as a laptop screen with **Samples** open, the rows under
 * **Left offset / Right offset:** Controls the width of the window. Increase these to capture wider peaks; decrease to exclude adjacent peaks.
 * **tR:** Shifts the center of the window. Use this to align the window with shifted peaks.
 
-*Note: If multiple samples are selected with different values, the fields will display a range (e.g., `0.2 - 0.4`). Typing a new value will overwrite all selected samples with that single value.*
+*Note: If multiple samples are selected with different values, the fields will display a range (e.g., `0.2 - 0.4`). Typing a new value will overwrite all selected samples with that single value. A field you leave as a range keeps each sample's own value when you click **Apply**.*
 
 #### 5. Applying Changes
 1.  Enter your new values in the text fields.
@@ -208,6 +208,8 @@ To fix this, you must widen the underlying data extraction window:
 1.  Locate the **tR window** field in the **Peak window** section.
 2.  Increase the value (e.g., from `0.2` to `0.4` or `0.5`).
 3.  Click **Apply window**. The line under the field names how many samples it re-extracts, for example **Re-extracts all 30 shown samples**.
+
+If the shown samples hold different windows, the field shows the range, for example `0.3 - 0.8`. **Apply window** then asks for one value. When **Apply** has to re-extract samples, it uses the widest window among them, so a sample with a narrower window is widened.
 
 The extract must cover the current left and right offsets plus the RT window buffer (0.1 min by default). If the typed tR window sits inside those offsets, MANIC raises it to that minimum, updates the field, and continues.
 
@@ -257,6 +259,7 @@ You can delete samples or compounds directly from their respective list widgets.
 
 *   You cannot delete *all* samples or *all* compounds. At least one must remain.
 *   Deleted items are excluded from plots, calculations, and exports.
+*   Deleting the internal standard compound clears the internal standard. Recovering that compound does not select it again; choose it again from the **Internal standard** row.
 *   Deletion is reversible. See below.
 
 ### Recovering Deleted Items
@@ -356,7 +359,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
     2.  Load your Raw Data CDFs (Step 2).
     3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, and internal standard.
 * **Moved peak windows:** Where a saved tR or offset puts the peak window outside the data extracted for a sample, the import re-extracts that sample from its CDF file, as **Apply** does. You do not need to click **Apply** on each compound. If a CDF file has moved, the import names the compounds it could not re-extract.
-* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current internal standard unchanged.
+* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current internal standard unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared.
 
 ---
 
@@ -396,9 +399,11 @@ Use the **‹ ›** buttons in the header, or the left and right arrow keys, to 
 
 ### Summary Panel
 
-![Label incorporation chart enlarged from the Summary panel](_assets/screenshots/label_incorporation_popup.png)
+![Isotopologue ratio chart enlarged from the Summary panel](_assets/screenshots/label_incorporation_popup.png)
 
-The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
+The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Isotopologue ratio** and **Peak area**. In unlabelled mode, **Identity** replaces Isotopologue ratio.
+
+**Isotopologue ratio** splits each sample's bar into each isotopologue's share (M+0, M+1, ...) of its total area. With **Show corrected data** ticked, the shares match the **Isotope Ratio** sheet. Unticked (the default), they come from raw areas. The chart is not **% Label Incorporation**, which also subtracts the MM background.
 
 * **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. The panel opens on its own only in a window with room for three columns of plots beside it. Narrowing the window past that closes it, and widening it again brings it back. You can still open it in a narrower window, as long as two columns of plots fit.
 * **Enlarge:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
@@ -500,7 +505,7 @@ The **Deconvolution** section of the sidebar, under **Peak window**, shows the s
 ![Settings, Natural abundance page](_assets/screenshots/settings_natural_abundance.png)
 
 * Checkbox: **Show corrected data**. Off by default.
-* **Function:** Controls what the main chromatogram plots and the Label incorporation bars show.
+* **Function:** Controls what the main chromatogram plots and the Isotopologue ratio bars show.
     * Ticked: Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * Unticked: Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
 * **Usage:** Toggle this to check how correction redistributes the isotopologue signals.
@@ -517,7 +522,7 @@ Rebuild a labelled export from the "Raw Values" (integrated peak areas) of an ol
 
 **Prerequisites**
 
-1.  **Old Results File:** An Excel or CSV file containing a sheet/table of uncorrected peak areas (Raw Values).
+1.  **Old Results File:** An Excel (`.xlsx`) workbook with a **Raw Values** sheet of uncorrected peak areas. CSV files are not accepted.
 2.  **Compound List:** A labelled compound definition file (see Step 1), with **mass0** and **labelAtoms** columns, that matches the metabolites in your old results. This is required to provide the molecular formulas and atom counts needed for the new correction math.
 
 **Procedure**
@@ -525,7 +530,7 @@ Rebuild a labelled export from the "Raw Values" (integrated peak areas) of an ol
 1.  Choose **File → Process External Data...**, or click **Rebuild an export without CDF files…** on the labelled start screen.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**.
-4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen.
+4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen. A standard without both `int_std_amount` and `amount_in_std_mix` is listed under **No amount: exports peak areas**, and choosing it writes **Peak Area** abundances.
 5.  Click **Rebuild export…**.
 6.  In **Save Rebuilt Export**, choose the output workbook and save.
 

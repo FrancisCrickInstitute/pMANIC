@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
-from multiprocessing import get_context
+from multiprocessing import get_context, parent_process
 
 from manic.io.compound_reader import read_compound_with_session
 from manic.processors import chromatographic_peak_deconvolution as deconv
@@ -42,12 +43,26 @@ def _noop() -> None:
     return None
 
 
+def _exit_with_parent() -> None:
+    """Runs in each worker: a crashed or force-quit app must not leave its workers behind."""
+
+    def wait() -> None:
+        parent_process().join()
+        os._exit(0)
+
+    threading.Thread(target=wait, daemon=True).start()
+
+
 def start_pool() -> ProcessPoolExecutor:
     """Start the workers early so their imports overlap with other work."""
     global _pool
     if _pool is None:
         workers = min(os.cpu_count() or 1, 8)
-        _pool = ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"))
+        _pool = ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=get_context("spawn"),
+            initializer=_exit_with_parent,
+        )
         for _ in range(workers):
             _pool.submit(_noop)
     return _pool

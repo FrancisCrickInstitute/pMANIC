@@ -83,7 +83,7 @@ class EicRegenerationWorker(QObject):
         self._tr_window = tr_window
         self._sample_names = sample_names
         self._retention_time = retention_time
-        self._pending_regeneration = pending_regeneration
+        self.pending_regeneration = pending_regeneration
 
     @Slot()
     def run(self):
@@ -95,7 +95,7 @@ class EicRegenerationWorker(QObject):
                 mass_tol=self._mass_tol,
                 progress_cb=self.progress.emit,
                 retention_time=self._retention_time,
-                pending_regeneration=self._pending_regeneration,
+                pending_regeneration=self.pending_regeneration,
             )
             self.finished.emit(count)
         except Exception as exc:

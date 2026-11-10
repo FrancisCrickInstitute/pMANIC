@@ -1228,6 +1228,8 @@ class MainWindow(QMainWindow):
     def show_add_compound_dialog(self) -> None:
         from manic.ui.add_compound_dialog import AddCompoundDialog
 
+        if self._background_work_running("adding a compound"):
+            return
         dialog = AddCompoundDialog(
             self, self.analysis_mode, taken_names=taken_compound_names()
         )
@@ -1868,6 +1870,16 @@ class MainWindow(QMainWindow):
         select_when_done: bool = False,
     ):
         """Handle data regeneration request - start background regeneration with progress dialog"""
+        running = self._running_background_thread()
+        if running is not None:
+            # Apply has already swapped its pending update in for the running worker's.
+            self.toolbar.integration._pending_session_update = (
+                self._regen_worker.pending_regeneration
+                if running == "_regen_thread"
+                else None
+            )
+            self._background_work_running("regenerating EIC data")
+            return
         rt_description = (
             "per-sample retention times"
             if isinstance(retention_time, dict)
@@ -2205,6 +2217,8 @@ class MainWindow(QMainWindow):
         """Import session overrides from a session file."""
         from PySide6.QtWidgets import QFileDialog
 
+        if self._background_work_running("importing a session"):
+            return
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Import Session Overrides",
@@ -2642,6 +2656,8 @@ class MainWindow(QMainWindow):
     def apply_mass_tolerance(self, new_value: float) -> None:
         if new_value == self.mass_tolerance:
             return
+        if self._background_work_running("changing the mass tolerance"):
+            return
         logger.info(f"Mass tolerance changed from {self.mass_tolerance} to {new_value} Da")
         self._mass_tolerance_before_reload = self.mass_tolerance
         self.mass_tolerance = new_value
@@ -2962,6 +2978,8 @@ class MainWindow(QMainWindow):
         toggled the correction on in the UI), they will be automatically applied before
         export to ensure data integrity.
         """
+        if self._background_work_running("exporting"):
+            return
         try:
             options = ExportOptionsDialog(
                 self.use_legacy_integration,

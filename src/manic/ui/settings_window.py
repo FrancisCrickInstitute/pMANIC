@@ -83,6 +83,8 @@ class _ToleranceSpinBox(QDoubleSpinBox):
             self.setValue(0.0)
             steps -= 1
         super().stepBy(steps)
+        # Qt steps without rounding, so 0.009 down lands on -0.000999... not the minimum.
+        self.setValue(self.value())
 
     def validate(self, text: str, pos: int):
         if not text.strip():

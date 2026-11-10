@@ -1,6 +1,6 @@
 import logging
 import os
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QSignalBlocker,
     Qt,
     QThread,
+    QTimer,
     QUrl,
 )
 from PySide6.QtGui import (
@@ -1247,9 +1248,15 @@ class MainWindow(QMainWindow):
 
     def _after_compound_added(self, compound_name: str) -> None:
         first_compound = not self.compound_data_loaded
-        self.toolbar.update_compound_list(
-            list_compound_names(), selected_name=compound_name
-        )
+        samples = list_active_samples() if self.cdf_data_loaded else []
+        # With samples it has no EICs yet, so plotting it now shows "Missing data".
+        with QSignalBlocker(self.toolbar) if samples else nullcontext():
+            self.toolbar.update_compound_list(
+                list_compound_names(),
+                selected_name=(
+                    self.toolbar.get_selected_compound() if samples else compound_name
+                ),
+            )
         if first_compound:
             self.compound_data_loaded = True
             self.toolbar.update_label_colours(False, True)
@@ -1260,10 +1267,7 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
 
-        if self.cdf_data_loaded:
-            samples = list_active_samples()
-            if not samples:
-                return
+        if samples:
             try:
                 compound = read_compound(compound_name)
             except Exception as exc:
@@ -1278,6 +1282,7 @@ class MainWindow(QMainWindow):
                 tr_window,
                 samples,
                 compound.retention_time,
+                select_when_done=True,
             )
 
     def load_cdf_files(self):
@@ -1849,6 +1854,7 @@ class MainWindow(QMainWindow):
         tr_window: float,
         sample_names: list,
         retention_time: float | dict[str, float],
+        select_when_done: bool = False,
     ):
         """Handle data regeneration request - start background regeneration with progress dialog"""
         rt_description = (
@@ -1882,6 +1888,17 @@ class MainWindow(QMainWindow):
             self._regen_worker.progress.connect(self._update_regeneration_progress)
 
             self._regen_worker.finished.connect(self._regeneration_completed)
+            if select_when_done:
+                # This runs on the worker's thread; the timer selects on the window's.
+                self._regen_worker.finished.connect(
+                    lambda _count: QTimer.singleShot(
+                        0,
+                        self,
+                        lambda: self.toolbar.update_compound_list(
+                            list_compound_names(), selected_name=compound_name
+                        ),
+                    )
+                )
             self._regen_worker.failed.connect(self._regeneration_failed)
             self._regen_worker.finished.connect(self._regen_thread.quit)
             self._regen_worker.failed.connect(self._regen_thread.quit)

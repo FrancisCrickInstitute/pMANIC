@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from PySide6.QtCore import QObject
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -468,12 +469,15 @@ def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
             retention_time=5.5,
         ),
     )
+    toolbar = QObject()
+    toolbar.update_compound_list = lambda *args, **kwargs: None
+    toolbar.get_selected_compound = lambda: ""
     window = SimpleNamespace(
         compound_data_loaded=True,
         cdf_data_loaded=True,
         _validation_provider=None,
-        toolbar=SimpleNamespace(update_compound_list=lambda *args, **kwargs: None),
-        on_data_regeneration_requested=lambda *args: regen.append(args),
+        toolbar=toolbar,
+        on_data_regeneration_requested=lambda *args, **_kwargs: regen.append(args),
         _show_message=lambda *args: None,
     )
 

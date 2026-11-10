@@ -22,13 +22,22 @@ from test_plot import _assert_grid, _clear_fit_caches, _make_window
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.models import database
+from manic.ui import main_window
 from manic.ui.main_window import MainWindow
 
 ROOT = Path(__file__).resolve().parents[1]
 WAIT_TIMEOUT_MS = 120_000
 
 
-class _Box:
+class _Stub:
+    """Takes any call and returns itself, so a stubbed box accepts whatever buttons and
+    styling the app gives it, and the button it reports clicked is the one that was added."""
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: self
+
+
+class _Box(_Stub):
     """Stands in for a QMessageBox: records its title and answers Yes."""
 
     def __init__(self, log, title):
@@ -39,38 +48,43 @@ class _Box:
         self._log.append(self._title)
         return QMessageBox.Yes
 
-    def __getattr__(self, name):
-        return lambda *args, **kwargs: None
-
 
 @pytest.fixture
 def boxes(monkeypatch):
+    """Titles of the message boxes and texts of the status toasts, in the order shown."""
     log: list[str] = []
     monkeypatch.setattr(
         MainWindow,
         "_create_message_box",
         lambda self, msg_type, title, *args, **kwargs: _Box(log, title),
     )
-    monkeypatch.setattr(
-        MainWindow,
-        "_show_question_dialog",
-        lambda self, title, *args, **kwargs: _Box(log, title).exec(),
-    )
+    toast = main_window.show_status_toast
+
+    def logged_toast(bar, message, *args, **kwargs):
+        log.append(message)
+        return toast(bar, message, *args, **kwargs)
+
+    monkeypatch.setattr(main_window, "show_status_toast", logged_toast)
     return log
 
 
-def _wait_for_box(qapp, boxes: list[str], title: str, failure: str) -> None:
-    """Run the event loop until a background job posts its completion box."""
+def _wait_for_regeneration(qapp, boxes: list[str]) -> None:
+    """Run the event loop until a background regeneration posts its toast, or fails."""
+    failure = "Regeneration Failed"
+
+    def done() -> bool:
+        return failure in boxes or any(entry.startswith("Regenerated ") for entry in boxes)
+
     loop = QEventLoop()
     timer = QTimer()
     timer.setInterval(5)
-    timer.timeout.connect(lambda: (title in boxes or failure in boxes) and loop.quit())
+    timer.timeout.connect(lambda: done() and loop.quit())
     timer.start()
     QTimer.singleShot(WAIT_TIMEOUT_MS, loop.quit)
     loop.exec()
     timer.stop()
     assert failure not in boxes, boxes
-    assert title in boxes, f"timed out waiting for {title!r}: {boxes}"
+    assert done(), f"timed out waiting for a regeneration: {boxes}"
 
 
 def _fresh_db(db: Path, tmp_path: Path, rounds: list) -> Path:
@@ -111,6 +125,7 @@ import manic.main as entry
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 import manic.ui.analysis_mode_dialog as mode_dialog
+from manic.ui import main_window
 from manic.ui.main_window import MainWindow
 from PySide6.QtWidgets import QApplication
 
@@ -182,9 +197,9 @@ def test_session_roundtrip(case, db, qapp, boxes, benchmark, repeat, tmp_path, m
     try:
         benchmark.pedantic(roundtrip, setup=setup, rounds=repeat)
         assert boxes == [
-            "Session Export Successful",
+            "Exported session.json to manic_session_export",
             "Import Session Overrides",
-            "Session Import Successful",
+            "Imported session.json",
         ], boxes
         _assert_grid(rounds[-1], case, list_compound_names()[0])
     finally:
@@ -208,10 +223,10 @@ def test_regenerate(case, db, qapp, boxes, benchmark, repeat, tmp_path, restore_
     def regenerate(window, tr_window, mass_tol):
         window.toolbar.integration.tr_window_edit.setText(f"{tr_window:.3f}")
         window.toolbar.integration.regenerate_button.click()
-        _wait_for_box(qapp, boxes, "Regeneration Complete", "Regeneration Failed")
+        _wait_for_regeneration(qapp, boxes)
         boxes.clear()
         window.apply_mass_tolerance(mass_tol)
-        _wait_for_box(qapp, boxes, "Regeneration Complete", "Regeneration Failed")
+        _wait_for_regeneration(qapp, boxes)
 
     try:
         benchmark.pedantic(regenerate, setup=setup, rounds=repeat)
@@ -333,7 +348,7 @@ def test_clear_session(case, db, qapp, boxes, benchmark, repeat, tmp_path, resto
 
     try:
         benchmark.pedantic(clear, setup=setup, rounds=repeat)
-        assert boxes == ["Clear Session", "Session Cleared"], boxes
+        assert boxes == ["Clear Session", "Session cleared"], boxes
         fresh = QApplication.instance()._manic_main_window
         assert fresh not in windows and fresh.isVisible()
         windows.append(fresh)

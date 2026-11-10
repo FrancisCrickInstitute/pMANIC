@@ -45,10 +45,10 @@ def _assert_grid(window, case, compound: str) -> None:
     assert len(plots) == case.n_samples
     assert all(plot.chart().series() for plot in plots)
     if case.labelled:
-        ratios = window.toolbar.isotopologue_ratios._current_ratios
+        ratios = window.summary.isotopologue_ratios._current_ratios
         assert ratios is not None and ratios.shape[0] == case.n_samples
     else:
-        abundances = window.toolbar.total_abundance._current_abundances
+        abundances = window.summary.total_abundance._current_abundances
         assert abundances is not None and len(abundances) == case.n_samples
 
 

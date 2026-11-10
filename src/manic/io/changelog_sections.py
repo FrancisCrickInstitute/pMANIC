@@ -225,3 +225,8 @@ def format_cell_colour_key() -> str:
         f"- Tan ({PEAK_VERDICT_FILL[PeakVerdict.REJECTED]}) = marked bad by the analyst\n"
         f"- Blue compound name ({BASELINE_OFF_FONT_COLOR}) = baseline correction off\n"
     )
+
+
+def format_peak_validation_threshold(ratio: float) -> str:
+    # 0 disables validation, matching the Settings spin box's "Off".
+    return "Off" if ratio <= 0 else f"{ratio:g}"

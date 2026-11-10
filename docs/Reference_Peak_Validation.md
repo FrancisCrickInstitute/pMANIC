@@ -13,6 +13,8 @@ A peak is considered **Invalid/Weak** (and flagged **Below threshold**) if its t
 > **Requirement: Internal Standard**
 >
 > Automated validation requires an Internal Standard to be selected. If no standard is selected, no peak gets a **Below threshold** badge.
+>
+> If a standard is selected but its reference peak area is 0 in a sample (for example, a failed injection), every peak in that sample is flagged **Below threshold**, because there is nothing to compare it with. A manual Accept or Reject still overrides this. A standard with no known amount does not affect validation; it leaves the Abundances cells empty (see [Abundance Calculation](Reference_Abundance_Calculation.md)).
 
 ### Formula
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$

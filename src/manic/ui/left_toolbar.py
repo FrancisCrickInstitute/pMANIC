@@ -2,7 +2,7 @@ import logging
 from collections.abc import Iterable
 from typing import List, NamedTuple
 
-from PySide6.QtCore import QEvent, QPoint, QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QSettings, QSignalBlocker, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -582,9 +582,9 @@ class Toolbar(QWidget):
         selected_items = self.compound_list.selectedItems()
         if selected_items:
             selected_text = selected_items[0].text()
+            self.sync_selected_peak_scale(selected_text)
             self.compound_selected.emit(selected_text)
             self._set_baseline_checkbox_from_compound(selected_text)
-            self.sync_selected_peak_scale(selected_text)
         else:
             self.compound_selected.emit("")
 
@@ -661,7 +661,9 @@ class Toolbar(QWidget):
             return
         action.setEnabled(_deconvolution_on(compound_name))
         if not action.isEnabled() and action.isChecked():
-            self._commit_y_scale_policy(YScalePolicy.PER_TILE_EXTRACT)
+            # Silent: callers pass the policy to the graph before their own single plot.
+            with QSignalBlocker(self):
+                self._commit_y_scale_policy(YScalePolicy.PER_TILE_EXTRACT)
 
     def _choose_y_scale(self, policy: YScalePolicy) -> None:
         self._commit_y_scale_policy(policy)

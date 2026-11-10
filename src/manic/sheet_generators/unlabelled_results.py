@@ -3,9 +3,14 @@ from __future__ import annotations
 from typing import Callable
 
 from manic.io.compound_reader import read_compound
+from manic.processors.calibration import internal_standard_amount
 from manic.sheet_generators.formats import baseline_off_header, peak_verdict_formats
 from manic.validation.peak_verdict import PeakVerdict
-from manic.validation.unlabelled_identity import QualifierRatioResult
+from manic.validation.unlabelled_identity import (
+    QualifierOutcome,
+    QualifierRatioResult,
+    qualifier_outcome,
+)
 
 
 def _positive(value) -> bool:
@@ -166,15 +171,15 @@ def _write_abundances(
         internal_area = _q_area(
             areas_by_compound.get(exporter.internal_standard_compound)
         )
-        if internal_meta is not None:
-            std_amount = (
-                float(internal_meta["amount_in_std_mix"])
-                if sample_name in mm_samples
-                and _positive(internal_meta["amount_in_std_mix"])
-                else float(internal_meta["int_std_amount"] or 0.0)
+        std_amount = (
+            internal_standard_amount(
+                internal_meta["int_std_amount"],
+                internal_meta["amount_in_std_mix"],
+                sample_name in mm_samples,
             )
-        else:
-            std_amount = 1.0
+            if internal_meta is not None
+            else 0.0
+        )
 
         for col, compound in enumerate(compounds):
             value = _q_area(areas_by_compound.get(compound.compound_name))
@@ -183,14 +188,11 @@ def _write_abundances(
                 exporter.internal_standard_compound
                 and compound.compound_name == exporter.internal_standard_compound
             ):
-                value = std_amount if std_amount > 0 else value
-            elif (
-                exporter.internal_standard_compound
-                and internal_area > 0
-                and _positive(internal_meta["int_std_amount"] if internal_meta else None)
-                and _positive(mrrf)
-            ):
-                value = value * std_amount / internal_area / float(mrrf)
+                value = std_amount if std_amount > 0 else None
+            elif exporter.internal_standard_compound:
+                calibrated = internal_area > 0 and std_amount > 0 and _positive(mrrf)
+                # An uncalibrated area under the nmol/Relative header would read as a real amount.
+                value = value * std_amount / internal_area / float(mrrf) if calibrated else None
             fmt = verdict_formats[sample_verdicts.get(compound.compound_name, PeakVerdict.PASS)]
             worksheet.write(row, col + 2, value, fmt)
 
@@ -204,11 +206,16 @@ def _write_qualifier_qc(
     progress_callback,
 ) -> None:
     worksheet = workbook.add_worksheet("Qualifier QC")
+    red = workbook.add_format({"bg_color": "#FFCCCC"})
+    grey = workbook.add_format({"bg_color": "#E7E6E6"})
     # Keyed by QualifierRatioResult.passed: outside tolerance, not assessed, passed.
-    verdict_formats = {
-        False: workbook.add_format({"bg_color": "#FFCCCC"}),
-        None: workbook.add_format({"bg_color": "#E7E6E6"}),
-        True: None,
+    verdict_formats = {False: red, None: grey, True: None}
+    outcome_formats = {
+        QualifierOutcome.PASS: workbook.add_format({"bg_color": "#C6EFCE"}),
+        QualifierOutcome.PARTIAL: workbook.add_format({"bg_color": "#FFEB9C"}),
+        QualifierOutcome.FAIL: red,
+        QualifierOutcome.NOT_DETECTED: grey,
+        QualifierOutcome.NO_QUALIFIERS: grey,
     }
 
     header_labels = ("Compound Name", "Ion", "Mass", "Tolerance", "Value")
@@ -230,6 +237,7 @@ def _write_qualifier_qc(
             for channel in qualifiers
             for value in ("Area", "Obs ratio", "Exp ratio")
         ]
+        header_columns.append((name, None, None, None, "Outcome"))
         header_columns.append((None,) * len(header_labels))  # empty column between compounds
 
     # The workbook is constant_memory, so rows are written top to bottom.
@@ -267,7 +275,9 @@ def _write_qualifier_qc(
                 )
                 worksheet.write(row, col + 3, channel.expected_ratio)
                 col += 3
-            col += 2  # the Quant column and the empty one
+            outcome = qualifier_outcome(qc)
+            worksheet.write(row, col + 1, outcome.value, outcome_formats[outcome])
+            col += 3  # the Quant column, the Outcome column and the empty one
 
         if progress_callback:
             progress_callback(60 + int((sample_idx + 1) / len(samples) * 40))

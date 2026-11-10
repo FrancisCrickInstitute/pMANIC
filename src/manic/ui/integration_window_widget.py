@@ -140,6 +140,25 @@ def _widest_offset(text: str) -> float | None:
         return None
 
 
+def _stored_tr_windows(compound_name: str, sample_names: List[str]) -> List[float]:
+    """The stored extract windows of the compound's EICs for these samples, or all when none."""
+    from manic.models.database import get_connection
+
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT sample_name, rt_window FROM eic
+            WHERE compound_name = ? AND deleted = 0 AND rt_window IS NOT NULL
+            """,
+            (compound_name,),
+        ).fetchall()
+    return [
+        row["rt_window"]
+        for row in rows
+        if not sample_names or row["sample_name"] in sample_names
+    ]
+
+
 class IntegrationWindow(QWidget):
     """
     Integration window widget for modifying compound parameters.
@@ -399,38 +418,22 @@ class IntegrationWindow(QWidget):
         return f"{float(value):.3f}".rstrip("0").rstrip(".") or "0"
 
     def populate_tr_window_field(self, compound_name: str):
-        """Populate only the tR window field - called only when compound changes
+        """Show the stored tR window of the shown samples, a range when they differ.
 
-        Reads the actual RT window from the EIC data (persisted value), falling back
-        to compound defaults if no EIC data exists yet.
+        Falls back to the compound default when no EIC data exists yet.
         """
         try:
-            from manic.models.database import get_connection
-
-            tr_window_value = None
-            with get_connection() as conn:
-                row = conn.execute(
-                    """
-                    SELECT rt_window FROM eic
-                    WHERE compound_name = ? AND deleted = 0
-                    LIMIT 1
-                    """,
-                    (compound_name,)
-                ).fetchone()
-
-                if row and row["rt_window"] is not None:
-                    tr_window_value = row["rt_window"]
-
-            if tr_window_value is None:
+            tr_windows = _stored_tr_windows(compound_name, self._all_samples)
+            if not tr_windows:
                 compound_data = read_compound(compound_name)
-                tr_window_value = getattr(compound_data, "tr_window", 0.2)
+                tr_windows = [getattr(compound_data, "tr_window", 0.2)]
 
             field = self.tr_window_edit
             if self.has_window_draft():
                 self._window_drafts[self._window_compound] = field.text()
             else:
                 self._window_drafts.pop(self._window_compound, None)
-            field.setText(self._format_number(tr_window_value))
+            field.setText(self._format_range(tr_windows))
             self._window_compound = compound_name
             self._loaded_window = field.text()
             draft = self._window_drafts.pop(compound_name, None)
@@ -783,9 +786,16 @@ class IntegrationWindow(QWidget):
                 )
                 
                 tr_window_field = self.findChild(QLineEdit, "tr_window_input")
+                tr_window_text = tr_window_field.text() if tr_window_field else ""
                 current_tr_window = (
-                    float(tr_window_field.text()) if tr_window_field and tr_window_field.text() else 0.2
+                    _parse_offset_text(tr_window_text) if tr_window_text.strip() else 0.2
                 )
+                if current_tr_window is None:
+                    # A range keeps the reloaded samples' own windows, the widest when they differ.
+                    current_tr_window = max(
+                        _stored_tr_windows(self._current_compound, samples_needing_reload),
+                        default=0.2,
+                    )
 
                 min_required_window = calculate_minimum_rt_window(
                     max(values[1] for values in sample_values.values()),
@@ -989,10 +999,16 @@ class IntegrationWindow(QWidget):
                 tr_window_field.setFocus()
                 return
 
-            if " - " in tr_window_text:
-                tr_window_text = tr_window_text.split(" - ")[0]
-
-            tr_window = float(tr_window_text)
+            tr_window = _parse_offset_text(tr_window_text)
+            if tr_window is None:
+                self._show_message(
+                    "warning",
+                    "Different tR Windows",
+                    "The shown samples hold different tR windows. "
+                    "Type one window to re-extract them all.",
+                )
+                tr_window_field.setFocus()
+                return
 
             if tr_window <= 0:
                 self._show_message(

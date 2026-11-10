@@ -36,14 +36,14 @@ Because the original raw time-series data is missing, MANIC cannot perform its s
 ## Procedure
 
 ### Prerequisites
-* **Legacy Results File:** An Excel (`.xlsx`) or CSV file containing a table of uncorrected peak areas.
+* **Legacy Results File:** An Excel (`.xlsx`) workbook with a **Raw Values** sheet of uncorrected peak areas, laid out like MANIC's own Raw Values export. CSV files are not accepted. Each compound needs label atoms + 1 isotopologue columns. If a compound has a different number, the rebuild stops before writing anything and names that compound.
 * **Matching Compound List:** A Compound Definition file (Step 1) that matches the metabolite names in your legacy file. This is required to provide the *Molecular Formulas* and *Label Atoms* needed for correction.
 
 ### Steps
 1.  Choose **File → Process External Data...**.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**. If a file cannot be used, the reason shows under its field and **Rebuild export…** stays off.
-4.  Optionally choose an **Internal standard**. The list fills in once a compound list is chosen.
+4.  Optionally choose an **Internal standard**. The list fills in once a compound list is chosen. A standard without both `int_std_amount` and `amount_in_std_mix` is listed under **No amount: exports peak areas**, and choosing it writes **Peak Area** abundances.
 5.  Click **Rebuild export…**.
 6.  In **Save Rebuilt Export**, choose the output workbook and save.
 

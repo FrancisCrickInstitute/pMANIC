@@ -1,7 +1,7 @@
 # In src/manic/utils/workers.py
 import threading
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Signal, Slot
 
 from manic.constants import DEFAULT_MASS_TOLERANCE
 from manic.io.eic_importer import (
@@ -14,15 +14,29 @@ from manic.processors.eic_correction_manager import ensure_corrections_for_expor
 from manic.utils.update_check import check_for_update
 
 
-class UpdateCheckWorker(QThread):
+class UpdateCheckWorker(QObject):
     # Signal emits: (success, has_update, latest_version_str, download_url)
     result = Signal(bool, bool, str, str)
 
-    def run(self):
+    def __init__(self):
+        super().__init__()
+        # Daemon, not QThread: quitting must not wait on the network or abort over a live QThread.
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def isRunning(self):
+        return self._thread.is_alive()
+
+    def _run(self):
         outcome = check_for_update()
-        self.result.emit(
-            outcome.success, outcome.has_update, outcome.latest_version, outcome.url
-        )
+        try:
+            self.result.emit(
+                outcome.success, outcome.has_update, outcome.latest_version, outcome.url
+            )
+        except RuntimeError:
+            pass  # The app quit while the check ran; nobody is left to tell.
 
 
 class CdfImportWorker(QObject):
@@ -89,7 +103,7 @@ class EicRegenerationWorker(QObject):
 
 class MassToleranceReloadWorker(QObject):
     progress = Signal(int, int)  # current, total
-    finished = Signal(int)  # eics regenerated
+    finished = Signal(int, list)  # eics regenerated, samples that failed
     failed = Signal(str)
 
     def __init__(self, mass_tol: float, rt_window: float = 0.2):
@@ -100,12 +114,12 @@ class MassToleranceReloadWorker(QObject):
     @Slot()
     def run(self):
         try:
-            count = regenerate_all_eics_with_mass_tolerance(
+            count, failed_samples = regenerate_all_eics_with_mass_tolerance(
                 mass_tol=self._mass_tol,
                 rt_window=self._rt_window,
                 progress_cb=self.progress.emit,
             )
-            self.finished.emit(count)
+            self.finished.emit(count, failed_samples)
         except Exception as exc:
             self.failed.emit(str(exc))
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QSignalBlocker, QTimer, Signal
+from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
@@ -69,6 +70,31 @@ _NUMBER_FIELD_WIDTH = 120
 _CHOICE_FIELD_WIDTH = 180
 # A compound name keeps this many characters however long it is.
 _NAME_MIN_CHARS = 16
+
+
+class _ToleranceSpinBox(QDoubleSpinBox):
+    """The minimum, one step below 0 at the box's precision, reads "Not set".
+
+    An empty field selects it, and Up from it lands on 0.
+    """
+
+    def stepBy(self, steps: int) -> None:
+        if steps > 0 and self.value() == self.minimum():
+            self.setValue(0.0)
+            steps -= 1
+        super().stepBy(steps)
+        # Qt steps without rounding, so 0.009 down lands on -0.000999... not the minimum.
+        self.setValue(self.value())
+
+    def validate(self, text: str, pos: int):
+        if not text.strip():
+            return QValidator.Acceptable, text, pos
+        if text.lstrip().startswith("-"):
+            return QValidator.Invalid, text, pos
+        return super().validate(text, pos)
+
+    def valueFromText(self, text: str) -> float:
+        return self.minimum() if not text.strip() else super().valueFromText(text)
 
 
 def _target_moved_hint(loaded: str | None, selected: str | None) -> str:
@@ -267,8 +293,9 @@ class QualifierRatioPage(SettingsPage):
         layout.addWidget(
             with_help(
                 description,
-                "A qualifier with no tolerance is not assessed in Identity QC "
-                "or the Qualifier QC sheet.",
+                "0 means the ratio must match exactly. Clear the field to remove "
+                "the tolerance: a qualifier with no tolerance is not assessed in "
+                "Identity QC or the Qualifier QC sheet.",
             )
         )
 
@@ -282,10 +309,10 @@ class QualifierRatioPage(SettingsPage):
         for ordinal in self._ORDINALS:
             label = QLabel()
             label.setMinimumWidth(FORM_LABEL_WIDTH)
-            spin = QDoubleSpinBox()
+            spin = _ToleranceSpinBox()
             spin.setObjectName(f"qualifier{ordinal}ToleranceSpin")
             spin.setFixedWidth(_NUMBER_FIELD_WIDTH)
-            spin.setRange(0.0, 10.0)
+            spin.setRange(-0.001, 10.0)
             spin.setDecimals(3)
             spin.setSingleStep(0.01)
             spin.setSpecialValueText("Not set")
@@ -347,7 +374,9 @@ class QualifierRatioPage(SettingsPage):
             self._ratio_labels[ordinal].setText(f"expected ratio {ratio}")
             with QSignalBlocker(spin):
                 spin.setValue(
-                    0.0 if channel.ratio_tolerance is None else channel.ratio_tolerance
+                    spin.minimum()
+                    if channel.ratio_tolerance is None
+                    else channel.ratio_tolerance
                 )
         self._clear_dirty()
 
@@ -355,7 +384,7 @@ class QualifierRatioPage(SettingsPage):
         if not self._compound_name:
             return
         tolerances = {
-            ordinal: None if spin.value() == 0.0 else spin.value()
+            ordinal: None if spin.value() == spin.minimum() else spin.value()
             for ordinal, spin in self._spins.items()
             if ordinal in self._present_ordinals
         }
@@ -712,12 +741,16 @@ class DeconvolutionPage(SettingsPage):
         self.sample_fit_table.setFixedHeight(header + visible_rows * row_h + frame)
 
     def _rebuild_override_table(
-        self, overrides: dict[tuple[str, str], str], selected: list[str]
+        self,
+        overrides: dict[tuple[str, str], str],
+        selected: list[str],
+        staged: dict[str, str | None] | None = None,
     ) -> None:
+        staged = staged or {}
         self._loaded_overrides = {
             sample: fit_type for (_, sample), fit_type in overrides.items()
         }
-        samples = sorted(set(self._loaded_overrides) | set(selected))
+        samples = sorted(set(self._loaded_overrides) | set(selected) | set(staged))
         table = self.sample_fit_table
         with QSignalBlocker(table):
             table.clearSelection()
@@ -728,7 +761,9 @@ class DeconvolutionPage(SettingsPage):
                 item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 table.setItem(row, 0, item)
                 combo = ComboBox()
-                self._fill_fit_options(combo, self._loaded_overrides.get(sample))
+                self._fill_fit_options(
+                    combo, staged.get(sample, self._loaded_overrides.get(sample))
+                )
                 combo.currentIndexChanged.connect(self._on_row_fit_changed)
                 table.setCellWidget(row, 1, combo)
                 if sample in selected:
@@ -757,6 +792,16 @@ class DeconvolutionPage(SettingsPage):
             for row, combo in enumerate(self._row_combos())
             if combo.currentData() != self._loaded_overrides.get(table.item(row, 0).text())
         }
+
+    def refresh(self) -> None:
+        # Unsaved edits stay, but the table still follows the plot selection.
+        if self.is_dirty() and self._compound_name == self.host.selected_compound_name():
+            self._rebuild_override_table(
+                get_sample_fit_types(self._compound_name),
+                list(self.host.selected_sample_names()),
+                self._staged_sample_changes(),
+            )
+        super().refresh()
 
     def load(self) -> None:
         self._compound_name = self.host.selected_compound_name()

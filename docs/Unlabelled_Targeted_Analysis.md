@@ -171,7 +171,7 @@ no prompt. Headers are case-insensitive and ignore spaces or underscores
 | `Qualifier 2 Ratio` | | Expected qualifier-2/Q area ratio |
 | `Qualifier 2 Tolerance` | | Fractional tolerance on qualifier-2/Q |
 
-MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds. Tolerances can be changed later in **Settings → Qualifier ratios**.
+MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds. Tolerances can be changed later in **Settings → Qualifier ratios**. A tolerance of `0` means the ratio must match exactly. Clear the field to remove a tolerance.
 
 ### Additional columns
 
@@ -203,7 +203,8 @@ tolerance still imports; those compounds then report **No qualifiers** or
 - All ion *m/z* values must be positive and distinct
 - Ions must resolve to **distinct nominal mass bins** (extraction matches on
   integer *m/z*; e.g. 217.1 and 217.4 are not allowed together)
-- Ratio tolerances cannot be negative
+- Expected ratios, ratio tolerances, the tR window and standard amounts cannot be
+  negative (a tolerance of 0 means an exact match)
 
 ### Choosing expected ratios and tolerances
 
@@ -342,7 +343,7 @@ These layers use different words. Do not mix them.
 
 The enlarged chart's legend groups the grey cells under **Not assessed**.
 
-The **Qualifier QC** Excel sheet shades the same per-qualifier result on each observed ratio: red for Failed, grey for Not assessed or Unavailable, no shading for Validated.
+The **Qualifier QC** Excel sheet shades the same per-qualifier result on each observed ratio: red for Failed, grey for Not assessed or Unavailable, no shading for Validated. Its **Outcome** column uses **Pass**, **Partial**, **Fail**, **Not detected**, and **No qualifiers**. Those words are not Identity chart statuses.
 
 The Identity chart encodes **qualifier/Q only**. Check the Q peak against the tR
 line on its tile.
@@ -391,20 +392,33 @@ rows give the compound name, the ion (`Quant`, `Qual 1`, `Qual 2`), its m/z, the
 qualifier's fractional tolerance (0.25 = ±25%), and what the column holds. The
 header rows and sample names stay in view while you scroll.
 
+![The Qualifier QC sheet in Excel: three compounds, each with its areas, ratios and a coloured Outcome column](_assets/screenshots/qualifier_qc_sheet.png)
+
 | Column | Holds |
 | :--- | :--- |
 | **Quant** / Area | Raw Q-ion area |
 | **Qual n** / Area | Raw qualifier-ion area |
 | **Qual n** / Obs ratio | Qualifier area / Q area for that sample |
 | **Qual n** / Exp ratio | Expected ratio from the compound list |
+| Outcome | The result for the compound in that sample, from all its qualifiers |
 
-Only the observed ratio is shaded:
+Each observed ratio is shaded by its own result:
 
 | Shading | Meaning |
 | :--- | :--- |
 | None | The ratio is within tolerance |
 | Light red | The ratio is outside tolerance |
 | Light grey | Not assessed: Q was not detected, or the expected ratio or tolerance is missing |
+
+The Outcome cell closes each compound block:
+
+| Outcome | Meaning | Cell colour |
+| :--- | :--- | :--- |
+| **Pass** | Every qualifier ratio check passed | Light green |
+| **Partial** | At least one qualifier passed and at least one did not | Light amber |
+| **Fail** | Qualifier ratios were scored and none passed | Light red |
+| **Not detected** | Q ion was not found, so no ratio could be assessed | Light grey |
+| **No qualifiers** | No scored qualifier ratio (missing ratio/tolerance, or no qualifier ions) | Light grey |
 
 Identity status stays in the app chart, not the workbook.
 

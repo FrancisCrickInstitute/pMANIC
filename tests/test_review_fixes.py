@@ -422,3 +422,33 @@ def test_bulk_load_cancel_stops_pulling_and_closes_the_task_stream(
         f"expected the loop to stop at the first refused progress tick, "
         f"pulled {len(pulled)} of {task_count}"
     )
+
+
+def test_importing_the_same_cdf_again_replaces_its_eics(review_db, tmp_path):
+    from manic.io.eic_importer import import_eics
+
+    with Dataset(tmp_path / "s1.cdf", "w") as cdf:
+        cdf.createDimension("scan_number", 3)
+        cdf.createDimension("point_number", 6)
+        variables = {
+            "scan_acquisition_time": ("scan_number", [294.0, 300.0, 306.0]),
+            "scan_index": ("scan_number", [0, 2, 4]),
+            "point_count": ("scan_number", [2, 2, 2]),
+            "total_intensity": ("scan_number", [20.0, 20.0, 20.0]),
+            "mass_values": ("point_number", [100.0] * 6),
+            "intensity_values": ("point_number", [10.0] * 6),
+        }
+        for name, (dimension, values) in variables.items():
+            cdf.createVariable(name, np.asarray(values).dtype, (dimension,))[:] = values
+    with database.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms) "
+            "VALUES ('Glucose', 5.0, 100.0, 0)"
+        )
+
+    assert import_eics(tmp_path) == 1
+    assert import_eics(tmp_path) == 1
+
+    with database.get_connection() as conn:
+        rows = conn.execute("SELECT sample_name, compound_name FROM eic").fetchall()
+    assert [tuple(row) for row in rows] == [("s1", "Glucose")]

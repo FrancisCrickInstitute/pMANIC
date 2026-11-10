@@ -106,10 +106,11 @@ class MassToleranceReloadWorker(QObject):
     finished = Signal(int, list)  # eics regenerated, samples that failed
     failed = Signal(str)
 
-    def __init__(self, mass_tol: float, rt_window: float = 0.2):
+    def __init__(self, mass_tol: float, rt_window: float = 0.2, sample_names=None):
         super().__init__()
         self._mass_tol = mass_tol
         self._rt_window = rt_window
+        self._sample_names = sample_names
 
     @Slot()
     def run(self):
@@ -118,6 +119,7 @@ class MassToleranceReloadWorker(QObject):
                 mass_tol=self._mass_tol,
                 rt_window=self._rt_window,
                 progress_cb=self.progress.emit,
+                sample_names=self._sample_names,
             )
             self.finished.emit(count, failed_samples)
         except Exception as exc:

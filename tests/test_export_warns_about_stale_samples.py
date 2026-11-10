@@ -1,6 +1,6 @@
 import openpyxl
 import pytest
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 import manic.ui.main_window as main_window_module
 from manic.io.eic_importer import regenerate_all_eics_with_mass_tolerance
@@ -39,7 +39,13 @@ def test_export_with_a_stale_sample_asks_before_writing(
         "getSaveFileName",
         lambda *a, **k: locations.append(out) or (str(out), ""),
     )
-    monkeypatch.setattr(window, "_confirm", lambda *a, **k: accept)
+
+    def answer(box):
+        if accept:
+            next(b for b in box.buttons() if b.text() == "Export").click()
+        return QMessageBox.Cancel
+
+    monkeypatch.setattr(QMessageBox, "exec", answer)
     try:
         window.export_data()
         if window._export_thread is not None:

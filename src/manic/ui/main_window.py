@@ -1921,8 +1921,8 @@ class MainWindow(QMainWindow):
                 f"No changes were applied. {e}"
             )
 
-    def _on_mass_tolerance_changed(self, new_mass_tol: float):
-        """Handle mass tolerance change - regenerate all EICs with new tolerance"""
+    def _on_mass_tolerance_changed(self, new_mass_tol: float, sample_names=None):
+        """Regenerate EICs at the new tolerance: every sample's, or only sample_names'."""
         from manic.constants import DEFAULT_RT_WINDOW
 
         logger.info(f"Starting EIC regeneration with mass tolerance {new_mass_tol} Da")
@@ -1933,14 +1933,17 @@ class MainWindow(QMainWindow):
             self.export_data_action.setEnabled(False)
             self.export_method_action.setEnabled(False)
 
+            scope = f"EICs of {', '.join(sample_names)}" if sample_names else "all EICs"
             self.mass_tol_progress_dialog = self._build_progress_dialog(
-                f"Regenerating all EICs with mass tolerance {new_mass_tol} Da..."
+                f"Regenerating {scope} with mass tolerance {new_mass_tol} Da..."
             )
             self.mass_tol_progress_dialog.show()
 
             self._mass_tol_thread = QThread(self)
             self._mass_tol_worker = MassToleranceReloadWorker(
-                mass_tol=new_mass_tol, rt_window=DEFAULT_RT_WINDOW
+                mass_tol=new_mass_tol,
+                rt_window=DEFAULT_RT_WINDOW,
+                sample_names=sample_names,
             )
             self._mass_tol_worker.moveToThread(self._mass_tol_thread)
 
@@ -2957,16 +2960,27 @@ class MainWindow(QMainWindow):
 
             active = set(list_active_samples())
             stale = [name for name in list_stale_samples() if name in active]
-            if stale and not self._confirm(
-                "Samples at an Old Mass Tolerance",
-                f"{', '.join(stale)} still {'has' if len(stale) == 1 else 'have'} "
-                "EICs from an earlier mass tolerance. Export anyway?",
-                "Their CDF files could not be read when the tolerance changed, so "
-                "their values do not match the other samples. Put the files back "
-                "and change the tolerance again to rebuild them.",
-                "Export",
-            ):
-                return
+            if stale:
+                box = self._create_message_box(
+                    "question",
+                    "Samples at an Old Mass Tolerance",
+                    f"{', '.join(stale)} still {'has' if len(stale) == 1 else 'have'} "
+                    "EICs from an earlier mass tolerance. Export anyway?",
+                    "Their CDF files could not be read when the tolerance changed, so "
+                    "their values do not match the other samples. Put the files back "
+                    f"and rebuild them at {self.mass_tolerance} Da.",
+                )
+                box.setStandardButtons(QMessageBox.Cancel)
+                rebuild = box.addButton("Rebuild Stale Samples", QMessageBox.ActionRole)
+                export = box.addButton("Export", QMessageBox.AcceptRole)
+                box.setDefaultButton(QMessageBox.Cancel)
+                box.exec()
+                if box.clickedButton() is rebuild:
+                    if not self._background_work_running("rebuilding stale samples"):
+                        self._on_mass_tolerance_changed(self.mass_tolerance, stale)
+                    return
+                if box.clickedButton() is not export:
+                    return
 
             file_path, _ = QFileDialog.getSaveFileName(
                 self,

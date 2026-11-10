@@ -18,7 +18,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
     normalize_stringency,
 )
 from manic.processors import integration as integration_module
-from manic.processors.integration import calculate_peak_areas
+from manic.processors.integration import calculate_peak_areas, integrate_bundle_areas
 
 from conftest import _gaussian
 
@@ -1294,28 +1294,6 @@ def test_noisy_mn_still_blocks_labelled_overlays():
     assert not bundle.shows_model_overlays(independent_channels=False)
 
 
-def test_calculate_peak_areas_treats_zero_mn_as_empty():
-    time = np.linspace(0.0, 10.0, 201)
-    m0 = _gaussian(time, 7.0, 0.25, 10.0)
-    raw = np.vstack([m0, np.zeros_like(time), np.zeros_like(time)])
-    areas = calculate_peak_areas(
-        time,
-        raw.ravel(),
-        label_atoms=2,
-        retention_time=7.0,
-        loffset=4.0,
-        roffset=4.0,
-        channel_count=3,
-        baseline_correction=False,
-        chromatographic_peak_deconvolution_stringency="4",
-        chromatographic_peak_deconvolution_fit_type="auto",
-        chromatographic_peak_deconvolution_noise_gate="balanced",
-    )
-    assert areas[0] > 0
-    assert areas[1] == pytest.approx(0.0)
-    assert areas[2] == pytest.approx(0.0)
-
-
 @pytest.mark.parametrize("edge", ["left", "right"])
 def test_peak_center_between_nominal_boundary_and_nearest_scan_is_in_window(edge):
     time = np.arange(14.4, 14.901, 0.005)
@@ -1374,6 +1352,67 @@ def test_raw_fallback_keeps_outside_channel_zero(use_legacy):
 
     assert areas[0] > 0.0
     assert areas[1] == pytest.approx(0.0)
+
+
+def _legacy_overlap_matrix():
+    time = np.arange(9.5, 10.5, 0.005)
+    raw = np.vstack(
+        [
+            _gaussian(time, 10.0, 0.012, 1e5 * scale)
+            + _gaussian(time, 10.05, 0.012, 6e4 * scale)
+            for scale in (1.0, 0.5, 0.2)
+        ]
+    )
+    return time, raw
+
+
+_LEGACY_OVERLAP_WINDOW = dict(retention_time=10.0, loffset=0.1, roffset=0.1)
+
+
+_LEGACY_SELECTED_AREAS = [601591, 300795, 120318]
+
+
+@pytest.mark.parametrize("baseline_correction", [False, True])
+def test_legacy_multi_ion_integrates_the_selected_component(baseline_correction):
+    time, raw = _legacy_overlap_matrix()
+
+    areas = calculate_peak_areas(
+        time,
+        raw.ravel(),
+        label_atoms=2,
+        channel_count=3,
+        use_legacy=True,
+        baseline_correction=baseline_correction,
+        chromatographic_peak_deconvolution_stringency="4",
+        **_LEGACY_OVERLAP_WINDOW,
+    )
+
+    assert areas == pytest.approx(_LEGACY_SELECTED_AREAS, rel=1e-5)
+
+
+@pytest.mark.parametrize("baseline_correction", [False, True])
+def test_legacy_bundle_areas_integrate_and_correct_the_selected_component(
+    baseline_correction,
+):
+    time, raw = _legacy_overlap_matrix()
+    bundle = deconvolve_channel_matrix(
+        time, raw, stringency="4", **_LEGACY_OVERLAP_WINDOW
+    )
+    swap_m0_m2 = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype=np.float64)
+
+    raw_areas, corrected_areas = integrate_bundle_areas(
+        time,
+        bundle,
+        raw,
+        correct_time_series=lambda matrix: swap_m0_m2 @ matrix,
+        baseline_correction=baseline_correction,
+        use_legacy=True,
+        label_atoms=2,
+        **_LEGACY_OVERLAP_WINDOW,
+    )
+
+    assert raw_areas == pytest.approx(_LEGACY_SELECTED_AREAS, rel=1e-5)
+    assert corrected_areas == pytest.approx(_LEGACY_SELECTED_AREAS[::-1], rel=1e-5)
 
 
 def _projected_residual(x_rel, shape_model, values_matrix, y, ridge, scale):

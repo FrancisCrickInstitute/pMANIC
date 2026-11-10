@@ -1,7 +1,7 @@
 # In src/manic/utils/workers.py
 import threading
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Signal, Slot
 
 from manic.constants import DEFAULT_MASS_TOLERANCE
 from manic.io.eic_importer import (
@@ -14,11 +14,22 @@ from manic.processors.eic_correction_manager import ensure_corrections_for_expor
 from manic.utils.update_check import check_for_update
 
 
-class UpdateCheckWorker(QThread):
+class UpdateCheckWorker(QObject):
     # Signal emits: (success, has_update, latest_version_str, download_url)
     result = Signal(bool, bool, str, str)
 
-    def run(self):
+    def __init__(self):
+        super().__init__()
+        # Daemon, not QThread: quitting must not wait on the network or abort over a live QThread.
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def isRunning(self):
+        return self._thread.is_alive()
+
+    def _run(self):
         outcome = check_for_update()
         self.result.emit(
             outcome.success, outcome.has_update, outcome.latest_version, outcome.url

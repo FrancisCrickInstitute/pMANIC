@@ -433,7 +433,7 @@ Settings has one page per topic: **Appearance**, then **Extraction**, **Integrat
 
 * **Default:** `0.2 Da`
 * **Function:** Defines the binning width for extracting ion chromatograms. MANIC uses an asymmetric "offset-and-round" algorithm to correct for mass calibration drift.
-* **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder. If the regeneration fails or no sample can be read, the setting goes back to its previous value. If only some samples can be read, the unreadable ones keep their previous EICs and the setting keeps the new value.
+* **Impact:** If CDFs are loaded, the change regenerates every EIC. You do not re-import the folder. If the regeneration cannot start or no sample can be read, the setting goes back to its previous value. If only some samples can be read, the unreadable ones keep their previous EICs and the setting keeps the new value. If the regeneration stops with an error partway through, the setting also keeps the new value, and the error message warns that some samples may still hold EICs built at the previous tolerance.
 * **Reference:** [Mass Tolerance](Reference_Mass_Tolerance.md)
 
 ### Integration

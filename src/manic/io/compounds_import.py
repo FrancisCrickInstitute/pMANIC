@@ -28,6 +28,10 @@ from manic.models.database import get_connection
 from manic.processors.chromatographic_peak_deconvolution import (
     DEFAULT_DECONVOLUTION_LEVEL,
 )
+from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
+    formula_element_counts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +65,13 @@ class CompoundRow(BaseModel):
     
     @validator("formula")
     def _normalize_formula(cls, v: Optional[str]) -> Optional[str]:
-        """Normalize formula format from space-separated to standard."""
+        """Normalize formula format from space-separated to standard.
+
+        A formula that cannot be read completely (brackets, stray digits,
+        punctuation) is rejected: silently reading only part of it changes
+        the molecule and the natural abundance correction would use the
+        wrong atom counts.
+        """
         if not v or pd.isna(v):
             return None
         
@@ -71,9 +81,13 @@ class CompoundRow(BaseModel):
         
         # Skip if already in standard format (no spaces between element and count)
         if ' ' not in formula:
+            _require_readable_formula(formula)
             return formula
         
-        # Parse space-separated format
+        # Parse space-separated format: every part must be readable on its own
+        for part in formula.split():
+            _require_readable_formula(part)
+
         elements = {}
         parts = formula.split()
         
@@ -101,6 +115,14 @@ class CompoundRow(BaseModel):
             result += elem + (str(count) if count > 1 else '')
         
         return result if result else None
+
+
+def _require_readable_formula(formula: str) -> None:
+    """Reject *formula* unless every character is an element symbol or count."""
+    try:
+        formula_element_counts(formula)
+    except NaturalAbundanceCorrectionError as exc:
+        raise ValueError(f"formula: {exc}") from exc
 
 
 # 2.  Import function (
@@ -306,7 +328,7 @@ def import_compound_excel(
                 )
             )
         except ValidationError as exc:
-            logger.warning("Row %d skipped: %s", idx + 2, exc.errors())
+            logger.warning("Row %d (%s) skipped: %s", idx + 2, row["name"], exc.errors())
 
     if not params:
         logger.warning("%s contained no valid rows; nothing imported", path.name)

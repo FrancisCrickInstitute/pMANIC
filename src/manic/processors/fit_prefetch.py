@@ -85,10 +85,14 @@ def prefetch_display_fits(compound_name: str, samples: list[str], *, use_correct
     Peak verdicts, identity checks, and side charts fit the same windows, so
     they read these fits from the cache too.
     """
-    eics = get_eics_for_compound(compound_name, samples, use_corrected=False)
-    compounds = [
-        read_compound_with_session(eic.compound_name, eic.sample_name) for eic in eics
-    ]
+    try:
+        eics = get_eics_for_compound(compound_name, samples, use_corrected=False)
+        compounds = [
+            read_compound_with_session(eic.compound_name, eic.sample_name) for eic in eics
+        ]
+    except Exception:
+        # Only a speed-up: the real render meets the same error and reports it.
+        return
     prefetch_fits(
         lambda: [
             plot_display(eic.time, eic.intensity, compound, use_corrected=use_corrected)

@@ -281,6 +281,8 @@ Deleted items are not permanently removed. They are "soft deleted" and can be re
 
 Restored items will immediately reappear in their respective lists and be included in subsequent analyses and exports.
 
+A mass tolerance change also rebuilds the EICs of deleted compounds and samples, so restored items show EICs at the current tolerance. A deleted sample whose CDF file cannot be read is named in the warning after the change and keeps its earlier EICs.
+
 ### Deleted Items in Exports
 
 When you export data, the changelog file will include a **"Deleted Items"** section listing any compounds or samples that were excluded. This provides a complete audit trail of what was, and was not, included in your final results.

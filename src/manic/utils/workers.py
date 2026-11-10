@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from manic.constants import DEFAULT_MASS_TOLERANCE
 from manic.io.eic_importer import (
+    NothingToRegenerateError,
     import_eics,
     regenerate_all_eics_with_mass_tolerance,
     regenerate_compound_eics,
@@ -82,7 +83,7 @@ class EicRegenerationWorker(QObject):
         self._tr_window = tr_window
         self._sample_names = sample_names
         self._retention_time = retention_time
-        self._pending_regeneration = pending_regeneration
+        self.pending_regeneration = pending_regeneration
 
     @Slot()
     def run(self):
@@ -94,7 +95,7 @@ class EicRegenerationWorker(QObject):
                 mass_tol=self._mass_tol,
                 progress_cb=self.progress.emit,
                 retention_time=self._retention_time,
-                pending_regeneration=self._pending_regeneration,
+                pending_regeneration=self.pending_regeneration,
             )
             self.finished.emit(count)
         except Exception as exc:
@@ -104,7 +105,7 @@ class EicRegenerationWorker(QObject):
 class MassToleranceReloadWorker(QObject):
     progress = Signal(int, int)  # current, total
     finished = Signal(int, list)  # eics regenerated, samples that failed
-    failed = Signal(str)
+    failed = Signal(str, bool)  # error, whether EICs may already be replaced
 
     def __init__(self, mass_tol: float, rt_window: float = 0.2):
         super().__init__()
@@ -121,7 +122,7 @@ class MassToleranceReloadWorker(QObject):
             )
             self.finished.emit(count, failed_samples)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(str(exc), not isinstance(exc, NothingToRegenerateError))
 
 
 class ExportWorker(QObject):

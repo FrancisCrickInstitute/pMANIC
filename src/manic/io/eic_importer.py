@@ -24,6 +24,10 @@ from manic.io.ms_reader import store_ms_data_batch
 logger = logging.getLogger(__name__)
 
 
+class NothingToRegenerateError(RuntimeError):
+    """Raised before any sample's EICs were replaced."""
+
+
 @dataclass(frozen=True, slots=True)
 class CompoundExtractionTarget:
     compound_name: str
@@ -80,7 +84,7 @@ def _iter_compounds(conn, include_deleted: bool = False):
     rows = conn.execute(
         """
         SELECT c.compound_name, c.retention_time, c.mass0, c.label_atoms,
-               c.loffset, c.roffset,
+               c.loffset, c.roffset, c.rt_tolerance,
                ci.mz AS channel_mz
         FROM compounds c
         LEFT JOIN compound_ions ci ON ci.compound_name = c.compound_name
@@ -101,6 +105,7 @@ def _iter_compounds(conn, include_deleted: bool = False):
                 "label_atoms": int(row["label_atoms"] or 0),
                 "loffset": float(row["loffset"] or 0.0),
                 "roffset": float(row["roffset"] or 0.0),
+                "rt_tolerance": row["rt_tolerance"],
                 "target_mzs": [],
             },
         )
@@ -121,7 +126,7 @@ def _iter_compounds(conn, include_deleted: bool = False):
             label_atoms=data["label_atoms"],
             target_mzs=target_mzs,
             required_rt_window=minimum_extract_rt_window(
-                data["loffset"], data["roffset"]
+                data["loffset"], data["roffset"], rt_tolerance=data["rt_tolerance"]
             ),
         )
 
@@ -868,7 +873,8 @@ def regenerate_all_eics_with_mass_tolerance(
     mass_tol : float
         New mass tolerance offset for MANIC's asymmetric matching method (Da)
     rt_window : float
-        Retention time search window (±min). Default: 0.2
+        Retention time search window (±min) for a compound with no stored
+        EIC in a sample. A stored EIC keeps its own window. Default: 0.2
     progress_cb : Callable[[done, total], None] | None
         Optional callback for GUI progress bars
 
@@ -887,14 +893,14 @@ def regenerate_all_eics_with_mass_tolerance(
         ).fetchall()
 
     if not sample_rows:
-        raise RuntimeError("No samples found in database")
+        raise NothingToRegenerateError("No samples found in database")
 
     with get_connection() as conn:
         compounds = list(_iter_compounds(conn, include_deleted=True))
     targets_by_name = {target.compound_name: target for target in compounds}
 
     if not compounds:
-        raise RuntimeError("Compounds table is empty")
+        raise NothingToRegenerateError("Compounds table is empty")
 
     # Count compounds that will need correction
     corrections_needed = 0
@@ -955,11 +961,20 @@ def regenerate_all_eics_with_mass_tolerance(
                 """,
                 (sample_name,),
             ).fetchall()
+            stored_windows = dict(
+                conn.execute(
+                    "SELECT compound_name, rt_window FROM eic"
+                    " WHERE sample_name = ? AND deleted = 0",
+                    (sample_name,),
+                ).fetchall()
+            )
 
         # Convert to list of tuples for _extract_all_eics_for_file
         compounds_with_overrides = []
         for row in compound_overrides:
             base_target = targets_by_name[row["compound_name"]]
+            # Keep the window set by Apply window or Add Compound.
+            stored = stored_windows.get(row["compound_name"])
             compounds_with_overrides.append(
                 CompoundExtractionTarget(
                     compound_name=base_target.compound_name,
@@ -967,8 +982,11 @@ def regenerate_all_eics_with_mass_tolerance(
                     mass0=base_target.mass0,
                     label_atoms=base_target.label_atoms,
                     target_mzs=base_target.target_mzs,
-                    required_rt_window=minimum_extract_rt_window(
-                        row["loffset"], row["roffset"]
+                    required_rt_window=max(
+                        max(rt_window, base_target.required_rt_window)
+                        if stored is None
+                        else stored,
+                        minimum_extract_rt_window(row["loffset"], row["roffset"]),
                     ),
                 )
             )
@@ -982,7 +1000,7 @@ def regenerate_all_eics_with_mass_tolerance(
                 cdf_data,
                 compounds_with_overrides,
                 mass_tol,
-                rt_window,
+                0.0,  # each target carries its own window
                 progress_cb,
                 done,
                 total_work,

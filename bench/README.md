@@ -43,6 +43,8 @@ Compare only runs with the same workload. Each benchmark id carries the workload
 (default or full, seed, sample count, scan interval), and `plot_next` rows carry
 the compound name. Each JSON also records the hostname and CPU.
 
+The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
+
 ## Performance history
 
 `bench/history.tsv` is the permanent, tracked record: one row per stage per
@@ -65,7 +67,10 @@ before the UI redesign with the harness of that time, so their window stages
 comparable with later runs. When a change to `bench/` alters what a stage does,
 say so in the commit message.
 
-The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
+Record a run when a pull request that is meant to change speed has merged, and before a
+release. Reading the table: a stage moves by a few percent between identical runs, and
+the short stages (`resize`, `detailed_plot`, `deconvolve_hard_windows`) by more, so treat
+a change under 10% as noise until a second run repeats it.
 
 ## What is measured
 

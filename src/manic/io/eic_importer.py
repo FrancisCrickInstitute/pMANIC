@@ -24,6 +24,10 @@ from manic.io.ms_reader import store_ms_data_batch
 logger = logging.getLogger(__name__)
 
 
+class NothingToRegenerateError(RuntimeError):
+    """Raised before any sample's EICs were replaced."""
+
+
 @dataclass(frozen=True, slots=True)
 class CompoundExtractionTarget:
     compound_name: str
@@ -67,11 +71,12 @@ def _compress(arr: np.ndarray) -> bytes:
     return zlib.compress(arr.astype(np.float64).tobytes())
 
 
-def _iter_compounds(conn):
-    """Iterate over active compounds in the database.
+def _iter_compounds(conn, include_deleted: bool = False):
+    """Iterate over compounds in the database.
 
     Args:
         conn: Database connection object
+        include_deleted: Also yield soft-deleted compounds
 
     Yields:
         Tuple of (compound_name, retention_time, mass0, label_atoms)
@@ -79,15 +84,16 @@ def _iter_compounds(conn):
     rows = conn.execute(
         """
         SELECT c.compound_name, c.retention_time, c.mass0, c.label_atoms,
-               c.loffset, c.roffset,
+               c.loffset, c.roffset, c.rt_tolerance,
                ci.mz AS channel_mz
         FROM compounds c
         LEFT JOIN compound_ions ci ON ci.compound_name = c.compound_name
-        WHERE c.deleted = 0
+        WHERE c.deleted = 0 OR ?
         ORDER BY c.id,
                  CASE ci.role WHEN 'quantifier' THEN 0 ELSE 1 END,
                  ci.ordinal
-        """
+        """,
+        (include_deleted,),
     ).fetchall()
     grouped: dict[str, dict] = {}
     for row in rows:
@@ -99,6 +105,7 @@ def _iter_compounds(conn):
                 "label_atoms": int(row["label_atoms"] or 0),
                 "loffset": float(row["loffset"] or 0.0),
                 "roffset": float(row["roffset"] or 0.0),
+                "rt_tolerance": row["rt_tolerance"],
                 "target_mzs": [],
             },
         )
@@ -119,7 +126,7 @@ def _iter_compounds(conn):
             label_atoms=data["label_atoms"],
             target_mzs=target_mzs,
             required_rt_window=minimum_extract_rt_window(
-                data["loffset"], data["roffset"]
+                data["loffset"], data["roffset"], rt_tolerance=data["rt_tolerance"]
             ),
         )
 
@@ -914,16 +921,18 @@ def regenerate_all_eics_with_mass_tolerance(
     Regenerate all EIC data with a new mass tolerance value.
 
     Each sample's EIC records are replaced with ones recalculated using the new
-    mass tolerance parameter. A sample whose CDF cannot be read keeps its
-    existing records. Session overrides (retention times, offsets) are
-    preserved via LEFT JOIN + COALESCE queries.
+    mass tolerance parameter. Soft-deleted compounds and samples are included
+    so that restoring them needs no regeneration. A sample whose CDF cannot be
+    read keeps its existing records. Session overrides (retention times,
+    offsets) are preserved via LEFT JOIN + COALESCE queries.
 
     Parameters
     ----------
     mass_tol : float
         New mass tolerance offset for MANIC's asymmetric matching method (Da)
     rt_window : float
-        Retention time search window (±min). Default: 0.2
+        Retention time search window (±min) for a compound with no stored
+        EIC in a sample. A stored EIC keeps its own window. Default: 0.2
     progress_cb : Callable[[done, total], None] | None
         Optional callback for GUI progress bars
 
@@ -936,22 +945,20 @@ def regenerate_all_eics_with_mass_tolerance(
     start = time.time()
     logger.info(f"Starting full EIC regeneration with mass tolerance {mass_tol}")
 
-    # Get all active samples
     with get_connection() as conn:
         sample_rows = conn.execute(
-            "SELECT sample_name, file_name FROM samples WHERE deleted = 0"
+            "SELECT sample_name, file_name FROM samples"
         ).fetchall()
 
     if not sample_rows:
-        raise RuntimeError("No active samples found in database")
+        raise NothingToRegenerateError("No samples found in database")
 
-    # Get all active compounds (base data)
     with get_connection() as conn:
-        compounds = list(_iter_compounds(conn))
+        compounds = list(_iter_compounds(conn, include_deleted=True))
     targets_by_name = {target.compound_name: target for target in compounds}
 
     if not compounds:
-        raise RuntimeError("Compounds table is empty")
+        raise NothingToRegenerateError("Compounds table is empty")
 
     # Count compounds that will need correction
     corrections_needed = 0
@@ -959,8 +966,7 @@ def regenerate_all_eics_with_mass_tolerance(
         correction_sql = """
             SELECT COUNT(DISTINCT compound_name) as count
             FROM compounds
-            WHERE deleted = 0
-            AND formula IS NOT NULL
+            WHERE formula IS NOT NULL
             AND label_atoms > 0
         """
         result = conn.execute(correction_sql).fetchone()
@@ -971,6 +977,11 @@ def regenerate_all_eics_with_mass_tolerance(
     done = 0
     regenerated = 0
     failed_samples = []
+
+    # Each sample clears its flag in the transaction that replaces its EICs, so
+    # a reload that fails or stops partway leaves the rest marked.
+    with get_connection() as conn:
+        conn.execute("UPDATE samples SET eics_stale = 1")
 
     # Process each sample file
     for sample_row in sample_rows:
@@ -1005,15 +1016,23 @@ def regenerate_all_eics_with_mass_tolerance(
                     ON sa.compound_name = c.compound_name
                     AND sa.sample_name = ?
                     AND sa.sample_deleted = 0
-                WHERE c.deleted = 0
                 """,
                 (sample_name,),
             ).fetchall()
+            stored_windows = dict(
+                conn.execute(
+                    "SELECT compound_name, rt_window FROM eic"
+                    " WHERE sample_name = ? AND deleted = 0",
+                    (sample_name,),
+                ).fetchall()
+            )
 
         # Convert to list of tuples for _extract_all_eics_for_file
         compounds_with_overrides = []
         for row in compound_overrides:
             base_target = targets_by_name[row["compound_name"]]
+            # Keep the window set by Apply window or Add Compound.
+            stored = stored_windows.get(row["compound_name"])
             compounds_with_overrides.append(
                 CompoundExtractionTarget(
                     compound_name=base_target.compound_name,
@@ -1021,8 +1040,11 @@ def regenerate_all_eics_with_mass_tolerance(
                     mass0=base_target.mass0,
                     label_atoms=base_target.label_atoms,
                     target_mzs=base_target.target_mzs,
-                    required_rt_window=minimum_extract_rt_window(
-                        row["loffset"], row["roffset"]
+                    required_rt_window=max(
+                        max(rt_window, base_target.required_rt_window)
+                        if stored is None
+                        else stored,
+                        minimum_extract_rt_window(row["loffset"], row["roffset"]),
                     ),
                 )
             )
@@ -1036,7 +1058,7 @@ def regenerate_all_eics_with_mass_tolerance(
                 cdf_data,
                 compounds_with_overrides,
                 mass_tol,
-                rt_window,
+                0.0,  # each target carries its own window
                 progress_cb,
                 done,
                 total_work,
@@ -1079,6 +1101,10 @@ def regenerate_all_eics_with_mass_tolerance(
                     logger.debug(
                         f"Inserted {len(eic_batch)} new EIC records for '{sample_name}'"
                     )
+                conn.execute(
+                    "UPDATE samples SET eics_stale = 0 WHERE sample_name = ?",
+                    (sample_name,),
+                )
 
             regenerated += len(eic_batch)
             done += len(compounds)

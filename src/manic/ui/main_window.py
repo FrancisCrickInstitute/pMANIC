@@ -54,6 +54,7 @@ from manic.io.compounds_import import (
     taken_compound_names,
 )
 from manic.io.data_provider import DataProvider
+from manic.io.eic_importer import reextract_session_eics
 from manic.io.list_compound_names import list_compound_names
 from manic.io.sample_reader import list_active_samples
 from manic.io.compound_reader import (
@@ -2257,6 +2258,23 @@ class MainWindow(QMainWindow):
             )
 
             if success:
+                # The EICs must follow the restored tRs, or the user has to Apply each compound.
+                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+                try:
+                    not_reextracted = reextract_session_eics(self.mass_tolerance)
+                finally:
+                    QApplication.restoreOverrideCursor()
+                if self._validation_provider is not None:
+                    self._validation_provider.invalidate_cache()
+                if not_reextracted:
+                    self._show_message(
+                        "warning",
+                        "Some Compounds Were Not Re-extracted",
+                        "Their plots still show the data cut around the compound-list tR, "
+                        "so areas can be wrong or zero. Check that the CDF files are where "
+                        "they were loaded from, then import the session again.",
+                        "\n".join(not_reextracted),
+                    )
                 restore = self._apply_imported_internal_standard(file_path)
                 if not has_deletion_data:
                     legacy_msg = self._create_message_box(

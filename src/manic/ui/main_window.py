@@ -1622,6 +1622,8 @@ class MainWindow(QMainWindow):
             if self._validation_provider:
                 self._validation_provider.invalidate_cache()
 
+            self._clear_inactive_internal_standard(active_compounds)
+
             logger.info(f"Deleted {len(compound_names)} compound(s)")
 
         except Exception as e:
@@ -2416,6 +2418,11 @@ class MainWindow(QMainWindow):
             )
             return InternalStandardRestore(InternalStandardRestoreKind.FAILED)
 
+    def _clear_inactive_internal_standard(self, active_compounds: list[str]) -> None:
+        standard = self.toolbar.get_internal_standard()
+        if standard is not None and standard not in active_compounds:
+            self.toolbar.on_internal_standard_cleared()
+
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""
         try:
@@ -2423,6 +2430,7 @@ class MainWindow(QMainWindow):
             active_samples = list_active_samples()
             self.toolbar.update_compound_list(active_compounds)
             self.toolbar.update_sample_list(active_samples)
+            self._clear_inactive_internal_standard(active_compounds)
 
             selected_compound = self.toolbar.get_selected_compound()
             selected_samples = self.toolbar.get_selected_samples()

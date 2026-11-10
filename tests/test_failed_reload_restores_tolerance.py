@@ -1,5 +1,6 @@
 import time
 import zlib
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
@@ -129,12 +130,18 @@ def test_reload_that_stops_after_rebuilding_a_sample_keeps_the_new_tolerance(
             (str(rebuilt), str(locked / "S2.cdf")),
         )
     window.cdf_data_loaded = True
-    locked.chmod(0)
-    try:
-        window.apply_mass_tolerance(0.35)
-        _wait_for_reload(window, messages)
-    finally:
-        locked.chmod(0o700)
+    real_exists = Path.exists
+
+    def exists(path, *args, **kwargs):
+        # chmod cannot lock a folder on Windows, so raise as an unreadable folder does.
+        if path == locked / "S2.cdf":
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_exists(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    window.apply_mass_tolerance(0.35)
+    _wait_for_reload(window, messages)
+    monkeypatch.setattr(Path, "exists", real_exists)
 
     with database.get_connection() as conn:
         [row] = conn.execute("SELECT y_axis FROM eic WHERE sample_name = 'S1'").fetchall()

@@ -191,8 +191,9 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
         assert page._ratio_labels[1].text() == "expected ratio 0.4"
         assert page._spins[1].isVisible()
         assert page._spins[2].isVisible()
-        page._spins[1].setValue(0.3)
-        page._spins[2].setValue(0.0)
+        page._spins[1].lineEdit().selectAll()
+        QTest.keyClick(page._spins[1].lineEdit(), Qt.Key_Delete)
+        page._spins[2].setValue(0.3)
         settings.save_button.click()
         with database.get_connection() as conn:
             rows = conn.execute(
@@ -200,10 +201,7 @@ def test_qualifier_ratios_save_writes_tolerance_and_null(
                 "WHERE compound_name = 'Target' AND role = 'qualifier' "
                 "ORDER BY ordinal"
             ).fetchall()
-        assert rows[0]["ordinal"] == 1
-        assert rows[0]["ratio_tolerance"] == pytest.approx(0.3)
-        assert rows[1]["ordinal"] == 2
-        assert rows[1]["ratio_tolerance"] is None
+        assert [tuple(row) for row in rows] == [(1, None), (2, 0.3)]
         assert replots == [1]
     finally:
         if window.settings_window is not None:

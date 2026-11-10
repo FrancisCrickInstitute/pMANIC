@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QSignalBlocker, QTimer, Signal
+from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
@@ -69,6 +70,29 @@ _NUMBER_FIELD_WIDTH = 120
 _CHOICE_FIELD_WIDTH = 180
 # A compound name keeps this many characters however long it is.
 _NAME_MIN_CHARS = 16
+
+
+class _ToleranceSpinBox(QDoubleSpinBox):
+    """The minimum, one step below 0 at the box's precision, reads "Not set".
+
+    An empty field selects it, and Up from it lands on 0.
+    """
+
+    def stepBy(self, steps: int) -> None:
+        if steps > 0 and self.value() == self.minimum():
+            self.setValue(0.0)
+            steps -= 1
+        super().stepBy(steps)
+
+    def validate(self, text: str, pos: int):
+        if not text.strip():
+            return QValidator.Acceptable, text, pos
+        if text.lstrip().startswith("-"):
+            return QValidator.Invalid, text, pos
+        return super().validate(text, pos)
+
+    def valueFromText(self, text: str) -> float:
+        return self.minimum() if not text.strip() else super().valueFromText(text)
 
 
 def _target_moved_hint(loaded: str | None, selected: str | None) -> str:
@@ -267,8 +291,9 @@ class QualifierRatioPage(SettingsPage):
         layout.addWidget(
             with_help(
                 description,
-                "A qualifier with no tolerance is not assessed in Identity QC "
-                "or the Qualifier QC sheet.",
+                "0 means the ratio must match exactly. Clear the field to remove "
+                "the tolerance: a qualifier with no tolerance is not assessed in "
+                "Identity QC or the Qualifier QC sheet.",
             )
         )
 
@@ -282,10 +307,10 @@ class QualifierRatioPage(SettingsPage):
         for ordinal in self._ORDINALS:
             label = QLabel()
             label.setMinimumWidth(FORM_LABEL_WIDTH)
-            spin = QDoubleSpinBox()
+            spin = _ToleranceSpinBox()
             spin.setObjectName(f"qualifier{ordinal}ToleranceSpin")
             spin.setFixedWidth(_NUMBER_FIELD_WIDTH)
-            spin.setRange(0.0, 10.0)
+            spin.setRange(-0.001, 10.0)
             spin.setDecimals(3)
             spin.setSingleStep(0.01)
             spin.setSpecialValueText("Not set")
@@ -347,7 +372,9 @@ class QualifierRatioPage(SettingsPage):
             self._ratio_labels[ordinal].setText(f"expected ratio {ratio}")
             with QSignalBlocker(spin):
                 spin.setValue(
-                    0.0 if channel.ratio_tolerance is None else channel.ratio_tolerance
+                    spin.minimum()
+                    if channel.ratio_tolerance is None
+                    else channel.ratio_tolerance
                 )
         self._clear_dirty()
 
@@ -355,7 +382,7 @@ class QualifierRatioPage(SettingsPage):
         if not self._compound_name:
             return
         tolerances = {
-            ordinal: None if spin.value() == 0.0 else spin.value()
+            ordinal: None if spin.value() == spin.minimum() else spin.value()
             for ordinal, spin in self._spins.items()
             if ordinal in self._present_ordinals
         }

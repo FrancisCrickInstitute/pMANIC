@@ -487,28 +487,38 @@ def test_unlabelled_excel_export_uses_targeted_sheets(empty_db, tmp_path):
     assert abundances["A3"].value == "tR"
     assert abundances["A4"].value == "Units"
     qc = workbook["Qualifier QC"]
-    # C-F Target, G gap, H-N Passed (two qualifiers), O gap, P-S Failed.
+    # C-G Target, H gap, I-P Passed (two qualifiers), Q gap, R-V Failed.
     assert [[cell.value for cell in row] for row in qc.iter_rows()] == [
-        ["Compound Name", None, *["Target"] * 4, None, *["Passed"] * 7, None, *["Failed"] * 4],
-        ["Ion", None, "Quant", *["Qual 1"] * 3, None, "Quant", *["Qual 1"] * 3, *["Qual 2"] * 3]
-        + [None, "Quant", *["Qual 1"] * 3],
-        ["Mass", None, 217, 147, 147, 147, None, 217, 147, 147, 147, 73, 73, 73]
-        + [None, 217, 147, 147, 147],
-        ["Tolerance", None, None, None, None, None, None, None, *[0.25] * 6]
-        + [None, None, 0.25, 0.25, 0.25],
-        ["Value", None, "Area", "Area", "Obs ratio", "Exp ratio", None]
-        + ["Area", *["Area", "Obs ratio", "Exp ratio"] * 2]
-        + [None, "Area", "Area", "Obs ratio", "Exp ratio"],
-        [None, "S1", 10.0, 4.0, 0.4, None, None, 10.0, 4.0, 0.4, 0.4, 2.0, 0.2, 0.2]
-        + [None, 10.0, 4.0, 0.4, 0.8],
+        ["Compound Name", None, *["Target"] * 5, None, *["Passed"] * 8, None, *["Failed"] * 5],
+        ["Ion", None, "Quant", *["Qual 1"] * 3, None, None]
+        + ["Quant", *["Qual 1"] * 3, *["Qual 2"] * 3, None, None]
+        + ["Quant", *["Qual 1"] * 3, None],
+        ["Mass", None, 217, 147, 147, 147, None, None]
+        + [217, 147, 147, 147, 73, 73, 73, None, None]
+        + [217, 147, 147, 147, None],
+        ["Tolerance", None, None, None, None, None, None, None]
+        + [None, *[0.25] * 6, None, None]
+        + [None, 0.25, 0.25, 0.25, None],
+        ["Value", None, "Area", "Area", "Obs ratio", "Exp ratio", "Outcome", None]
+        + ["Area", *["Area", "Obs ratio", "Exp ratio"] * 2, "Outcome", None]
+        + ["Area", "Area", "Obs ratio", "Exp ratio", "Outcome"],
+        [None, "S1", 10.0, 4.0, 0.4, None, "No qualifiers", None]
+        + [10.0, 4.0, 0.4, 0.4, 2.0, 0.2, 0.2, "Pass", None]
+        + [10.0, 4.0, 0.4, 0.8, "Fail"],
     ]
-    # Only observed ratios are shaded: grey not assessed, none passed, red outside.
+    # Observed ratios: grey not assessed, none passed, red outside. Then each Outcome.
     fills = {
         cell.coordinate: cell.fill.fgColor.rgb
         for cell in qc[6]
         if cell.fill.fill_type is not None
     }
-    assert fills == {"E6": "FFE7E6E6", "R6": "FFFFCCCC"}
+    assert fills == {
+        "E6": "FFE7E6E6",
+        "G6": "FFE7E6E6",
+        "P6": "FFC6EFCE",
+        "T6": "FFFFCCCC",
+        "V6": "FFFFCCCC",
+    }
     assert qc.freeze_panes == "C6"
 
 

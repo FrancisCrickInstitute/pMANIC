@@ -211,6 +211,8 @@ To fix this, you must widen the underlying data extraction window:
 2.  Increase the value (e.g., from `0.2` to `0.4` or `0.5`).
 3.  Click **Apply window**. The line under the field names how many samples it re-extracts, for example **Re-extracts all 30 shown samples**.
 
+If the shown samples hold different windows, the field shows the range, for example `0.3 - 0.8`. **Apply window** then asks for one value. When **Apply** has to re-extract samples, it uses the widest window among them, so a sample with a narrower window is widened.
+
 The extract must cover the current left and right offsets plus the RT window buffer (0.1 min by default). If the typed tR window sits inside those offsets, MANIC raises it to that minimum, updates the field, and continues.
 
 A progress bar will appear as MANIC re-scans the raw CDF files to extract a wider slice of time around the target peak.
@@ -310,7 +312,7 @@ When you export data, the changelog file will include a **"Deleted Items"** sect
 The export generates two files in your selected directory:
 
 1.  **Data File (`.xlsx`):** The multi-sheet workbook containing your results.
-2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, any deleted items excluded from export, and a table of all session-specific integration overrides. This serves as an audit trail for reproducibility.
+2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, the mass tolerance (Da) and peak-validation threshold, any deleted items excluded from export, and a table of all session-specific integration overrides. This serves as an audit trail for reproducibility.
 
 **Workbook Structure**   
 
@@ -346,7 +348,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
 **File → Export Session...**
 
 * **Function:** Creates a `.json` file containing your analytical method and a human-readable changelog.
-* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, and the labelled internal-standard reference peak (M+N).
+* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, the labelled internal-standard reference peak (M+N), the mass tolerance (Da), and the peak-validation threshold.
 * **What is NOT saved:** The raw mass spectrometry data (CDF content).
 * **Use Case:** Archiving your analysis method or sharing it with a colleague who has the same raw files.
 
@@ -357,9 +359,9 @@ MANIC can save the state of your analysis, including compound definitions, integ
 * **Workflow:**
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
-    3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, and internal standard.
+    3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, internal standard, mass tolerance, and peak-validation threshold. If the saved mass tolerance differs from the current one, MANIC regenerates every EIC, as it does when you change it in **Settings**.
 * **Moved peak windows:** Where a saved tR or offset puts the peak window outside the data extracted for a sample, the import re-extracts that sample from its CDF file, as **Apply** does. You do not need to click **Apply** on each compound. If a CDF file has moved, the import names the compounds it could not re-extract.
-* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current internal standard unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared.
+* **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current internal standard unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared. A file with no mass tolerance or peak-validation threshold keeps the current Settings values.
 
 ---
 
@@ -399,9 +401,11 @@ Use the **‹ ›** buttons in the header, or the left and right arrow keys, to 
 
 ### Summary Panel
 
-![Label incorporation chart enlarged from the Summary panel](_assets/screenshots/label_incorporation_popup.png)
+![Isotopologue ratio chart enlarged from the Summary panel](_assets/screenshots/label_incorporation_popup.png)
 
-The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Label incorporation** and **Peak area**. In unlabelled mode, **Identity** replaces Label incorporation.
+The **Summary** panel on the right of the plot grid shows two charts, one above the other: **Isotopologue ratio** and **Peak area**. In unlabelled mode, **Identity** replaces Isotopologue ratio.
+
+**Isotopologue ratio** splits each sample's bar into each isotopologue's share (M+0, M+1, ...) of its total area. With **Show corrected data** ticked, the shares match the **Isotope Ratio** sheet. Unticked (the default), they come from raw areas. The chart is not **% Label Incorporation**, which also subtracts the MM background.
 
 * **Show or hide:** Click the panel button at the top right of the grid, or choose **View → Show Summary** (Ctrl+Alt+R, ⌥⌘R on macOS). Drag the panel's left edge to resize it. MANIC remembers both. The panel opens on its own only in a window with room for three columns of plots beside it. Narrowing the window past that closes it, and widening it again brings it back. You can still open it in a narrower window, as long as two columns of plots fit.
 * **Enlarge:** Click the expand button (↗) at the top right of either chart, or **double-click** the chart, to open it in a large, interactive popup window.
@@ -503,7 +507,7 @@ The **Deconvolution** section of the sidebar, under **Peak window**, shows the s
 ![Settings, Natural abundance page](_assets/screenshots/settings_natural_abundance.png)
 
 * Checkbox: **Show corrected data**. Off by default.
-* **Function:** Controls what the main chromatogram plots and the Label incorporation bars show.
+* **Function:** Controls what the main chromatogram plots and the Isotopologue ratio bars show.
     * Ticked: Fits the **raw** traces, then draws natural-abundance correction of that same measurement at the acquisition scan times. If the compound has no correction formula or labelled atoms, the plot keeps the raw fitted view. A sample with a fitted curve keeps that curve in either case. Heights can change after correction. When deconvolution selects a fitted component, the faint raw EIC remains visible for context, including neighbour peaks outside that component. Those neighbours do not enter correction or integration.
     * Unticked: Draws the raw EIC. If deconvolution fitted, the faint raw trace stays under the curve.
 * **Usage:** Toggle this to check how correction redistributes the isotopologue signals.
@@ -520,7 +524,7 @@ Rebuild a labelled export from the "Raw Values" (integrated peak areas) of an ol
 
 **Prerequisites**
 
-1.  **Old Results File:** An Excel or CSV file containing a sheet/table of uncorrected peak areas (Raw Values).
+1.  **Old Results File:** An Excel (`.xlsx`) workbook with a **Raw Values** sheet of uncorrected peak areas. CSV files are not accepted.
 2.  **Compound List:** A labelled compound definition file (see Step 1), with **mass0** and **labelAtoms** columns, that matches the metabolites in your old results. This is required to provide the molecular formulas and atom counts needed for the new correction math.
 
 **Procedure**
@@ -528,7 +532,7 @@ Rebuild a labelled export from the "Raw Values" (integrated peak areas) of an ol
 1.  Choose **File → Process External Data...**, or click **Rebuild an export without CDF files…** on the labelled start screen.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**.
-4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen.
+4.  Optionally click **Internal standard** and choose one, typing to filter. It lists the compounds once a compounds file is chosen. A standard without both `int_std_amount` and `amount_in_std_mix` is listed under **No amount: exports peak areas**, and choosing it writes **Peak Area** abundances.
 5.  Click **Rebuild export…**.
 6.  In **Save Rebuilt Export**, choose the output workbook and save.
 

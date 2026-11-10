@@ -12,7 +12,6 @@ from PySide6.QtCore import (
     QSignalBlocker,
     Qt,
     QThread,
-    QTimer,
     QUrl,
 )
 from PySide6.QtGui import (
@@ -74,6 +73,7 @@ from manic.models.session_export import (
     get_method_info,
     import_session_overrides,
     read_session_internal_standard,
+    read_session_processing_settings,
     resolve_session_internal_standard,
     validate_method_file,
 )
@@ -1593,6 +1593,7 @@ class MainWindow(QMainWindow):
     def on_compound_selected(self, compound_selected):
         samples = self.toolbar.get_selected_samples()
         self.update_deconvolution_indicator(compound_selected)
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy, replot=False)
         self.on_plot_button(compound_selected, samples)
         if self.settings_window is not None:
             self.settings_window.refresh()
@@ -1756,6 +1757,10 @@ class MainWindow(QMainWindow):
             # Verdicts and areas do not depend on the selection; the charts only re-highlight.
             self.summary.set_highlighted(selected_samples)
 
+        # open() refreshes a hidden window, so only a visible one needs it on each click.
+        if self.settings_window is not None and self.settings_window.isVisible():
+            self.settings_window.refresh()
+
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")
 
@@ -1766,28 +1771,14 @@ class MainWindow(QMainWindow):
             current_samples = self.graph_view.get_current_samples()
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
+            # The refresh re-selects the tiles, and selection_changed refills the fields.
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )
-
-            # The delay lets the plot refresh finish before the fields update.
-
-            def update_integration_window():
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                if compound_name:
-                    self.toolbar.integration.populate_fields_from_plots(
-                        compound_name, current_selected, all_samples
-                    )
-
-            QTimer.singleShot(100, update_integration_window)
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data update: {e}")
@@ -1804,25 +1795,11 @@ class MainWindow(QMainWindow):
 
         try:
             current_samples = self.graph_view.get_current_samples()
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(identity=identity)
-
-            def update_integration_window():
-                current_selected = self.graph_view.get_selected_samples()
-                all_samples = self.graph_view.get_current_samples()
-
-                if compound_name:
-                    self.toolbar.integration.populate_fields_from_plots(
-                        compound_name, current_selected, all_samples
-                    )
-
-            # The delay lets the plot refresh finish before the fields update.
-            QTimer.singleShot(100, update_integration_window)
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data restore: {e}")
@@ -1847,16 +1824,13 @@ class MainWindow(QMainWindow):
             current_samples = self.graph_view.get_current_samples()
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
-            _provider, identity = self._identity_snapshot(compound_name, current_samples)
+            provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(
                 validation_data, identity=identity
             )
-
-
-            def update_charts():
-                self._refresh_mode_charts(compound_name)
-
-            QTimer.singleShot(150, update_charts)
+            self._refresh_mode_charts(
+                compound_name, current_samples, identity=identity, provider=provider
+            )
 
         except Exception as e:
             logger.error(
@@ -1980,8 +1954,10 @@ class MainWindow(QMainWindow):
             )
             QCoreApplication.processEvents()
 
-    def _mass_tolerance_reload_completed(self, regenerated_count: int):
-        """Handle successful mass tolerance reload completion"""
+    def _mass_tolerance_reload_completed(
+        self, regenerated_count: int, failed_samples: list
+    ):
+        """Handle mass tolerance reload completion"""
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
 
@@ -2001,6 +1977,15 @@ class MainWindow(QMainWindow):
             self.on_plot_button(current_compound, current_samples)
 
         self._re_enable_ui_actions()
+
+        if failed_samples:
+            self._create_message_box(
+                "warning",
+                "Regeneration Incomplete",
+                f"Regenerated {_eics(regenerated_count)} at {self.mass_tolerance} Da mass tolerance. "
+                f"These samples could not be read and keep their previous EICs: {', '.join(failed_samples)}",
+            ).exec()
+            return
 
         show_status_toast(
             self.statusBar(),
@@ -2063,16 +2048,11 @@ class MainWindow(QMainWindow):
                 self.toolbar.integration._pending_session_update = None
 
             current_compound = self.graph_view.get_current_compound()
-            current_selected = self.graph_view.get_selected_samples()
             current_samples = self.graph_view.get_current_samples()
 
             if current_compound and current_samples:
                 if self._validation_provider is not None:
                     self._validation_provider.invalidate_cache()
-
-                self.toolbar.integration.populate_fields_from_plots(
-                    current_compound, current_selected, current_samples
-                )
 
                 self.toolbar.integration.populate_tr_window_field(current_compound)
 
@@ -2152,6 +2132,8 @@ class MainWindow(QMainWindow):
                 self.analysis_mode,
                 internal_standard=self.toolbar.get_internal_standard(),
                 internal_standard_reference_isotope=self.internal_standard_reference_isotope,
+                mass_tolerance=self.mass_tolerance,
+                min_peak_height_ratio=self.min_peak_height_ratio,
             )
 
             if success:
@@ -2262,6 +2244,7 @@ class MainWindow(QMainWindow):
             )
 
             if success:
+                processing = read_session_processing_settings(file_path)
                 # The EICs must follow the restored tRs, or the user has to Apply each compound.
                 QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
                 try:
@@ -2306,6 +2289,13 @@ class MainWindow(QMainWindow):
                 show_status_toast(self.statusBar(), message, hover=file_path)
                 logger.info(f"Session overrides imported from {file_path}")
                 self._refresh_after_session_import()
+                # Last: a changed tolerance regenerates every EIC in the background. The
+                # re-extraction above ran at the current tolerance, so a sample whose
+                # regeneration fails keeps EICs of one tolerance, not a mix of two.
+                if processing.min_peak_height_ratio is not None:
+                    self.apply_min_peak_area_ratio(processing.min_peak_height_ratio)
+                if processing.mass_tolerance is not None:
+                    self.apply_mass_tolerance(processing.mass_tolerance)
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -2683,6 +2673,7 @@ class MainWindow(QMainWindow):
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
         self.toolbar.sync_selected_peak_scale(self.toolbar.get_selected_compound())
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy, replot=False)
         if replot:
             self._replot_current_selection()
 
@@ -3018,6 +3009,7 @@ class MainWindow(QMainWindow):
             exporter.set_internal_standard(internal_standard_for_export)
             exporter.set_use_legacy_integration(self.use_legacy_integration)
             exporter.set_min_peak_area_ratio(self.min_peak_height_ratio)
+            exporter.set_mass_tolerance(self.mass_tolerance)
             exporter.set_internal_standard_reference_isotope(
                 self.internal_standard_reference_isotope
             )

@@ -154,6 +154,8 @@ def test_data_export_changelog_includes_sample_fit_types(empty_db, tmp_path):
         str(tmp_path / "export.xlsx"),
         internal_standard=None,
         use_legacy_integration=False,
+        mass_tolerance=0.2,
+        min_peak_area_ratio=0.005,
         analysis_mode=AnalysisMode.LABELLED,
     )
     changelog = next(tmp_path.glob("changelog_*.md")).read_text(encoding="utf-8")

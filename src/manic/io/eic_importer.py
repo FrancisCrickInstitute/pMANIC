@@ -212,9 +212,9 @@ def _extract_all_eics_for_file(
             )
             eic_batch.append(eic_data)
 
-        except ValueError:
-            # Handle compounds with insufficient data in RT/m/z window
-            # This is expected behavior - not all compounds are detectable in all samples
+        except EmptyRtWindowError:
+            # Not every compound elutes in every sample; any other error means
+            # corrupt CDF data and must reach the caller
             skipped_count += 1
 
         # Maintain original progress reporting behavior for GUI consistency
@@ -267,7 +267,7 @@ def _extract_eic_optimized(
         EIC: Structured object containing time series and intensity data
 
     Raises:
-        ValueError: If no scans found within specified RT window
+        EmptyRtWindowError: If no scans found within specified RT window
     """
     from manic.processors.eic_calculator import _extract_eic_with_times
 
@@ -853,13 +853,14 @@ def regenerate_all_eics_with_mass_tolerance(
     mass_tol: float,
     rt_window: float = 0.2,
     progress_cb: Optional[Callable[[int, int], None]] = None,
-) -> int:
+) -> tuple[int, list[str]]:
     """
     Regenerate all EIC data with a new mass tolerance value.
 
-    This function deletes ALL existing EIC records and recalculates them using
-    the new mass tolerance parameter. Session overrides (retention times, offsets)
-    are preserved via LEFT JOIN + COALESCE queries.
+    Each sample's EIC records are replaced with ones recalculated using the new
+    mass tolerance parameter. A sample whose CDF cannot be read keeps its
+    existing records. Session overrides (retention times, offsets) are
+    preserved via LEFT JOIN + COALESCE queries.
 
     Parameters
     ----------
@@ -872,8 +873,9 @@ def regenerate_all_eics_with_mass_tolerance(
 
     Returns
     -------
-    int
-        Total number of EIC rows regenerated
+    tuple[int, list[str]]
+        Total number of EIC rows regenerated, and the names of samples that
+        failed and kept their previous EICs
     """
     start = time.time()
     logger.info(f"Starting full EIC regeneration with mass tolerance {mass_tol}")
@@ -912,6 +914,7 @@ def regenerate_all_eics_with_mass_tolerance(
     total_work = len(sample_rows) * len(compounds) + corrections_needed
     done = 0
     regenerated = 0
+    failed_samples = []
 
     # Process each sample file
     for sample_row in sample_rows:
@@ -921,6 +924,7 @@ def regenerate_all_eics_with_mass_tolerance(
         # Check if CDF file exists
         if not cdf_path.exists():
             logger.warning(f"CDF file not found for sample '{sample_name}': {cdf_path}")
+            failed_samples.append(sample_name)
             done += len(compounds)
             if progress_cb:
                 progress_cb(done, total_work)
@@ -968,7 +972,21 @@ def regenerate_all_eics_with_mass_tolerance(
             )
 
         try:
-            # Delete existing EIC records for this sample
+            # Load CDF file
+            cdf_data = read_cdf_file(cdf_path)
+
+            # Extract all EICs using the optimized batch function
+            eic_batch, skipped_count = _extract_all_eics_for_file(
+                cdf_data,
+                compounds_with_overrides,
+                mass_tol,
+                rt_window,
+                progress_cb,
+                done,
+                total_work,
+            )
+
+            # Replace this sample's EICs only after extraction succeeded
             with get_connection() as conn:
                 delete_result = conn.execute(
                     "DELETE FROM eic WHERE sample_name = ?", (sample_name,)
@@ -988,23 +1006,8 @@ def regenerate_all_eics_with_mass_tolerance(
                         f"Deleted {deleted_corrected_count} corrected EIC records for '{sample_name}'"
                     )
 
-            # Load CDF file
-            cdf_data = read_cdf_file(cdf_path)
-
-            # Extract all EICs using the optimized batch function
-            eic_batch, skipped_count = _extract_all_eics_for_file(
-                cdf_data,
-                compounds_with_overrides,
-                mass_tol,
-                rt_window,
-                progress_cb,
-                done,
-                total_work,
-            )
-
-            # Batch insert new EIC records
-            if eic_batch:
-                with get_connection() as conn:
+                # Batch insert new EIC records
+                if eic_batch:
                     conn.executemany(
                         """
                         INSERT INTO eic (
@@ -1016,15 +1019,16 @@ def regenerate_all_eics_with_mass_tolerance(
                         """,
                         eic_batch,
                     )
-                    regenerated += len(eic_batch)
                     logger.debug(
                         f"Inserted {len(eic_batch)} new EIC records for '{sample_name}'"
                     )
 
+            regenerated += len(eic_batch)
             done += len(compounds)
 
         except Exception as e:
             logger.error(f"Failed to process sample '{sample_name}': {e}")
+            failed_samples.append(sample_name)
             done += len(compounds)
             if progress_cb:
                 progress_cb(done, total_work)
@@ -1058,4 +1062,4 @@ def regenerate_all_eics_with_mass_tolerance(
         f"Regenerated {regenerated} EICs with mass tolerance {mass_tol} in {elapsed:.1f} s"
     )
 
-    return regenerated
+    return regenerated, failed_samples

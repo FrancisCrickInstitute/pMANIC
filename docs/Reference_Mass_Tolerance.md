@@ -50,7 +50,7 @@ A mass that lies exactly on a window edge depends on how the instrument stored i
 * **Range:** `0.01` to `1.00` Da
 * **Impact:** This setting is applied when EICs are extracted.
     * If CDFs are already loaded, changing the value regenerates every EIC. Each EIC keeps its tR window. You do not re-import the folder.
-    * A sample whose CDF file is missing or unreadable keeps its EICs from the old tolerance. Its plot captions say **old mass tolerance** and its cells in the exported workbook are light gold until a later tolerance change rebuilds it.
+    * A sample whose CDF file is missing or unreadable keeps its EICs from the old tolerance. Its plot captions say **old mass tolerance** and its cells in the exported workbook are light gold until a later tolerance change rebuilds it, or until you put the file back and choose **Rebuild Stale Samples** in the export warning.
     * Plots and integrations refresh after that regeneration finishes.
 
 ---

@@ -30,7 +30,7 @@ artifact:
 
 ## Saved runs
 
-Saved runs stay local. `.benchmarks/` is gitignored because timings from different machines are not comparable, and a fresh baseline costs 90 s, so there is nothing worth sharing. Save a baseline before you start, compare against it while you work, and delete the directory whenever you like.
+Saved runs in `.benchmarks/` stay local; the tracked record is `bench/history.tsv` (below). `.benchmarks/` is gitignored because timings from different machines are not comparable, and a fresh baseline costs 90 s, so there is nothing worth sharing. Save a baseline before you start, compare against it while you work, and delete the directory whenever you like.
 
 To see every saved run on this machine as a table, or as plots:
 
@@ -42,6 +42,22 @@ uv run pytest-benchmark compare --histogram=.benchmarks/plots/history
 Compare only runs with the same workload. Each benchmark id carries the workload
 (default or full, seed, sample count, scan interval), and `plot_next` rows carry
 the compound name. Each JSON also records the hostname and CPU.
+
+## Performance history
+
+`bench/history.tsv` is the permanent, tracked record: one row per stage per
+run, holding the median of that stage's benchmarks in milliseconds. Record a
+run from a committed, clean checkout:
+
+```bash
+uv run python -m pytest bench --bench-repeat 3 --benchmark-json=RUN.json
+uv run python scripts/record_bench.py RUN.json --machine "Apple M1 Pro, 8 cores"
+uv run python scripts/record_bench.py                  # print the history as a table
+```
+
+Record only from a quiet machine. Use the same machine label every time for the
+same machine, and compare only rows with the same label. The hostname is never
+written.
 
 The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
 

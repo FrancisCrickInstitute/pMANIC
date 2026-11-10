@@ -64,7 +64,7 @@ class EicRegenerationWorker(QObject):
     ):
         super().__init__()
         self._mass_tol = mass_tol
-        self._compound_name = compound_name
+        self.compound_name = compound_name
         self._tr_window = tr_window
         self._sample_names = sample_names
         self._retention_time = retention_time
@@ -74,7 +74,7 @@ class EicRegenerationWorker(QObject):
     def run(self):
         try:
             count = regenerate_compound_eics(
-                compound_name=self._compound_name,
+                compound_name=self.compound_name,
                 tr_window=self._tr_window,
                 sample_names=self._sample_names,
                 mass_tol=self._mass_tol,

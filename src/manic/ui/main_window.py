@@ -1247,8 +1247,13 @@ class MainWindow(QMainWindow):
 
     def _after_compound_added(self, compound_name: str) -> None:
         first_compound = not self.compound_data_loaded
+        samples = list_active_samples() if self.cdf_data_loaded else []
+        # With samples it has no EICs yet, so plotting it now shows "Missing data".
         self.toolbar.update_compound_list(
-            list_compound_names(), selected_name=compound_name
+            list_compound_names(),
+            selected_name=(
+                self.toolbar.get_selected_compound() if samples else compound_name
+            ),
         )
         if first_compound:
             self.compound_data_loaded = True
@@ -1260,10 +1265,7 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
 
-        if self.cdf_data_loaded:
-            samples = list_active_samples()
-            if not samples:
-                return
+        if samples:
             try:
                 compound = read_compound(compound_name)
             except Exception as exc:
@@ -1278,7 +1280,13 @@ class MainWindow(QMainWindow):
                 tr_window,
                 samples,
                 compound.retention_time,
+                select_when_done=True,
             )
+
+    def _select_regenerated_compound(self, _count: int) -> None:
+        self.toolbar.update_compound_list(
+            list_compound_names(), selected_name=self.sender().compound_name
+        )
 
     def load_cdf_files(self):
         directory = QFileDialog.getExistingDirectory(
@@ -1871,6 +1879,7 @@ class MainWindow(QMainWindow):
         tr_window: float,
         sample_names: list,
         retention_time: float | dict[str, float],
+        select_when_done: bool = False,
     ):
         """Handle data regeneration request - start background regeneration with progress dialog"""
         rt_description = (
@@ -1903,6 +1912,8 @@ class MainWindow(QMainWindow):
 
             self._regen_worker.progress.connect(self._update_regeneration_progress)
 
+            if select_when_done:
+                self._regen_worker.finished.connect(self._select_regenerated_compound)
             self._regen_worker.finished.connect(self._regeneration_completed)
             self._regen_worker.failed.connect(self._regeneration_failed)
             self._regen_worker.finished.connect(self._regen_thread.quit)

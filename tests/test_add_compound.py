@@ -472,8 +472,11 @@ def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
         compound_data_loaded=True,
         cdf_data_loaded=True,
         _validation_provider=None,
-        toolbar=SimpleNamespace(update_compound_list=lambda *args, **kwargs: None),
-        on_data_regeneration_requested=lambda *args: regen.append(args),
+        toolbar=SimpleNamespace(
+            update_compound_list=lambda *args, **kwargs: None,
+            get_selected_compound=lambda: "",
+        ),
+        on_data_regeneration_requested=lambda *args, **_kwargs: regen.append(args),
         _show_message=lambda *args: None,
     )
 

@@ -31,9 +31,12 @@ class UpdateCheckWorker(QObject):
 
     def _run(self):
         outcome = check_for_update()
-        self.result.emit(
-            outcome.success, outcome.has_update, outcome.latest_version, outcome.url
-        )
+        try:
+            self.result.emit(
+                outcome.success, outcome.has_update, outcome.latest_version, outcome.url
+            )
+        except RuntimeError:
+            pass  # The app quit while the check ran; nobody is left to tell.
 
 
 class CdfImportWorker(QObject):

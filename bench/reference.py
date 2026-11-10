@@ -109,8 +109,9 @@ def _summary(title: str, sheet: dict) -> str:
     moved = sheet["moved"]
     if not moved and not sheet["other"]:
         return f"| {title} | {sheet['numbers']} | 0 | | | |"
-    typical = f"{statistics.median(moved):.2%}" if moved else ""
-    largest = f"{max(moved):.2%}" if moved else ""
+    # Two significant digits, so a change of a few parts per million still reads as one.
+    typical = f"{statistics.median(moved) * 100:.2g}%" if moved else ""
+    largest = f"{max(moved) * 100:.2g}%" if moved else ""
     return (
         f"| {title} | {sheet['numbers']} | {len(moved)} | {typical} | {largest} "
         f"| {sheet['other'] or ''} |"

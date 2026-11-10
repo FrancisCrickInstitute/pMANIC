@@ -87,6 +87,19 @@ def rebuild_export_from_files(
     compounds = _read_compounds_as_dicts(compounds_file)
     samples, raw_data = read_raw_values_workbook(raw_values_file)
 
+    # The reader gives every sample the same columns, so any sample shows the count.
+    first = next(iter(raw_data.values()), {})
+    mismatched = []
+    for comp in compounds:
+        name, expected = comp['compound_name'], comp['label_atoms'] + 1
+        if name in first and len(first[name]) != expected:
+            mismatched.append(f"{name} (expected {expected}, found {len(first[name])})")
+    if mismatched:
+        raise ValueError(
+            "The Raw Values workbook needs label atoms + 1 isotopologue columns for each compound: "
+            + ", ".join(mismatched)
+        )
+
     provider = InMemoryDataProvider(compounds, samples, raw_data, use_legacy_integration=use_legacy_integration)
 
     # Lightweight exporter-like context (only needs internal_standard_compound)

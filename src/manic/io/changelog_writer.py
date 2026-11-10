@@ -13,6 +13,7 @@ from manic.io.changelog_sections import (
     format_compounds_table_for_data_export,
     format_overrides_section_for_data_export,
     format_peak_reviews_section,
+    format_peak_validation_threshold,
     format_sample_fit_types_section,
     format_unlabelled_compounds_table_for_data_export,
 )
@@ -25,6 +26,8 @@ def generate_changelog(
     *,
     internal_standard: Optional[str],
     use_legacy_integration: bool,
+    mass_tolerance: float,
+    min_peak_area_ratio: float,
     analysis_mode: AnalysisMode | str = AnalysisMode.LABELLED,
     assumed_mrrf: Optional[set] = None,
 ) -> None:
@@ -110,7 +113,7 @@ def generate_changelog(
 - **Quantitative claim:** Peak Area without an internal standard. With an IS, nmol when Amount in StdMix is set, otherwise Relative. Compounds whose MRRF could not be computed are labelled Relative. Single-point response factor, not a calibration curve"""
         sheets_description = """1. **Raw Values** - One column per compound, Q-ion area only. `Mass` is the Q m/z. Qualifier-ion areas are on Qualifier QC
 2. **Abundances** - One column per compound, Q-ion response only. Units row is Peak Area, nmol, or Relative
-3. **Qualifier QC** - Same matrix layout, one block of columns per compound: Quant area, then area, observed qualifier/Q ratio and expected ratio for each qualifier. An observed ratio is shaded red when it is outside tolerance and grey when it was not assessed. No shading means it passed. The Tolerance row is the fractional tolerance for each qualifier. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
+3. **Qualifier QC** - Same matrix layout, one block of columns per compound: Quant area, then area, observed qualifier/Q ratio and expected ratio for each qualifier. An observed ratio is shaded red when it is outside tolerance and grey when it was not assessed. No shading means it passed. Each block ends with an Outcome column for the compound in that sample: Pass, Partial, Fail, Not detected or No qualifiers. The Tolerance row is the fractional tolerance for each qualifier. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
         key_processing_notes = """- Integration uses the shared Q/qualifier window [tR - lOffset, tR + rOffset]. A qualifier peak outside that window integrates near zero and fails ratio QC
 - Q-ion area alone supplies the analytical response. Qualifier-ion areas are identity evidence
 - Current tR is used for integration and for the in-app identity RT check. Changing tR updates both. That RT check is not written to the workbook
@@ -148,6 +151,8 @@ def generate_changelog(
 
 ## Processing Settings
 - **Mass Tolerance Method:** Asymmetric offset + rounding (MANIC original method)
+- **Mass Tolerance:** {mass_tolerance:g} Da
+- **Peak Validation Threshold:** {format_peak_validation_threshold(min_peak_area_ratio)}
 - **Integration Method:** {"Legacy Unit-Spacing (MATLAB Compatible)" if use_legacy_integration else "Time-based integration (scientifically accurate)"}
 - **Expected Value Scale:** {"~100× larger than time-based method" if use_legacy_integration else "Physically meaningful units"}
 {processing_description}

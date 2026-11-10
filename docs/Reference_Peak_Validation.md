@@ -19,7 +19,7 @@ A peak is considered **Invalid/Weak** (and flagged **Below threshold**) if its t
 ### Formula
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 
-* **$\text{Area}_{metabolite}$**: The total raw area of the target peak.
+* **$\text{Area}_{metabolite}$**: The total area of the target peak. For a labelled compound this is the sum of its natural-isotope-corrected M+0 to M+N areas; for an unlabelled compound it is the quantifier-ion area only.
 * **$\text{Area}_{IS}$**: The internal standard reference peak area (M+N, default M+0) in the current sample.
 * **$\text{Threshold}$**: The configurable limit set under [Configuration](#3-configuration).
 

@@ -37,6 +37,7 @@ a = Analysis(
         ('src/manic/models/schema.sql', 'src/manic/models'),
         ('docs/*.md', 'docs'),
         ('docs/_assets/mathjax/*', 'docs/_assets/mathjax'),
+        ('docs/_assets/screenshots/*', 'docs/_assets/screenshots'),
     ] + datas_extra,
     hiddenimports=hiddenimports,
     hookspath=[],

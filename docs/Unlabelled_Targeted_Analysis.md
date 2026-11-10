@@ -135,7 +135,7 @@ two scientific models.
 
 To switch modes later:
 
-1. **File → New Analysis Session…**
+1. **File → New Analysis Session...**
 2. Confirm that the current session will be cleared
 3. Choose the new mode
 
@@ -171,7 +171,7 @@ no prompt. Headers are case-insensitive and ignore spaces or underscores
 | `Qualifier 2 Ratio` | | Expected qualifier-2/Q area ratio |
 | `Qualifier 2 Tolerance` | | Fractional tolerance on qualifier-2/Q |
 
-MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds. Tolerances can be changed later in **MANIC ▸ Settings ▸ Qualifier Ratios**.
+MANIC still imports a list that omits ratios, tolerances or the second qualifier, but identity QC then reports `No qualifiers` / `Partial` for those compounds. Tolerances can be changed later in **Settings → Qualifier ratios**.
 
 ### Additional columns
 
@@ -182,7 +182,7 @@ MANIC still imports a list that omits ratios, tolerances or the second qualifier
 | `Int Std amount` | | Amount of internal standard added to samples. Right-click the compound and choose **Select as Internal Standard**. |
 | `MM Files` | | Pattern that matches MM files (standard mixture). Wildcards allowed, e.g. `*_MM_*`. |
 
-After you load CDF files, the **Check your data setup** dialog lists each compound's `MM Files` pattern and how many sample files it matched. A pattern that matches no files will produce empty calibration data at export. Run the same check later from **MANIC ▸ Check Data Setup...**.
+After you load CDF files, the **Check your data setup** dialog lists each compound's `MM Files` pattern and how many sample files it matched. A pattern that matches no files will produce empty calibration data at export. Run the same check later from **Help → Check Data Setup...**. To change the pattern of a compound already in the list, edit the `MM Files` cell in the compound list file, choose **File → Clear Session**, then load the list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**.
 
 ### Minimal example
 
@@ -213,18 +213,18 @@ Typical practice:
    well-characterised samples.
 2. Use a robust central value (e.g. median) as `Qualifier N Ratio`.
 3. Set `Qualifier N Tolerance` as a **fraction of the expected ratio**.
-   MANIC accepts a ratio if
+    MANIC accepts a ratio if
 
-   \[
-   |\text{observed} - \text{expected}| \le
-   \begin{cases}
-   \text{tolerance} & \text{if expected} = 0 \\
-   |\text{expected}| \times \text{tolerance} & \text{otherwise}
-   \end{cases}
-   \]
+    \[
+    |\text{observed} - \text{expected}| \le
+    \begin{cases}
+    \text{tolerance} & \text{if expected} = 0 \\
+    |\text{expected}| \times \text{tolerance} & \text{otherwise}
+    \end{cases}
+    \]
 
-   Example: expected `0.40`, tolerance `0.25` → allowed range
-   \(0.40 \pm 0.10\) i.e. 0.30 to 0.50.
+    Example: expected `0.40`, tolerance `0.25` → allowed range
+    \(0.40 \pm 0.10\) i.e. 0.30 to 0.50.
 
 Regulatory guidance for pesticide residues often cites relative ion-ratio
 tolerances around ±30%; many metabolomics methods use similar or wider windows
@@ -241,8 +241,8 @@ analyst.
 
 ### Step A. Start an unlabelled session
 
-Launch MANIC (or use **File → New Analysis Session…**) and choose
-**Unlabelled targeted analysis**.
+Launch MANIC (or use **File → New Analysis Session...**) and choose
+**Unlabelled**.
 
 ### Step B. Load the compound list
 
@@ -252,9 +252,9 @@ prompt. New lists should use the qualifier names.
 
 Verification:
 
-- The compounds status indicator turns green
-- The compound list populates
-- Selecting a compound shows its Q/qualifier *m/z* in the sidebar indicator
+- The **Compound list** row at the top of the sidebar shows a green check
+- The **Compounds** list populates
+- Selecting a compound shows its Q/qualifier *m/z* in the legend above the plots
 
 ### Step C. Load raw CDF data
 
@@ -270,12 +270,14 @@ Natural-abundance correction is **not** applied in this mode.
 
 ### Step D. Review compounds
 
+![Unlabelled mode: quantifier and qualifier traces per sample, with QC fail and Not detected badges and the Identity chart](_assets/screenshots/main_unlabelled.png)
+
 1. Select a compound and the samples of interest.
-2. Inspect the EIC tiles and the **Identity** chart in the left sidebar.
-3. Adjust tR or offsets where peaks have drifted, then
-   **Apply**.
-4. Use **Shared y-scale** if you want one intensity scale across all sample
-   tiles. Off: each tile autoscales to its own tallest peak.
+2. Inspect the EIC tiles and the **Identity** chart in the **Summary** panel on the right.
+3. Adjust tR or offsets in the **Peak window** section where peaks have
+   drifted, then click **Apply**.
+4. Choose **View → Shared Y-Scale** if you want one intensity scale across all
+   sample tiles. Off: each tile autoscales to its own tallest peak.
 
 ### Step E. Export
 
@@ -316,6 +318,8 @@ the compound-list tR.
 
 ## 7. Identity QC statuses
 
+![Identity chart enlarged: one row per sample, one column per qualifier](_assets/screenshots/identity_popup.png)
+
 For each sample × compound, MANIC assesses:
 
 1. Is the Q ion detected above the assessment floor?
@@ -325,39 +329,33 @@ For each sample × compound, MANIC assesses:
 
 These layers use different words. Do not mix them.
 
-**Sample Identity Status** (SUPPORTED, REVIEW_REQUIRED, NOT_DETECTED, NOT_ASSESSED). There is no sample-level Unavailable.
+**Identity chart** (one cell per qualifier the method has):
 
-| Status | Meaning |
+| Cell | Meaning |
 | :--- | :--- |
-| **Supported** | Q detected. Every configured RT and ratio check passed. |
-| **Review required** | Q detected. At least one configured check failed. |
-| **Not detected** | Q-ion area at or below the assessment floor. |
-| **Not assessed** | Q detected. Identity references are incomplete (for example a missing expected ratio), so MANIC reports signal without confirmation. |
+| **Validated** (✓) | That qualifier's ratio check passed. |
+| **Failed** (✕) | That qualifier's ratio check failed. |
+| **Not assessed** (?) | Q was not detected, or the expected ratio or tolerance is missing. |
+| **Unavailable** (n/a) | Identity could not be computed for that qualifier (missing EIC or compound data). |
 
-**Identity chart** (one cell per qualifier). Statuses are Validated, Failed, Absent, Not assessed, and Unavailable.
-
-| Chart | Meaning |
-| :--- | :--- |
-| **Validated** | That qualifier's ratio check passed. |
-| **Failed** | That qualifier's ratio check failed. |
-| **Absent** | That qualifier is not in the method. |
-| **Not assessed** | Q was not detected, or the expected ratio or tolerance is missing. |
-| **Unavailable** | Identity could not be computed for that qualifier (missing EIC or compound data). |
-
-The enlarged chart legend uses **Validated**, **Failed**, and **No verdict**. Grey cells (Absent, Not assessed, Unavailable) share **No verdict**.
+The enlarged chart's legend groups the grey cells under **Not assessed**.
 
 **Qualifier QC Outcome** on the Excel sheet uses **Pass**, **Partial**, **Fail**, **Not detected**, and **No qualifiers**. Those words are not Identity chart statuses.
 
-The Identity chart encodes **qualifier/Q only**. Export **Identity Status** also includes
-tR and whether Q was found.
+The Identity chart encodes **qualifier/Q only**. Check the Q peak against the tR
+line on its tile.
 
-Hover a bar for expected ratio, tolerance, and observed ratio. Click a bar to
-highlight that sample's plot. Double-click to enlarge the chart. A green bar
-does not excuse a tR failure; that still lands in **Identity Reasons**.
+Hover a cell for expected ratio, tolerance, and observed ratio. Click a cell to
+highlight that sample's plot. Click the expand button (↗) or double-click to
+enlarge the chart.
 
-Tile borders mark a missing Q peak (grey). Qualifier/Q review stays on the Identity
-chart, not on the tiles. Peak-height validation against an internal standard
-(red tint when enabled) remains a separate check and uses **Q-ion area only**.
+A tile carries a badge when identity QC needs attention: **QC partial** (amber),
+**QC fail** (red), **tR off** (red) when the Q-ion apex is outside the retention-time
+tolerance, or **Not detected** (grey) when the Q peak is missing. A clean pass has
+no badge. Hover the badge for the reasons; the Identity chart shows the
+per-qualifier detail. Peak-area validation against an internal standard (the light red
+**Below threshold** badge, when enabled) remains a separate check and uses
+**Q-ion area only**.
 
 ---
 
@@ -446,20 +444,19 @@ Right-click a tile for the detail view:
 
 ## 10. Practical review checklist
 
-1. **Validated** / **Supported**. Spot-check a few. Confirm the Q peak sits on tR
-   and qualifier traces share the same apex shape. A green bar with a tR miss is still
-   **Review required** in the export.
-2. **Failed** / **Review required**. Hover the bar, then read Identity
-   Reasons. RT failures often need a shifted tR so the window covers the peak.
+1. **Validated**. Spot-check a few. Confirm the Q peak sits on the tR line
+   and qualifier traces share the same apex shape. The Identity chart does not
+   check tR.
+2. **Failed**, or a **QC fail**, **QC partial** or **tR off** badge. Hover the badge
+   for the reasons. A **tR off** sample often needs a shifted tR so the window
+   covers the peak.
    Ratio failures often indicate co-elution, wrong qualifier ion, or an outdated
    expected ratio.
-3. **Absent** / **Not detected**. Confirm absence vs. window missed the peak vs.
+3. **Not detected**. Confirm absence vs. window missed the peak vs.
    wrong Q *m/z*.
-4. **Not assessed**. Add expected ratios and tolerances for every
-   qualifier ion (and a sensible `tR Window`) if you want automated confirmation.
 5. Before trusting amounts, confirm the internal standard, `MM Files`
-   patterns, and whether Result Type says *semi-quantitative* or
-   *uncalibrated*.
+   patterns, and the **Units** row of the Abundances sheet (nmol, Relative or
+   Peak Area).
 
 ---
 

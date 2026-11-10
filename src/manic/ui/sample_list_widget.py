@@ -2,53 +2,39 @@ from collections.abc import Iterable
 from typing import List
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QListWidget,
     QListWidgetItem,
     QMenu,
     QMessageBox,
 )
 
-from manic.constants import FONT
-from manic.models.database import get_deleted_samples, soft_delete_samples
-from manic.ui.sample_recovery_dialog import SampleRecoveryDialog
+from manic.models.database import get_deleted_samples, restore_samples, soft_delete_samples
+from manic.ui.recovery_dialog import RecoveryDialog
+from manic.ui.theme import set_style_property
 
 
 class SampleListWidget(QListWidget):
-    samples_deleted = Signal(list)  # Emits list of deleted sample names
-    samples_restored = Signal(list)  # Emits list of restored sample names
+    """Samples with a checkbox each: checked samples are the ones shown in the grid.
+
+    Row selection is separate and only picks rows for the context menu."""
+
+    samples_deleted = Signal(list)
+    samples_restored = Signal(list)
+    shown_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("sampleList")
         self.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        self.setFont(QFont(FONT, 10))
-        self.setMaximumHeight(150)
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(72)
+        self.setUniformItemSizes(True)
+        # Long names share a prefix, so their ends tell them apart; hover shows all of it.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
-        self.itemSelectionChanged.connect(self._center_current_item_if_single_selected)
-        # Custom scrollbar styling with rounded edges
-        self.setStyleSheet("""
-            QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 10px;
-                border: none;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 5px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
+        self.itemChanged.connect(self.shown_changed)
         self._show_empty()
 
     def _show_empty(self):
@@ -57,107 +43,96 @@ class SampleListWidget(QListWidget):
         self.addItem(item)
         self.setCurrentItem(item)
 
-    def _center_current_item_if_single_selected(self):
-        selected_items = self.selectedItems()
-        if len(selected_items) != 1:
-            return
-
-        item = self.currentItem() or selected_items[0]
-        if not item or item.text().startswith("- No"):
-            return
-
-        self.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
+    def _real_items(self) -> list[QListWidgetItem]:
+        return [
+            item
+            for item in (self.item(row) for row in range(self.count()))
+            if item is not None and not item.text().startswith("- No")
+        ]
 
     def update_samples(self, samples: List[str]):
-        # clear() emits one selection change per selected item it removes, and
-        # each one replots the grid, so announce only the final selection.
         with QSignalBlocker(self):
             self.clear()
             if not samples:
                 self._show_empty()
-            else:
-                for s in samples:
-                    self.addItem(QListWidgetItem(s))
-                self.selectAll()
-        self.itemSelectionChanged.emit()
+            for name in samples:
+                item = QListWidgetItem(name)
+                item.setToolTip(name)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked)
+                self.addItem(item)
+        self.shown_changed.emit()
 
-    def set_selected_samples(self, names: Iterable[str]) -> None:
-        wanted = set(names)
-        matches = [
-            item
-            for item in (self.item(index) for index in range(self.count()))
-            if item is not None
-            and not item.text().startswith("- No")
-            and item.text() in wanted
+    def shown_samples(self) -> List[str]:
+        """Checked samples in list order."""
+        return [
+            item.text()
+            for item in self._real_items()
+            if item.checkState() == Qt.CheckState.Checked
         ]
-        if not matches:
-            return
-        with QSignalBlocker(self):
-            self.clearSelection()
-            for item in matches:
-                item.setSelected(True)
-        self.itemSelectionChanged.emit()
 
-    def select_all_samples(self) -> None:
-        if self._get_total_sample_count() == 0:
+    def _set_checked(self, items, checked: bool) -> None:
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        with QSignalBlocker(self):
+            for item in items:
+                item.setCheckState(state)
+        self.shown_changed.emit()
+
+    def set_shown_samples(self, names: Iterable[str]) -> None:
+        wanted = set(names)
+        items = self._real_items()
+        if not any(item.text() in wanted for item in items):
             return
         with QSignalBlocker(self):
-            self.selectAll()
-        self.itemSelectionChanged.emit()
+            for item in items:
+                item.setCheckState(
+                    Qt.CheckState.Checked
+                    if item.text() in wanted
+                    else Qt.CheckState.Unchecked
+                )
+        self.shown_changed.emit()
+
+    def show_all_samples(self) -> None:
+        if self.real_count() == 0:
+            return
+        self._set_checked(self._real_items(), True)
+
+    def keyPressEvent(self, event):
+        # Space toggles every highlighted row together, following the current row.
+        current = self.currentItem()
+        rows = self._valid_selected_items()
+        if (
+            event.key() == Qt.Key.Key_Space
+            and current is not None
+            and current in rows
+            and len(rows) > 1
+        ):
+            self._set_checked(rows, current.checkState() != Qt.CheckState.Checked)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _valid_selected_items(self) -> list[QListWidgetItem]:
+        return [
+            item for item in self.selectedItems() if not item.text().startswith("- No")
+        ]
 
     def _get_valid_selected_samples(self) -> List[str]:
-        """Get selected sample names, excluding placeholder items"""
-        selected = []
-        for item in self.selectedItems():
-            text = item.text()
-            if not text.startswith("- No"):
-                selected.append(text)
-        return selected
+        """Highlighted sample names in list order, excluding placeholder items"""
+        return [item.text() for item in self._real_items() if item.isSelected()]
 
-    def _get_total_sample_count(self) -> int:
+    def real_count(self) -> int:
         """Get total number of real samples (excluding placeholder)"""
-        count = 0
-        for i in range(self.count()):
-            item = self.item(i)
-            if item and not item.text().startswith("- No"):
-                count += 1
-        return count
+        return len(self._real_items())
 
     def _show_context_menu(self, position):
         """Show context menu when right-clicking on the sample list"""
         menu = QMenu(self)
 
-        # Set menu style to ensure black text on white background
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: white;
-                color: black;
-                border: none;
-            }
-            QMenu::item {
-                background-color: white;
-                color: black;
-                padding: 5px 15px;
-            }
-            QMenu::item:selected {
-                background-color: #e0e0e0;
-                color: black;
-            }
-            QMenu::item:disabled {
-                color: #999999;
-            }
-            QMenu::separator {
-                height: 1px;
-                background-color: #d0d0d0;
-                margin: 4px 10px;
-            }
-        """)
 
-        # Get selected samples
         selected_samples = self._get_valid_selected_samples()
-        total_samples = self._get_total_sample_count()
+        total_samples = self.real_count()
 
-        # Delete action
         if len(selected_samples) == 1:
             delete_text = "Delete Sample"
         else:
@@ -165,9 +140,6 @@ class SampleListWidget(QListWidget):
 
         delete_action = menu.addAction(delete_text)
 
-        # Enable delete only if:
-        # - At least one sample is selected
-        # - Not deleting ALL samples
         can_delete = len(selected_samples) > 0 and len(selected_samples) < total_samples
         delete_action.setEnabled(can_delete)
 
@@ -178,10 +150,26 @@ class SampleListWidget(QListWidget):
             lambda: self._confirm_delete_samples(selected_samples)
         )
 
-        # Separator
+        menu.addSeparator()
+        rows = self._valid_selected_items()
+        show_only = menu.addAction(
+            "Show Only This Sample" if len(rows) == 1 else f"Show Only {len(rows)} Samples"
+        )
+        show_only.setEnabled(bool(rows))
+        show_only.triggered.connect(
+            lambda: self.set_shown_samples(item.text() for item in rows)
+        )
+        hide = menu.addAction(
+            "Hide This Sample" if len(rows) == 1 else f"Hide {len(rows)} Samples"
+        )
+        hide.setEnabled(bool(rows))
+        hide.triggered.connect(lambda: self._set_checked(rows, False))
+        show_all = menu.addAction("Show All Samples")
+        show_all.setEnabled(len(self.shown_samples()) < total_samples)
+        show_all.triggered.connect(self.show_all_samples)
+
         menu.addSeparator()
 
-        # Recover action
         recover_action = menu.addAction("Recover Deleted Samples...")
         deleted_samples = get_deleted_samples()
         recover_action.setEnabled(len(deleted_samples) > 0)
@@ -198,11 +186,11 @@ class SampleListWidget(QListWidget):
 
         if len(sample_names) == 1:
             msg_box.setWindowTitle("Delete Sample")
-            msg_box.setText(f"Are you sure you want to delete sample '{sample_names[0]}'?")
+            msg_box.setText(f"Delete {sample_names[0]}?")
+            msg_box.setInformativeText("Recover Deleted Samples brings it back.")
         else:
             msg_box.setWindowTitle("Delete Samples")
-            msg_box.setText(f"Are you sure you want to delete {len(sample_names)} samples?")
-            # Add list of samples in informative text
+            msg_box.setText(f"Delete {len(sample_names)} samples?")
             sample_list = "\n".join(f"  - {name}" for name in sample_names[:10])
             if len(sample_names) > 10:
                 sample_list += f"\n  ... and {len(sample_names) - 10} more"
@@ -213,51 +201,20 @@ class SampleListWidget(QListWidget):
         )
         msg_box.setDefaultButton(QMessageBox.StandardButton.No)
 
-        # Style the message box with clean styling, no borders or images
-        msg_box.setStyleSheet("""
-            QMessageBox {
-                background-color: white;
-                color: black;
-                border: none;
-            }
-            QMessageBox QLabel {
-                color: black;
-                background-color: transparent;
-                border: none;
-            }
-            QMessageBox QPushButton {
-                background-color: #f0f0f0;
-                color: black;
-                border: none;
-                padding: 8px 20px;
-                border-radius: 4px;
-                min-width: 70px;
-                font-weight: normal;
-            }
-            QMessageBox QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QMessageBox QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-            QMessageBox QFrame {
-                border: none;
-            }
-            QMessageBox * {
-                border: none;
-            }
-        """)
+        confirm = msg_box.button(QMessageBox.StandardButton.Yes)
+        confirm.setText("Delete")
+        set_style_property(confirm, "variant", "danger")
+        msg_box.button(QMessageBox.StandardButton.No).setText("Cancel")
 
         reply = msg_box.exec()
 
         if reply == QMessageBox.StandardButton.Yes:
-            # Perform deletion
             deleted_count = soft_delete_samples(sample_names)
             if deleted_count > 0:
                 self.samples_deleted.emit(sample_names)
 
     def _show_recovery_dialog(self):
         """Show the sample recovery dialog"""
-        dialog = SampleRecoveryDialog(self)
-        dialog.samples_restored.connect(self.samples_restored.emit)
+        dialog = RecoveryDialog("sample", get_deleted_samples, restore_samples, self)
+        dialog.restored.connect(self.samples_restored.emit)
         dialog.exec()

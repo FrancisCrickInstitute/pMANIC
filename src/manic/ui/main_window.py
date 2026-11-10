@@ -5,28 +5,36 @@ from pathlib import Path
 
 import numpy as np
 
-from PySide6.QtCore import QCoreApplication, QSignalBlocker, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import (
+    QCoreApplication,
+    QPoint,
+    QSettings,
+    QSignalBlocker,
+    Qt,
+    QThread,
+    QTimer,
+    QUrl,
+)
 from PySide6.QtGui import (
     QAction,
-    QDesktopServices,  # Add this for opening URLs
+    QDesktopServices,
     QIcon,
     QKeySequence,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenuBar,
     QMessageBox,
-    QProgressBar,
     QProgressDialog,
-    QRadioButton,
+    QPushButton,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -69,7 +77,9 @@ from manic.models.session_export import (
     validate_method_file,
 )
 from manic.processors.chromatographic_peak_deconvolution import (
+    DEFAULT_DECONVOLUTION_FIT_TYPE,
     DEFAULT_DECONVOLUTION_LEVEL,
+    DEFAULT_NOISE_GATE,
     normalize_fit_type,
     normalize_noise_gate,
     normalize_stringency,
@@ -78,18 +88,24 @@ from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.models.sample_fit_type import set_sample_fit_type
-from manic.validation.peak_verdict import PeakVerdict
+from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.processors.fit_prefetch import (
     discard_prefetched,
     prefetch_display_fits,
     start_pool,
 )
 from manic.ui.graphs import GraphView
+from manic.ui.plot_tile import LARGE_TILE, TILE_GAP
 from manic.ui.left_toolbar import Toolbar
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
+from manic.ui.export_options_dialog import ExportOptionsDialog
 from manic.ui.settings_window import SettingsWindow
-from manic.ui.toast_notification import ToastNotification
+from manic.ui.standard_indicator_widget import lacking_amount
+from manic.ui.start_panel import StartPanel
+from manic.ui.theme import set_style_property
+from manic.ui.toast_notification import ToastNotification, show_status_toast
 from manic.ui.window_placement import show_over_parent
+from manic.ui.summary_panel import SUMMARY_MIN_WIDTH, SummaryPanel, summary_width_for
 from manic.ui.total_abundance_widget import abundances_from_provider
 from manic.utils.paths import docs_path, resource_path
 from manic.utils.recent_files import RecentFiles
@@ -105,6 +121,20 @@ from manic.utils.timer import measure_time
 logger = logging.getLogger("manic_logger")
 
 
+def _eics(count: int) -> str:
+    return f"{count} EIC" if count == 1 else f"{count} EICs"
+
+SIDEBAR_WIDTH = 296
+SIDEBAR_OPEN_SETTING = "view/sidebar_open"
+SIDEBAR_WIDTH_SETTING = "view/sidebar_width"
+SUMMARY_OPEN_SETTING = "view/summary_open"
+SUMMARY_WIDTH_SETTING = "view/summary_width"
+DEFAULT_DECONVOLUTION = (
+    DEFAULT_DECONVOLUTION_LEVEL, DEFAULT_DECONVOLUTION_FIT_TYPE, DEFAULT_NOISE_GATE
+)
+COMPOUND_LIST_SUFFIXES = {".csv", ".xls", ".xlsx"}
+
+
 class MainWindow(QMainWindow):
     def __init__(self, analysis_context: AnalysisContext | None = None):
         super().__init__()
@@ -113,6 +143,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(
             f"{APP_NAME} v{__version__} — {self.analysis_mode.display_name} analysis"
         )
+        self.setAcceptDrops(True)
         self.setObjectName("mainWindow")
 
         # Flag to prevent cascading compound deletion events
@@ -121,15 +152,9 @@ class MainWindow(QMainWindow):
         # Flag to prevent cascading sample deletion events
         self._deleting_samples = False
 
-        # Guard: plot selection that originated from the Identity chart
-        # must not rebuild that chart from the newly selected sample alone.
-        self._qc_link_guard = False
 
-        # Set window icon
         self._set_window_icon()
-        self.progress_bar = QProgressBar()
 
-        # Menu actions
         self.load_cdf_action = None
         self.load_compound_action = None
         self.export_method_action = None
@@ -138,9 +163,6 @@ class MainWindow(QMainWindow):
         self.clear_session_action = None
         self.about_action = None
 
-        # State tracking for menu management
-
-        # Mass tolerance setting (default 0.2 Da)
         self.mass_tolerance = 0.2
         self._reusing_fits = False
 
@@ -152,12 +174,12 @@ class MainWindow(QMainWindow):
         # Resets to 0 (M0) whenever internal standard changes.
         self.internal_standard_reference_isotope = 0
 
-        # Integration method setting
         self.use_legacy_integration = False  # Time-based by default
         self.preview_nat_abundance = False
         self.settings_window = None
         self.documentation_window = None
         self._post_load_checklist = None
+        self.compound_list_path: str | None = None
         self._update_worker = None
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
@@ -174,19 +196,18 @@ class MainWindow(QMainWindow):
 
         self.setup_ui()
 
-        # Connect toolbar signals (avoid duplicate connections; others are set in setup_ui)
         self.toolbar.internal_standard_selected.connect(
             self.on_internal_standard_selected
         )
         self.graph_view.settings_requested.connect(self.open_settings_window)
-        self.graph_view.documentation_requested.connect(self.open_documentation_window)
+        self.graph_view.guide_requested.connect(self.open_documentation_link)
+        self.summary.targeted_qc.guide_requested.connect(self.open_documentation_link)
         self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
         self.toolbar.compounds_restored.connect(self.on_compounds_restored)
         self.toolbar.add_compound_requested.connect(self.show_add_compound_dialog)
         self.toolbar.samples_deleted.connect(self.on_samples_deleted)
         self.toolbar.samples_restored.connect(self.on_samples_restored)
 
-        # Start update check in background
         self._check_for_updates()
 
     def _check_for_updates(self):
@@ -203,19 +224,13 @@ class MainWindow(QMainWindow):
         """Handle the result of the update check."""
         self._show_update_check_toast(success, has_update, latest_version)
 
-        if has_update:
-            msg = self._create_message_box(
-                "information",
-                "New Version Available",
-                f"A new version of MANIC is available (v{latest_version}).",
-                "Would you like to view the release page to download it?",
-            )
-            # Add Yes/No buttons manually since _create_message_box is generic
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg.setDefaultButton(QMessageBox.Yes)
-
-            if msg.exec() == QMessageBox.Yes:
-                QDesktopServices.openUrl(QUrl(url))
+        if has_update and self._confirm(
+            "New Version Available",
+            f"MANIC v{latest_version} is available.",
+            "",
+            "View Release Page",
+        ):
+            QDesktopServices.openUrl(QUrl(url))
 
     def _show_update_check_toast(
         self,
@@ -230,104 +245,86 @@ class MainWindow(QMainWindow):
         else:
             message = "No updates available"
 
-        toast = ToastNotification(message, parent=self, timeout_ms=7000)
-
-        # Place it above the status bar, bottom-right.
-        toast.adjustSize()
-        margin = 16
-        status_h = self.statusBar().height() if self.statusBar() else 0
-        x = self.width() - toast.width() - margin
-        y = self.height() - toast.height() - margin - status_h
-        toast.move(max(margin, x), max(margin, y))
-        toast.show()
-
-        def _reposition():
-            if not toast.isVisible():
-                return
-            status_h_local = self.statusBar().height() if self.statusBar() else 0
-            x_local = self.width() - toast.width() - margin
-            y_local = self.height() - toast.height() - margin - status_h_local
-            toast.move(max(margin, x_local), max(margin, y_local))
-
-        # Reposition once after the window has had a layout pass.
-        QTimer.singleShot(0, _reposition)
+        show_status_toast(self.statusBar(), message)
 
     def setup_ui(self):
         """
         Set up the application UI.
         """
 
-        # Create the main layout
         main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create a horizontal splitter
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(5)  # Makes the grab area slightly larger/easier to hit
+        splitter.setHandleWidth(4)
 
-        # Create the toolbar
         self.toolbar = Toolbar(self.analysis_mode)
         self.toolbar.setObjectName("toolbar")
-        # Add toolbar to splitter instead of layout
         splitter.addWidget(self.toolbar)
 
-        # Create the graph view
+        # The grid replaces the start panel once raw data is loaded.
         self.graph_view = GraphView()
-        # Add graph view to splitter instead of layout
-        splitter.addWidget(self.graph_view)
+        self.start_panel = StartPanel(self.analysis_mode is AnalysisMode.LABELLED)
+        self.workspace = QStackedWidget()
+        self.workspace.setObjectName("workspace")
+        self.no_samples_panel = self._build_no_samples_panel()
+        self.workspace.addWidget(self.start_panel)
+        self.workspace.addWidget(self.graph_view)
+        self.workspace.addWidget(self.no_samples_panel)
+        splitter.addWidget(self.workspace)
+        self.summary = SummaryPanel(self.analysis_mode)
+        splitter.addWidget(self.summary)
+        self.summary.hide()
+        # Decided when the grid first shows, from the window's width then.
+        self._summary_settled = False
+        self._summary_roomy = False
 
-        # Set stretch factors for the splitter
-        # Index 0 (Toolbar): Stretch factor 0 (doesn't expand automatically)
-        # Index 1 (GraphView): Stretch factor 1 (takes up all available extra space)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-
-        # Make the toolbar non-collapsible (so it doesn't snap to size 0)
-        splitter.setCollapsible(0, False)
-
-        # Add the splitter to the main layout
+        splitter.setStretchFactor(2, 0)
+        for index in range(3):
+            splitter.setCollapsible(index, False)
+        splitter.setSizes([SIDEBAR_WIDTH, 10_000, 0])
+        splitter.splitterMoved.connect(self._remember_panel_widths)
+        self.splitter = splitter
         main_layout.addWidget(splitter)
 
-        # Set the main layout as the central widget
         central_widget = QWidget()
         central_widget.setObjectName("centralWidget")
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
+        self._setup_status_bar()
 
-        # Create menu bar
         menu_bar = QMenuBar()
 
         """ Create File Menu """
 
-        # Initiate the file menu
         file_menu = menu_bar.addMenu("File")
         self.file_menu = file_menu
+        # Windows draws menu tooltips only when asked; a disabled action's says what it needs.
+        file_menu.setToolTipsVisible(True)
 
-        # Create the actions/logic for loading compound list data
         self.load_compound_action = QAction("Load Compounds/Parameter List", self)
         self.load_compound_action.setShortcut(QKeySequence.Open)
         self.load_compound_action.triggered.connect(self.load_compound_list_data)
-        # Add the load compound action/logic to the file menu
         file_menu.addAction(self.load_compound_action)
 
         self.add_compound_action = QAction("Add Compound...", self)
         self.add_compound_action.triggered.connect(self.show_add_compound_dialog)
         file_menu.addAction(self.add_compound_action)
 
-        # Create the actions/logic for loading CDF files
         self.load_cdf_action = QAction("Load Raw Data (CDF)", self)
         self.load_cdf_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
         self.load_cdf_action.triggered.connect(self.load_cdf_files)
-        # Add the load CDF action/logic to the file menu
         file_menu.addAction(self.load_cdf_action)
 
         self.open_recent_menu = file_menu.addMenu("Open Recent")
+        self.open_recent_menu.setToolTipsVisible(True)
         self.open_recent_menu.aboutToShow.connect(self._rebuild_open_recent_menu)
         self._rebuild_open_recent_menu()
 
-        # Add a separator to the file menu
         file_menu.addSeparator()
 
-        # Create method export/import actions
         self.export_method_action = QAction("Export Session...", self)
         self.export_method_action.triggered.connect(self.export_method)
         file_menu.addAction(self.export_method_action)
@@ -341,28 +338,33 @@ class MainWindow(QMainWindow):
         self.new_session_action.triggered.connect(self.new_analysis_session)
         file_menu.addAction(self.new_session_action)
 
-        # Create the Clear Session action
         self.clear_session_action = QAction("Clear Session", self)
         self.clear_session_action.triggered.connect(self.clear_session)
-        # Add the clear session action to the file menu
         file_menu.addAction(self.clear_session_action)
 
-        # Add separator before export data
         file_menu.addSeparator()
 
-        # Create export data action
         self.export_data_action = QAction("Export Data...", self)
         self.export_data_action.setShortcut(QKeySequence("Ctrl+E"))
         self.export_data_action.triggered.connect(self.export_data)
         file_menu.addAction(self.export_data_action)
 
-        # Add separator and Update Old Data action
         file_menu.addSeparator()
         self.update_old_data_action = QAction("Process External Data...", self)
         self.update_old_data_action.triggered.connect(self.update_old_data)
         file_menu.addAction(self.update_old_data_action)
 
         file_menu.addSeparator()
+        # Settings sits in File where Windows and Linux users look for it. Its role
+        # moves it to the application menu on macOS, which relabels it Preferences.
+        self.settings_action = QAction("Settings...", self)
+        self.settings_action.setMenuRole(QAction.PreferencesRole)
+        self.settings_action.setShortcuts(
+            [QKeySequence.Preferences, QKeySequence("Ctrl+,")]
+        )
+        self.settings_action.triggered.connect(self.open_settings_window)
+        file_menu.addAction(self.settings_action)
+
         self.quit_action = QAction("Quit", self)
         # QKeySequence.Quit has no Windows entry in Qt's standard-key table
         # (KB_X11 | KB_Gnome | KB_KDE | KB_Mac), so on its own it would leave
@@ -374,60 +376,47 @@ class MainWindow(QMainWindow):
         self.quit_action.triggered.connect(self.close)
         file_menu.addAction(self.quit_action)
 
-        # About and Settings carry roles so a native macOS menubar moves them
-        # into the application menu (Qt relabels Settings as "Preferences..."
-        # there). Documentation and Check for Updates stay put; giving them
-        # ApplicationSpecificRole made Qt list them twice. On macOS the menu
-        # that keeps them is therefore titled Help, elsewhere it is MANIC.
-        native = menu_bar.isNativeMenuBar()
-        manic_menu = menu_bar.addMenu("Help" if native else "MANIC")
+        self._build_view_menu(menu_bar)
+        self._build_review_menu(menu_bar)
 
-        self.settings_action = QAction("Settings...", self)
-        self.settings_action.setMenuRole(QAction.PreferencesRole)
-        self.settings_action.setShortcuts(
-            [QKeySequence.Preferences, QKeySequence("Ctrl+,")]
-        )
-        self.settings_action.triggered.connect(self.open_settings_window)
-        manic_menu.addAction(self.settings_action)
+        # About carries a role so a native macOS menubar moves it into the
+        # application menu. Documentation and Check for Updates stay put; giving
+        # them ApplicationSpecificRole makes Qt list them twice.
+        self.help_menu = help_menu = menu_bar.addMenu("Help")
 
         self.documentation_action = QAction("Documentation", self)
         self.documentation_action.setMenuRole(QAction.NoRole)
         self.documentation_action.setShortcut(QKeySequence.HelpContents)
         self.documentation_action.triggered.connect(self.open_documentation_window)
-        manic_menu.addAction(self.documentation_action)
+        help_menu.addAction(self.documentation_action)
 
         self.check_setup_action = QAction("Check Data Setup...", self)
         self.check_setup_action.setMenuRole(QAction.NoRole)
         self.check_setup_action.triggered.connect(self.show_post_load_checklist)
-        manic_menu.addAction(self.check_setup_action)
+        help_menu.addAction(self.check_setup_action)
 
         self.check_updates_action = QAction("Check for Updates...", self)
         self.check_updates_action.setMenuRole(QAction.NoRole)
         self.check_updates_action.triggered.connect(self._check_for_updates)
-        manic_menu.addAction(self.check_updates_action)
+        help_menu.addAction(self.check_updates_action)
 
-        manic_menu.addSeparator()
+        help_menu.addSeparator()
         self.about_action = QAction("About MANIC...", self)
         self.about_action.setMenuRole(QAction.AboutRole)
         self.about_action.triggered.connect(self.show_about)
-        manic_menu.addAction(self.about_action)
+        help_menu.addAction(self.about_action)
 
-        # Set the menu bar to the QMainWindow
         self.setMenuBar(menu_bar)
 
-        # Initialize menu states
         self._update_menu_states()
 
-        # Initialize natural abundance correction state
         if self.analysis_mode is AnalysisMode.LABELLED:
-            self.toolbar.isotopologue_ratios.set_use_corrected(False)  # Off by default
+            self.summary.isotopologue_ratios.set_use_corrected(False)
         self.update_deconvolution_indicator(None)
 
-        # Connect the toolbar's custom signals to handler methods
         self.toolbar.samples_selected.connect(self.on_samples_selected)
         self.toolbar.compound_selected.connect(self.on_compound_selected)
 
-        # Connect the graph view's selection signal
         self.graph_view.selection_changed.connect(self.on_plot_selection_changed)
         self.graph_view.peak_review_changed.connect(self.on_peak_review_changed)
         self.graph_view.sample_fit_type_changed.connect(
@@ -436,7 +425,6 @@ class MainWindow(QMainWindow):
         self.graph_view.focus_selected_requested.connect(self.focus_on_samples)
         self.graph_view.show_all_samples_requested.connect(self.show_all_samples)
 
-        # Connect the integration window's session data signals
         self.toolbar.integration.session_data_applied.connect(
             self.on_session_data_applied
         )
@@ -449,18 +437,461 @@ class MainWindow(QMainWindow):
         self.toolbar.baseline_correction_changed.connect(
             self.on_baseline_correction_changed
         )
+        self.toolbar.deconvolution_changed.connect(
+            lambda level, fit, gate: self.apply_deconvolution(
+                self.selected_compound_name(), level, fit, gate, apply_to_all=False
+            )
+        )
         self.toolbar.y_scale_policy_changed.connect(
             self.graph_view.set_y_scale_policy
         )
+        self.graph_view.set_y_scale_policy(self.toolbar.y_scale_policy)
 
-        # Clicking an Identity bar highlights that sample's plot.
-        self.toolbar.targeted_qc.sample_activated.connect(
-            self._on_qc_sample_activated
+        # Clicking a Summary row, or a row in a summary popup, highlights that sample's plot.
+        self.summary.sample_activated.connect(self._on_qc_sample_activated)
+
+        self.start_panel.load_compounds_requested.connect(
+            self.load_compound_action.trigger
         )
+        self.start_panel.load_raw_data_requested.connect(self.load_cdf_action.trigger)
+        self.start_panel.recent_compound_list_requested.connect(
+            self._load_compound_list_from
+        )
+        self.start_panel.recent_raw_data_requested.connect(self._load_cdf_folder)
+        self.start_panel.new_session_requested.connect(self.new_session_action.trigger)
+        self.start_panel.documentation_requested.connect(
+            self.open_documentation_window
+        )
+        self.start_panel.process_external_requested.connect(
+            self.update_old_data_action.trigger
+        )
+        self.installEventFilter(self.start_panel)
+        self._refresh_shell()
+        self.start_panel.primary_button.setFocus()
+
+    def _build_view_menu(self, menu_bar: QMenuBar) -> None:
+        view_menu = menu_bar.addMenu("View")
+        self.view_menu = view_menu
+        view_menu.setToolTipsVisible(True)
+        # The grid header's two panel buttons; the sidebar is open unless the user closed it.
+        self.show_sidebar_action = self._panel_action(
+            "Show Sidebar", "Ctrl+Alt+S", self.graph_view.sidebar_button, SIDEBAR_OPEN_SETTING
+        )
+        self.show_sidebar_action.setChecked(
+            QSettings().value(SIDEBAR_OPEN_SETTING, True, type=bool)
+        )
+        self.show_summary_action = self._panel_action(
+            "Show Summary", "Ctrl+Alt+R", self.graph_view.summary_button, SUMMARY_OPEN_SETTING
+        )
+        view_menu.addActions([self.show_sidebar_action, self.show_summary_action])
+        view_menu.addSeparator()
+        shortcuts = {"Shared Y-Scale": "Ctrl+Shift+Y", "Scale to Selected Peak": "Ctrl+Shift+P"}
+        buttons = {
+            "Shared Y-Scale": self.graph_view.shared_y_button,
+            "Scale to Selected Peak": self.graph_view.peak_scale_button,
+        }
+        for action in self.toolbar.scale_actions():
+            action.setShortcut(QKeySequence(shortcuts[action.text()]))
+            view_menu.addAction(action)
+            self._mirror(action, buttons[action.text()], action.toolTip())
+        # Scaling to the selected peak is a labelled-mode choice.
+        self.graph_view.peak_scale_button.setVisible(
+            self.toolbar.selected_peak_yscale_action is not None
+        )
+
+        view_menu.addSeparator()
+        self.find_compound_action = QAction("Find Compound", self)
+        self.find_compound_action.setShortcut(QKeySequence.Find)
+        self.find_compound_action.triggered.connect(
+            lambda: (self.show_sidebar_action.setChecked(True), self.toolbar.focus_compound_filter())
+        )
+        view_menu.addAction(self.find_compound_action)
+
+        self.previous_compound_action = QAction("Previous Compound", self)
+        self.previous_compound_action.setShortcut(QKeySequence("Ctrl+["))
+        self.previous_compound_action.triggered.connect(
+            lambda: self.toolbar.step_compound(-1)
+        )
+        view_menu.addAction(self.previous_compound_action)
+
+        self.next_compound_action = QAction("Next Compound", self)
+        self.next_compound_action.setShortcut(QKeySequence("Ctrl+]"))
+        self.next_compound_action.triggered.connect(
+            lambda: self.toolbar.step_compound(1)
+        )
+        view_menu.addAction(self.next_compound_action)
+
+        view_menu.addSeparator()
+        self.show_samples_action = QAction("Sample List", self)
+        self.show_samples_action.setCheckable(True)
+        self.show_samples_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self.show_samples_action.setChecked(self.toolbar.samples_section.is_expanded())
+        self.show_samples_action.triggered.connect(self.toolbar.samples_section.choose)
+        # Asking for the list shows it, so it opens the sidebar too.
+        self.show_samples_action.triggered.connect(
+            lambda shown: shown and self.show_sidebar_action.setChecked(True)
+        )
+        self.toolbar.samples_section.toggled.connect(
+            self.show_samples_action.setChecked
+        )
+        view_menu.addAction(self.show_samples_action)
+
+        self.show_all_samples_action = QAction("Show All Samples", self)
+        self.show_all_samples_action.triggered.connect(self.show_all_samples)  # listed in Review
+
+    def _build_review_menu(self, menu_bar: QMenuBar) -> None:
+        """The plot context menu's review commands, on the menu bar.
+
+        They act from the graph view's review lead, and the graph view labels and
+        enables them exactly as it does its context menu.
+        """
+        menu = menu_bar.addMenu("Review")
+        self.review_menu = menu
+
+        def grid_key(action: QAction, sequence) -> None:
+            # The grid handles these keys itself; the menu only names them.
+            action.setShortcut(QKeySequence(sequence))
+            action.setShortcutContext(Qt.WidgetShortcut)
+            # macOS hides shortcuts in a menu it opens outside the menu bar.
+            action.setShortcutVisibleInContextMenu(True)
+
+        def letter_key(action: QAction, key, on_key) -> None:
+            # A bare letter that reaches the grid from anywhere in the window, so a
+            # list never takes it as type-ahead; a text field claims it as typing.
+            grid_key(action, key)
+            QShortcut(QKeySequence(key), self).activated.connect(on_key)
+
+        self.inspect_action = QAction("Inspect Sample...", self)
+        grid_key(self.inspect_action, Qt.Key_Return)
+        self.inspect_action.triggered.connect(
+            lambda: self._with_review_lead(self.graph_view.inspect_plot)
+        )
+        menu.addAction(self.inspect_action)
+        menu.addSeparator()
+
+        self.select_all_plots_action = QAction("Select All Plots", self)
+        grid_key(self.select_all_plots_action, QKeySequence.SelectAll)
+        self.select_all_plots_action.triggered.connect(self.graph_view.select_all_plots)
+        menu.addAction(self.select_all_plots_action)
+        self.deselect_plots_action = QAction("Deselect All", self)
+        grid_key(self.deselect_plots_action, Qt.Key_Escape)
+        self.deselect_plots_action.triggered.connect(self.graph_view.clear_selection)
+        menu.addAction(self.deselect_plots_action)
+        self.show_only_selected_action = QAction("Show Only Selected Samples", self)
+        self.show_only_selected_action.triggered.connect(
+            lambda: self.graph_view.show_only_samples(self.graph_view.review_lead())
+        )
+        menu.addAction(self.show_only_selected_action)
+        menu.addAction(self.show_all_samples_action)
+        menu.addSeparator()
+
+        # The review loop: reach the next flagged sample, then judge it.
+        self.next_flagged_action = QAction("Next Flagged Sample", self)
+        self.next_flagged_action.triggered.connect(lambda: self._focus_flagged(1))
+        letter_key(self.next_flagged_action, Qt.Key_N, lambda: self._focus_flagged(1))
+        menu.addAction(self.next_flagged_action)
+        self.previous_flagged_action = QAction("Previous Flagged Sample", self)
+        self.previous_flagged_action.triggered.connect(lambda: self._focus_flagged(-1))
+        letter_key(
+            self.previous_flagged_action, Qt.SHIFT | Qt.Key_N, lambda: self._focus_flagged(-1)
+        )
+        menu.addAction(self.previous_flagged_action)
+        self.accept_peak_action = QAction("Accept Peak (Below Threshold)", self)
+        self.accept_peak_action.triggered.connect(
+            lambda: self._with_review_lead(
+                lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.ACCEPTED)
+            )
+        )
+        letter_key(
+            self.accept_peak_action, Qt.Key_A, lambda: self._trigger_review(self.accept_peak_action)
+        )
+        menu.addAction(self.accept_peak_action)
+        self.reject_peak_action = QAction("Mark Peak as Bad", self)
+        self.reject_peak_action.triggered.connect(
+            lambda: self._with_review_lead(
+                lambda plot: self.graph_view.toggle_peak_review(plot, PeakReview.REJECTED)
+            )
+        )
+        letter_key(
+            self.reject_peak_action, Qt.Key_B, lambda: self._trigger_review(self.reject_peak_action)
+        )
+        menu.addAction(self.reject_peak_action)
+        self.review_fit_menu = menu.addMenu("Curve Fit")
+        menu.addSeparator()
+        # The Peak window's baseline toggle, so it sits with the peak commands.
+        baseline = self.toolbar.baseline_checkbox
+        self.baseline_action = QAction("Baseline Correction", self)
+        self.baseline_action.setCheckable(True)
+        self.baseline_action.setChecked(baseline.isChecked())
+        self.baseline_action.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        self.baseline_action.setShortcutVisibleInContextMenu(True)
+        self.baseline_action.triggered.connect(lambda checked: baseline.setChecked(checked))
+        baseline.toggled.connect(self.baseline_action.setChecked)
+        menu.addAction(self.baseline_action)
+
+        menu.aboutToShow.connect(self._sync_review_menu)
+        self.graph_view.selection_changed.connect(self._sync_review_menu)
+        self._sync_review_menu()
+
+    def _sync_review_menu(self, *_args) -> None:
+        view = self.graph_view
+        self.select_all_plots_action.setEnabled(view.has_plots())
+        for action in (self.next_flagged_action, self.previous_flagged_action):
+            action.setEnabled(view.has_flagged())
+        self.deselect_plots_action.setEnabled(bool(view.get_selected_samples()))
+        view.update_review_actions(
+            view.review_lead(),
+            inspect=self.inspect_action,
+            show_only=self.show_only_selected_action,
+            accept=self.accept_peak_action,
+            reject=self.reject_peak_action,
+            fit_menu=self.review_fit_menu,
+        )
+
+    def _focus_flagged(self, step: int) -> None:
+        view = self.graph_view
+        if not view.focus_flagged(step) and view.has_plots():
+            show_status_toast(
+                self.statusBar(), f"No flagged plots in {view.get_current_compound()}"
+            )
+
+    def _trigger_review(self, action: QAction) -> None:
+        # Arrow keys move the review lead without a selection change, so refresh first.
+        self._sync_review_menu()
+        if action.isEnabled():
+            action.trigger()
+            return
+        view = self.graph_view
+        if not view.has_plots():
+            return
+        lead = view.review_lead()
+        if lead is None:
+            message = "Select a plot first"
+        elif len(view.get_selected_samples()) > 1:
+            message = "No selected plot is Below threshold"
+        else:
+            message = f"{lead.sample_name} is not Below threshold"
+        show_status_toast(self.statusBar(), message).setProperty("refusal", True)
+
+    def _with_review_lead(self, command) -> None:
+        lead = self.graph_view.review_lead()
+        if lead is not None:
+            command(lead)
+        self._sync_review_menu()
+
+    def _setup_status_bar(self) -> None:
+        bar = self.statusBar()
+        bar.setSizeGripEnabled(False)
+        self.deconvolution_indicator_label = QPushButton()
+        self.deconvolution_indicator_label.setObjectName("statusDeconvolution")
+        self.deconvolution_indicator_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.deconvolution_indicator_label.setToolTip(
+            "Peak deconvolution for this compound. Click to change it in Settings."
+        )
+        self.deconvolution_indicator_label.clicked.connect(
+            lambda: self.open_settings_page("Deconvolution")
+        )
+        bar.addPermanentWidget(self.deconvolution_indicator_label)
+
+    def _build_no_samples_panel(self) -> QWidget:
+        """The workspace while every sample is unchecked in the sidebar."""
+        panel = QWidget()
+        panel.setObjectName("noSamplesPanel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(0)
+        layout.addStretch(1)
+        title = QLabel("No samples shown")
+        title.setProperty("role", "title")
+        detail = QLabel(
+            "Every sample is unchecked in the Samples list.\n"
+            "Check the ones to plot."
+        )
+        detail.setProperty("role", "secondary")
+        detail.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.show_all_samples_button = QPushButton("Show all samples")
+        self.show_all_samples_button.setProperty("variant", "primary")
+        self.show_all_samples_button.clicked.connect(self.show_all_samples)
+        layout.addWidget(title, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(8)
+        layout.addWidget(detail, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(16)
+        layout.addWidget(self.show_all_samples_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addStretch(2)
+        return panel
+
+    def _no_samples_shown(self) -> bool:
+        return (
+            self.cdf_data_loaded
+            and self.toolbar.sample_list.real_count() > 0
+            and not self.toolbar.get_selected_samples()
+        )
+
+    def _refresh_shell(self) -> None:
+        """Workspace page and start panel from the loaded-data state."""
+        if not hasattr(self, "start_panel"):
+            return
+        self.start_panel.refresh(
+            self.compound_data_loaded,
+            self.load_compound_action.isEnabled(),
+            self.load_cdf_action.isEnabled(),
+            self._recent_compounds.paths(),
+            self._recent_cdf.paths(),
+        )
+        if not self.cdf_data_loaded:
+            page = self.start_panel
+        elif self._no_samples_shown():
+            page = self.no_samples_panel
+        else:
+            page = self.graph_view
+        self.workspace.setCurrentWidget(page)
+        if page is self.graph_view and not self._summary_settled:
+            self._summary_settled = True
+            settings = QSettings()
+            self._summary_roomy = self._summary_room() >= SUMMARY_MIN_WIDTH
+            # With no saved choice, the Summary starts closed in a narrower window, so the
+            # grid keeps its columns.
+            self.show_summary_action.setChecked(
+                settings.value(SUMMARY_OPEN_SETTING, type=bool) and self._summary_fits()
+                if settings.contains(SUMMARY_OPEN_SETTING)
+                else self._summary_roomy
+            )
+        self._apply_panels()
+        # Loading selects the first compound without on_compound_selected, so name it here.
+        self.update_deconvolution_indicator(
+            self.selected_compound_name() if self.compound_data_loaded else None
+        )
+
+    def _panel_action(self, text: str, key: str, button, setting: str) -> QAction:
+        """A View menu toggle that the grid header button mirrors; a user's choice is saved."""
+        action = QAction(text, self)
+        action.setCheckable(True)
+        action.setShortcut(QKeySequence(key))
+        self._mirror(action, button)
+        button.setAccessibleName(text)
+        action.toggled.connect(self._apply_panels)
+        action.triggered.connect(lambda shown: QSettings().setValue(setting, shown))
+        return action
+
+    @staticmethod
+    def _mirror(action: QAction, button, detail: str = "") -> None:
+        """A grid header button that does what a checkable View menu action does, and shows it."""
+        shortcut = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+        button.setToolTip("\n".join(filter(None, (f"{action.text()} ({shortcut})", detail))))
+        button.setChecked(action.isChecked())
+        button.setEnabled(action.isEnabled())
+        action.toggled.connect(button.setChecked)
+        action.changed.connect(lambda: button.setEnabled(action.isEnabled()))
+        button.clicked.connect(action.trigger)
+
+    def _apply_panels(self, *_args) -> None:
+        """Show the sidebar and the Summary as their toggles say, each at its remembered
+        width; the grid takes the rest. The Summary shows only beside the grid."""
+        sidebar_shown = self.show_sidebar_action.isChecked()
+        summary_shown = (
+            self.workspace.currentWidget() is self.graph_view
+            and self.show_summary_action.isChecked()
+        )
+        if (sidebar_shown, summary_shown) == (self.toolbar.isVisibleTo(self), self.summary.isVisibleTo(self)):
+            return
+        if summary_shown and self.summary.isVisibleTo(self) and not self._summary_fits():
+            # The sidebar back in a window too narrow for all three: the Summary closes until
+            # the user reopens it (nothing is saved) rather than widen the window past its screen.
+            self.show_summary_action.setChecked(False)
+            return
+        self.toolbar.setVisible(sidebar_shown)
+        self.summary.setVisible(summary_shown)
+        self._size_panels()
+
+    def _size_panels(self) -> None:
+        """The sidebar at its remembered width and the Summary at its remembered (or the
+        window's default) width, cut toward its minimum so the grid keeps three large
+        columns; the grid takes the rest."""
+        handle = self.splitter.handleWidth()
+        sidebar = self._sidebar_width() if self.toolbar.isVisibleTo(self) else 0
+        summary = 0
+        if self.summary.isVisibleTo(self):
+            preferred = QSettings().value(
+                SUMMARY_WIDTH_SETTING, summary_width_for(self.width()), type=int
+            )
+            summary = max(min(preferred, self._summary_room()), SUMMARY_MIN_WIDTH)
+        grid = self.splitter.width() - sidebar - summary - handle * ((sidebar > 0) + (summary > 0))
+        self.splitter.setSizes([sidebar, grid, summary])
+
+    def _sidebar_width(self) -> int:
+        saved = QSettings().value(SIDEBAR_WIDTH_SETTING, SIDEBAR_WIDTH, type=int)
+        return max(saved, self.toolbar.minimumSizeHint().width())
+
+    def _summary_room(self, columns: int = 3, sidebar: int | None = None) -> int:
+        """The width left for the Summary beside ``columns`` large grid columns and the
+        sidebar, at its remembered width unless ``sidebar`` is given."""
+        handle = self.splitter.handleWidth()
+        taken = 0
+        if self.show_sidebar_action.isChecked():
+            taken = (self._sidebar_width() if sidebar is None else sidebar) + handle
+        grid = self.graph_view.minimumSizeHint().width() + (columns - 2) * (
+            LARGE_TILE[0] + TILE_GAP
+        )
+        return self.splitter.width() - taken - grid - handle
+
+    def _summary_fits(self) -> bool:
+        """Room for the Summary beside two grid columns, the sidebar squeezed to its content."""
+        room = self._summary_room(columns=2, sidebar=self.toolbar.minimumSizeHint().width())
+        return room >= SUMMARY_MIN_WIDTH
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._summary_settled:
+            return
+        # Narrowed past room for three grid columns, the Summary closes (nothing is saved);
+        # widened back, it returns if the user's choice is open.
+        roomy = self._summary_room() >= SUMMARY_MIN_WIDTH
+        if roomy != self._summary_roomy:
+            self._summary_roomy = roomy
+            self.show_summary_action.setChecked(
+                roomy and QSettings().value(SUMMARY_OPEN_SETTING, True, type=bool)
+            )
+        if self.summary.isVisibleTo(self):
+            self._size_panels()
+
+    def _remember_panel_widths(self, *_args) -> None:
+        sidebar, _grid, summary = self.splitter.sizes()
+        if self.toolbar.isVisibleTo(self):
+            QSettings().setValue(SIDEBAR_WIDTH_SETTING, sidebar)
+        if self.summary.isVisibleTo(self):
+            QSettings().setValue(SUMMARY_WIDTH_SETTING, summary)
+
+    def dragEnterEvent(self, event):
+        if self._dropped_path(event) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        path = self._dropped_path(event)
+        if path is None:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        if path.is_dir():
+            self._load_cdf_folder(str(path))
+        else:
+            self._load_compound_list_from(str(path))
+
+    def _dropped_path(self, event) -> Path | None:
+        """The one local file or folder dropped, if loading it is allowed right now."""
+        urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+        if len(urls) != 1 or not urls[0].isLocalFile():
+            return None
+        path = Path(urls[0].toLocalFile())
+        if path.is_dir():
+            return path if self.load_cdf_action.isEnabled() else None
+        if path.suffix.lower() in COMPOUND_LIST_SUFFIXES:
+            return path if self.load_compound_action.isEnabled() else None
+        return None
 
     def _get_logo_path(self) -> str:
         """Get the path to the MANIC logo."""
-        # Try to find the logo relative to this file
         logo_path = resource_path("resources", "manic_logo.png")
         if os.path.exists(logo_path):
             return logo_path
@@ -484,16 +915,13 @@ class MainWindow(QMainWindow):
         if parent is None:
             parent = self
 
-        # Create a custom message box without standard icons
         msg_box = QMessageBox(parent=parent)
         msg_box.setWindowTitle(title)
         msg_box.setText(text)
 
-        # Set informative text if provided
         if informative_text:
             msg_box.setInformativeText(informative_text)
 
-        # Set appropriate buttons based on message type
         if msg_type == "information":
             msg_box.setStandardButtons(QMessageBox.Ok)
             msg_box.setDefaultButton(QMessageBox.Ok)
@@ -509,21 +937,16 @@ class MainWindow(QMainWindow):
 
         return msg_box
 
-    def _show_question_dialog(
-        self,
-        title: str,
-        text: str,
-        informative_text: str = "",
-        parent=None,
-        default_button=None,
-    ) -> int:
-        """Show a question dialog and return the result (QMessageBox.Yes or QMessageBox.No)."""
-        msg_box = self._create_message_box(
-            "question", title, text, informative_text, parent
-        )
-        if default_button is not None:
-            msg_box.setDefaultButton(default_button)
-        return msg_box.exec()
+    def _confirm(
+        self, title: str, text: str, informative_text: str, verb: str, parent=None
+    ) -> bool:
+        """Ask before acting: the button names the action, and Return cancels."""
+        box = self._create_message_box("question", title, text, informative_text, parent)
+        box.setStandardButtons(QMessageBox.Cancel)
+        act = box.addButton(verb, QMessageBox.AcceptRole)
+        box.setDefaultButton(QMessageBox.Cancel)
+        box.exec()
+        return box.clickedButton() is act
 
     def _show_message(
         self, msg_type: str, title: str, text: str, informative_text: str = ""
@@ -565,22 +988,18 @@ class MainWindow(QMainWindow):
         """Update menu item enabled/disabled states based on current data state."""
         export_running = self._running_background_thread() == "_export_thread"
 
-        # Load Compound Data: enabled only if not yet loaded
         self.load_compound_action.setEnabled(
             not self.compound_data_loaded and not export_running
         )
 
-        # Load CDF Data: enabled only if compound data loaded but CDF not loaded
         self.load_cdf_action.setEnabled(
             self.compound_data_loaded
             and not self.cdf_data_loaded
             and not export_running
         )
 
-        # Export Session: enabled if compound data loaded
         self.export_method_action.setEnabled(self.compound_data_loaded)
 
-        # Export Data: enabled only if compound data, CDF data loaded
         self.export_data_action.setEnabled(
             self.compound_data_loaded
             and self.cdf_data_loaded
@@ -591,65 +1010,31 @@ class MainWindow(QMainWindow):
             self.compound_data_loaded and self.cdf_data_loaded
         )
 
-        # Import Session: enabled only if both compound and CDF data loaded
-        self.import_session_action.setEnabled(
-            self.compound_data_loaded and self.cdf_data_loaded
+        can_import = self.compound_data_loaded and self.cdf_data_loaded
+        self.import_session_action.setEnabled(can_import)
+        self.import_session_action.setToolTip(
+            "" if can_import else "Load the session's compound list and raw data first"
         )
 
-        # Clear Session: enabled if any data loaded
         self.clear_session_action.setEnabled(
             (self.compound_data_loaded or self.cdf_data_loaded)
             and not export_running
         )
         self.new_session_action.setEnabled(not export_running)
 
-        # Add tooltips to disabled items
-        if self.compound_data_loaded:
-            self.load_compound_action.setToolTip(
-                "Compound data already loaded. Use 'Clear Session' to start over."
-            )
-        else:
-            self.load_compound_action.setToolTip(
-                "Load compound list and parameter data"
-            )
-
-        if not self.compound_data_loaded:
-            self.load_cdf_action.setToolTip(
-                "Load compound data first before loading raw data"
-            )
-        elif self.cdf_data_loaded:
-            self.load_cdf_action.setToolTip(
-                "Raw data already loaded. Use 'Clear Session' to start over."
-            )
-        else:
-            self.load_cdf_action.setToolTip("Load raw CDF data files")
-
-        # Import Session tooltips
-        if not self.compound_data_loaded:
-            self.import_session_action.setToolTip("Load compound data first")
-        elif not self.cdf_data_loaded:
-            self.import_session_action.setToolTip(
-                "Load CDF data before importing session"
-            )
-        else:
-            self.import_session_action.setToolTip(
-                "Import session-specific integration overrides"
-            )
-
         if self.settings_window is not None:
             self.settings_window.refresh()
+        self._refresh_shell()
 
-    # reusable progress dialog
     def _build_progress_dialog(self, title: str) -> QProgressDialog:
         dlg = QProgressDialog(title, None, 0, 100, self)
         dlg.setWindowTitle("Please wait")
         dlg.setWindowModality(Qt.WindowModal)
         dlg.setAutoClose(False)
         dlg.setAutoReset(False)
-        dlg.setMinimumDuration(0)  # Show immediately
-        dlg.setCancelButton(None)  # Remove cancel button for simplicity
+        dlg.setMinimumDuration(0)
+        dlg.setCancelButton(None)
 
-        # Set the logo
         logo_path = self._get_logo_path()
         if logo_path:
             dlg.setWindowIcon(QIcon(logo_path))
@@ -677,13 +1062,13 @@ class MainWindow(QMainWindow):
             return
 
         if self.compound_data_loaded or self.cdf_data_loaded:
-            reply = self._show_question_dialog(
+            if not self._confirm(
                 "New Analysis Session",
                 "Starting a new session will clear all loaded data.",
                 "Compound data, raw data, and results in this session will be "
                 "removed. Export anything you want to keep first.",
-            )
-            if reply != QMessageBox.Yes:
+                "Start New Session",
+            ):
                 return
 
         if preset_mode is not None:
@@ -733,12 +1118,7 @@ class MainWindow(QMainWindow):
                     "An import or reload is still running. Quitting now leaves "
                     "the database partly written."
                 )
-            reply = self._show_question_dialog(
-                "Quit MANIC?",
-                quit_text,
-                default_button=QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
+            if not self._confirm("Quit MANIC?", quit_text, "", "Quit"):
                 event.ignore()
                 return
             if running == "_export_thread":
@@ -747,12 +1127,12 @@ class MainWindow(QMainWindow):
                 if self._export_thread is not None:
                     self._export_thread.wait()
         elif self.compound_data_loaded or self.cdf_data_loaded:
-            reply = self._show_question_dialog(
+            if not self._confirm(
                 "Quit MANIC?",
-                "This session is not saved. Use File > Export Method... to keep the compound settings before quitting.",
-                default_button=QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
+                f"This session is not saved. File > {self.export_method_action.text()} keeps it.",
+                "",
+                "Quit",
+            ):
                 event.ignore()
                 return
         event.accept()
@@ -788,6 +1168,7 @@ class MainWindow(QMainWindow):
         self._recent_compounds.clear()
         self._recent_cdf.clear()
         self.open_recent_menu.setEnabled(False)
+        self._refresh_shell()
 
     def load_compound_list_data(self: QMainWindow) -> None:
         """
@@ -828,14 +1209,14 @@ class MainWindow(QMainWindow):
         self._recent_compounds.add(path)
         self.open_recent_menu.setEnabled(True)
         try:
-            self.compounds_data_storage = import_compound_excel(
+            import_compound_excel(
                 path,
                 analysis_mode=self.analysis_mode,
             )
+            self.compound_list_path = path
             self.toolbar.update_label_colours(False, True)
             self.toolbar.update_compound_list(list_compound_names())
 
-            # Update state and menu
             self.compound_data_loaded = True
             self._update_menu_states()
 
@@ -912,17 +1293,14 @@ class MainWindow(QMainWindow):
         self._recent_cdf.add(path)
         self.open_recent_menu.setEnabled(True)
 
-        # build dialog & worker
         self.progress_dialog = self._build_progress_dialog("Importing CDF data…")
         self.progress_dialog.show()
 
-        self._thread = QThread(self)  # background thread
-        self._worker = CdfImportWorker(path, self.mass_tolerance)  # heavy lifting
+        self._thread = QThread(self)
+        self._worker = CdfImportWorker(path, self.mass_tolerance)
         self._worker.moveToThread(self._thread)
 
-        # progress updates
         self._worker.progress.connect(self._update_import_progress)
-        # finish / fail
         self._worker.finished.connect(self._import_ok)
         self._worker.failed.connect(self._import_fail)
         self._worker.finished.connect(self._thread.quit)
@@ -948,40 +1326,16 @@ class MainWindow(QMainWindow):
             logger.warning("Could not start fit workers", exc_info=True)
         self.progress_dialog.close()
 
-        # Non-blocking success notification (avoid modal popup)
-        toast = ToastNotification(
-            f"Imported {rows} EICs", parent=self, timeout_ms=7000
-        )
-        toast.adjustSize()
-        margin = 16
-        status_h = self.statusBar().height() if self.statusBar() else 0
-        x = self.width() - toast.width() - margin
-        y = self.height() - toast.height() - margin - status_h
-        toast.move(max(margin, x), max(margin, y))
-        toast.show()
+        show_status_toast(self.statusBar(), f"Imported {rows} EICs")
+        self.workspace.setCurrentWidget(self.graph_view)
 
-        def _reposition():
-            if not toast.isVisible():
-                return
-            status_h_local = self.statusBar().height() if self.statusBar() else 0
-            x_local = self.width() - toast.width() - margin
-            y_local = self.height() - toast.height() - margin - status_h_local
-            toast.move(max(margin, x_local), max(margin, y_local))
-
-        # Reposition once after the window has had a layout pass.
-        QTimer.singleShot(0, _reposition)
-
-        # set raw data indicator to green
         self.toolbar.update_label_colours(True, True)
 
-        # get active samples
         active_samples = list_active_samples()
 
-        # update samples list in toolbar
-        # update to samples list in toolbar will trigger plotting
+        # Updating the sample list triggers plotting.
         self.toolbar.update_sample_list(active_samples)
 
-        # Update state and menu
         self.cdf_data_loaded = True
         self._update_menu_states()
         self.show_post_load_checklist()
@@ -1017,18 +1371,24 @@ class MainWindow(QMainWindow):
         return verdicts
 
     def on_peak_review_changed(self, compound_name: str, sample_names: list, review):
+        # A refused A or B no longer applies once a review goes through.
+        for toast in self.statusBar().findChildren(ToastNotification):
+            if toast.property("refusal"):
+                toast.close()
         for sample_name in sample_names:
             set_peak_review(compound_name, sample_name, review)
         samples = self.graph_view.get_current_samples()
         self.graph_view.apply_peak_verdicts(self._peak_verdicts(compound_name, samples))
 
     def on_plot_button(self, compound_name, samples):
-        # Validate inputs before plotting
         if not compound_name or compound_name.startswith("- No"):
-            return  # Don't plot with placeholder compound
+            return
 
-        if not samples or any(sample.startswith("- No") for sample in samples):
-            return  # Don't plot with placeholder samples
+        if any(sample.startswith("- No") for sample in samples):
+            return
+        if not samples:
+            self._show_no_samples(compound_name)
+            return
 
         compound_reads = ExitStack()
         try:
@@ -1053,15 +1413,15 @@ class MainWindow(QMainWindow):
                         identity=identity,
                     )
 
-                # After plotting, update integration window to show "All" state
-                # (no plots selected initially)
+                # A re-plot of the same compound keeps its selection (graph view).
                 self.toolbar.integration.populate_fields_from_plots(
                     compound_name,
-                    [],  # No plots selected initially
-                    samples,  # All visible samples
+                    self.graph_view.get_selected_samples(),
+                    samples,
                 )
 
                 self.toolbar.integration.populate_tr_window_field(compound_name)
+                self._refresh_shell()
 
                 self._refresh_mode_charts(
                     compound_name,
@@ -1081,6 +1441,14 @@ class MainWindow(QMainWindow):
         finally:
             discard_prefetched()
             compound_reads.close()
+
+    def _show_no_samples(self, compound_name: str) -> None:
+        """Nothing checked: no plots, no summaries, and nothing for the inspector to apply to."""
+        self.graph_view.clear_all_plots()
+        self.toolbar.integration.populate_fields_from_plots(compound_name, [], [])
+        self.toolbar.integration.populate_tr_window_field(compound_name)
+        self.summary.clear()
+        self._refresh_shell()
 
     def _get_current_eics(self):
         """Get EICs for the current compound and samples"""
@@ -1178,11 +1546,11 @@ class MainWindow(QMainWindow):
     ) -> None:
         current_eics = self._get_current_eics()
         if self.analysis_mode is AnalysisMode.LABELLED:
-            self.toolbar.isotopologue_ratios.update_ratios(
+            self.summary.isotopologue_ratios.update_ratios(
                 compound_name, current_eics
             )
             abundances, eics = (
-                self.toolbar.isotopologue_ratios.get_last_total_abundances()
+                self.summary.isotopologue_ratios.get_last_total_abundances()
             )
             if abundances is None:
                 abundances = self._calculate_total_abundances_fallback(
@@ -1200,33 +1568,26 @@ class MainWindow(QMainWindow):
             )
 
         if abundances is None:
-            self.toolbar.total_abundance._clear_chart()
+            self.summary.total_abundance.clear()
             return
-        self.toolbar.total_abundance.update_abundance_from_data(
+        self.summary.total_abundance.update_abundance_from_data(
             compound_name, eics, abundances
         )
+        self.summary.set_highlighted(self.graph_view.get_selected_samples())
 
     def _update_targeted_qc(self, identity) -> None:
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
             return
         if identity is None:
-            self.toolbar.targeted_qc.clear()
+            self.summary.targeted_qc.clear()
             return
-        self.toolbar.targeted_qc.update_results(identity)
+        self.summary.targeted_qc.update_results(identity)
 
     def _on_qc_sample_activated(self, sample_name: str) -> None:
         """Highlight the plot for a sample clicked on the Identity chart."""
-        self._qc_link_guard = True
-        try:
-            self.graph_view.select_sample(sample_name)
-        finally:
-            self._qc_link_guard = False
+        self.graph_view.select_sample(sample_name)
 
     def on_compound_selected(self, compound_selected):
-        """
-        This method will be called whenever a different compound is selected in the toolbar.
-        'selected_text' is the text of the selected item (passed from the signal).
-        """
         samples = self.toolbar.get_selected_samples()
         self.update_deconvolution_indicator(compound_selected)
         self.on_plot_button(compound_selected, samples)
@@ -1244,20 +1605,16 @@ class MainWindow(QMainWindow):
         self._deleting_compound = True
 
         try:
-            # Clear the graph view
             self.graph_view.clear_all_plots()
 
-            # Force UI refresh
             QCoreApplication.processEvents()
             self.graph_view.update()
             self.graph_view.repaint()
             QCoreApplication.processEvents()
 
-            # Refresh compound list
             active_compounds = list_compound_names()
             self.toolbar.update_compound_list(active_compounds)
 
-            # Invalidate caches
             data_provider = DataProvider()
             data_provider.invalidate_cache()
 
@@ -1277,11 +1634,9 @@ class MainWindow(QMainWindow):
         Called when compounds are restored via the recovery dialog.
         """
         try:
-            # Refresh compound list
             active_compounds = list_compound_names()
             self.toolbar.update_compound_list(active_compounds)
 
-            # Invalidate caches
             data_provider = DataProvider()
             data_provider.invalidate_cache()
 
@@ -1304,20 +1659,16 @@ class MainWindow(QMainWindow):
         self._deleting_samples = True
 
         try:
-            # Clear the graph view
             self.graph_view.clear_all_plots()
 
-            # Force UI refresh
             QCoreApplication.processEvents()
             self.graph_view.update()
             self.graph_view.repaint()
             QCoreApplication.processEvents()
 
-            # Refresh sample list
             active_samples = list_active_samples()
             self.toolbar.update_sample_list(active_samples)
 
-            # Invalidate caches
             data_provider = DataProvider()
             data_provider.invalidate_cache()
 
@@ -1337,11 +1688,9 @@ class MainWindow(QMainWindow):
         Called when samples are restored via the recovery dialog.
         """
         try:
-            # Refresh sample list
             active_samples = list_active_samples()
             self.toolbar.update_sample_list(active_samples)
 
-            # Invalidate caches
             data_provider = DataProvider()
             data_provider.invalidate_cache()
 
@@ -1374,7 +1723,6 @@ class MainWindow(QMainWindow):
         Handle internal standard selection changes.
         Updates menu states when internal standard is selected/deselected.
         """
-        # Reset labelled-IS reference peak to M0 whenever standard changes
         self.internal_standard_reference_isotope = 0
 
         # Invalidate validation cache since threshold may change
@@ -1386,14 +1734,12 @@ class MainWindow(QMainWindow):
         if compound and samples:
             self.graph_view.apply_peak_verdicts(self._peak_verdicts(compound, samples))
 
-        # Update menu states to enable/disable Export Data based on internal standard selection
         self._update_menu_states()
         if self.settings_window is not None:
             self.settings_window.refresh()
 
     def on_plot_selection_changed(self, selected_samples):
         """Handle when plots are selected/deselected"""
-        # Update integration window based on plot selection
         current_compound = self.graph_view.get_current_compound()
         all_samples = self.graph_view.get_current_samples()
 
@@ -1402,17 +1748,13 @@ class MainWindow(QMainWindow):
                 current_compound, selected_samples, all_samples
             )
 
-            self._refresh_mode_charts(
-                current_compound,
-                selected_samples or all_samples,
-                skip_qc=self._qc_link_guard,
-            )
+            # Verdicts and areas do not depend on the selection; the charts only re-highlight.
+            self.summary.set_highlighted(selected_samples)
 
     def on_session_data_applied(self, compound_name: str, sample_names: list):
         logger.info(f"Session data applied for {compound_name}, refreshing plots")
 
         try:
-            # Invalidate validation provider cache since integration boundaries changed
             if self._validation_provider is not None:
                 self._validation_provider.invalidate_cache()
 
@@ -1424,9 +1766,7 @@ class MainWindow(QMainWindow):
                 validation_data, identity=identity
             )
 
-            # After refreshing plots, update the integration window to show the new values
-            # Add a small delay to ensure the plot refresh is fully complete
-            from PySide6.QtCore import QTimer
+            # The delay lets the plot refresh finish before the fields update.
 
             def update_integration_window():
                 current_selected = self.graph_view.get_selected_samples()
@@ -1437,7 +1777,6 @@ class MainWindow(QMainWindow):
                         compound_name, current_selected, all_samples
                     )
 
-            # Use a timer to delay the update slightly
             QTimer.singleShot(100, update_integration_window)
 
             def update_charts():
@@ -1447,7 +1786,6 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data update: {e}")
-            # Show error to user but don't crash the application
             msg_box = self._create_message_box(
                 "warning",
                 "Refresh Failed",
@@ -1464,9 +1802,6 @@ class MainWindow(QMainWindow):
             _provider, identity = self._identity_snapshot(compound_name, current_samples)
             self.graph_view.refresh_plots_with_session_data(identity=identity)
 
-            # After refreshing plots, update the integration window to show the default values
-            from PySide6.QtCore import QTimer
-
             def update_integration_window():
                 current_selected = self.graph_view.get_selected_samples()
                 all_samples = self.graph_view.get_current_samples()
@@ -1476,7 +1811,7 @@ class MainWindow(QMainWindow):
                         compound_name, current_selected, all_samples
                     )
 
-            # Use a timer to delay the update slightly
+            # The delay lets the plot refresh finish before the fields update.
             QTimer.singleShot(100, update_integration_window)
 
             def update_charts():
@@ -1486,7 +1821,6 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to refresh plots after session data restore: {e}")
-            # Show error to user but don't crash the application
             msg_box = self._create_message_box(
                 "warning",
                 "Refresh Failed",
@@ -1513,7 +1847,6 @@ class MainWindow(QMainWindow):
                 validation_data, identity=identity
             )
 
-            from PySide6.QtCore import QTimer
 
             def update_charts():
                 self._refresh_mode_charts(compound_name)
@@ -1550,13 +1883,11 @@ class MainWindow(QMainWindow):
         )
 
         try:
-            # Build and show progress dialog
             self.regen_progress_dialog = self._build_progress_dialog(
                 f"Regenerating EIC data for '{compound_name}'..."
             )
             self.regen_progress_dialog.show()
 
-            # Create background thread and worker
             self._regen_thread = QThread(self)
             pending_regeneration = self.toolbar.integration._pending_session_update
             self._regen_worker = EicRegenerationWorker(
@@ -1569,16 +1900,13 @@ class MainWindow(QMainWindow):
             )
             self._regen_worker.moveToThread(self._regen_thread)
 
-            # Connect progress updates
             self._regen_worker.progress.connect(self._update_regeneration_progress)
 
-            # Connect completion/failure handlers
             self._regen_worker.finished.connect(self._regeneration_completed)
             self._regen_worker.failed.connect(self._regeneration_failed)
             self._regen_worker.finished.connect(self._regen_thread.quit)
             self._regen_worker.failed.connect(self._regen_thread.quit)
 
-            # Start the background work
             self._regen_thread.started.connect(self._regen_worker.run)
             self._regen_thread.finished.connect(self._regen_thread.deleteLater)
             self._regen_thread.start()
@@ -1597,29 +1925,24 @@ class MainWindow(QMainWindow):
         logger.info(f"Starting EIC regeneration with mass tolerance {new_mass_tol} Da")
 
         try:
-            # Disable UI during regeneration
             self.load_cdf_action.setEnabled(False)
             self.load_compound_action.setEnabled(False)
             self.export_data_action.setEnabled(False)
             self.export_method_action.setEnabled(False)
 
-            # Build and show progress dialog
             self.mass_tol_progress_dialog = self._build_progress_dialog(
                 f"Regenerating all EICs with mass tolerance {new_mass_tol} Da..."
             )
             self.mass_tol_progress_dialog.show()
 
-            # Create background thread and worker
             self._mass_tol_thread = QThread(self)
             self._mass_tol_worker = MassToleranceReloadWorker(
                 mass_tol=new_mass_tol, rt_window=DEFAULT_RT_WINDOW
             )
             self._mass_tol_worker.moveToThread(self._mass_tol_thread)
 
-            # Connect progress updates
             self._mass_tol_worker.progress.connect(self._update_mass_tolerance_progress)
 
-            # Connect completion/failure handlers
             self._mass_tol_worker.finished.connect(
                 self._mass_tolerance_reload_completed
             )
@@ -1627,7 +1950,6 @@ class MainWindow(QMainWindow):
             self._mass_tol_worker.finished.connect(self._mass_tol_thread.quit)
             self._mass_tol_worker.failed.connect(self._mass_tol_thread.quit)
 
-            # Start the background work
             self._mass_tol_thread.started.connect(self._mass_tol_worker.run)
             self._mass_tol_thread.finished.connect(self._mass_tol_thread.deleteLater)
             self._mass_tol_thread.start()
@@ -1662,30 +1984,23 @@ class MainWindow(QMainWindow):
             f"Mass tolerance reload completed: {regenerated_count} EICs regenerated"
         )
 
-        # Invalidate caches
         data_provider = DataProvider()
         data_provider.invalidate_cache()
 
-        # Invalidate validation provider cache
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
 
-        # Refresh plots
         current_compound = self.toolbar.get_selected_compound()
         current_samples = self.toolbar.get_selected_samples()
         if current_compound and current_samples:
             self.on_plot_button(current_compound, current_samples)
 
-        # Re-enable UI
         self._re_enable_ui_actions()
 
-        # Show success message
-        msg = self._create_message_box(
-            "information",
-            "Regeneration Complete",
-            f"Successfully regenerated {regenerated_count} EICs with new mass tolerance {self.mass_tolerance} Da.",
+        show_status_toast(
+            self.statusBar(),
+            f"Regenerated {_eics(regenerated_count)} at {self.mass_tolerance} Da mass tolerance",
         )
-        msg.exec()
 
     def _mass_tolerance_reload_failed(self, error_msg: str):
         """Handle mass tolerance reload failure"""
@@ -1694,7 +2009,6 @@ class MainWindow(QMainWindow):
 
         logger.error(f"Mass tolerance reload failed: {error_msg}")
 
-        # Re-enable UI
         self._re_enable_ui_actions()
 
         msg_box = self._create_message_box(
@@ -1773,14 +2087,7 @@ class MainWindow(QMainWindow):
             else:
                 self.graph_view.refresh_plots_with_session_data()
 
-            msg_box = self._create_message_box(
-                "information",
-                "Regeneration Complete",
-                f"Data regeneration completed successfully!\n\n"
-                f"Regenerated {regenerated_count} EIC records.\n"
-                f"Plots have been refreshed with new data.",
-            )
-            msg_box.exec()
+            show_status_toast(self.statusBar(), f"Regenerated {_eics(regenerated_count)}")
 
         except Exception as e:
             self.toolbar.integration._pending_session_update = None
@@ -1824,7 +2131,6 @@ class MainWindow(QMainWindow):
         """Export current analytical session to a file."""
         from PySide6.QtWidgets import QFileDialog
 
-        # Get export file path
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Analytical Session",
@@ -1833,7 +2139,7 @@ class MainWindow(QMainWindow):
         )
 
         if not file_path:
-            return  # User cancelled
+            return
 
         try:
             success = export_session_method(
@@ -1844,29 +2150,14 @@ class MainWindow(QMainWindow):
             )
 
             if success:
-                # Show info about what was exported
-                # Extract base name to show directory structure
-                export_path = Path(file_path)
-                if export_path.suffix.lower() == ".json":
-                    base_name = export_path.stem
-                else:
-                    base_name = export_path.name
-                export_dir = export_path.parent / f"manic_export_{base_name}"
-
-                info_text = (
-                    f"Analytical session exported successfully!\n\n"
-                    f"Export Directory: {export_dir}\n\n"
-                    f"Files created:\n"
-                    f"• {base_name}.json - Machine-readable session data\n"
-                    f"• changelog.md - Human-readable summary\n\n"
-                    f"The export contains compound definitions and analysis parameters only. "
-                    f"To use this session, follow the 3-step import process described in the changelog."
+                # Where export_session_method writes, which is not where the user chose.
+                chosen = Path(file_path)
+                stem = chosen.stem if chosen.suffix.lower() == ".json" else chosen.name
+                written = chosen.parent / "manic_session_export" / f"{stem}.json"
+                self._show_export_toast(
+                    f"Exported {written.name} to {written.parent.name}", written
                 )
-                msg_box = self._create_message_box(
-                    "information", "Session Export Successful", info_text
-                )
-                msg_box.exec()
-                logger.info(f"Session exported to {export_dir}")
+                logger.info(f"Session exported to {written}")
             else:
                 msg_box = self._create_message_box(
                     "critical",
@@ -1888,7 +2179,6 @@ class MainWindow(QMainWindow):
         """Import session overrides from a session file."""
         from PySide6.QtWidgets import QFileDialog
 
-        # Get import file path
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Import Session Overrides",
@@ -1897,10 +2187,9 @@ class MainWindow(QMainWindow):
         )
 
         if not file_path:
-            return  # User cancelled
+            return
 
         try:
-            # Validate method file
             is_valid, error_msg = validate_method_file(
                 file_path,
                 expected_mode=self.analysis_mode,
@@ -1915,7 +2204,6 @@ class MainWindow(QMainWindow):
                 msg_box.exec()
                 return
 
-            # Get method info to show what will be imported
             method_info = get_method_info(file_path)
             if not method_info:
                 msg_box = self._create_message_box(
@@ -1940,7 +2228,7 @@ class MainWindow(QMainWindow):
                 msg_box.exec()
                 return
 
-            # Build info text based on what the session contains
+            # What the session holds and what importing it replaces.
             info_lines = ["Session contains:"]
             if has_overrides:
                 info_lines.append(f"• {method_info['session_override_count']} integration overrides")
@@ -1952,23 +2240,17 @@ class MainWindow(QMainWindow):
                     info_lines.append(f"• {deleted_sample_count} deleted sample(s)")
             info_lines.append("")
             if has_overrides:
-                info_lines.append("This will import session-specific integration boundaries.")
                 info_lines.append("Any existing session overrides will be replaced.")
             if has_deletion_data:
-                info_lines.append("Compound and sample deletion states will be synchronized.")
-            info_lines.append("")
-            info_lines.append("Continue with session import?")
-            info_text = "\n".join(info_lines)
-
-            # Confirm import
-            reply = self._show_question_dialog(
-                "Import Session Overrides", "Import session data?", info_text
-            )
-
-            if reply != QMessageBox.Yes:
+                info_lines.append("Deleted compounds and samples will match the file.")
+            if not self._confirm(
+                "Import Session Overrides",
+                f"Import {Path(file_path).name}?",
+                "\n".join(info_lines),
+                "Import Overrides",
+            ):
                 return
 
-            # Import the session overrides
             success, has_deletion_data = import_session_overrides(
                 file_path,
                 expected_mode=self.analysis_mode,
@@ -1987,22 +2269,19 @@ class MainWindow(QMainWindow):
                     )
                     legacy_msg.exec()
 
-                import_text = (
-                    f"Session overrides imported successfully from:\n{file_path}\n\n"
-                    f"Integration boundaries have been updated for the affected samples."
-                )
                 standard_note = format_session_import_standard_note(
                     restore,
                     labelled=self.analysis_mode is AnalysisMode.LABELLED,
                 )
-                if standard_note:
-                    import_text = f"{import_text}\n\n{standard_note}"
-                msg_box = self._create_message_box(
-                    "information",
-                    "Session Import Successful",
-                    import_text,
-                )
-                msg_box.exec()
+                if restore.kind is InternalStandardRestoreKind.FAILED:
+                    self._create_message_box(
+                        "warning", "Internal Standard Not Restored", standard_note
+                    ).exec()
+                # Routine success: a toast, with the restored standard when there is one.
+                message = f"Imported {Path(file_path).name}"
+                if standard_note and restore.kind is not InternalStandardRestoreKind.FAILED:
+                    message = f"{message} · {standard_note.rstrip('.')}"
+                show_status_toast(self.statusBar(), message, hover=file_path)
                 logger.info(f"Session overrides imported from {file_path}")
                 self._refresh_after_session_import()
             else:
@@ -2122,27 +2401,31 @@ class MainWindow(QMainWindow):
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""
         try:
-            # Refresh compound and sample lists to reflect deletion state changes
             active_compounds = list_compound_names()
             active_samples = list_active_samples()
             self.toolbar.update_compound_list(active_compounds)
             self.toolbar.update_sample_list(active_samples)
 
-            # If we have compound and samples selected, refresh the display
             selected_compound = self.toolbar.get_selected_compound()
             selected_samples = self.toolbar.get_selected_samples()
 
             if selected_compound and selected_samples:
-                # Regenerate the plots with new session data
                 self.on_samples_selected(selected_samples)
 
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")
 
+    def choose_internal_standard(self, global_pos: QPoint) -> None:
+        self.toolbar.show_internal_standard_menu(global_pos)
+
     def open_settings_window(self) -> None:
         if self.settings_window is None:
             self.settings_window = SettingsWindow(self, host=self)
         self.settings_window.open()
+
+    def open_settings_page(self, title: str) -> None:
+        self.open_settings_window()
+        self.settings_window.show_page(title)
 
     def open_documentation_window(self) -> None:
         if self.documentation_window is None:
@@ -2163,6 +2446,8 @@ class MainWindow(QMainWindow):
             self.toolbar.get_internal_standard(),
             report,
             self,
+            compound_list_path=self.compound_list_path,
+            lacking=lacking_amount(compound_names, self.analysis_mode),
         )
         dialog.open_user_guide_requested.connect(self._open_checklist_guide)
         dialog.accepted.connect(self._apply_checklist)
@@ -2181,6 +2466,14 @@ class MainWindow(QMainWindow):
             self.toolbar.on_internal_standard_cleared()
         else:
             self.toolbar.on_internal_standard_selected(chosen)
+
+    def open_documentation_link(self, href: str) -> None:
+        if self.documentation_window is None:
+            # QtWebEngine costs ~40 ms at startup; load it with the first help page.
+            from manic.ui.documentation_viewer import DocumentationViewer
+
+            self.documentation_window = DocumentationViewer(self)
+        self.documentation_window.open_link(href)
 
     def _open_checklist_guide(self) -> None:
         if self.documentation_window is None:
@@ -2269,12 +2562,12 @@ class MainWindow(QMainWindow):
         self, compound_name: str | None
     ) -> tuple[str, str, str]:
         if not compound_name:
-            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
+            return DEFAULT_DECONVOLUTION
         try:
             compound = read_compound_with_session(compound_name)
         except LookupError:
             # The toolbar can still name a compound that was just deleted.
-            return DEFAULT_DECONVOLUTION_LEVEL, "auto", "balanced"
+            return DEFAULT_DECONVOLUTION
         return (
             normalize_stringency(compound.deconvolution_level),
             normalize_fit_type(compound.deconvolution_fit_type),
@@ -2318,7 +2611,7 @@ class MainWindow(QMainWindow):
         logger.info(
             f"Natural abundance correction visualization toggled: {'ON' if enabled else 'OFF'}"
         )
-        self.toolbar.isotopologue_ratios.set_use_corrected(enabled)
+        self.summary.isotopologue_ratios.set_use_corrected(enabled)
         self.graph_view.set_use_corrected(enabled)
         self._replot_current_selection()
 
@@ -2361,7 +2654,7 @@ class MainWindow(QMainWindow):
         if self._validation_provider is not None:
             self._validation_provider.invalidate_cache()
         self.update_deconvolution_indicator(compound_name)
-        self.toolbar.sync_selected_peak_checkbox(self.toolbar.get_selected_compound())
+        self.toolbar.sync_selected_peak_scale(self.toolbar.get_selected_compound())
         if replot:
             self._replot_current_selection()
 
@@ -2427,83 +2720,63 @@ class MainWindow(QMainWindow):
         return True
 
     def _deconvolution_indicator_text(self, compound_name: str | None) -> str:
-        """Build the status-bar text describing the selected compound's settings."""
+        """Status-bar text for the selected compound's deconvolution, empty at the defaults."""
         if not compound_name:
-            return "Deconvolution: -"
-        try:
-            compound = read_compound_with_session(compound_name)
-        except Exception:
-            return "Deconvolution: -"
-        level = normalize_stringency(getattr(compound, "deconvolution_level", "off"))
+            return ""
+        level, fit, gate = settings = self.deconvolution_settings(compound_name)
+        if settings == DEFAULT_DECONVOLUTION:
+            return ""
         if level == "off":
-            return f"Deconvolution: Off  ({compound_name})"
+            return "Deconvolution off"
         fit_labels = {
-            "auto": "Auto",
-            "gaussian": "Gaussian",
-            "bi_gaussian": "Bi-Gaussian",
-            "emg": "EMG",
+            "auto": "automatic peak shape",
+            "gaussian": "Gaussian peaks",
+            "bi_gaussian": "bi-Gaussian peaks",
+            "emg": "EMG peaks",
         }
-        fit = fit_labels.get(
-            normalize_fit_type(getattr(compound, "deconvolution_fit_type", "auto")),
-            "Auto",
-        )
-        gate = normalize_noise_gate(
-            getattr(compound, "deconvolution_noise_gate", "balanced")
-        ).capitalize()
-        return (
-            f"Deconvolution: On · Level {level} · {fit} · Gate {gate}  ({compound_name})"
-        )
+        return f"Deconvolution level {level} · {fit_labels.get(fit, fit)} · {gate} noise gate"
 
     def update_deconvolution_indicator(self, compound_name: str | None) -> None:
         """Refresh the status-bar deconvolution indicator for the given compound."""
-        if not hasattr(self, "deconvolution_indicator_label"):
-            self.deconvolution_indicator_label = QLabel()
-            self.statusBar().addWidget(self.deconvolution_indicator_label)
-        self.deconvolution_indicator_label.setText(
-            self._deconvolution_indicator_text(compound_name)
+        text = self._deconvolution_indicator_text(compound_name)
+        self.deconvolution_indicator_label.setText(text)
+        self.deconvolution_indicator_label.setVisible(bool(text))
+        self.toolbar.show_deconvolution(
+            self.deconvolution_settings(compound_name) if compound_name else None
         )
 
     def show_about(self):
         """Show About dialog with version information."""
-        from manic.__version__ import APP_DESCRIPTION
+        from manic.ui.about_dialog import AboutDialog
 
-        about_text = f"""<h2>{APP_NAME} v{__version__}</h2>
-<p><b>{APP_DESCRIPTION}</b></p>
-<p>This application provides tools for analyzing natural isotope composition in mass spectrometry data.</p>
-<p><b>Features:</b></p>
-<ul>
-<li>Compound definition and parameter management</li>
-<li>Raw CDF data processing</li>
-<li>Session export/import for reproducible analysis</li>
-<li>Integration boundary customization</li>
-<li>Isotopologue ratio analysis</li>
-</ul>
-<p><b>Version:</b> v{__version__}</p>"""
-
-        msg_box = self._create_message_box(
-            "information", f"About {APP_NAME}", about_text
-        )
-        msg_box.exec()
+        AboutDialog(self).exec()
 
     def clear_session(self):
         """Clear all loaded data and reset application state with progress tracking."""
         if self._background_work_running("clearing the session"):
             return
 
-        reply = self._show_question_dialog(
+        confirm = self._create_message_box(
+            "question",
             "Clear Session",
-            "This will clear all loaded data and reset the application.",
-            "All compound data, raw data, and session settings will be removed. This cannot be undone.",
+            "Clear the compound list, raw data, peak window edits and peak reviews?",
+            "This cannot be undone.",
         )
+        clear_button = confirm.button(QMessageBox.Yes)
+        clear_button.setText("Clear Session")
+        set_style_property(clear_button, "variant", "danger")
+        confirm.button(QMessageBox.No).setText("Cancel")
+        # Return must not clear a session by accident.
+        confirm.setDefaultButton(QMessageBox.No)
+        reply = confirm.exec()
 
         if reply == QMessageBox.Yes:
-            # Create and show progress dialog
             progress = QProgressDialog(
                 "Preparing to clear session...", None, 0, 100, self
             )
             progress.setWindowTitle("Clearing Session")
             progress.setWindowModality(Qt.WindowModal)
-            progress.setMinimumDuration(0)  # Show immediately
+            progress.setMinimumDuration(0)
             progress.setCancelButton(None)
             progress.setValue(0)
             progress.show()
@@ -2519,17 +2792,16 @@ class MainWindow(QMainWindow):
                 progress.setLabelText("Clearing UI state...")
                 QCoreApplication.processEvents()
 
-                # Reset UI state flags first
                 self.compound_data_loaded = False
+                self.compound_list_path = None
                 self.cdf_data_loaded = False
 
                 progress.setValue(20)
                 progress.setLabelText("Clearing visual elements...")
                 QCoreApplication.processEvents()
 
-                # Clear visual elements immediately. The deselection signal is
-                # blocked because its chart refresh is wasted on charts cleared
-                # below; the integration panel still resets as it did.
+                # The deselection signal is blocked because its chart refresh is wasted on
+                # charts cleared below; the integration panel still resets as it did.
                 compound = self.graph_view.get_current_compound()
                 if compound:
                     self.toolbar.integration.populate_fields_from_plots(
@@ -2537,41 +2809,33 @@ class MainWindow(QMainWindow):
                     )
                 with QSignalBlocker(self.graph_view):
                     self.graph_view.clear_all_plots()
-                self.toolbar.isotopologue_ratios._clear_chart()
-                self.toolbar.total_abundance._clear_chart()
-                self.toolbar.targeted_qc.clear()
+                self.summary.clear()
 
-                # Force UI update to show cleared graphs
                 self.graph_view.repaint()
 
                 progress.setValue(30)
                 progress.setLabelText("Clearing data lists...")
                 QCoreApplication.processEvents()
 
-                # Clear data lists
                 self.toolbar.update_compound_list([])
                 self.toolbar.update_sample_list([])
                 self.toolbar.update_label_colours(False, False)
 
-                # Clear internal standard
                 self.toolbar.standard.clear_internal_standard()
 
-                # Clear integration window
                 self.toolbar.integration.populate_fields(None)
 
                 progress.setValue(40)
                 progress.setLabelText("Clearing database...")
                 QCoreApplication.processEvents()
 
-                # Define progress callback for database clearing
                 def db_progress_callback(current, total, operation):
                     # Map database progress to 40-90% of total progress
                     db_progress_percent = int(40 + (current / total) * 50)
                     progress.setValue(db_progress_percent)
                     progress.setLabelText(operation)
 
-                    # OPTIMIZATION: Reduce UI update frequency for better performance
-                    # Only update UI every 25% or on operation changes
+                    # Fewer UI updates keep the clear fast: only every 25% or on a new operation.
                     if (
                         current == 0
                         or current == total
@@ -2579,40 +2843,29 @@ class MainWindow(QMainWindow):
                     ):
                         QCoreApplication.processEvents()
 
-                # Clear the database with progress tracking (fast mode enabled by default)
                 clear_database(progress_callback=db_progress_callback)
 
                 progress.setValue(90)
                 progress.setLabelText("Reconnecting signals...")
                 QCoreApplication.processEvents()
 
-                # Reconnect signals
                 self.toolbar.samples_selected.connect(self.on_samples_selected)
                 self.toolbar.compound_selected.connect(self.on_compound_selected)
                 self.toolbar.compounds_deleted.connect(self.on_compounds_deleted)
 
-                # Update menu states
                 self._update_menu_states()
 
                 progress.setValue(100)
                 progress.setLabelText("Session clearing complete")
                 QCoreApplication.processEvents()
 
-                # Close progress dialog
                 progress.close()
 
-                # Show success message
-                msg_box = self._create_message_box(
-                    "information",
-                    "Session Cleared",
-                    "All data has been cleared. You can now load new data.",
-                )
-                msg_box.exec()
+                show_status_toast(self.statusBar(), "Session cleared")
 
                 logger.info("Session cleared successfully")
 
             except Exception as e:
-                # Close progress dialog
                 progress.close()
 
                 # Ensure signals are reconnected even if clearing fails
@@ -2651,7 +2904,14 @@ class MainWindow(QMainWindow):
         export to ensure data integrity.
         """
         try:
-            # Get export file path
+            options = ExportOptionsDialog(
+                self.use_legacy_integration,
+                self.analysis_mode is AnalysisMode.LABELLED,
+                self,
+            )
+            if options.exec() != QDialog.Accepted:
+                return
+
             file_path, _ = QFileDialog.getSaveFileName(
                 self,
                 "Export Data to Excel",
@@ -2660,77 +2920,30 @@ class MainWindow(QMainWindow):
             )
 
             if not file_path:
-                return  # User cancelled
+                return
 
-            # Ensure .xlsx extension
             if not file_path.lower().endswith(".xlsx"):
                 file_path += ".xlsx"
 
-            # Export options popup: choose integration mode
-            options_dialog = QDialog(self)
-            options_dialog.setWindowTitle("Export Options")
-            vbox = QVBoxLayout(options_dialog)
-            info_label = QLabel(
-                "Choose integration method for this export (can also be changed in Settings → Integration):"
-            )
-            vbox.addWidget(info_label)
-            # Force black text for label, radio buttons, and checkboxes regardless of theme
-            options_dialog.setStyleSheet(
-                "QLabel, QRadioButton, QCheckBox { color: black; }"
-            )
+            self.use_legacy_integration = options.use_legacy_integration()
+            include_carbon_enrichment = options.include_carbon_enrichment()
 
-            radio_time = QRadioButton("Time-based (recommended)")
-            radio_legacy = QRadioButton("Legacy (MATLAB-compatible unit spacing)")
-            vbox.addWidget(radio_time)
-            vbox.addWidget(radio_legacy)
-
-            # Default selection depends on current settings toggle
-            if self.use_legacy_integration:
-                radio_legacy.setChecked(True)
-            else:
-                radio_time.setChecked(True)
-
-            include_carbon_enrichment = False
-            if self.analysis_mode is AnalysisMode.LABELLED:
-                vbox.addSpacing(10)
-                vbox.addWidget(QLabel("Optional sheets:"))
-                checkbox_carbon_enrichment = QCheckBox(
-                    "Include % Carbons Labelled sheet"
-                )
-                checkbox_carbon_enrichment.setChecked(False)
-                vbox.addWidget(checkbox_carbon_enrichment)
-
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            vbox.addWidget(buttons)
-            buttons.accepted.connect(options_dialog.accept)
-            buttons.rejected.connect(options_dialog.reject)
-
-            if options_dialog.exec() != QDialog.Accepted:
-                return  # user cancelled
-
-            # Read selection and persist to window state
-            chosen_use_legacy = radio_legacy.isChecked()
-            self.use_legacy_integration = chosen_use_legacy
-            if self.analysis_mode is AnalysisMode.LABELLED:
-                include_carbon_enrichment = checkbox_carbon_enrichment.isChecked()
-
-            # Get current internal standard selection from toolbar
             internal_standard = self.toolbar.get_internal_standard()
 
             internal_standard_for_export = internal_standard
 
             if not internal_standard:
-                reply = self._show_question_dialog(
+                if not self._confirm(
                     "No Internal Standard Selected",
-                    "You have not selected an internal standard. Proceed with export?",
+                    "You have not selected an internal standard. Export anyway?",
                     (
                         "Results will contain quantifier-ion peak areas."
                         if self.analysis_mode is AnalysisMode.UNLABELLED
-                        else "Abundance values will represent 'Peak Area' "
-                        "(sum of corrected isotopologues)."
+                        else "Abundances will be peak areas, summed over the "
+                        "corrected isotopologues."
                     ),
-                )
-                if reply != QMessageBox.Yes:
+                    "Export",
+                ):
                     return
             elif self.analysis_mode is AnalysisMode.LABELLED:
                 from manic.io.data_exporter import validate_internal_standard_metadata
@@ -2740,21 +2953,26 @@ class MainWindow(QMainWindow):
                     internal_standard,
                 )
                 if not ok:
-                    problems_text = "\n".join(f"• {p}" for p in problems)
-                    reply = self._show_question_dialog(
-                        "Internal Standard Metadata Missing",
-                        (
-                            f"Internal standard '{internal_standard}' is missing required metadata. "
-                            "Proceed with export in Peak Area mode instead?"
-                        ),
-                        (
-                            "Fix the compound list and re-import to enable calibrated Abundances.\n\n"
-                            "Problems found:\n"
-                            f"{problems_text}\n\n"
-                            "If you continue, MANIC will export without an internal standard."
-                        ),
+                    missing = " or ".join(
+                        words
+                        for field, words in (
+                            ("int_std_amount", "internal-standard amount"),
+                            ("amount_in_std_mix", "amount in the standard mix"),
+                        )
+                        if any(field in problem for problem in problems)
                     )
-                    if reply != QMessageBox.Yes:
+                    if not self._confirm(
+                        "No Internal-Standard Amount",
+                        (
+                            f"{internal_standard} has no {missing} in the compound list. "
+                            if missing
+                            else f"{internal_standard} is not in the compound list. "
+                        )
+                        + "Export peak areas instead?",
+                        "Add it to the compound list and import the list again "
+                        "to export calibrated abundances.",
+                        "Export Peak Areas",
+                    ):
                         return
                     internal_standard_for_export = None
 
@@ -2777,7 +2995,6 @@ class MainWindow(QMainWindow):
             )
 
             self._export_path = file_path
-            self._export_include_carbon = include_carbon_enrichment
             self._export_progress_dialog = progress_dialog
             self._export_thread = QThread(self)
             self._export_worker = ExportWorker(
@@ -2819,6 +3036,17 @@ class MainWindow(QMainWindow):
             )
             msg_box.exec()
 
+    def _show_export_toast(self, message: str, written: Path) -> None:
+        show_status_toast(
+            self.statusBar(),
+            message,
+            action=(
+                "Show in Folder",
+                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(written.parent))),
+            ),
+            hover=str(written),
+        )
+
     def _clear_export_thread(self):
         self._export_thread = None
 
@@ -2829,47 +3057,12 @@ class MainWindow(QMainWindow):
 
     def _export_finished(self, success: bool):
         self._close_export_dialog()
-        file_path = self._export_path
-        include_carbon_enrichment = self._export_include_carbon
         if success:
-            if self.analysis_mode is AnalysisMode.UNLABELLED:
-                sheet_list = [
-                    "• Raw Values - Quantifier ion areas",
-                    "• Abundances - Quantifier-only amounts",
-                    "• Qualifier QC - qualifier/Q ratio pass or review",
-                ]
-            else:
-                sheet_list = [
-                    "• Raw Values - Direct instrument signals",
-                    "• Corrected Values - Natural isotope corrected signals",
-                    "• Isotope Ratios - Normalized corrected values",
-                    "• % Label Incorporation - Experimental label percentages",
-                ]
-                if include_carbon_enrichment:
-                    sheet_list.append(
-                        "• % Carbons Labelled - Average fractional carbon enrichment"
-                    )
-                sheet_list.append(
-                    "• Abundances - Absolute metabolite concentrations"
-                )
-            sheet_count = len(sheet_list)
-            sheets_text = "\n".join(sheet_list)
-            msg_box = self._create_message_box(
-                "information",
-                "Data Export Successful",
-                f"Data exported successfully to:\n{file_path}\n\n"
-                f"The Excel file contains {sheet_count} worksheets:\n"
-                f"{sheets_text}",
-            )
-            msg_box.exec()
-            logger.info(f"Data exported successfully to {file_path}")
+            path = Path(self._export_path)
+            self._show_export_toast(f"Exported {path.name}", path)
+            logger.info(f"Data exported successfully to {path}")
         else:
-            msg_box = self._create_message_box(
-                "information",
-                "Export Cancelled",
-                "Data export was cancelled.",
-            )
-            msg_box.exec()
+            show_status_toast(self.statusBar(), "Export cancelled")
             logger.info("Data export was cancelled")
         self._update_menu_states()
 

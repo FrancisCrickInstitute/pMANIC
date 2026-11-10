@@ -3,7 +3,6 @@ import time
 
 from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence
-from PySide6.QtWidgets import QMessageBox
 
 from manic.utils.recent_files import RecentFiles
 from manic.validation.peak_verdict import PeakVerdict
@@ -19,7 +18,7 @@ def test_close_event_ignores_loaded_session_when_declined(
     window._skip_close_guard = False
     window.cdf_data_loaded = True
     monkeypatch.setattr(
-        window, "_show_question_dialog", lambda *args, **kwargs: QMessageBox.No
+        window, "_confirm", lambda *args, **kwargs: False
     )
     try:
         event = QCloseEvent()
@@ -37,7 +36,7 @@ def test_close_event_accepts_loaded_session_when_confirmed(
     window._skip_close_guard = False
     window.cdf_data_loaded = True
     monkeypatch.setattr(
-        window, "_show_question_dialog", lambda *args, **kwargs: QMessageBox.Yes
+        window, "_confirm", lambda *args, **kwargs: True
     )
     event = QCloseEvent()
     window.closeEvent(event)
@@ -53,7 +52,7 @@ def test_close_event_accepts_empty_session_without_asking(
     def boom(*args, **kwargs):
         raise AssertionError("close guard asked on an empty session")
 
-    monkeypatch.setattr(window, "_show_question_dialog", boom)
+    monkeypatch.setattr(window, "_confirm", boom)
     try:
         event = QCloseEvent()
         window.closeEvent(event)

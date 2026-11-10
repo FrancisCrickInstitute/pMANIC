@@ -1,6 +1,5 @@
-# Reference: Mass Tolerance
+# Mass Tolerance
 
-## Overview
 Mass spectrometers detect ions with high precision (e.g., `204.8723` Da), but analytical workflows typically bin these values into integer mass units (e.g., `205` Da) to group related signals.
 
 The **Mass Tolerance** setting controls how this binning occurs. It is a critical parameter that corrects for the systematic mass calibration drift often observed in GC-MS instruments, where fragment ions tend to drift slightly higher than their theoretical integer values.
@@ -43,7 +42,7 @@ For a detected mass $m$ and a tolerance offset $\tau$:
 
 ## Configuration
 
-**Settings → Mass Tolerance**   
+**Settings → Extraction**, **Mass tolerance (Da)**   
 
 * **Default:** `0.20 Da`
 * **Range:** `0.01` to `1.00` Da

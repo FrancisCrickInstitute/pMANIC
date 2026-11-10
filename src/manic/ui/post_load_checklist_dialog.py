@@ -1,14 +1,20 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from math import ceil
+from pathlib import Path
+
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPushButton,
+    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -17,12 +23,33 @@ from PySide6.QtWidgets import (
 )
 
 from manic.models.mm_file_check import MmFileStatus
+from manic.ui import theme
 from manic.ui.combo_box import ComboBox
+from manic.ui.dialog_kit import (
+    BUTTON_GAP,
+    MARGIN,
+    SECTION_SPACING,
+    description_label,
+    hint_label,
+    resize_to_screen,
+    section_label,
+    status_icon,
+    style_dialog,
+    title_label,
+    window_title,
+)
+from manic.ui.standard_chooser import NO_STANDARD, StandardChooser
+from manic.ui.theme import set_style_property
 
 _STATE_ORDER = {"unset": 0, "no_match": 1, "matched": 2}
-_WARNING_CELL = QColor(255, 243, 205)
-_UNSET_STATUS = "color: #dc3545;"
-_SET_STATUS = "color: #212529;"
+
+# Load Compounds stays disabled while a list is loaded, so a corrected file needs
+# Clear Session first; the guide carries the rest (what it removes, old sessions).
+_CHANGE_PATTERN_STEPS = (
+    "1. Edit the mmfiles cell in the compound list and save the file.\n"
+    "2. File → Clear Session. This discards the session's review work.\n"
+    "3. Load the compound list and the raw data again."
+)
 
 
 def _matched_cell_text(status: MmFileStatus) -> str:
@@ -54,6 +81,51 @@ def _summary_text(report: list[MmFileStatus]) -> str:
     return summary
 
 
+class StandardPicker(ComboBox):
+    """Shows the chosen internal standard and opens the searchable chooser, as the
+    sidebar does, in place of a plain list."""
+
+    changed = Signal()
+
+    def __init__(
+        self, names: list[str], current: str | None, lacking: set[str], parent=None
+    ):
+        super().__init__(parent)
+        self.setObjectName("internalStandardPicker")
+        self.setAccessibleName("Internal standard")
+        self.set_names(names, lacking, current)
+
+    def set_names(self, names: list[str], lacking: set[str], current: str | None = None) -> None:
+        self._names, self._lacking = names, lacking
+        self._show(current if current in names else None)
+
+    def standard(self) -> str | None:
+        return self.currentData()
+
+    def _show(self, name: str | None) -> None:
+        self.clear()
+        self.addItem(name or NO_STANDARD, name)
+
+    def showPopup(self) -> None:
+        chooser = StandardChooser(self._names, self.standard(), self._lacking, self)
+        chooser.chosen.connect(self._on_chosen)
+        chooser.popup(self.mapToGlobal(self.rect().bottomLeft()))
+
+    def _on_chosen(self, name: str | None) -> None:
+        if name != self.standard():
+            self._show(name)
+            self.changed.emit()
+
+
+class _MmFileTable(QTableWidget):
+    """Opens showing up to eight rows; a short screen trims it to no fewer than four."""
+
+    preferred_height = 0
+
+    def sizeHint(self) -> QSize:
+        return QSize(super().sizeHint().width(), self.preferred_height)
+
+
 class PostLoadChecklistDialog(QDialog):
     open_user_guide_requested = Signal()
 
@@ -63,150 +135,267 @@ class PostLoadChecklistDialog(QDialog):
         current_internal_standard: str | None,
         mm_report: list[MmFileStatus],
         parent: QWidget | None = None,
+        *,
+        compound_list_path: str | None = None,
+        lacking: set[str] = frozenset(),
     ):
         super().__init__(parent)
         self.setObjectName("postLoadChecklistDialog")
-        self.setWindowTitle("Check your data setup")
+        self.setWindowTitle(window_title("Check Data Setup"))
+        style_dialog(self)
         self.setModal(True)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(680)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
+        outer.setSpacing(16)
+        self.body = QWidget()
+        self.body.setObjectName("checklistBody")
+        layout = QVBoxLayout(self.body)
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(8)
 
-        title = QLabel("Check your data setup")
+        # The title and the buttons stay put; only the body between them scrolls.
+        title = title_label("Check your data setup")
         title.setObjectName("checklistTitle")
-        title_font = title.font()
-        title_font.setPointSize(16)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        layout.addWidget(title)
+        outer.addWidget(title)
+        outer.addSpacing(SECTION_SPACING - outer.spacing())
 
-        explanation = QLabel(
-            "Weak peaks are only flagged (shown in red) when an internal standard is set."
+        layout.addWidget(section_label("Internal standard"))
+        self._initial_internal_standard = current_internal_standard
+        self.standard_picker = StandardPicker(
+            compound_names, current_internal_standard, lacking
         )
-        explanation.setWordWrap(True)
-        layout.addWidget(explanation)
-
-        is_heading = QLabel("Internal standard")
-        is_font = is_heading.font()
-        is_font.setBold(True)
-        is_heading.setFont(is_font)
-        layout.addWidget(is_heading)
-
-        is_row = QHBoxLayout()
-        is_row.setSpacing(12)
-        self.internal_standard_combo = ComboBox()
-        self.internal_standard_combo.setObjectName("internalStandardCombo")
-        self.internal_standard_combo.addItem("No internal standard", None)
-        for name in compound_names:
-            self.internal_standard_combo.addItem(name, name)
-        if current_internal_standard:
-            index = self.internal_standard_combo.findText(current_internal_standard)
-            if index >= 0:
-                self.internal_standard_combo.setCurrentIndex(index)
-        is_row.addWidget(self.internal_standard_combo, 1)
-
-        self._is_status = QLabel()
-        self._is_status.setObjectName("internalStandardStatus")
-        is_row.addWidget(self._is_status)
-        layout.addLayout(is_row)
-        self.internal_standard_combo.currentIndexChanged.connect(
-            self._update_internal_standard_status
+        layout.addWidget(self.standard_picker)
+        layout.addWidget(
+            hint_label(
+                "Weak peaks get a Below threshold badge only when an "
+                "internal standard is set."
+            )
         )
-        self._update_internal_standard_status()
 
-        mm_heading = QLabel("MM file selection")
-        mm_font = mm_heading.font()
-        mm_font.setBold(True)
-        mm_heading.setFont(mm_font)
-        layout.addWidget(mm_heading)
-
-        self._mm_summary = QLabel(_summary_text(mm_report))
-        self._mm_summary.setWordWrap(True)
+        layout.addSpacing(SECTION_SPACING - 8)
+        layout.addWidget(section_label("Standard mixture (MM) files"))
+        self._mm_summary = description_label(_summary_text(mm_report))
         layout.addWidget(self._mm_summary)
 
-        self.mm_file_table = QTableWidget(0, 3)
+        self.mm_file_table = _MmFileTable(0, 3)
         self.mm_file_table.setObjectName("mmFileTable")
+        self.mm_file_table.setAccessibleName("Standard mixture (MM) files")
         self.mm_file_table.setHorizontalHeaderLabels(
             ["Compound", "MM pattern", "Matched files"]
         )
         self.mm_file_table.verticalHeader().setVisible(False)
-        self.mm_file_table.horizontalHeader().setStretchLastSection(True)
-        self.mm_file_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
+        header = self.mm_file_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setStretchLastSection(True)
+        header.setHighlightSections(False)
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header.sectionResized.connect(
+            lambda column, _old, width: column == 2 and self._sync_file_tooltips(width)
         )
-        self.mm_file_table.horizontalHeader().setHighlightSections(False)
+        self.mm_file_table.setTextElideMode(Qt.ElideMiddle)
+        self.mm_file_table.setWordWrap(False)
         self.mm_file_table.setShowGrid(False)
-        self.mm_file_table.setSelectionMode(QAbstractItemView.NoSelection)
-        self.mm_file_table.setFocusPolicy(Qt.NoFocus)
+        # Read-only, but reachable: Tab in, arrows move a row at a time.
+        self.mm_file_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.mm_file_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.mm_file_table.setTabKeyNavigation(False)
         self.mm_file_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.mm_file_table.verticalHeader().setDefaultSectionSize(32)
-        self.mm_file_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.mm_file_table.verticalHeader().setDefaultSectionSize(30)
+        self.mm_file_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._fill_mm_table(mm_report)
-        layout.addWidget(self.mm_file_table)
+        layout.addWidget(self.mm_file_table, stretch=1)
 
-        hint = QLabel(
-            "MM patterns are edited in the compound list spreadsheet "
-            "(the mmfiles column) or the Add Compound dialog."
+        layout.addLayout(self._source_file_row(compound_list_path))
+        self.change_pattern_toggle = QPushButton()
+        self.change_pattern_toggle.setObjectName("changePatternToggle")
+        self.change_pattern_toggle.setCheckable(True)
+        set_style_property(self.change_pattern_toggle, "variant", "link")
+        self.change_pattern_toggle.setCursor(Qt.PointingHandCursor)
+        self.change_pattern_toggle.setAutoDefault(False)
+        self.change_pattern_toggle.toggled.connect(self._show_change_pattern_steps)
+        toggle_row = QHBoxLayout()
+        toggle_row.addWidget(self.change_pattern_toggle)
+        toggle_row.addStretch(1)
+        layout.addLayout(toggle_row)
+        self.change_pattern_steps = QWidget()
+        self.change_pattern_steps.setObjectName("changePatternSteps")
+        steps = QVBoxLayout(self.change_pattern_steps)
+        steps.setContentsMargins(16, 0, 0, 0)
+        steps.setSpacing(4)
+        self.change_pattern_text = hint_label(_CHANGE_PATTERN_STEPS)
+        steps.addWidget(self.change_pattern_text)
+        self.user_guide_link = QLabel(
+            '<a href="guide" style="text-decoration: none;">Details in the user guide</a>'
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(hint)
-
-        self.user_guide_link = QLabel('<a href="guide">Open the user guide</a>')
         self.user_guide_link.setObjectName("userGuideLink")
+        self.user_guide_link.setProperty("role", "hint")
         self.user_guide_link.setTextFormat(Qt.RichText)
         self.user_guide_link.setTextInteractionFlags(Qt.TextBrowserInteraction)
         self.user_guide_link.linkActivated.connect(
             lambda _href: self.open_user_guide_requested.emit()
         )
-        layout.addWidget(self.user_guide_link)
+        steps.addWidget(self.user_guide_link)
+        layout.addWidget(self.change_pattern_steps)
+        self._show_change_pattern_steps(False)
 
-        buttons = QDialogButtonBox()
-        apply_button = buttons.addButton("Apply", QDialogButtonBox.AcceptRole)
-        buttons.addButton("Skip", QDialogButtonBox.RejectRole)
-        apply_button.setDefault(True)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("checklistScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setWidget(self.body)
+        self.scroll.viewport().setAutoFillBackground(False)
+        self.body.setAutoFillBackground(False)
+        outer.addWidget(self.scroll, stretch=1)
+
+        # Unchanged, the dialog has one way out; Apply and discard appear once a
+        # different standard is staged.
+        self.buttons = QDialogButtonBox()
+        self.buttons.layout().setSpacing(BUTTON_GAP)
+        self.primary_button = self.buttons.addButton("Continue", QDialogButtonBox.AcceptRole)
+        self.primary_button.setDefault(True)
+        set_style_property(self.primary_button, "variant", "primary")
+        self.discard_button = self.buttons.addButton(
+            "Continue without changes", QDialogButtonBox.RejectRole
+        )
+        self.discard_button.setAutoDefault(False)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        outer.addWidget(self.buttons)
+        self.standard_picker.changed.connect(self._sync_buttons)
+        self._sync_buttons()
+        self._fit_to_screen()
+
+    def _fit_to_screen(self) -> None:
+        """As tall as the body, or as the screen allows; the body scrolls above the buttons."""
+        self._fit_table_height()
+        width = max(self.width(), self.minimumWidth())
+        resize_to_screen(self, width, self._chrome_height() + self._body_height(width))
+
+    def _chrome_height(self) -> int:
+        return self.sizeHint().height() - self.scroll.sizeHint().height()
+
+    def _body_height(self, width: int) -> int:
+        return self.body.layout().totalHeightForWidth(width - 2 * MARGIN)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # A short dialog trims the MM table, down to four rows, before the body
+        # scrolls, so the disclosure under the table stays in view.
+        self._fit_table_height()
+        overflow = self._chrome_height() + self._body_height(self.width()) - self.height()
+        if overflow > 0:
+            table = self.mm_file_table
+            row_h = table.verticalHeader().defaultSectionSize()
+            table.preferred_height = max(
+                table.minimumHeight(), table.preferred_height - ceil(overflow / row_h) * row_h
+            )
+        self.mm_file_table.updateGeometry()
+
+    def _show_change_pattern_steps(self, shown: bool) -> None:
+        arrow = "▾" if shown else "▸"
+        self.change_pattern_toggle.setText(f"{arrow} How do I change a pattern?")
+        self.change_pattern_steps.setVisible(shown)
+        if shown:
+            self._fit_to_screen()
+            # After the body has laid out the steps, or it scrolls to where they were.
+            QTimer.singleShot(
+                0, lambda: self.scroll.ensureWidgetVisible(self.change_pattern_steps, 0, 0)
+            )
+
+    def _source_file_row(self, path: str | None) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        self.compound_list_label = description_label(
+            f"Compound list: {Path(path).name}" if path else "Compound list: the file you loaded"
+        )
+        self.compound_list_label.setObjectName("compoundListFile")
+        self.compound_list_label.setWordWrap(False)
+        row.addWidget(self.compound_list_label, 1)
+        if path:
+            self.compound_list_label.setToolTip(str(Path(path)))
+            for name, text, target in (
+                ("openCompoundListButton", "Open File", Path(path)),
+                ("showCompoundListFolderButton", "Show in Folder", Path(path).parent),
+            ):
+                button = QPushButton(text)
+                button.setObjectName(name)
+                set_style_property(button, "variant", "link")
+                button.setCursor(Qt.PointingHandCursor)
+                button.setAutoDefault(False)
+                button.clicked.connect(
+                    lambda _checked=False, t=target: QDesktopServices.openUrl(
+                        QUrl.fromLocalFile(str(t))
+                    )
+                )
+                row.addWidget(button)
+        return row
 
     def selected_internal_standard(self) -> str | None:
-        value = self.internal_standard_combo.currentData()
-        if value is None:
-            return None
-        return str(value)
+        return self.standard_picker.standard()
 
-    def _update_internal_standard_status(self) -> None:
-        if self.internal_standard_combo.currentData() is None:
-            self._is_status.setText("Not set")
-            self._is_status.setStyleSheet(_UNSET_STATUS)
-        else:
-            self._is_status.setText("Set")
-            self._is_status.setStyleSheet(_SET_STATUS)
+    def _sync_buttons(self) -> None:
+        changed = self.selected_internal_standard() != self._initial_internal_standard
+        self.primary_button.setText("Apply" if changed else "Continue")
+        self.discard_button.setVisible(changed)
 
     def _fill_mm_table(self, report: list[MmFileStatus]) -> None:
         rows = sorted(report, key=lambda status: _STATE_ORDER[status.state])
         table = self.mm_file_table
         table.setRowCount(len(rows))
+        warning_fill = theme.color("warning_soft")
+        name_width = pattern_width = 200
+        metrics = table.fontMetrics()
         for row, status in enumerate(rows):
-            values = (
-                status.compound_name,
-                _pattern_cell_text(status),
-                _matched_cell_text(status),
+            matched = status.state == "matched"
+            pattern = _pattern_cell_text(status)
+            # Tooltips only where a cell hides something: an elided name or pattern
+            # here, elided or unlisted files in _sync_file_tooltips.
+            tooltips = (
+                status.compound_name
+                if metrics.horizontalAdvance(status.compound_name) > name_width - 16
+                else "",
+                pattern if metrics.horizontalAdvance(pattern) > pattern_width - 16 else "",
+                "",
             )
+            values = (status.compound_name, pattern, _matched_cell_text(status))
             for column, text in enumerate(values):
                 item = QTableWidgetItem(text)
-                item.setFlags(Qt.ItemIsEnabled)
-                if column == 2 and status.state in ("unset", "no_match"):
-                    item.setBackground(_WARNING_CELL)
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                if tooltips[column]:
+                    item.setToolTip(tooltips[column])
+                    # A screen reader reads the whole value, not the elided cell.
+                    item.setData(Qt.AccessibleTextRole, tooltips[column])
+                if column == 2:
+                    item.setData(Qt.UserRole, status.matched)
+                    item.setIcon(status_icon(matched))
+                    if not matched:
+                        item.setBackground(warning_fill)
                 table.setItem(row, column, item)
-        self._fit_table_height()
+        table.resizeColumnToContents(0)
+        table.setColumnWidth(0, min(table.columnWidth(0) + 16, name_width))
+        table.setColumnWidth(1, pattern_width)
+        self._sync_file_tooltips(table.columnWidth(2))
+
+    def _sync_file_tooltips(self, width: int) -> None:
+        # The files column stretches with the dialog, so whether its text is cut changes too.
+        table = self.mm_file_table
+        room = width - 16 - 20  # the cell's padding, then the status icon and its gap
+        for row in range(table.rowCount()):
+            item = table.item(row, 2)
+            files = item.data(Qt.UserRole)
+            cut = len(files) > 3 or table.fontMetrics().horizontalAdvance(item.text()) > room
+            tip = "\n".join(files) if cut else ""
+            item.setToolTip(tip)
+            item.setData(Qt.AccessibleTextRole, tip or item.text())
 
     def _fit_table_height(self) -> None:
         table = self.mm_file_table
         header = max(table.horizontalHeader().sizeHint().height(), 24)
         row_h = table.verticalHeader().defaultSectionSize()
         frame = 2 * table.frameWidth()
-        visible_rows = min(max(table.rowCount(), 1), 8)
-        table.setFixedHeight(header + visible_rows * row_h + frame)
+        rows = max(table.rowCount(), 1)
+        table.setMinimumHeight(header + min(rows, 4) * row_h + frame)
+        table.preferred_height = header + min(rows, 8) * row_h + frame

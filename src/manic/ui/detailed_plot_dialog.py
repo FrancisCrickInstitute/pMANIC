@@ -11,13 +11,15 @@ Features responsive layout adaptation and professional scientific notation.
 
 import logging
 import sys
+from collections.abc import Callable, Sequence
 
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -33,10 +36,7 @@ from manic.constants import (
     DETAILED_DIALOG_HEIGHT,
     DETAILED_DIALOG_SCREEN_RATIO,
     DETAILED_DIALOG_WIDTH,
-    DETAILED_EIC_HEIGHT,
-    DETAILED_MS_HEIGHT,
     DETAILED_TIC_HEIGHT,
-    GUIDELINE_ALPHA,
     MS_TIME_TOLERANCE,
     PLOT_GUIDELINE_WIDTH,
     PLOT_LINE_WIDTH,
@@ -50,13 +50,49 @@ from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
 from manic.models.analysis import IonRole
+from manic.models.sample_fit_type import get_sample_fit_types
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
-from manic.ui.colors import channel_trace_styles, label_colors
-from manic.validation.unlabelled_identity import IdentitySampleAssessment
-from manic.ui.matplotlib_plot_widget import MatplotlibPlotWidget
+from manic.ui.colors import (
+    channel_trace_styles,
+    label_colors,
+    steel_blue_colour,
+)
+from manic.validation.unlabelled_identity import IdentitySampleAssessment, QualifierStatus
+from manic.ui.chart_header import HeaderName
+from manic.ui.chart_style import text_style
+from manic.ui.graphs import tile_caption
+from manic.ui.identity_chart import STATUS_LABELS
+from manic.ui.icon_button import segmented
+from manic.ui.matplotlib_plot_widget import CompactNavigationToolbar, MatplotlibPlotWidget
+from manic.ui import theme
+from manic.ui.theme import COLORS, FONT_SIZE_TITLE
+
 logger = logging.getLogger(__name__)
+# Secondary legend entries, in key order: (label, line style, alpha, width as drawn), by treatment.
+TRACE_KEY = {
+    "raw": ("Raw signal", "solid", 0.4, 1.0),
+    "component": ("Other fitted peak", "dotted", 0.6, 1.2),
+    "baseline": ("Baseline", "dashed", 1.0, 1.2),
+}
+PLOT_TITLES = ("Extracted ion chromatogram", "Total ion chromatogram", "Mass spectrum")
+# m/z either side of a labelled compound's isotopologues that the spectrum opens on.
+SPECTRUM_CLUSTER_MARGIN = 20
 
 
+def _rgba(qcolor, alpha: float) -> str:
+    return f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
+
+
+def _show_empty(plot: MatplotlibPlotWidget, title: str) -> None:
+    """Draws the empty state now, so the previous sample's traces never stay under it."""
+    plot.clear_plot()
+    plot.set_title(title)
+    # Not finalize_plot: a failed plot may have failed there.
+    plot.canvas.draw_idle()
+
+
+# Same meaning as on the grid tiles: dashed steel blue bounds the
+# integration window, solid grey marks the target tR or m/z.
 class DetailedPlotDialog(QDialog):
     """
     Modal dialog for detailed compound-sample visualization.
@@ -76,16 +112,21 @@ class DetailedPlotDialog(QDialog):
         parent=None,
         use_corrected: bool = False,
         *,
-        identity: IdentitySampleAssessment | None = None,
+        samples: Sequence[str] = (),
+        identity_for: Callable[[str], IdentitySampleAssessment | None] = lambda _name: None,
     ):
+        """``samples`` is the grid's order, which the previous/next sample buttons follow."""
         super().__init__(parent)
         self.compound_name = compound_name
         self.sample_name = sample_name
-        self.use_corrected = use_corrected  # Store the isotope correction flag
-        self.identity = identity
+        self.use_corrected = use_corrected
+        self._samples = list(samples) or [sample_name]
+        self._identity_for = identity_for
+        self.identity = identity_for(sample_name)
         self._channel_styles = ()
+        # Which TRACE_KEY treatments the chromatogram drew.
+        self._treatments: set[str] = set()
 
-        # Initialize data containers
         self.eic_data = None
         self.tic_data = None
         self.ms_data = None
@@ -94,22 +135,42 @@ class DetailedPlotDialog(QDialog):
         self._eic_plot_error = None
 
         self._setup_ui()
+        self._show_sample_name()
         self._load_data()
+
+    def step_sample(self, step: int) -> None:
+        """Show the previous (-1) or next (1) sample in the grid's order, if there is one."""
+        index = self._samples.index(self.sample_name) + step
+        if not 0 <= index < len(self._samples):
+            return
+        self.sample_name = self._samples[index]
+        self.identity = self._identity_for(self.sample_name)
+        self.eic_data = self.tic_data = self.ms_data = self.compound_info = None
+        self.observed_rt = None
+        self._eic_plot_error = None
+        for plot, title in zip((self.eic_plot, self.tic_plot, self.ms_plot), PLOT_TITLES):
+            plot.set_title(title)
+        self._show_sample_name()
+        self._load_data()
+
+    def _show_sample_name(self) -> None:
+        self.setWindowTitle(f"{self.compound_name} in {self.sample_name} — MANIC")
+        # A sample's fit override, as its grid caption names it.
+        fit_type = get_sample_fit_types(self.compound_name).get((self.compound_name, self.sample_name))
+        self.sample_label.setText(tile_caption(f"in {self.sample_name}", fit_type))
+        self.sample_label.setAccessibleName(self.sample_name)
+        index = self._samples.index(self.sample_name)
+        self.previous_sample.setEnabled(index > 0)
+        self.next_sample.setEnabled(index < len(self._samples) - 1)
 
     def _setup_ui(self):
         """Setup the dialog UI."""
-        self.setWindowTitle(
-            f"Detailed View - {self.compound_name} ({self.sample_name})"
-        )
         self.setModal(True)
 
-        # Ensure the dialog is resizable on all platforms
-        self.setSizeGripEnabled(True)  # Enable resize grip
+        self.setSizeGripEnabled(True)
         self.setWindowFlags(
             self.windowFlags() | Qt.WindowMaximizeButtonHint
-        )  # Enable maximize button
-        # Platform-adaptive sizing for better cross-platform experience
-        # Try to get screen where parent window is located, fall back to primary screen
+        )
         if self.parent():
             screen = QApplication.screenAt(self.parent().geometry().center())
         else:
@@ -117,7 +178,6 @@ class DetailedPlotDialog(QDialog):
         screen_rect = screen.availableGeometry() if screen else None
 
         if sys.platform == "win32":
-            # Windows: Account for title bar, taskbar, and DPI scaling
             width = min(
                 DETAILED_DIALOG_WIDTH,
                 int(screen_rect.width() * 0.85)
@@ -131,7 +191,6 @@ class DetailedPlotDialog(QDialog):
                 else DETAILED_DIALOG_HEIGHT,
             )
         elif sys.platform == "darwin":
-            # macOS: Account for menu bar and dock
             width = min(
                 DETAILED_DIALOG_WIDTH,
                 int(screen_rect.width() * 0.9)
@@ -145,7 +204,6 @@ class DetailedPlotDialog(QDialog):
                 else DETAILED_DIALOG_HEIGHT,
             )
         else:
-            # Linux: Conservative sizing
             width = min(
                 DETAILED_DIALOG_WIDTH,
                 int(screen_rect.width() * 0.85)
@@ -161,25 +219,21 @@ class DetailedPlotDialog(QDialog):
 
         self.resize(width, height)
 
-        # Set more reasonable minimum size for small screens (allow scrolling)
         min_width = min(600, int(screen_rect.width() * 0.5) if screen_rect else 600)
         min_height = min(500, int(screen_rect.height() * 0.4) if screen_rect else 500)
         self.setMinimumSize(min_width, min_height)
 
-        # Set maximum size based on available screen space with adaptive ratio
         if screen_rect:
-            # Use more generous ratios for larger screens
             screen_width = screen_rect.width()
             screen_height = screen_rect.height()
 
-            # Adaptive ratio: more generous on larger screens
-            if screen_width >= 2560:  # 4K+ monitors
+            if screen_width >= 2560:
                 width_ratio = 0.95
                 height_ratio = 0.95
-            elif screen_width >= 1920:  # 1080p+ monitors
+            elif screen_width >= 1920:
                 width_ratio = 0.92
                 height_ratio = 0.92
-            else:  # Smaller monitors
+            else:
                 width_ratio = DETAILED_DIALOG_SCREEN_RATIO
                 height_ratio = DETAILED_DIALOG_SCREEN_RATIO
 
@@ -187,127 +241,133 @@ class DetailedPlotDialog(QDialog):
             max_height = int(screen_height * height_ratio)
             self.setMaximumSize(max_width, max_height)
 
-        # Configure primary layout structure
         layout = QVBoxLayout(self)
-        layout.setSpacing(2)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
 
-        # Create header section with compound identification
         header_layout = QHBoxLayout()
-
-        title_label = QLabel(
-            f"<b>{self.compound_name}</b> in <i>{self.sample_name}</i>"
-        )
-        title_label.setFont(QFont("Arial", 14, QFont.Bold))
-        title_label.setAlignment(Qt.AlignCenter)
+        header_layout.setSpacing(8)
+        title_label = HeaderName(self.compound_name, min_chars=12)
+        theme.style(title_label, text_style("text", FONT_SIZE_TITLE, 600))
+        self.sample_label = HeaderName(min_chars=14)
+        theme.style(self.sample_label, text_style("text_secondary", FONT_SIZE_TITLE))
         header_layout.addWidget(title_label)
-
+        header_layout.addWidget(self.sample_label)
+        header_layout.addSpacing(4)
+        header_layout.addWidget(self._build_sample_steps())
+        header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # Initialize scrollable container for plot widgets
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAsNeeded
-        )  # Allow horizontal scroll if needed
+        )
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        theme.style(
+            scroll_area,
+            "QScrollArea { background: @surface; border: 1px solid @border; border-radius: 8px; }",
+        )
 
-        # Ensure scroll area can shrink to fit in small windows
-        scroll_area.setMinimumSize(400, 300)  # Reasonable minimum for plot visibility
+        scroll_area.setMinimumSize(400, 300)
         scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Configure scroll area content widget
         scroll_widget = QWidget()
-        scroll_widget.setStyleSheet("background-color: white;")
+        theme.style(scroll_widget, "background-color: @surface;")
         scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(5, 5, 5, 5)
+        scroll_layout.setContentsMargins(8, 8, 8, 8)
 
-        # Initialize resizable splitter for plot arrangement
         splitter = QSplitter(Qt.Vertical)
         splitter.setChildrenCollapsible(False)
 
-        # Initialize Extracted Ion Chromatogram display
         self.eic_plot = MatplotlibPlotWidget(
-            title="Extracted Ion Chromatogram",
+            title=PLOT_TITLES[0],
             x_label="Time (min)",
             y_label="Intensity",
         )
-        # Adaptive minimum heights for small screens
-        min_plot_height = min(
-            200, int(screen_rect.height() * 0.15) if screen_rect else 200
-        )
-
-        self.eic_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
+        # Minimums leave room for a title, ticks and axis labels and no more, so all
+        # three charts fit together in a short window; only a shorter one scrolls.
+        self.eic_plot.setMinimumHeight(200)
         self.eic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(self.eic_plot)
+        # The TIC and spectrum share one row under the chromatogram, so all three
+        # charts are in view together, even on a short screen.
+        supporting = QSplitter(Qt.Horizontal)
+        supporting.setChildrenCollapsible(False)
+        splitter.addWidget(supporting)
 
-        # Initialize Total Ion Chromatogram display
         self.tic_plot = MatplotlibPlotWidget(
-            title="Total Ion Chromatogram",
+            title=PLOT_TITLES[1],
             x_label="Time (min)",
-            y_label="Total Intensity",
+            y_label="Total intensity",
         )
-        self.tic_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
+        self.tic_plot.setMinimumHeight(140)
         self.tic_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        splitter.addWidget(self.tic_plot)
+        supporting.addWidget(self.tic_plot)
 
-        # Initialize Mass Spectrum display
         self.ms_plot = MatplotlibPlotWidget(
-            title="Mass Spectrum", x_label="m/z", y_label="Intensity"
+            title=PLOT_TITLES[2], x_label="m/z", y_label="Intensity"
         )
-        self.ms_plot.setMinimumHeight(min_plot_height)  # Adaptive minimum height
+        self.ms_plot.setMinimumHeight(140)
         self.ms_plot.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        splitter.addWidget(self.ms_plot)
+        supporting.addWidget(self.ms_plot)
 
-        # Configure initial plot height proportions
-        splitter.setSizes(
-            [DETAILED_EIC_HEIGHT, DETAILED_TIC_HEIGHT, DETAILED_MS_HEIGHT]
+        # One toolbar for all three charts, in the title row.
+        self.nav_toolbar = CompactNavigationToolbar(
+            (self.eic_plot, self.tic_plot, self.ms_plot)
         )
+        header_layout.addWidget(self.nav_toolbar)
 
-        # Add splitter to scroll layout
+        # The chromatogram is what is inspected; it gets three fifths of the height.
+        splitter.setSizes([3 * DETAILED_TIC_HEIGHT, 2 * DETAILED_TIC_HEIGHT])
+        for index, stretch in enumerate((3, 2)):
+            splitter.setStretchFactor(index, stretch)
+
         scroll_layout.addWidget(splitter)
 
-        # Set the scroll widget as the content of scroll area
         scroll_area.setWidget(scroll_widget)
 
-        # Add scroll area to main layout
         layout.addWidget(scroll_area)
 
-        # Create information display panel
         info_layout = QHBoxLayout()
-        self.info_label = QLabel("Loading data...")
-        self.info_label.setFont(QFont("Arial", 9))
-        self.info_label.setStyleSheet("color: gray; padding: 5px;")
-        info_layout.addWidget(self.info_label)
-        info_layout.addStretch()
+        self.info_label = QLabel("Loading…")
+        theme.style(self.info_label, text_style("text_secondary", 11))
+        self.info_label.setWordWrap(True)
+        info_layout.addWidget(self.info_label, stretch=1)
 
-        # Display navigation control legend
-        zoom_label = QLabel("<b>↻:</b> Reset | <b>✋:</b> Drag | <b>🔍:</b> Zoom")
-        zoom_label.setFont(QFont("Arial", 9))
-        zoom_label.setStyleSheet("color: gray; padding: 5px;")
-        info_layout.addWidget(zoom_label)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        close_btn.setAutoDefault(False)
+        info_layout.addWidget(close_btn)
 
         layout.addLayout(info_layout)
 
-        # Configure dialog control buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        # Close button
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.close)
-        close_btn.setDefault(True)
-        button_layout.addWidget(close_btn)
-
-        layout.addLayout(button_layout)
-
-        # Enable window maximization capability
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+
+    def _build_sample_steps(self) -> QWidget:
+        """Previous and next sample, one segmented control; the arrow keys do the same."""
+        buttons = []
+        for name, glyph, step, key in (
+            ("Previous sample", "‹", -1, Qt.Key_Left),
+            ("Next sample", "›", 1, Qt.Key_Right),
+        ):
+            button = QToolButton()
+            button.setText(glyph)
+            button.setAccessibleName(name)
+            button.setToolTip(f"{name} ({QKeySequence(key).toString(QKeySequence.NativeText)})")
+            button.clicked.connect(lambda _checked=False, step=step: self.step_sample(step))
+            QShortcut(QKeySequence(key), self, lambda step=step: self.step_sample(step))
+            buttons.append(button)
+        self.previous_sample, self.next_sample = buttons
+        box = segmented(*buttons)
+        if len(self._samples) <= 1:
+            box.hide()  # never shown before it has a parent
+        return box
 
     def _load_data(self):
         """Load all required data for the plots."""
         try:
-            # Retrieve compound metadata from database
             self.compound_info = read_compound_with_session(
                 self.compound_name, self.sample_name
             )
@@ -320,7 +380,6 @@ class DetailedPlotDialog(QDialog):
                 self.identity,
             )
 
-            # Extract Extracted Ion Chromatogram data (mandatory)
             self._load_eic_data()
             if (
                 self.eic_data is not None
@@ -335,21 +394,16 @@ class DetailedPlotDialog(QDialog):
                     roffset=self.compound_info.roffset,
                 )
 
-            # Retrieve Total Ion Chromatogram data (if available)
             self._load_tic_data()
 
-            # Extract Mass Spectrum at retention time (if available)
             self._load_ms_data()
 
-            # Render all available data visualizations
             self._plot_eic()
             self._plot_tic()
             self._plot_ms()
 
-            # Update info label
             self._update_info_label()
 
-            # Validate minimum data requirements
             if not self.eic_data:
                 self._show_error(
                     "No EIC data available for this compound-sample combination"
@@ -426,11 +480,11 @@ class DetailedPlotDialog(QDialog):
     def _plot_eic(self):
         """Plot the EIC data with integration boundaries."""
         if not self.eic_data or not self.compound_info:
-            self.eic_plot.clear_plot()
-            self.eic_plot.set_title("Enhanced Extracted Ion Chromatogram (no data)")
+            _show_empty(self.eic_plot, "Extracted ion chromatogram (no data)")
             return
 
         self._eic_plot_error = None
+        self._treatments = set()
         try:
             self.eic_plot.clear_plot()
             prepared = None
@@ -461,24 +515,12 @@ class DetailedPlotDialog(QDialog):
             left_bound = rt - self.compound_info.loffset
             right_bound = rt + self.compound_info.roffset
 
-            # Render integration boundary markers with transparency
+            for edge in (left_bound, right_bound):
+                self.eic_plot.add_vertical_line(
+                    edge, color=_rgba(steel_blue_colour, 0.85), width=PLOT_GUIDELINE_WIDTH, style="dashed"
+                )
             self.eic_plot.add_vertical_line(
-                left_bound,
-                color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
-                width=PLOT_GUIDELINE_WIDTH,
-                style="dashed",
-            )
-            self.eic_plot.add_vertical_line(
-                right_bound,
-                color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
-                width=PLOT_GUIDELINE_WIDTH,
-                style="dashed",
-            )
-            self.eic_plot.add_vertical_line(
-                rt,
-                color=f"rgba(0,0,0,{GUIDELINE_ALPHA})",
-                width=PLOT_GUIDELINE_WIDTH,
-                style="dotted",
+                rt, color=COLORS["text_secondary"], width=PLOT_GUIDELINE_WIDTH, style="solid"
             )
 
             try:
@@ -486,12 +528,15 @@ class DetailedPlotDialog(QDialog):
             except Exception as baseline_error:
                 logger.error(f"Failed to draw baseline lines: {baseline_error}")
 
-            self.eic_plot.show_legend(loc="upper right")
+            # After the channels, so the faint, dotted and dashed lines are named too.
+            for treatment, (label, style, alpha, width) in TRACE_KEY.items():
+                if treatment in self._treatments:
+                    self.eic_plot.add_key_entry(label, style=style, alpha=alpha, width=width)
+            # Above the plot, under its title, so it never covers a trace.
+            self.eic_plot.show_legend()
 
-            # Execute batch rendering for performance
             self.eic_plot.finalize_plot()
 
-            # Record retention time values for diagnostics
             logger.debug(
                 f"EIC plot - RT: {rt:.3f}, Left: {left_bound:.3f}, Right: {right_bound:.3f}"
             )
@@ -499,9 +544,7 @@ class DetailedPlotDialog(QDialog):
         except Exception as e:
             logger.error(f"Failed to plot EIC: {e}")
             self._eic_plot_error = str(e)
-            self.eic_plot.set_title(
-                "Enhanced Extracted Ion Chromatogram (plot failed)"
-            )
+            _show_empty(self.eic_plot, "Extracted ion chromatogram (plot failed)")
 
     def _add_baseline_lines(self, left_bound: float, right_bound: float, prepared):
         if not self.compound_info or not self.eic_data:
@@ -549,6 +592,7 @@ class DetailedPlotDialog(QDialog):
                     name="",
                     style="dashed",
                 )
+                self._treatments.add("baseline")
                 drew_baseline = True
             if drew_baseline:
                 return
@@ -570,11 +614,12 @@ class DetailedPlotDialog(QDialog):
                 self.eic_plot.plot_line(
                     baseline_x,
                     baseline_y_vals,
-                    color="darkred",
+                    color=COLORS["text_secondary"],
                     width=1.2,
                     name="",
                     style="dashed",
                 )
+                self._treatments.add("baseline")
         else:
             for i in range(draw_intensity.shape[0]):
                 idata_win = draw_intensity[i, mask]
@@ -595,6 +640,7 @@ class DetailedPlotDialog(QDialog):
                         name="",
                         style="dashed",
                     )
+                    self._treatments.add("baseline")
 
     def _plot_model_component(
         self,
@@ -623,7 +669,7 @@ class DetailedPlotDialog(QDialog):
                 self._style_color(series_index) if multi_trace else label_colors[0]
             )
             if selected:
-                color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},1.0)"
+                color = _rgba(qcolor, 1.0)
                 self.eic_plot.plot_line(
                     grid,
                     row,
@@ -633,10 +679,11 @@ class DetailedPlotDialog(QDialog):
                     style=self._mpl_line_style(series_index),
                 )
             else:
-                color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},0.38)"
+                color = _rgba(qcolor, 0.38)
                 self.eic_plot.plot_line(
                     grid, row, color=color, width=1.2, name="", style="dotted"
                 )
+                self._treatments.add("component")
 
     def _plot_eic_traces(self, prepared):
         display = prepared.display
@@ -650,6 +697,7 @@ class DetailedPlotDialog(QDialog):
             return
 
         self._plot_trace_matrix(self.eic_data.intensity, selected=False, alpha=0.32)
+        self._treatments.add("raw")
         if not prepared.includes_raw_underlay:
             self._plot_trace_matrix(draw_intensity, selected=True)
             return
@@ -692,7 +740,7 @@ class DetailedPlotDialog(QDialog):
             if channel_indices is not None and i not in channel_indices:
                 continue
             qcolor = self._style_color(i) if multi_trace else label_colors[0]
-            color = f"rgba({qcolor.red()},{qcolor.green()},{qcolor.blue()},{alpha})"
+            color = _rgba(qcolor, alpha)
             self.eic_plot.plot_line(
                 time,
                 trace,
@@ -725,157 +773,109 @@ class DetailedPlotDialog(QDialog):
         channel = channels[channel_index]
         if channel.role is not IonRole.QUALIFIER:
             return label
-        assessment = self.identity.qualifiers.for_ordinal(channel.ordinal)
-        return f"{label} ({assessment.status.value})"
+        status = self.identity.qualifiers.for_ordinal(channel.ordinal).status
+        # One name for every grey state; the Identity popup chips give the reason.
+        if status not in (QualifierStatus.VALIDATED, QualifierStatus.FAILED):
+            status = QualifierStatus.NOT_ASSESSED
+        return f"{label} ({STATUS_LABELS[status]})"
 
     def _plot_tic(self):
         """Plot the TIC data with retention time marker."""
         if not self.tic_data:
-            self.tic_plot.clear_plot()
-            self.tic_plot.set_title("Total Ion Chromatogram (data not available)")
+            _show_empty(self.tic_plot, "Total ion chromatogram (no data)")
             return
 
         try:
-            # Reset plot area before rendering
             self.tic_plot.clear_plot()
 
-            # Render Total Ion Chromatogram trace
             self.tic_plot.plot_line(
                 self.tic_data.time,
                 self.tic_data.intensity,
-                color="darkgreen",
-                width=PLOT_LINE_WIDTH,
-                name="Total Ion Chromatogram",
+                color=COLORS["text_secondary"],
+                width=1.4,
+                name="Total ion chromatogram",
             )
 
-            # Display retention time indicator with transparency
             if self.compound_info:
                 rt = self.compound_info.retention_time
                 self.tic_plot.add_vertical_line(
-                    rt,
-                    color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
-                    width=PLOT_GUIDELINE_WIDTH,
-                    style="solid",
+                    rt, color=COLORS["text_secondary"], width=PLOT_GUIDELINE_WIDTH, style="solid"
                 )
 
-            # Execute batch rendering for performance
             self.tic_plot.finalize_plot()
 
         except Exception as e:
             logger.error(f"Failed to plot TIC: {e}")
-            self.tic_plot.set_title("Total Ion Chromatogram (error loading data)")
+            _show_empty(self.tic_plot, "Total ion chromatogram (plot failed)")
 
     def _plot_ms(self):
         """Plot the mass spectrum data."""
         if not self.ms_data:
-            self.ms_plot.clear_plot()
-            self.ms_plot.set_title("Mass Spectrum (data not available)")
+            _show_empty(self.ms_plot, "Mass spectrum (no data)")
             return
 
         try:
-            # Reset plot area before rendering
             self.ms_plot.clear_plot()
 
-            # Render mass spectrum as stem plot
+            channels = self.compound_info.analysis_channels if self.compound_info else ()
+            isotopologues = bool(channels) and all(
+                channel.role is IonRole.ISOTOPOLOGUE for channel in channels
+            )
+            # Isotopologue stems in their trace colours, so the cluster stands out of the scan.
             self.ms_plot.plot_stems(
                 self.ms_data.mz,
                 self.ms_data.intensity,
-                color="darkblue",
+                color=COLORS["text_tertiary" if isotopologues else "text"],
                 width=PLOT_STEM_WIDTH,
+                highlight=[
+                    (channel.mz, self._style_color(i).name()) for i, channel in enumerate(channels)
+                ] if isotopologues else (),
             )
 
-            # Annotate the 8 most abundant peaks with their m/z values
-            try:
-                mz = np.asarray(self.ms_data.mz, dtype=np.float64)
-                intensity = np.asarray(self.ms_data.intensity, dtype=np.float64)
+            self.ms_plot.label_peaks(
+                self.ms_data.mz,
+                self.ms_data.intensity,
+                own_mz=[channel.mz for channel in channels],
+                own_names=[f"M+{channel.ordinal}" for channel in channels] if isotopologues else None,
+            )
+            if isotopologues:
+                # The cluster is a few m/z wide; at full scan it is one sliver.
+                masses = [channel.mz for channel in channels]
+                self.ms_plot.show_x_range(min(masses) - SPECTRUM_CLUSTER_MARGIN, max(masses) + SPECTRUM_CLUSTER_MARGIN)
 
-                # Use the same basic filtering as plot_stems: positive and finite
-                mask = (intensity > 0) & np.isfinite(mz) & np.isfinite(intensity)
-                mz = mz[mask]
-                intensity = intensity[mask]
-
-                if mz.size > 0:
-                    # Indices of the top N peaks by intensity
-                    N = 8
-                    if intensity.size > N:
-                        top_idx = np.argsort(intensity)[-N:]
-                    else:
-                        top_idx = np.argsort(intensity)
-
-                    # Sort selected peaks by m/z for a more orderly appearance (optional but nice)
-                    top_idx = top_idx[np.argsort(mz[top_idx])]
-
-                    for idx in top_idx:
-                        x_val = float(mz[idx])
-                        y_val = float(intensity[idx])
-                        if y_val <= 0:
-                            continue
-
-                        # Position label slightly above the peak
-                        y_label = y_val * 1.02
-                        label = f"{x_val:.2f}"  # m/z with 2 decimal places
-
-                        self.ms_plot.add_text(
-                            x_val,
-                            y_label,
-                            label,
-                            color="black",
-                            ha="center",
-                            va="bottom",
-                        )
-            except Exception as e:
-                logger.error(f"Failed to annotate MS peaks: {e}")
-
-            # Mark target m/z position with transparent indicator
+            # The target m/z, faint and behind its stem, so the stem's height still reads.
             if self.compound_info:
                 self.ms_plot.add_vertical_line(
                     self.compound_info.mass0,
-                    color=f"rgba(255,0,0,{GUIDELINE_ALPHA})",
+                    color=COLORS["border_strong"],
                     width=PLOT_GUIDELINE_WIDTH,
                     style="solid",
+                    behind=True,
                 )
 
-            # Execute batch rendering for performance
             self.ms_plot.finalize_plot()
 
         except Exception as e:
             logger.error(f"Failed to plot MS: {e}")
-            self.ms_plot.set_title("Mass Spectrum (error loading data)")
+            _show_empty(self.ms_plot, "Mass spectrum (plot failed)")
 
     def _update_info_label(self):
-        """Update the information label with data summary."""
+        """tR, the observed apex and the integration window: what the EIC is read against."""
         info_parts = []
 
         if self.compound_info:
             rt = self.compound_info.retention_time
-            if self.compound_info.is_unlabelled_target:
-                info_parts.append(f"Retention Time: {rt:.3f} min")
-                if self.observed_rt is not None:
-                    info_parts.append(f"Observed Q apex: {self.observed_rt:.3f} min")
-                ions = ", ".join(
-                    channel.label for channel in self.compound_info.analysis_channels
-                )
-                info_parts.append(ions)
-            else:
-                info_parts.append(f"Retention Time: {rt:.3f} min")
-                info_parts.append(f"m/z: {self.compound_info.mass0:.4f}")
-                if self.compound_info.label_atoms:
-                    info_parts.append(
-                        f"Isotopologues: M+0…M+{self.compound_info.label_atoms}"
-                    )
-
-        if self.eic_data:
-            info_parts.append(f"EIC Points: {len(self.eic_data.time)}")
-
-        if self.tic_data:
-            info_parts.append(f"TIC Points: {len(self.tic_data.time)}")
-
-        if self.ms_data:
-            info_parts.append(f"MS Peaks: {len(self.ms_data.mz)}")
+            info_parts.append(f"tR {rt:.3f} min")
+            if self.observed_rt is not None:
+                info_parts.append(f"observed apex {self.observed_rt:.3f} min")
+            info_parts.append(
+                f"integration {rt - self.compound_info.loffset:.3f}–"
+                f"{rt + self.compound_info.roffset:.3f} min"
+            )
 
         if self._eic_plot_error:
             info_parts.insert(0, f"EIC plot failed: {self._eic_plot_error}")
-        info_text = " | ".join(info_parts) if info_parts else "No data available"
+        info_text = "  ·  ".join(info_parts) if info_parts else "No data available"
         self.info_label.setText(info_text)
 
     def _show_error(self, message: str):
@@ -885,7 +885,6 @@ class DetailedPlotDialog(QDialog):
         )
         msg_box.exec()
 
-        # Display error message in information panel
         self.info_label.setText(f"Error: {message}")
 
     def keyPressEvent(self, event):
@@ -898,7 +897,6 @@ class DetailedPlotDialog(QDialog):
     def cleanup_plots(self):
         """Clean up all matplotlib resources from plot widgets."""
         try:
-            # Clean up each plot widget
             if hasattr(self, "eic_plot") and self.eic_plot:
                 self.eic_plot.cleanup()
 
@@ -908,7 +906,9 @@ class DetailedPlotDialog(QDialog):
             if hasattr(self, "ms_plot") and self.ms_plot:
                 self.ms_plot.cleanup()
 
-            # Clear data references
+            if getattr(self, "nav_toolbar", None) is not None:
+                self.nav_toolbar.cleanup()
+
             self.eic_data = None
             self.tic_data = None
             self.ms_data = None

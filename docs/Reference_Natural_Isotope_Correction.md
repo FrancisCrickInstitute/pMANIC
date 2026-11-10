@@ -1,6 +1,5 @@
-# Reference: Natural Isotope Correction
+# Natural Isotope Correction
 
-## Overview
 In mass spectrometry, the signal for a biological molecule is spread across multiple mass channels due to the natural presence of heavy isotopes (¹³C ≈ 1.1%, ¹⁵N ≈ 0.4%, ³⁷Cl ≈ 24%, ⁸¹Br ≈ 49%, and others).   
 
 For example, even a completely unlabelled metabolite will produce a signal at **M+0** (100%), **M+1** (~6%), and **M+2** (~0.5%).   
@@ -16,6 +15,7 @@ MANIC models the relationship between the **Measured Raw Signal ($b$)** and the 
 $$A \cdot x = b$$
 
 Where:
+
 * **$b$ (Vector):** The raw intensities measured by the instrument at M+0, M+1, M+2, etc.
 * **$x$ (Vector):** The unknown "true" amounts of unlabelled (M+0), 1-labelled (M+1), etc.
 * **$A$ (Matrix):** The **Correction Matrix**. Each column $j$ represents the theoretical isotopic distribution of a compound with exactly $j$ labels.
@@ -27,7 +27,8 @@ $$x = A^{-1} \cdot b$$
 
 This is a single solve of $A x = b$. There is no later scaling by the diagonal of $A$.
 
-> **⚠️ Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by less than half a percentage point.**
+> **Changed in MANIC 5.0. Corrected Values differ from 4.x. Ratio sheets move by less than half a percentage point.**
+>
 > Versions up to 4.x performed the solve and then divided each isotopologue by
 > the matching diagonal element of $A$, an extra step inherited from the legacy
 > MATLAB flow. That step has no basis in $A x = b$ and inflated every channel by
@@ -57,9 +58,11 @@ MANIC treats the tracer as 99% isotopically pure. One percent of labelled positi
 
 ### Why this matters
 Unlike simpler "subtraction" methods, this approach correctly handles **overlapping distributions**. For example, the M+2 bin contains signal from:
+
 1.  True 2-labelled compound.
 2.  Natural isotope tail of the 1-labelled compound.
 3.  Natural isotope tail of the unlabelled compound.
+
 The matrix solver disentangles all these contributions simultaneously.
 
 ---
@@ -70,6 +73,7 @@ The matrix $A$ is built dynamically for each compound based on its **Molecular F
 
 ### Inputs
 The algorithm requires the following metadata from your Compound List:
+
 1.  **Formula:** (e.g., `C6H12O6`)
 2.  **Derivatization Counts:** (TBDMS, MeOX, Me)
 3.  **Label Element:** (e.g., `C`)
@@ -78,8 +82,10 @@ The algorithm requires the following metadata from your Compound List:
 ### Derivatization Adjustments
 Before building the matrix, MANIC adjusts the molecular formula to include the atoms added by chemical derivatization.   
 
-> **⚠️ Critical Assumption for TBDMS**
+> **Critical Assumption for TBDMS**
+>
 > For TBDMS derivatization, MANIC assumes the standard **[M-57]+ fragment** (loss of the t-butyl group) for the first derivatization group, but assumes any **additional** groups remain intact.
+>
 > * **First Group:** Loss of reactive hydrogen (-1 H), addition of TBDMS (+15 H), and loss of t-butyl fragment (-9 H).
 > * **Additional Groups:** Standard replacement of Hydrogen with TBDMS.
 
@@ -101,11 +107,9 @@ A key feature of MANIC (compared to the legacy v3.3.0 tool) is that this correct
 
 This provides higher accuracy because it prevents baseline noise or interfering peaks at specific timepoints from skewing the global correction.
 
-The envelope that enters this correction must be the same kind of measurement on every ion. If chromatographic peak deconvolution fitted every non-empty ion of a compound in a sample, correction runs on the dense selected curves. Empty ions contribute zeros. If any ion with real intensity failed to fit, correction runs on the raw in-window scans for every non-empty ion of that pair. Empty rows stay zero. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
+The envelope that enters this correction must be the same kind of measurement on every ion: the dense selected curves when chromatographic peak deconvolution fitted every non-empty ion, otherwise the raw in-window scans. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans), and [One fit for display and integration](Reference_Chromatographic_Peak_Deconvolution.md#one-fit-for-display-and-integration) for how baseline correction fits in.
 
-**Settings → Natural Abundance** uses that same order on screen. It fits the raw traces, then corrects that measurement for the tiles when the compound has a correction formula and labelled atoms. Otherwise, the plot keeps the raw fitted view. Preview draws corrected values at the acquisition scan times. When deconvolution selects a fitted component, preview also retains a faint raw EIC for context. Peaks outside the selected component remain visible in that context but do not enter correction or integration. Time-based Label Incorporation bars and the Corrected Values sheet use the same raw fit and integration path, so the spreadsheet number is the bar number. Legacy export remains scan-point based and uses different units. The toggle does not write `eic_corrected`. Export still fills that table when you export.
-
-When the dense-curve path is used with baseline correction on, the curve and the baseline ends are corrected separately: the area from the dense grid, the straight-line ends from the isolated component at the real scan times. See [One fit for display and integration](Reference_Chromatographic_Peak_Deconvolution.md#one-fit-for-display-and-integration).
+The **Show corrected data** preview (**Settings → Natural abundance**) uses that same order on screen; [Natural Abundance Correction preview](Reference_Chromatographic_Peak_Deconvolution.md#natural-abundance-correction-preview) describes what it draws. Time-based Label Incorporation bars and the Corrected Values sheet use the same raw fit and integration path, so the spreadsheet number is the bar number. Legacy export remains scan-point based and uses different units. The toggle does not write `eic_corrected`. Export still fills that table when you export.
 
 ---
 
@@ -115,6 +119,7 @@ The values in the **Corrected Values** sheet represent the **Calculated Abundanc
 
 ### Example: Unlabeled Compound
 If you analyze a purely unlabeled standard:
+
 * **Raw Signal ($b$):** You see 100 counts at M+0.
 * **Natural Physics:** We know M+0 is only ~92% of the total pool for this molecule (due to natural ¹³C).
 * **Corrected Value ($x$):** MANIC calculates the "True Unlabeled Amount" as $100 / 0.92 \approx 109$.
@@ -128,18 +133,4 @@ The algorithm enforces a non-negativity constraint. If noise causes the mathemat
 
 ## 5. Empirical Background Correction (MM Files)
 
-In addition to the theoretical matrix correction described above, MANIC applies an **Empirical Background Correction** to the final "% Label Incorporation" and "% Carbon Labelled" results. MM files (standard mixture) supply that background.
-
-### Why is this needed?
-Even after theoretical correction, unlabelled MM files (standard mixture) often show a small residual amount of labelled signal due to:
-* Impurities in the standard.
-* Imperfections in the theoretical natural abundance constants.
-* Instrument noise or baseline integration errors.
-
-### How it works
-1.  **Calculate Base Level:** MANIC scans all files matching the `mm_files` pattern for a compound. It calculates the average ratio of **Corrected Labelled / Corrected M+0** in these standards.
-2.  **Subtract Base Level:** This "Background Ratio" is subtracted from the labeled/unlabeled ratio of every biological sample before the final "% Label Incorporation" & "% Carbon Labelled" is calculated.
-
-$$\text{Label Signal}_{final} = \text{Label Signal}_{raw} - (\text{Ratio}_{background} \times \text{M+0 Signal}_{sample})$$
-
-*Note: This correction specifically affects the **% Label Incorporation** & **% Carbon Labelled** sheets. The **Corrected Values** sheet reports the raw corrected intensities ($x$) before this background subtraction.*
+MM files (standard mixture) also supply an empirical background that MANIC subtracts from **% Label Incorporation** and **% Carbons Labelled**. See [Empirical Background Correction](Reference_Label_Incorporation_Carbon_Enrichment.md#1-empirical-background-correction). The **Corrected Values** sheet reports the corrected intensities ($x$) before that subtraction.

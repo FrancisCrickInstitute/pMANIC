@@ -1,10 +1,8 @@
-# Reference: Chromatographic Peak Deconvolution
-
-## Overview
+# Chromatographic Peak Deconvolution
 
 Chromatographic peak deconvolution separates partially overlapping extracted ion chromatogram (EIC) signals before peak area integration. In MANIC this is distinct from natural isotope correction: chromatographic deconvolution works in retention-time space, while natural isotope correction works across isotopologue intensities before integration.
 
-When enabled, MANIC fits peak shapes to the signal around the expected retention time on every fittable channel of every sample. Export then uses one measurement method for that compound in that sample: dense model areas if every non-empty ion fitted, or the raw in-window scan traces if any ion with real intensity did not. An ion with no finite positive signal inside the integration window is empty. It does not count as a failed fit.
+When enabled, MANIC fits peak shapes to the signal around the expected retention time on every fittable channel of every sample. Export then uses one measurement method for that compound in that sample (see [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)).
 
 If the window contains two or more overlapping peaks and the fit is acceptable, the component nearest the expected retention time **whose centre sits inside the loffset/roffset window** is selected and the others are excluded. A neighbour whose centre is outside those dashes is never the selected peak. If a successful fit has no centre inside the dashed boundaries, that ion is empty and contributes zero on model, raw-fallback, and legacy paths. A well-resolved single peak becomes a one-component model. A one-component model can also win when splitting an overlap does not improve BIC enough. Too-short or too-messy windows and unusable fits use the raw trace.
 
@@ -12,20 +10,16 @@ The integration offsets (loffset/roffset) decide which component may be selected
 
 ## Consistency across samples and isotopologues
 
-Deconvolution settings are per compound and apply to every sample. When the level is not `off`, every fittable isotopologue of every sample is fit. A clean M+0 is not left on a raw trapezoid while a sibling ion is modelled: both are fit independently.
-
-Export is stricter still. If any ion with real intensity failed to fit, every non-empty ion of that pair uses the raw in-window scans. Empty ions stay zero. A modelled M+0 is not exported as an isolated-component area beside a raw M+1. Those would be different measurements of the same envelope. An empty ion does not force that fallback.
+Deconvolution settings are per compound and apply to every sample. When the level is not `off`, every fittable isotopologue of every sample is fit. A clean M+0 is not left on a raw trapezoid while a sibling ion is modelled: both are fit independently. Export is stricter still: one ion that fails to fit puts every ion of that compound and sample on raw scans ([Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)).
 
 ## One fit for display and integration
 
 When deconvolution is on and every non-empty ion of the compound in that sample has a usable model, the selected peak is a continuous analytic model (Gaussian, Bi-Gaussian, or EMG). Display and export use that same fitted model:
 
-- **Plots** with Natural Abundance Correction preview off draw the model on a dense grid, with the faint raw EIC underneath. With preview on, plots draw the corrected selected model at the acquisition scan times and keep the faint raw EIC for context. Neighbour peaks remain visible but do not enter correction or integration. The y-axis includes both the corrected trace and the raw context.
+- **Plots** draw the model on a dense grid, with the faint raw EIC underneath. [Natural Abundance Correction preview](#natural-abundance-correction-preview) changes what they draw.
 - **Integration** and export integrate that same densely-evaluated model from the first scan inside the loffset/roffset window to the last, rather than from the offset edges themselves or from the model sampled only at the acquisition scans.
 
 Both views come from the same selected fit, but corrected preview is scan-sampled while time-based export uses the denser grid for a more accurate area. Dense evaluation changes exported areas only marginally relative to scan-point integration (typically under 0.1% for normally sampled peaks, and at most a few percent for very coarsely sampled peaks). Legacy (unit-spacing) integration remains scan-point based. The raw trace itself is never smoothed.
-
-If any ion of a labelled compound in that sample has real intensity and failed to fit, plots and export both use the raw in-window scan traces for non-empty ions. Empty ions stay zero. No fitted curve is drawn. An empty higher ion does not trigger that fallback. Unlabelled tiles draw a curve for each ion that fitted and leave failed ions on the raw trace; export still uses the raw window unless every non-empty ion fitted. See [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans).
 
 If baseline correction is enabled, MANIC keeps the usual edge-based baseline correction but applies it to the selected deconvolved signal. Excluded components are removed before the baseline is estimated.
 
@@ -45,7 +39,7 @@ For a labeled compound the preferred centre for every channel is the compound re
 
 Unlabelled mode uses this same per-channel fitter. Import defaults to level 4, matching labelled mode; the setting applies to every sample of that compound. Q and qualifier ions are different EI fragments, so they are never given a shared elution shape.
 
-Amount is the Q-ion area. Qualifier/Q identity ratios use the same area list. If any non-empty ion of that compound/sample failed to fit, every non-empty ion uses the raw in-window scans. Empty ions stay at area 0.
+Amount is the Q-ion area. Qualifier/Q identity ratios use the same area list, so a failed ion puts every ion on raw scans here too ([Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)).
 
 Observed RT and the detail mass spectrum stay on the raw Q apex inside the window. Areas may be modelled; the apex is not switched to the fitted centre.
 
@@ -79,7 +73,7 @@ The next sample of the same compound can still use model areas if every non-empt
 
 The resolution level, peak-shape fit type, and noise gate are stored **per compound** (persisted in the session database), not as a single global option. Each compound can use a different setting, and the choice applies to all of that compound's samples. The plot may show only some samples. Save still writes the compound row, so hidden samples use the same setting when you plot them or export.
 
-Settings are edited from **Settings → Deconvolution** with a compound selected. The current value for the selected compound is shown in the status bar, and the settings are written to the export changelog so a processed result can be reproduced exactly.
+Settings are edited from **Settings → Deconvolution** with a compound selected. When the selected compound departs from the default, the status bar names its setting, and the settings are written to the export changelog so a processed result can be reproduced exactly.
 
 ### Applying settings to all compounds
 
@@ -87,7 +81,7 @@ The Deconvolution page includes an **"Apply to all compounds"** checkbox. When t
 
 ### Per-sample curve fit
 
-A sample can override the compound fit type without changing resolution or the noise gate. Right-click selected plot tiles and choose **Curve fit**, or use **Settings → Deconvolution → Per-sample curve fit** for the tiles currently selected in the plot area. The same settings section lists every override for the compound. Each row is editable. **Remove all overrides** sets every row to **Use compound setting**. Nothing is written until Save. An override shows on the tile caption as `Sample  ·  Gaussian` (or Auto, Bi-Gaussian, EMG). Tiles that inherit the compound setting keep the sample name only. Export, session export, and the changelog use the same override. Choosing **Use compound setting** returns that sample to the compound fit type.
+A sample can override the compound fit type without changing resolution or the noise gate. Right-click selected plot tiles and choose **Curve Fit** (the **Review** menu has the same submenu), or use the **Per-sample curve fit** table in **Settings → Deconvolution**. The table has one row for every sample with an override and every sample selected in the plot area; the selected samples' rows open selected. Each row is editable. Select rows and choose **Set fit for *N* selected** to change them together. With more than one override, **Remove all overrides** sets every row to **Use compound setting**. Nothing is written until Save. An override shows on the tile caption as `Sample  ·  Gaussian` (or Auto, Bi-Gaussian, EMG). Tiles that inherit the compound setting keep the sample name only. Export, session export, and the changelog use the same override. Choosing **Use Compound Setting** in the **Curve Fit** submenu, or **Use compound setting** in Settings, returns that sample to the compound fit type.
 
 ## Resolution Levels
 
@@ -180,15 +174,16 @@ Deconvolution is designed to degrade gracefully and never block integration. Two
   | `aggressive` | `+0.1` | only fit clearly smooth peaks |
 
   The default `balanced` (`-0.1`) sits in the gap between typical noise (~`-0.5`) and genuine peaks (`>= +0.3`), biased slightly toward retaining borderline peaks, since the subsequent fit-quality checks can still reject a poor fit. It is set per compound in the deconvolution dialog.
+
 - **A fit is attempted but no usable model is found** (the optimizer fails to converge, or every candidate is non-finite or contributes negligible signal): MANIC integrates the **raw trace** over the loffset/roffset window, equivalent to the deconvolution-off result. No overlays are drawn.
 - **A fit succeeds but does not reproduce the data (the fit-quality net):** after fitting, MANIC retains the model (`_fit_reproduces_window`) only if it reconstructs the integration window adequately (relative residual at or below `FIT_QUALITY_MAX_REL_RESIDUAL`). Neighbours in the wider fit context can still be modelled so they can be subtracted, but leftover intensity outside loffset/roffset does not veto a fit that matches the target peak. Extra candidate seeds (shoulders or leftover maxima) do not discard a one-component model that already matches. If the reconstruction is poor, MANIC discards the model and integrates the **raw trace**.
 - **Unexpected numerical failure during fitting:** any error is caught and treated as "no usable model", routing to the same raw-trace fallback rather than propagating. This protects both interactive plotting and bulk export.
 
-In summary, when deconvolution is on, every fittable channel is offered a peak model. A channel uses the raw trace when that window cannot be fit: off, too few points, too messy, no usable model, or a poor reconstruction. If any **non-empty** channel of a labelled compound/sample falls back, plots and export use the raw in-window scans for every non-empty channel of that pair (see [Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)). Empty channels stay zero and do not force that fallback. MANIC does not blank the plot or abort an export.
+Whichever check sends a channel to its raw trace, MANIC does not blank the plot or abort an export. For a labelled compound, that channel takes its siblings with it ([Failed ions put the whole envelope on scans](#failed-ions-put-the-whole-envelope-on-scans)).
 
 ## Natural Abundance Correction preview
 
-**Settings → Natural Abundance** changes only what the UI draws and what the Label Incorporation bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
+**Show corrected data** (**Settings → Natural abundance**) changes only what the UI draws and what the Label Incorporation bars integrate. Export still fits the raw traces and then corrects that same selected component. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
 
 Preview on:
 
@@ -197,7 +192,7 @@ Preview on:
 3. When overlays are on, draw the corrected selected traces over a faint raw EIC. The raw context does not enter correction or integration. Otherwise, draw the corrected raw matrix.
 4. When both layers are present, scale the y-axis to include both.
 
-The toolbar bars and the tiles use the same raw fit. They do not re-fit stored `eic_corrected` traces. Preview draws corrected selected values at the acquisition scan times. Time-based bars and export integrate a denser evaluation of the same fitted model.
+The **Summary** panel's bars and the tiles use the same raw fit. They do not re-fit stored `eic_corrected` traces. Preview draws corrected selected values at the acquisition scan times. Time-based bars and export integrate a denser evaluation of the same fitted model.
 
 If the detailed-view display pipeline fails after the canvas was cleared, the dialog draws the raw EIC. The info strip reports an error only if that fallback also fails.
 

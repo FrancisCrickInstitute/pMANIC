@@ -191,7 +191,7 @@ On a short window, such as a laptop screen with **Samples** open, the rows under
 * **Left offset / Right offset:** Controls the width of the window. Increase these to capture wider peaks; decrease to exclude adjacent peaks.
 * **tR:** Shifts the center of the window. Use this to align the window with shifted peaks.
 
-*Note: If multiple samples are selected with different values, the fields will display a range (e.g., `0.2 - 0.4`). Typing a new value will overwrite all selected samples with that single value.*
+*Note: If multiple samples are selected with different values, the fields will display a range (e.g., `0.2 - 0.4`). Typing a new value will overwrite all selected samples with that single value. A field you leave as a range keeps each sample's own value when you click **Apply**.*
 
 #### 5. Applying Changes
 1.  Enter your new values in the text fields.

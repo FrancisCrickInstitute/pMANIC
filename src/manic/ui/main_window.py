@@ -422,6 +422,11 @@ class MainWindow(QMainWindow):
         self.toolbar.baseline_correction_changed.connect(
             self.on_baseline_correction_changed
         )
+        self.toolbar.deconvolution_changed.connect(
+            lambda level, fit, gate: self.apply_deconvolution(
+                self.selected_compound_name(), level, fit, gate, apply_to_all=False
+            )
+        )
         self.toolbar.y_scale_policy_changed.connect(
             self.graph_view.set_y_scale_policy
         )
@@ -2688,6 +2693,9 @@ class MainWindow(QMainWindow):
         text = self._deconvolution_indicator_text(compound_name)
         self.deconvolution_indicator_label.setText(text)
         self.deconvolution_indicator_label.setVisible(bool(text))
+        self.toolbar.show_deconvolution(
+            self.deconvolution_settings(compound_name) if compound_name else None
+        )
 
     def show_about(self):
         """Show About dialog with version information."""

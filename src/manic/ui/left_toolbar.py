@@ -22,6 +22,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 from manic.processors.tile_y_scale import YScalePolicy, available_y_scale_policies
 
 from .compound_list_widget import CompoundListWidget
+from .deconvolution_controls import DeconvolutionControls, deconvolution_summary
 from .integration_window_widget import IntegrationWindow
 from .loaded_data_widget import LoadedDataWidget
 from .sample_list_widget import SampleListWidget
@@ -48,6 +49,8 @@ BROWSE_WEIGHTS = (3, 2)
 # The margin each side of the line above the Peak window, and what it is once folded: on a
 # 150% laptop that is the room for a second Samples row beside a pending edit.
 INSPECTOR_GAP, FOLDED_GAP = 12, 8
+# Between the Peak window and the Deconvolution heading under it.
+DECONVOLUTION_GAP = 8
 Y_SCALE_SETTING = "view/y_scale_policy"
 
 
@@ -88,6 +91,8 @@ class Toolbar(QWidget):
     baseline_correction_changed = Signal(str, bool)  # compound_name, enabled
 
     y_scale_policy_changed = Signal(object)
+
+    deconvolution_changed = Signal(str, str, str)  # level, fit type, noise gate
 
     def __init__(
         self,
@@ -200,6 +205,18 @@ class Toolbar(QWidget):
         self._refresh_peak_summary()
         inspector_layout.addWidget(self.peak_section)
         self.peak_section.toggled.connect(self._refresh_peak_summary)
+
+        self._deconvolution_shown: tuple[str, str, str] | None = None
+        self.deconvolution = DeconvolutionControls()
+        self.deconvolution.changed.connect(self.deconvolution_changed)
+        self.deconvolution_section = CollapsibleSection(
+            "Deconvolution", self.deconvolution, settings_key="sidebar/deconvolution_expanded"
+        )
+        self.deconvolution_section.setContentsMargins(0, DECONVOLUTION_GAP, 0, 0)
+        self.deconvolution_section.toggled.connect(self._refresh_deconvolution_summary)
+        inspector_layout.addWidget(self.deconvolution_section)
+        # Room held for the Peak window's scope line stays below both sections, not between them.
+        inspector_layout.addStretch(1)
         self.inspector = inspector_content
 
         QWidget.setTabOrder(
@@ -217,7 +234,7 @@ class Toolbar(QWidget):
         self._fit_timer.timeout.connect(self.fit_inspector)
         for watched in (browse, inspector_content):
             watched.installEventFilter(self)
-        for section in (self.samples_section, self.peak_section):
+        for section in (self.samples_section, self.peak_section, self.deconvolution_section):
             section.toggled.connect(self._fit_timer.start)
 
         self._build_scale_actions()
@@ -299,6 +316,20 @@ class Toolbar(QWidget):
         else:
             summary = f"{state} · {window} min" if window else state
         self.integration.more.summary.setText(summary)
+
+    def show_deconvolution(self, settings: tuple[str, str, str] | None) -> None:
+        """Show the selected compound's saved deconvolution; None when no compound is selected."""
+        self.deconvolution.show_settings(settings)
+        self._deconvolution_shown = settings
+        self._refresh_deconvolution_summary()
+
+    def _refresh_deconvolution_summary(self, *_args) -> None:
+        settings = self._deconvolution_shown
+        # The open rows show their own values.
+        folded = settings and not self.deconvolution_section.is_expanded()
+        self.deconvolution_section.summary.setText(
+            deconvolution_summary(*settings) if folded else ""
+        )
 
     def _set_checked_quietly(self, checkbox: QCheckBox, checked: bool) -> None:
         """Show a state that is already committed: summaries and menus follow, nothing is saved."""
@@ -438,6 +469,8 @@ class Toolbar(QWidget):
         margins = self.inspector.layout().contentsMargins()
         section = self.peak_section
         height = margins.top() + margins.bottom() + section.header.sizeHint().height()
+        # The Deconvolution section below it: its heading, and its rows while open.
+        height += self.deconvolution_section.sizeHint().height()
         if not section.is_expanded():
             return height
         return (

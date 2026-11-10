@@ -33,6 +33,14 @@ from manic.models.analysis import AnalysisMode
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
 from manic.ui.chart_header import HeaderName
 from manic.ui.combo_box import ComboBox
+from manic.ui.deconvolution_controls import (
+    FIT_HELP,
+    FIT_OPTIONS,
+    GATE_HELP,
+    GATE_OPTIONS,
+    LEVEL_HELP,
+    LEVEL_OPTIONS,
+)
 from manic.ui.dialog_kit import (
     BUTTON_GAP,
     FORM_LABEL_WIDTH,
@@ -71,25 +79,6 @@ def _target_moved_hint(loaded: str | None, selected: str | None) -> str:
         f"The selected compound is now {selected or 'none'}; "
         f"Save still writes to {loaded}."
     )
-
-
-_DECONVOLUTION_LEVEL_OPTIONS = [
-    ("Off", "off"),
-    ("Level 1 (fastest)", "1"),
-    ("Level 2", "2"),
-    ("Level 3", "3"),
-    ("Level 4 (default)", "4"),
-    ("Level 5", "5"),
-    ("Level 6", "6"),
-    ("Level 7 (finest)", "7"),
-]
-_DECONVOLUTION_FIT_OPTIONS = [(label, value) for value, label in FIT_TYPE_LABELS.items()]
-_DECONVOLUTION_GATE_OPTIONS = [
-    ("Balanced (default)", "balanced"),
-    ("Lenient", "lenient"),
-    ("Aggressive", "aggressive"),
-    ("Off", "off"),
-]
 
 
 def _compound_heading() -> HeaderName:
@@ -541,12 +530,7 @@ class DeconvolutionPage(SettingsPage):
         form_row(
             form,
             "Resolution",
-            with_help(
-                self.level_combo,
-                "Higher levels split closer overlaps and weaker shoulders, but run "
-                "slower and are more likely to split noise. Levels 5 to 7 also fit "
-                "the EMG shape and look for shoulders.",
-            ),
+            with_help(self.level_combo, LEVEL_HELP),
         )
 
         self.fit_combo = ComboBox()
@@ -555,12 +539,7 @@ class DeconvolutionPage(SettingsPage):
         form_row(
             form,
             "Fit type",
-            with_help(
-                self.fit_combo,
-                "Auto fits each shape the resolution level allows and keeps the best "
-                "by BIC. A single shape is faster: Gaussian for symmetric peaks, "
-                "Bi-Gaussian for unequal left and right widths, EMG for tailing peaks.",
-            ),
+            with_help(self.fit_combo, FIT_HELP),
         )
 
         self.gate_combo = ComboBox()
@@ -569,13 +548,7 @@ class DeconvolutionPage(SettingsPage):
         form_row(
             form,
             "Noise gate",
-            with_help(
-                self.gate_combo,
-                "Skips fitting where the trace looks like noise; those peaks show the "
-                "raw trace. Lenient skips only near-pure noise. Aggressive fits only "
-                "clearly smooth peaks, which is faster but may skip weak real peaks. "
-                "Off always fits.",
-            ),
+            with_help(self.gate_combo, GATE_HELP),
         )
 
         self._inputs.extend([self.level_combo, self.fit_combo, self.gate_combo])
@@ -801,9 +774,9 @@ class DeconvolutionPage(SettingsPage):
             QSignalBlocker(self.gate_combo),
             QSignalBlocker(self.apply_all),
         ):
-            _fill_combo(self.level_combo, _DECONVOLUTION_LEVEL_OPTIONS, level)
-            _fill_combo(self.fit_combo, _DECONVOLUTION_FIT_OPTIONS, fit)
-            _fill_combo(self.gate_combo, _DECONVOLUTION_GATE_OPTIONS, gate)
+            _fill_combo(self.level_combo, LEVEL_OPTIONS, level)
+            _fill_combo(self.fit_combo, FIT_OPTIONS, fit)
+            _fill_combo(self.gate_combo, GATE_OPTIONS, gate)
             self.apply_all.setChecked(False)
         self._rebuild_override_table(overrides, selected)
         self._sync_fit_enabled()

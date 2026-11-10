@@ -432,7 +432,9 @@ Two toggles in the grid header, **Shared Y** and **Scale to peak**, set how samp
 * Only one can be on. Both off is the default. Each tile then autoscales to the tallest intensity in its extract.
 
 ### Chromatographic Peak Deconvolution
-**Settings → Deconvolution**
+**Sidebar → Deconvolution**, or **Settings → Deconvolution**
+
+The **Deconvolution** section of the sidebar, under **Peak window**, shows the selected compound's **Resolution**, **Fit type** and **Noise gate**. A pick there is saved for that compound at once and the plots redraw, so you can try a level and see the result. Collapsed, its heading names the setting, for example **Level 4 · Auto** or **Off**. **Apply to all compounds** and the **Per-sample curve fit** table are on the Settings page.
 
 * **Default:** `Level 4`, `Auto` fit type
 * **Function:** Fits chromatographic peak shapes around the expected retention time and selects the component nearest that time whose centre sits inside the dashed loffset/roffset window. This can separate overlapping peaks before area calculation.

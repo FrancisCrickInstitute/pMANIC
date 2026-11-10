@@ -286,6 +286,26 @@ def test_natural_abundance_save_propagates_preview_flag(labelled_window):
     assert labelled_window.summary.isotopologue_ratios.use_corrected is True
 
 
+def test_a_sidebar_deconvolution_pick_saves_for_the_selected_compound_only(labelled_window):
+    _insert_compound("Alanine")
+    _insert_compound("Valine")
+    window, sidebar = labelled_window, labelled_window.toolbar
+    window.compound_data_loaded = True
+    sidebar.update_compound_list(["Alanine", "Valine"], selected_name="Alanine")
+    controls = sidebar.deconvolution
+    assert controls.settings() == ("4", "auto", "balanced")
+    assert sidebar.deconvolution_section.summary.text() == "Level 4 · Auto"
+
+    controls.level_combo.setCurrentIndex(controls.level_combo.findData("6"))
+    controls.level_combo.activated.emit(controls.level_combo.currentIndex())
+    assert window.deconvolution_settings("Alanine") == ("6", "auto", "balanced")
+    assert window.deconvolution_settings("Valine") == ("4", "auto", "balanced")
+    assert sidebar.deconvolution_section.summary.text() == "Level 6 · Auto"
+
+    sidebar.compound_list.setCurrentRow(1)
+    assert controls.settings() == ("4", "auto", "balanced")
+
+
 def test_deconvolution_page_unlocks_for_selected_compound_and_saves(labelled_window):
     with database.get_connection() as conn:
         conn.execute(

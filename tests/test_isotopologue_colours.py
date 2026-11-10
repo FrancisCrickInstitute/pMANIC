@@ -15,7 +15,7 @@ def test_every_isotopologue_has_its_own_colour(qapp, monkeypatch):
     monkeypatch.setattr(f"{module}.read_compound_with_session", lambda _compound, _sample: None)
     monkeypatch.setattr(
         f"{module}.integrated_display_areas",
-        lambda _time, intensity, _compound, use_corrected: list(intensity.sum(axis=1)),
+        lambda _time, intensity, _compound, **_options: list(intensity.sum(axis=1)),
     )
     count = MAX_LABEL_ATOMS + 1
     eic = SimpleNamespace(sample_name="Bio_001", time=np.zeros(1), intensity=np.ones((count, 1)))

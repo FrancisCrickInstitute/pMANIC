@@ -1,0 +1,53 @@
+name: UI tour
+
+on:
+  pull_request:
+    paths:
+      - "src/manic/ui/**"
+      - "src/manic/resources/**"
+      - "src/manic/utils/utils.py"
+      - "scripts/ui_tour.py"
+      - ".github/workflows/ui-tour.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tour:
+    name: tour (${{ matrix.os }}, ${{ matrix.scheme }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15]
+        scheme: [light, dark]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      # The runner desktop is 1024x768; the tour window is 1600x1000.
+      - name: Raise the Windows desktop resolution
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Set-DisplayResolution -Width 1920 -Height 1200 -Force
+
+      - name: Install and generate synthetic data
+        shell: bash
+        run: |
+          uv sync
+          uv run python scripts/generate_bench_data.py --mode labelled
+          uv run python scripts/generate_unlabelled_synthetic_data.py
+
+      - name: Run the tour
+        shell: bash
+        run: uv run python scripts/ui_tour.py ui-tour --scheme ${{ matrix.scheme }} --onscreen --size 1600x1000
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-tour-${{ matrix.os }}-${{ matrix.scheme }}
+          path: ui-tour/
+          if-no-files-found: warn

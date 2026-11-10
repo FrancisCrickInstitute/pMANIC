@@ -1,19 +1,31 @@
+import sys
 from pathlib import Path
 from unittest import mock
 
 import pytest
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QComboBox, QLabel, QTableWidget
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import (
+    QLabel,
+    QPushButton,
+    QTableWidget,
+)
 
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.models.mm_file_check import MmFileStatus
 from manic.ui.main_window import MainWindow
 from manic.ui.post_load_checklist_dialog import PostLoadChecklistDialog
+from manic.ui.standard_chooser import StandardChooser
 
 from conftest import _make_window
 
-WARNING = QColor(255, 243, 205)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+
+LONG_REPORT = [
+    MmFileStatus(f"Compound {i}", "*_MM_01*,*_MM_02*", ("Std_MM_01", "Std_MM_02"))
+    for i in range(95)
+]
 
 
 def _insert_compound(name: str, mm_files: str | None = None) -> None:
@@ -30,6 +42,21 @@ def _insert_sample(name: str) -> None:
         conn.execute("INSERT INTO samples (sample_name) VALUES (?)", (name,))
 
 
+def _button(dialog: PostLoadChecklistDialog, text: str) -> QPushButton:
+    return next(b for b in dialog.buttons.buttons() if b.text() == text)
+
+
+def _choose_standard(dialog: PostLoadChecklistDialog, typed: str) -> None:
+    dialog.standard_picker.showPopup()
+    chooser = dialog.standard_picker.findChildren(StandardChooser)[-1]
+    QTest.keyClicks(chooser.filter, typed)
+    QTest.keyClick(chooser.filter, Qt.Key_Return)
+
+
+def _standard_shown(window: MainWindow) -> str:
+    return window.toolbar.standard.findChild(QLabel, "statusValue").text()
+
+
 def _close_window(window: MainWindow) -> None:
     if window._post_load_checklist is not None:
         window._post_load_checklist.close()
@@ -43,22 +70,8 @@ def test_dialog_preselects_current_internal_standard(qapp):
     dialog = PostLoadChecklistDialog(
         ["Alanine", "Norvaline"], "Norvaline", report, None
     )
-    combo = dialog.findChild(QComboBox, "internalStandardCombo")
-    assert combo.currentText() == "Norvaline"
+    assert dialog.standard_picker.currentText() == "Norvaline"
     assert dialog.selected_internal_standard() == "Norvaline"
-    dialog.close()
-
-
-def test_dialog_status_label_updates_when_combo_changes(qapp):
-    dialog = PostLoadChecklistDialog(["Alanine"], None, [], None)
-    status = dialog.findChild(QLabel, "internalStandardStatus")
-    combo = dialog.findChild(QComboBox, "internalStandardCombo")
-    assert combo.currentText() == "No internal standard"
-    assert dialog.selected_internal_standard() is None
-    assert status.text() == "Not set"
-    combo.setCurrentText("Alanine")
-    assert dialog.selected_internal_standard() == "Alanine"
-    assert status.text() == "Set"
     dialog.close()
 
 
@@ -78,13 +91,12 @@ def test_dialog_table_sorts_problems_first_and_warns(qapp):
     ]
     assert table.item(0, 1).text() == "Not set"
     assert table.item(0, 2).text() == "No pattern"
-    assert table.item(0, 2).background().color() == WARNING
     assert table.item(1, 1).text() == "*ZZ*"
     assert table.item(1, 2).text() == "No files matched"
-    assert table.item(1, 2).background().color() == WARNING
     assert table.item(2, 1).text() == "*MM*"
     assert table.item(2, 2).text() == "4 files: A, B, C"
-    assert table.item(2, 2).background().color() != WARNING
+    filled = [table.item(row, 2).background().style() != Qt.NoBrush for row in range(3)]
+    assert filled == [True, True, False]
     dialog.close()
 
 
@@ -95,18 +107,16 @@ def test_apply_sets_internal_standard_on_toolbar(qapp, empty_db, monkeypatch):
     try:
         window.toolbar.update_compound_list(["Alanine", "Norvaline"])
         window.show_post_load_checklist()
-        dialog = window._post_load_checklist
-        combo = dialog.findChild(QComboBox, "internalStandardCombo")
-        combo.setCurrentText("Norvaline")
-        dialog.accept()
+        dialog = window.findChild(PostLoadChecklistDialog)
+        _choose_standard(dialog, "norv")
+        _button(dialog, "Apply").click()
         assert window.toolbar.get_internal_standard() == "Norvaline"
-        assert window.toolbar.standard.internal_standard == "Norvaline"
-        assert window.toolbar.standard.toolTip() == "Int Std: Norvaline"
+        assert _standard_shown(window) == "Norvaline"
     finally:
         _close_window(window)
 
 
-def test_skip_leaves_internal_standard_unchanged(qapp, empty_db, monkeypatch):
+def test_continue_without_changes_leaves_internal_standard_unchanged(qapp, empty_db, monkeypatch):
     _insert_compound("Alanine")
     _insert_compound("Norvaline")
     window = _make_window(monkeypatch, AnalysisMode.LABELLED)
@@ -114,14 +124,16 @@ def test_skip_leaves_internal_standard_unchanged(qapp, empty_db, monkeypatch):
         window.toolbar.update_compound_list(["Alanine", "Norvaline"])
         window.toolbar.on_internal_standard_selected("Alanine")
         window.show_post_load_checklist()
-        dialog = window._post_load_checklist
-        combo = dialog.findChild(QComboBox, "internalStandardCombo")
-        combo.setCurrentText("Norvaline")
-        dialog.reject()
+        dialog = window.findChild(PostLoadChecklistDialog)
+        _choose_standard(dialog, "norv")
+        _button(dialog, "Continue without changes").click()
         assert window.toolbar.get_internal_standard() == "Alanine"
-        assert window.toolbar.standard.toolTip() == "Int Std: Alanine"
+        assert _standard_shown(window) == "Alanine"
     finally:
         _close_window(window)
+
+
+# 680x640 is the dialog capped on a 150% 1280x800 laptop; 680x540 on an 800x600 screen.
 
 
 def test_import_ok_opens_checklist_dialog(qapp, empty_db, monkeypatch):
@@ -203,3 +215,5 @@ def test_check_setup_action_requires_loaded_data(qapp, empty_db, monkeypatch):
         assert window.check_setup_action.isEnabled() is True
     finally:
         _close_window(window)
+
+

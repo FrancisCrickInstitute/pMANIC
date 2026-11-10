@@ -1,6 +1,5 @@
-# Workflow: Data Interpretation
+# Data Interpretation
 
-## Overview
 When you export data from MANIC (Step 5), the application generates a multi-sheet Excel workbook. This document explains the labelled (isotope-tracing) sheets. Unlabelled sessions write **Raw Values** and **Abundances** in the same matrix layout, then add **Qualifier QC**. See [Unlabelled Targeted Analysis](Unlabelled_Targeted_Analysis.md#8-excel-export).
 
 ---
@@ -12,25 +11,24 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 * **Units:** Arbitrary Counts (Intensity × Time).
     * *Note:* If using "Legacy Mode," values will be ~100× larger than "Time-Based" values.
 * **Use Case:** Quality control. Use this to check if a sample had low overall signal or injection issues.
-* **Deconvolution:** When chromatographic peak deconvolution is on and every non-empty ion of the compound in that sample fitted, these areas come from the selected model curve. Empty ions get area 0. If any ion with real intensity failed to fit, plots show the raw scan traces and every non-empty ion of that pair uses those same raw in-window scans instead. Empty rows stay zero. Corrected Values use the same rule. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
+* **Deconvolution:** When chromatographic peak deconvolution is on, these areas come from the selected model curve, or from the raw in-window scans when an ion of that compound and sample fails to fit. See [Failed ions put the whole envelope on scans](Reference_Chromatographic_Peak_Deconvolution.md#failed-ions-put-the-whole-envelope-on-scans).
 
-> **📖 Deep Dive:**
-> Understand the mathematical difference between Time-Based and Legacy integration in **[Reference: Integration Methods](Reference_Integration_Methods.md)**.
+[Integration Methods](Reference_Integration_Methods.md) compares Time-Based and Legacy integration.
 
 ---
 
 ## 2. Corrected Values
 **Description:** The "pure" peak areas after the **Natural Isotope Abundance Correction** has been applied.
 
-* **Correction:** Mathematically deconvoluted to remove signal from naturally occurring heavy isotopes (¹³C, etc.). When chromatographic deconvolution is on, this correction is applied to the same selected component used for Raw Values (dense curve if every non-empty ion fitted; otherwise the raw in-window scans for every non-empty ion of that compound/sample). Empty ions stay at area 0.
+* **Correction:** Mathematically deconvoluted to remove signal from naturally occurring heavy isotopes (¹³C, etc.). When chromatographic deconvolution is on, this correction is applied to the same measurement used for Raw Values.
 * **Units:** Arbitrary Counts (Intensity × Time).
 * **Use Case:** This is your primary dataset for relative quantification if you are not using an internal standard. It represents the true experimental label distribution.
 
 > **Why are some values small/zero?**
+>
 > The correction algorithm subtracts the "natural" contribution. If a peak is entirely due to natural background (unlabelled), the corrected value for heavier isotopologues will properly be zero.
 
-> **📖 Deep Dive:**
-> Learn how the matrix-based correction algorithm works in **[Reference: Natural Isotope Correction](Reference_Natural_Isotope_Correction.md)**.
+[Natural Isotope Correction](Reference_Natural_Isotope_Correction.md) explains the matrix-based correction.
 
 ---
 
@@ -60,17 +58,21 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 ---
 
 ## 5. % Carbons Labelled (optional)
-**Description:** Off by default. Tick **Include % Carbons Labelled sheet** in **Export Options** to write this sheet. It is the percentage of *excess* label incorporated into the carbon pool, relative to the MM files (standard mixture) background. This is also known as **Atom Percent Excess**.
+**Description:** Off by default. Tick **Include % Carbons Labelled sheet** in **Export Data** to write this sheet. It is the percentage of *excess* label incorporated into the carbon pool, relative to the MM files (standard mixture) background. This is also known as **Atom Percent Excess**.
 
 * **Units:** Percentage (0 to 100%).
 * **Calculation:**
     1. Calculate weighted enrichment of the sample:
-       $$\text{Enrichment}_{sample} = \frac{\sum (i \times \text{Area}_i)}{N \times \sum \text{Area}_{total}} \times 100$$
+
+        $$\text{Enrichment}_{sample} = \frac{\sum (i \times \text{Area}_i)}{N \times \sum \text{Area}_{total}} \times 100$$
+
     2. Calculate weighted enrichment of MM files (standard mixture), averaged if there are several.
     3. Subtract the background:
-       $$\text{% Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
+
+        $$\%\ \text{Carbon Labelled} = \max(0, \text{Enrichment}_{sample} - \text{Enrichment}_{MM})$$
 
     Where:
+
     * $i$ is the isotopologue number (0, 1, 2...).
     * $N$ is the maximum number of labelable atoms in the molecule.
     * Area is the **Corrected Value** (NAC applied).
@@ -90,8 +92,7 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
     * An Internal Standard must be selected.
     * `int_std_amount` and `amount_in_std_mix` must be defined in your Compound List.
 
-> **📖 Deep Dive:**
-> For the full derivation of the formula and how MRRF slopes are calculated, see **[Reference: Abundance Calculation](Reference_Abundance_Calculation.md)**.
+[Abundance Calculation](Reference_Abundance_Calculation.md) derives the formula and the MRRF slopes.
 
 ---
 
@@ -102,13 +103,12 @@ MANIC automatically validates every peak during export. You may see coloured cel
 * **🔴 Light Red (Warning):** **Low Intensity.**
     * The peak area was less than **0.5%** (default) of the Internal Standard reference peak area.
     * *Action:* Check the raw chromatogram. This data may be noise.
-* **🟣 Light Purple (Reviewed):** **Accepted below threshold.** You right-clicked this peak in the EIC grid and chose *Accept peak*. The value is kept and the colour records the manual decision. The colour stays until you clear the review.
-* **🟤 Tan (Reviewed):** **Marked as bad.** You right-clicked this peak and chose *Mark peak as bad*. The value is still exported; the colour flags it for exclusion downstream.
+* **🟣 Light Purple (Reviewed):** **Accepted below threshold.** You chose *Accept Peak (Below Threshold)* for this peak from the plot right-click menu or the **Review** menu. The value is kept and the colour records the manual decision. The colour stays until you clear the review.
+* **🟤 Tan (Reviewed):** **Marked as bad.** You chose *Mark Peak as Bad* for this peak. The value is still exported; the colour flags it for exclusion downstream.
 * **🔵 Blue text (Info):** **Baseline correction disabled** for this compound.
     * The compound name in the header row is written in blue across sheets.
     * This corresponds to the compound's **Baseline correction** checkbox being unchecked in the UI.
 * **⬜ Grey (Info):** **Relative units** in the **Abundances** sheet.
     * In the Abundances sheet "Units" row, a grey cell indicates the value is reported as `Relative`/`rel` rather than `nmol`.
 
-> **📖 Deep Dive:**
-> See **[Reference: Peak Validation](Reference_Peak_Validation.md)** for details on threshold algorithms and how to adjust them.
+[Peak Validation](Reference_Peak_Validation.md) covers the threshold and how to change it.

@@ -1,71 +1,54 @@
-import sys
-
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics
-from PySide6.QtWidgets import QLabel, QSizePolicy
-
-from manic.constants import BLUE, GREEN, GREY, RED, create_font
+from manic.models.analysis import AnalysisMode
+from manic.models.database import get_connection
+from manic.ui.sidebar_widgets import StatusRow
 
 
-class TitledPill(QLabel):
-    """A full-width status pill reading ``Title: value``, elided to fit."""
-
-    def __init__(self, title: str, parent=None):
-        super().__init__(parent)
-        self._title = title
-        self._value = ""
-        self.setFont(create_font(10))
-        self.setTextFormat(Qt.RichText)
-        self.setAlignment(Qt.AlignCenter)
-        # Ignored: the text must never widen the toolbar, it elides to fit instead
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.setFixedHeight(22 if sys.platform == "win32" else 20)
-
-    def set_value(self, value: str, color: QColor) -> None:
-        self._value = value
-        self.setToolTip(f"{self._title}: {value}")
-        self.setStyleSheet(
-            f"background-color: rgba({color.red()}, {color.green()}, {color.blue()}, "
-            f"{color.alpha() / 255}); color: black; border-radius: 10px; padding: 2px;"
-        )
-        self._elide()
-
-    def resizeEvent(self, event):
-        self._elide()
-        super().resizeEvent(event)
-
-    def _elide(self) -> None:
-        metrics = QFontMetrics(self.font())
-        title = f"{self._title}: "
-        bold = QFont(self.font())
-        bold.setBold(True)
-        available = self.width() - 12 - metrics.horizontalAdvance(title)
-        value = QFontMetrics(bold).elidedText(self._value, Qt.ElideRight, available)
-        self.setText(f"{title}<b>{value}</b>")
+def lacking_amount(names: list[str], mode: AnalysisMode) -> set[str]:
+    """The names export cannot calibrate with as the standard: labelled needs both amounts
+    (the export prompt's check), unlabelled its int_std_amount."""
+    fields = (
+        ("int_std_amount", "amount_in_std_mix")
+        if mode is AnalysisMode.LABELLED
+        else ("int_std_amount",)
+    )
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT compound_name, {', '.join(fields)} FROM compounds "
+            f"WHERE deleted = 0 AND compound_name IN ({', '.join('?' * len(names))})",
+            names,
+        ).fetchall()
+    calibrated = {
+        row["compound_name"]
+        for row in rows
+        if all(row[f] and float(row[f]) > 0 for f in fields)
+    }
+    return set(names) - calibrated
 
 
-class StandardIndicator(TitledPill):
-    def __init__(self, parent=None):
-        super().__init__("Int Std", parent)
+class StandardIndicator(StatusRow):
+    """Header row for the internal standard. Unset is neutral, not an error; a standard
+    the export cannot calibrate with is marked, and its tooltip says why."""
+
+    def __init__(self, analysis_mode: AnalysisMode = AnalysisMode.LABELLED, parent=None):
+        super().__init__("Internal standard", parent)
+        self._mode = analysis_mode
         self.internal_standard = None
-        self.set_value("none", RED)
+        self.clear_internal_standard()
 
     def set_internal_standard(self, compound_name: str):
         self.internal_standard = compound_name
-        self.set_value(compound_name, GREEN)
+        if lacking_amount([compound_name], self._mode):
+            self.set_state("warning", compound_name)
+            self.setToolTip(
+                "No amount: exports peak areas. The compound list gives this standard "
+                "no amount, so the export cannot calibrate with it. Add its amounts and "
+                "re-import the list. Click to change."
+            )
+        else:
+            self.set_state("done", compound_name)
+            self.setToolTip("Click to change")
 
     def clear_internal_standard(self):
         self.internal_standard = None
-        self.set_value("none", RED)
-
-
-class CompoundIndicator(TitledPill):
-    def __init__(self, parent=None):
-        super().__init__("Compound", parent)
-        self.set_compound("")
-
-    def set_compound(self, compound_name: str):
-        if compound_name:
-            self.set_value(compound_name, BLUE)
-        else:
-            self.set_value("--", GREY)
+        self.set_state("optional", "None")
+        self.setToolTip("Click to choose one")

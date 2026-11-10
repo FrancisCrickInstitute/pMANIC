@@ -1189,7 +1189,10 @@ class TestRegenerationCompletion:
         ]
 
 
-    def test_offset_only_success_refreshes_without_formatting_none(self):
+    def test_offset_only_success_refreshes_without_formatting_none(self, qapp):
+        from PySide6.QtWidgets import QLabel, QStatusBar
+
+        status_bar = QStatusBar()
         calls = []
         integration = SimpleNamespace(
             _pending_session_update=PendingRegeneration(
@@ -1221,6 +1224,7 @@ class TestRegenerationCompletion:
             _refresh_mode_charts=lambda *_args, **_kwargs: calls.append("charts"),
             _create_message_box=lambda *args: messages.append(args)
             or SimpleNamespace(exec=lambda: None),
+            statusBar=lambda: status_bar,
         )
 
         MainWindow._regeneration_completed(window, 1)
@@ -1232,7 +1236,9 @@ class TestRegenerationCompletion:
             "plots",
             "charts",
         ]
-        assert messages[0][0:2] == ("information", "Regeneration Complete")
+        # Routine success is a toast with the count, not a dialog.
+        assert messages == []
+        assert status_bar.findChild(QLabel, "toastLabel").full_text() == "Regenerated 1 EIC"
 
     def test_refresh_failure_does_not_claim_complete(self):
         def _refresh_fails(*_args):

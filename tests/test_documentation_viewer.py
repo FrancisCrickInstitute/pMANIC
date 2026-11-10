@@ -1,48 +1,24 @@
 import os
-import sys
 from pathlib import Path
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtTest import QTest
 
-from manic.models import database
-from manic.models.analysis import AnalysisContext, AnalysisMode
 from manic.ui.documentation_viewer import documentation_index
-from manic.ui.main_window import MainWindow
 
-SCHEMA = Path(__file__).parent.parent / "src" / "manic" / "models" / "schema.sql"
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication(sys.argv)
-    yield app
-
-
-@pytest.fixture
-def empty_db(tmp_path, monkeypatch):
-    db_path = tmp_path / "docs.db"
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-    with database.get_connection() as conn:
-        conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-    return db_path
-
-
-def _make_window(monkeypatch) -> MainWindow:
-    monkeypatch.setattr(MainWindow, "_check_for_updates", lambda self: None)
-    return MainWindow(AnalysisContext(AnalysisMode.LABELLED))
+from conftest import _make_window
 
 
 def _write_docs(docs_dir: Path) -> None:
     docs_dir.mkdir(exist_ok=True)
     (docs_dir / "Reference_Z.md").write_text("# Ref Z\n", encoding="utf-8")
     (docs_dir / "Workflow_B.md").write_text("# Flow B\n", encoding="utf-8")
-    (docs_dir / "00_quick_start.md").write_text("# Quick Start\n", encoding="utf-8")
+    (docs_dir / "00_quick_start.md").write_text(
+        "# Quick Start\n\nLoad a compound list.\n", encoding="utf-8"
+    )
     (docs_dir / "01_user_guide.md").write_text("# Guide\n", encoding="utf-8")
     (docs_dir / "Unlabelled_Targeted_Analysis.md").write_text(
         "# Unlabelled Targeted Analysis\n", encoding="utf-8"
@@ -51,6 +27,39 @@ def _write_docs(docs_dir: Path) -> None:
     (docs_dir / "zzz_other.md").write_text("no heading here\n", encoding="utf-8")
     (docs_dir / "Reference_A.md").write_text("# Ref A\n", encoding="utf-8")
     (docs_dir / "Workflow_A.md").write_text("# Flow A\n", encoding="utf-8")
+
+
+@pytest.fixture
+def docs_dir(tmp_path, monkeypatch):
+    pytest.importorskip("PySide6.QtWebEngineWidgets")
+    docs = tmp_path / "docs"
+    _write_docs(docs)
+    monkeypatch.setattr(
+        "manic.ui.documentation_viewer.docs_path",
+        lambda *parts: str(docs.joinpath(*parts)) if parts else str(docs),
+    )
+    return docs
+
+
+@pytest.fixture
+def window(qapp, docs_dir, monkeypatch):
+    window = _make_window(monkeypatch)
+    yield window
+    if window.documentation_window is not None:
+        window.documentation_window.close()
+    window.close()
+
+
+@pytest.fixture
+def viewer(qapp, docs_dir):
+    from manic.ui.documentation_viewer import DocumentationViewer
+
+    dialog = DocumentationViewer()
+    yield dialog
+    dialog.close()
+    dialog.deleteLater()
+    # Free the web page before the app exits, or WebEngine warns about its profile.
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def test_documentation_index_orders_groups_and_titles(tmp_path):
@@ -80,60 +89,33 @@ def test_documentation_index_orders_groups_and_titles(tmp_path):
     ]
 
 
-def test_documentation_window_loads_first_file(qapp, empty_db, tmp_path, monkeypatch):
-    pytest.importorskip("PySide6.QtWebEngineWidgets")
-    docs_dir = tmp_path / "docs"
-    _write_docs(docs_dir)
-
-    def fake_docs_path(*parts: str) -> str:
-        return str(docs_dir.joinpath(*parts)) if parts else str(docs_dir)
-
-    monkeypatch.setattr("manic.ui.documentation_viewer.docs_path", fake_docs_path)
-    window = _make_window(monkeypatch)
-    try:
-        window.open_documentation_window()
-        viewer = window.documentation_window
-        assert viewer is not None
-        titles = [
-            viewer.page_list.item(i).text() for i in range(viewer.page_list.count())
-        ]
-        assert titles == [
-            "Quick Start",
-            "Guide",
-            "Unlabelled Targeted Analysis",
-            "Flow A",
-            "Flow B",
-            "Ref A",
-            "Ref Z",
-            "Alpha",
-            "Zzz Other",
-        ]
-        assert viewer.current_file == docs_dir / "00_quick_start.md"
-        assert viewer.windowTitle() == "MANIC Documentation"
-    finally:
-        if window.documentation_window is not None:
-            window.documentation_window.close()
-        window.close()
+def test_documentation_window_loads_first_file(window, docs_dir):
+    window.documentation_action.trigger()
+    viewer = window.documentation_window
+    assert viewer is not None
+    items = [viewer.page_list.item(i) for i in range(viewer.page_list.count())]
+    assert [item.text() for item in items] == [
+        "Quick Start",
+        "Guide",
+        "Unlabelled Targeted Analysis",
+        "Workflows",
+        "Flow A",
+        "Flow B",
+        "Reference",
+        "Ref A",
+        "Ref Z",
+        "Alpha",
+        "Zzz Other",
+    ]
+    # Every title fits the list, so none repeats itself in a tooltip.
+    assert [item.toolTip() for item in items] == [""] * 11
+    assert viewer.current_file == docs_dir / "00_quick_start.md"
 
 
-def test_documentation_sidebar_selection_changes_file(
-    qapp, empty_db, tmp_path, monkeypatch
-):
-    pytest.importorskip("PySide6.QtWebEngineWidgets")
-    docs_dir = tmp_path / "docs"
-    _write_docs(docs_dir)
-
-    def fake_docs_path(*parts: str) -> str:
-        return str(docs_dir.joinpath(*parts)) if parts else str(docs_dir)
-
-    monkeypatch.setattr("manic.ui.documentation_viewer.docs_path", fake_docs_path)
-    window = _make_window(monkeypatch)
-    try:
-        window.open_documentation_window()
-        viewer = window.documentation_window
-        viewer.page_list.setCurrentRow(3)
-        assert viewer.current_file == docs_dir / "Workflow_A.md"
-    finally:
-        if window.documentation_window is not None:
-            window.documentation_window.close()
-        window.close()
+def test_documentation_sidebar_selection_changes_file(window, docs_dir):
+    window.documentation_action.trigger()
+    viewer = window.documentation_window
+    viewer.page_list.setCurrentRow(2)
+    # The arrow key steps over the "Workflows" heading to its first page.
+    QTest.keyClick(viewer.page_list, Qt.Key_Down)
+    assert viewer.current_file == docs_dir / "Workflow_A.md"

@@ -10,18 +10,37 @@ This implementation uses QWebEngineView for:
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import (
+    QDesktopServices,
+    QFont,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QShortcut,
+    QTransform,
+)
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog,
+    QGridLayout,
     QHBoxLayout,
-    QListWidget,
+    QLabel,
+    QLineEdit,
     QListWidgetItem,
+    QPushButton,
+    QStyledItemDelegate,
+    QVBoxLayout,
+    QWidget,
 )
 
 from manic.utils.paths import docs_path
+from manic.ui import theme
+from manic.ui.chart_style import text_style, ui_font
+from manic.ui.dialog_kit import resize_to_screen, sidebar_item_size, sidebar_list, window_title
+from manic.ui.icon_button import ThemedToolButton, svg_icon
+from manic.ui.theme import COLORS
 from manic.ui.window_placement import show_over_parent
 
 try:
@@ -31,6 +50,32 @@ except ImportError:
     HAS_MARKDOWN = False
 
 logger = logging.getLogger(__name__)
+
+# loadFinished comes before the first frame (until then the view shows a flat
+# fill or the previous page), so a page is shown once it has drawn its text.
+_PAINT_POLL_MS = 50
+_PAINT_TIMEOUT_MS = 10000
+# True two animation frames after the text was laid out: the frame that drew it
+# has gone to the compositor. A hidden page runs no frames.
+_PAINTED_JS = """(function () {
+  if (window.manicPainted === undefined) {
+    window.manicPainted = false;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        window.manicPainted = document.body.innerText.trim() !== "";
+      });
+    });
+  }
+  return window.manicPainted;
+})()"""
+
+
+def _is_flat(view: QWidget) -> bool:
+    """True while the view holds no drawn frame: one colour, or nothing at all."""
+    # Kept in a name: constBits() reads the image's memory and must not outlive it.
+    image = view.grab().toImage().convertToFormat(QImage.Format_RGB32)
+    data = image.constBits().tobytes()
+    return data == data[:4] * (len(data) // 4)
 
 
 def _documentation_title(path: Path) -> str:
@@ -53,6 +98,33 @@ def _documentation_group(name: str) -> int:
     if name.startswith("Reference_"):
         return 4
     return 5
+
+
+_GROUP_HEADINGS = {3: "Workflows", 4: "Reference"}
+
+
+class _HeadingDelegate(QStyledItemDelegate):
+    """Draws a heading row (no page) as a quiet group title; page rows as usual."""
+
+    def paint(self, painter, option, index) -> None:
+        if index.data(Qt.UserRole) is not None:
+            super().paint(painter, option, index)
+            return
+        painter.save()
+        painter.setFont(ui_font(12, QFont.Weight.DemiBold))
+        painter.setPen(theme.color("text_secondary"))
+        painter.drawText(option.rect.adjusted(13, 0, 0, -6), Qt.AlignLeft | Qt.AlignBottom, index.data())
+        painter.restore()
+
+
+def _chevron(up: bool) -> QIcon:
+    icon = svg_icon("chevron_down.svg")
+    if not up:
+        return icon
+    pixmap = icon.pixmap(QSize(20, 20))
+    turned = pixmap.transformed(QTransform().rotate(180))
+    turned.setDevicePixelRatio(pixmap.devicePixelRatio())
+    return QIcon(turned)
 
 
 def documentation_index(docs_dir: Path) -> list[tuple[str, Path]]:
@@ -102,46 +174,36 @@ class DocumentationPage(QWebEnginePage):
         Returns:
             True to allow navigation, False to block it
         """
-        # Only intercept main frame navigation (not iframes or sub-resources)
         if is_main_frame and self.navigation_handler:
-            # Delegate to our custom handler
             should_proceed = self.navigation_handler(url)
             return should_proceed
         
-        # Allow all other navigation (sub-resources, etc.)
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
 class DocumentationViewer(QDialog):
-    """
-    Dialog for viewing markdown documentation files with perfect GitHub rendering.
-    
-    Features:
-    - Full GitHub Flavored Markdown support (tables, code blocks, task lists, etc.)
-    - MathJax rendering for LaTeX equations ($...$ and $$...$$)
-    - Internal link navigation between .md files
-    - Anchor link support (#section)
-    - External link handling (opens in system browser)
-    - GitHub-identical CSS styling
-    """
+    """The bundled Markdown documentation, with LaTeX, links between pages, and
+    external links opened in the browser."""
 
     def __init__(self, parent=None):
-        """
-        Initialize the documentation viewer dialog.
-        
-        Args:
-            parent: Parent widget (usually MainWindow)
-        """
         super().__init__(parent)
         self.setObjectName("documentationWindow")
-        self.setWindowTitle("MANIC Documentation")
+        self.setWindowTitle(window_title("Documentation"))
         self.setModal(False)
-        self.resize(1200, 780)
-        self.setMinimumSize(800, 520)
+        resize_to_screen(self, 1200, 780)
+        self.setMinimumSize(640, 400)
 
         self.docs_dir = Path(docs_path())
         self.current_file = None
         self.current_fragment = None
+        # Each load titles its page with a fresh token, so a finish from an
+        # earlier request is never taken for the current one.
+        self._request = 0
+        self._painted = 0
+        self._reloaded = 0
+        self._pending_fragment = None
+        # A closed window draws nothing, so its page is loaded again when it opens.
+        self._stale = False
 
         self.setup_ui()
 
@@ -151,32 +213,279 @@ class DocumentationViewer(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.page_list = QListWidget()
-        self.page_list.setObjectName("documentationPageList")
-        self.page_list.setFixedWidth(300)
-        self.page_list.setUniformItemSizes(True)
+        self.page_list = sidebar_list("documentationPageList", 300)
+        self.page_list.setItemDelegate(_HeadingDelegate(self.page_list))
+        # Heading rows are taller, to set their group apart.
+        self.page_list.setUniformItemSizes(False)
+        metrics = self.page_list.fontMetrics()
+        room = self.page_list.width() - 32
+        last_heading = None
         for title, path in documentation_index(self.docs_dir):
+            heading = _GROUP_HEADINGS.get(_documentation_group(path.name))
+            if heading is not None and heading != last_heading:
+                header = QListWidgetItem(heading)
+                header.setFlags(Qt.NoItemFlags)
+                header.setSizeHint(sidebar_item_size() + QSize(0, 8))
+                self.page_list.addItem(header)
+            last_heading = heading
             item = QListWidgetItem(title)
-            item.setSizeHint(QSize(0, 36))
+            # The whole title on hover only when the list cuts it short.
+            if metrics.horizontalAdvance(title) > room:
+                item.setToolTip(title)
+            item.setSizeHint(sidebar_item_size())
             item.setData(Qt.UserRole, path)
             self.page_list.addItem(item)
         self.page_list.currentRowChanged.connect(self._on_page_selected)
-        layout.addWidget(self.page_list)
+        # Find on page under the page list, continuing its background and edge.
+        find_row = QWidget()
+        find_row.setObjectName("docsFindRow")
+        theme.style(
+            find_row,
+            "QWidget#docsFindRow { background: @surface_alt; border-right: 1px solid @border; }",
+        )
+        find_layout = QHBoxLayout(find_row)
+        find_layout.setContentsMargins(8, 4, 8, 12)
+        self.find_button = QPushButton("Find on page")
+        self.find_button.setProperty("variant", "ghost")
+        self.find_button.setAutoDefault(False)
+        self.find_button.setToolTip(
+            f"Find on page ({QKeySequence(QKeySequence.Find).toString(QKeySequence.NativeText)})"
+        )
+        self.find_button.clicked.connect(self.show_find)
+        find_layout.addWidget(self.find_button)
+        find_layout.addStretch()
+        sidebar = QVBoxLayout()
+        sidebar.setSpacing(0)
+        sidebar.addWidget(self.page_list, 1)
+        sidebar.addWidget(find_row)
+        find_row.setFixedWidth(self.page_list.width())
+        layout.addLayout(sidebar)
 
         self.web_view = QWebEngineView()
         custom_page = DocumentationPage(self.web_view, self._handle_navigation)
         self.web_view.setPage(custom_page)
-        self.web_view.setStyleSheet("background-color: white;")
-        layout.addWidget(self.web_view, 1)
+        self.web_view.page().setBackgroundColor(theme.color("surface"))
+        self.web_view.loadFinished.connect(self._on_load_finished)
+        # Any load, the context menu's Reload included, makes the page undrawn again.
+        self.web_view.loadStarted.connect(self._on_load_started)
+        self.web_view.page().renderProcessTerminated.connect(
+            lambda *_args: self._show_status("This page could not be displayed.", retry=True)
+        )
+
+        # Until the renderer has drawn a page, a quiet note instead of a blank pane.
+        self.status_page = QWidget()
+        self.status_page.setObjectName("docsStatus")
+        status_layout = QVBoxLayout(self.status_page)
+        status_layout.addStretch()
+        self.status_label = QLabel()
+        self.status_label.setAlignment(Qt.AlignCenter)
+        theme.style(self.status_label, text_style("text_tertiary", 13))
+        status_layout.addWidget(self.status_label)
+        self.retry_button = QPushButton("Try Again")
+        self.retry_button.clicked.connect(self._retry)
+        status_layout.addWidget(self.retry_button, 0, Qt.AlignCenter)
+        status_layout.addStretch()
+        theme.style(self.status_page, "QWidget#docsStatus { background: @surface; }")
+
+        # The note, added second, lies over the view, which must be shown for its page to paint.
+        self.content = QWidget()
+        stack = QGridLayout(self.content)
+        stack.setContentsMargins(0, 0, 0, 0)
+        stack.addWidget(self.web_view, 0, 0)
+        stack.addWidget(self.status_page, 0, 0)
+        self._show_status("Loading…")
+        article = QVBoxLayout()
+        article.setSpacing(0)
+        article.addWidget(self._build_find_bar())
+        article.addWidget(self.content, 1)
+        layout.addLayout(article, 1)
+        theme.notifier.changed.connect(self._on_theme_changed)
+
+    def _build_find_bar(self) -> QWidget:
+        """Find on page: Return and Shift+Return step through matches, Esc closes it."""
+        self.find_bar = QWidget()
+        self.find_bar.setObjectName("findBar")
+        theme.style(
+            self.find_bar, "QWidget#findBar { background: @surface; border-bottom: 1px solid @border; }"
+        )
+        row = QHBoxLayout(self.find_bar)
+        row.setContentsMargins(16, 8, 16, 8)
+        row.setSpacing(4)
+        row.addStretch()
+        self.find_field = QLineEdit()
+        self.find_field.setPlaceholderText("Find on page")
+        self.find_field.setClearButtonEnabled(True)
+        self.find_field.setFixedWidth(240)
+        self.find_field.textChanged.connect(lambda _text: self._find())
+        self.find_field.installEventFilter(self)
+        row.addWidget(self.find_field)
+        self.find_count = QLabel()
+        self.find_count.setMinimumWidth(72)
+        self.find_count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        theme.style(self.find_count, text_style("text_tertiary", 12))
+        row.addWidget(self.find_count)
+        for up, tip, key in (
+            (True, "Previous match", Qt.SHIFT | Qt.Key_Return),
+            (False, "Next match", Qt.Key_Return),
+        ):
+            button = ThemedToolButton(lambda up=up: _chevron(up))
+            button.setIconSize(QSize(20, 20))
+            button.setAutoRaise(True)
+            button.setProperty("variant", "ghost")
+            button.setAccessibleName(tip)
+            button.setToolTip(f"{tip} ({QKeySequence(key).toString(QKeySequence.NativeText)})")
+            button.clicked.connect(lambda _checked=False, back=up: self._find(backward=back))
+            row.addWidget(button)
+        done = QPushButton("Done")
+        done.setAutoDefault(False)
+        done.clicked.connect(self.close_find)
+        row.addWidget(done)
+        self.find_bar.hide()
+        self.web_view.page().findTextFinished.connect(self._show_find_result)
+        QShortcut(QKeySequence.Find, self, self.show_find)
+        return self.find_bar
+
+    def show_find(self) -> None:
+        self.find_bar.show()
+        self.find_field.setFocus(Qt.ShortcutFocusReason)
+        self.find_field.selectAll()
+
+    def close_find(self) -> None:
+        self.find_bar.hide()
+        self.find_count.clear()
+        self.web_view.page().findText("")
+        self.web_view.setFocus(Qt.OtherFocusReason)
+
+    def _find(self, *, backward: bool = False) -> None:
+        text = self.find_field.text()
+        if not text:
+            self.find_count.clear()
+        if self.is_rendered():
+            flags = QWebEnginePage.FindFlag.FindBackward if backward else QWebEnginePage.FindFlag(0)
+            self.web_view.page().findText(text, flags)
+
+    def _show_find_result(self, result) -> None:
+        if not self.find_field.text():
+            return
+        matches = result.numberOfMatches()
+        self.find_count.setText(f"{result.activeMatch()} of {matches}" if matches else "No matches")
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.find_field and event.type() == QEvent.KeyPress:
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self._find(backward=bool(event.modifiers() & Qt.ShiftModifier))
+                return True
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event) -> None:
+        # Esc closes the find bar first, then the window.
+        if event.key() == Qt.Key_Escape and self.find_bar.isVisible():
+            self.close_find()
+            return
+        super().keyPressEvent(event)
+
+    def _show_status(self, text: str, *, retry: bool = False) -> None:
+        self.status_label.setText(text)
+        theme.style(
+            self.status_label, text_style("text_secondary" if retry else "text_tertiary", 13)
+        )
+        self.retry_button.setVisible(retry)
+        # A load that may overlap another starts with the view hidden: a load in a
+        # shown view while another runs crashes QtWebEngine.
+        self.web_view.hide()
+        self.status_page.show()
+
+    def _request_title(self) -> str:
+        return f"manic-docs-{self._request}"
+
+    def _on_load_started(self) -> None:
+        self._painted = 0
+
+    def _on_load_finished(self, ok: bool) -> None:
+        if not ok:
+            self._show_status("This page could not be displayed.", retry=True)
+            return
+        if self.web_view.title() != self._request_title():
+            return
+        if self._pending_fragment:
+            self.web_view.page().runJavaScript(f"location.hash = '#{self._pending_fragment}';")
+            self._pending_fragment = None
+        if not self.status_page.isHidden():
+            self._show_status("Loading…")  # a failure from a superseded load no longer applies
+        self.web_view.show()
+        self._check_painted(self._request)
+
+    def _check_painted(self, request: int) -> None:
+        if request != self._request or self.web_view.isHidden():
+            return
+        if not self.isVisible():
+            self._stale = True
+            return
+        self.web_view.page().runJavaScript(
+            _PAINTED_JS, 0, lambda painted: self._on_painted(request, painted)
+        )
+
+    def _on_painted(self, request: int, painted) -> None:
+        if painted is None:
+            return  # the page is being destroyed; its view must not be touched
+        if request != self._request or self.web_view.isHidden():
+            return
+        # The page's first frame can reach the view a moment after the page drew it.
+        if not painted or _is_flat(self.web_view):
+            QTimer.singleShot(_PAINT_POLL_MS, self, lambda: self._check_painted(request))
+            return
+        self._painted = request
+        self.status_page.hide()
+        if self.find_bar.isVisible():
+            self._find()  # the same search on the newly shown page
+
+    def _on_paint_timeout(self, request: int) -> None:
+        # Not when it drew, was replaced, or already says it failed.
+        if request != self._request or request == self._painted or not self.retry_button.isHidden():
+            return
+        if not self.isVisible():
+            self._stale = True
+            return
+        if request == self._reloaded:
+            self._show_status("This page could not be displayed.", retry=True)
+            return
+        self._retry()
+        self._reloaded = self._request
+
+    def _retry(self) -> None:
+        if self.current_file is not None:
+            self.load_markdown_file(self.current_file, self.current_fragment)
+
+    def is_rendered(self) -> bool:
+        """True once the last page asked for has drawn its text and nothing covers it."""
+        return self._painted == self._request and self.status_page.isHidden()
+
+    def _on_theme_changed(self, _remap: dict) -> None:
+        self.web_view.page().setBackgroundColor(theme.color("surface"))
+        if not self.isVisible():
+            self._stale = True
+        elif self.current_file is not None:
+            # A drawn page stays in view until the new colours are drawn; one still
+            # loading is hidden first.
+            self.load_markdown_file(
+                self.current_file, self.current_fragment, show_loading=not self.is_rendered()
+            )
 
     def open(self) -> None:
         if self.current_file is None and self.page_list.count():
             self.page_list.setCurrentRow(0)
+        elif self._stale and self.current_file is not None:
+            self.load_markdown_file(self.current_file, self.current_fragment)
         show_over_parent(self)
 
     def open_at(self, file_path: Path, fragment: str | None = None) -> None:
         self.load_markdown_file(Path(file_path), fragment)
         self.open()
+
+    def open_link(self, href: str) -> None:
+        """Open a "file.md#section" link from elsewhere in the app."""
+        name, _, fragment = href.partition("#")
+        self.open_at(self.docs_dir / name, fragment or None)
 
     def _on_page_selected(self, row: int) -> None:
         if row < 0:
@@ -215,23 +524,19 @@ class DocumentationViewer(QDialog):
         
         logger.debug(f"Navigation requested: {url_string} (scheme: {scheme})")
         
-        # Handle external web links - open in system default browser
         if scheme in ("http", "https", "mailto"):
             logger.info(f"Opening external link in browser: {url_string}")
             QDesktopServices.openUrl(url)
-            return False  # Block navigation in our view
+            return False
         
-        # Handle anchor-only links (just #section) - let browser handle
         if url_string.startswith("#"):
             anchor = url_string[1:]
             logger.debug(f"Allowing anchor navigation: #{anchor}")
-            return True  # Allow browser to scroll to anchor
+            return True
         
-        # Handle file:// or relative links to .md files
         if scheme == "file" or not scheme:
             return self._handle_file_navigation(url)
         
-        # Default: allow navigation
         logger.debug(f"Allowing default navigation for: {url_string}")
         return True
 
@@ -247,19 +552,16 @@ class DocumentationViewer(QDialog):
         """
         url_string = url.toString()
         
-        # Extract path and fragment (anchor)
         if url.scheme() == "file":
             file_path = url.toLocalFile()
             fragment = url.fragment()
         else:
-            # Relative URL - resolve it
             if "#" in url_string:
                 path_part, fragment = url_string.split("#", 1)
             else:
                 path_part = url_string
                 fragment = ""
             
-            # Resolve relative to current file or docs directory
             if self.current_file:
                 file_path = str((self.current_file.parent / path_part).resolve())
             else:
@@ -268,24 +570,23 @@ class DocumentationViewer(QDialog):
         path = Path(file_path)
         logger.debug(f"File navigation: {path} (fragment: {fragment})")
         
-        # Check if it's a markdown file
         if path.suffix.lower() == ".md":
             if path.exists():
                 logger.info(f"Loading markdown file: {path.name}")
-                # Load the new markdown file, passing fragment for anchor scrolling
                 self.load_markdown_file(path, fragment)
-                return False  # We handled it manually
+                return False
             else:
                 logger.warning(f"Markdown file not found: {path}")
                 self._show_error(f"File not found: {path.name}")
                 return False
         else:
-            # Non-markdown file - open with system default application
             logger.info(f"Opening non-markdown file with system app: {path}")
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
             return False
 
-    def load_markdown_file(self, file_path: Path, fragment: str = None) -> bool:
+    def load_markdown_file(
+        self, file_path: Path, fragment: str = None, *, show_loading: bool = True
+    ) -> bool:
         """
         Load and render a markdown file with full GitHub styling and MathJax.
         
@@ -311,41 +612,28 @@ class DocumentationViewer(QDialog):
 
             logger.info(f"Loading markdown file: {file_path}")
             
-            # Read the markdown content
             raw_markdown = file_path.read_text(encoding="utf-8")
             
             # Store current file for relative link resolution BEFORE loading HTML
             self.current_file = file_path
             self.current_fragment = fragment or None
+            self._pending_fragment = self.current_fragment
             self._sync_page_list(file_path)
+            self._request += 1
+            self._stale = False
+            if show_loading:
+                self._show_status("Loading…")
 
-            # Convert markdown to HTML
             html_body = self._markdown_to_html(raw_markdown)
             
-            # Wrap in complete HTML document with GitHub styling and MathJax
-            full_html = self._wrap_with_github_style(html_body)
+            full_html = self._wrap_with_github_style(html_body, self._request_title())
             
-            # Set the HTML content with base URL pointing to docs directory
-            # This allows both relative .md links AND _assets/ to resolve correctly
+            # The docs directory as base URL resolves both relative .md links and _assets/.
             base_url = QUrl.fromLocalFile(str(self.docs_dir) + "/")
             self.web_view.setHtml(full_html, base_url)
+            request = self._request
+            QTimer.singleShot(_PAINT_TIMEOUT_MS, self, lambda: self._on_paint_timeout(request))
             
-            # If fragment provided, scroll to it after page loads
-            if fragment:
-                def scroll_to_anchor(ok):
-                    """Scroll to the anchor after page finishes loading."""
-                    if ok:
-                        logger.debug(f"Scrolling to anchor: {fragment}")
-                        # Use JavaScript to scroll to the anchor
-                        self.web_view.page().runJavaScript(f"location.hash = '#{fragment}';")
-                    # Disconnect after first use
-                    try:
-                        self.web_view.loadFinished.disconnect(scroll_to_anchor)
-                    except:
-                        pass
-                
-                self.web_view.loadFinished.connect(scroll_to_anchor)
-
             logger.info(f"Successfully loaded: {file_path.name}")
             return True
 
@@ -363,7 +651,6 @@ class DocumentationViewer(QDialog):
         - fenced_code: Code blocks with ``` syntax
         - codehilite: Syntax highlighting for code blocks
         - tables: GitHub-style tables
-        - nl2br: Convert newlines to <br> tags
         - sane_lists: Better list handling
         - toc: Table of contents support
         - md_in_html: Allow markdown inside HTML blocks
@@ -377,23 +664,20 @@ class DocumentationViewer(QDialog):
         """
         if not HAS_MARKDOWN:
             logger.warning("Markdown library not available, displaying as plain text")
-            # Fallback to preformatted text if markdown not available
             escaped_text = markdown_text.replace("<", "&lt;").replace(">", "&gt;")
             return f"<pre>{escaped_text}</pre>"
         
         try:
-            # Initialize markdown converter with GitHub-compatible extensions
             md_converter = markdown.Markdown(
                 extensions=[
-                    "markdown.extensions.extra",        # Tables, footnotes, attr_list, etc.
-                    "markdown.extensions.fenced_code",  # ``` code blocks
-                    "markdown.extensions.codehilite",   # Syntax highlighting
-                    "markdown.extensions.tables",       # Explicit table support
-                    "markdown.extensions.nl2br",        # Newline to <br>
-                    "markdown.extensions.sane_lists",   # Better list behavior
-                    "markdown.extensions.toc",          # Table of contents
-                    "markdown.extensions.md_in_html",   # Markdown in HTML blocks
-                    "pymdownx.arithmatex",             # LaTeX math support
+                    "markdown.extensions.extra",
+                    "markdown.extensions.fenced_code",
+                    "markdown.extensions.codehilite",
+                    "markdown.extensions.tables",
+                    "markdown.extensions.sane_lists",
+                    "markdown.extensions.toc",
+                    "markdown.extensions.md_in_html",
+                    "pymdownx.arithmatex",
                 ],
                 extension_configs={
                     "codehilite": {
@@ -406,7 +690,6 @@ class DocumentationViewer(QDialog):
                 }
             )
             
-            # Convert to HTML
             html = md_converter.convert(markdown_text)
             
             logger.debug(f"Converted {len(markdown_text)} chars of markdown to {len(html)} chars of HTML")
@@ -414,11 +697,10 @@ class DocumentationViewer(QDialog):
             
         except Exception as e:
             logger.error(f"Error converting markdown to HTML: {e}", exc_info=True)
-            # Fallback to plain text on error
             escaped_text = markdown_text.replace("<", "&lt;").replace(">", "&gt;")
             return f"<pre>Error rendering markdown:\n{str(e)}\n\n{escaped_text}</pre>"
 
-    def _wrap_with_github_style(self, html_body: str) -> str:
+    def _wrap_with_github_style(self, html_body: str, title: str) -> str:
         """
         Wrap HTML content in a complete document with GitHub CSS and MathJax.
         
@@ -438,9 +720,11 @@ class DocumentationViewer(QDialog):
         Returns:
             Complete HTML document string
         """
+        c = COLORS
         return f"""<!DOCTYPE html>
 <html>
 <head>
+<title>{title}</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
@@ -466,8 +750,8 @@ window.MathJax = {{
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
         font-size: 16px;
         line-height: 1.6;
-        color: #24292f;
-        background-color: #ffffff;
+        color: {c["text"]};
+        background-color: {c["surface"]};
         padding: 32px;
         max-width: 980px;
         margin: 0 auto;
@@ -480,19 +764,19 @@ window.MathJax = {{
         margin-bottom: 16px;
         font-weight: 600;
         line-height: 1.25;
-        color: #1f2328;
+        color: {c["text"]};
     }}
     
     h1 {{
         font-size: 2em;
-        border-bottom: 1px solid #d0d7de;
+        border-bottom: 1px solid {c["border"]};
         padding-bottom: 0.3em;
         margin-top: 0;
     }}
     
     h2 {{
         font-size: 1.5em;
-        border-bottom: 1px solid #d0d7de;
+        border-bottom: 1px solid {c["border"]};
         padding-bottom: 0.3em;
     }}
     
@@ -510,7 +794,7 @@ window.MathJax = {{
     
     h6 {{
         font-size: 0.85em;
-        color: #57606a;
+        color: {c["text_secondary"]};
     }}
     
     /* Paragraph and Text */
@@ -521,7 +805,7 @@ window.MathJax = {{
     
     /* Links - GitHub blue */
     a {{
-        color: #0969da;
+        color: {c["accent"]};
         text-decoration: none;
     }}
     
@@ -530,7 +814,7 @@ window.MathJax = {{
     }}
     
     a:visited {{
-        color: #8250df;
+        color: {c["accent"]};
     }}
     
     /* Code Blocks and Inline Code */
@@ -539,7 +823,7 @@ window.MathJax = {{
         overflow: auto;
         font-size: 85%;
         line-height: 1.45;
-        background-color: #f6f8fa;
+        background-color: {c["surface_alt"]};
         border-radius: 6px;
         margin-bottom: 16px;
         font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
@@ -549,7 +833,7 @@ window.MathJax = {{
         padding: 0.2em 0.4em;
         margin: 0;
         font-size: 85%;
-        background-color: rgba(175,184,193,0.2);
+        background-color: {c["surface_alt"]};
         border-radius: 6px;
         font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
     }}
@@ -567,8 +851,8 @@ window.MathJax = {{
     /* Blockquotes - GitHub style */
     blockquote {{
         padding: 0 1em;
-        color: #57606a;
-        border-left: 0.25em solid #d0d7de;
+        color: {c["text_secondary"]};
+        border-left: 0.25em solid {c["border"]};
         margin: 0 0 16px 0;
     }}
     
@@ -594,22 +878,22 @@ window.MathJax = {{
     table th {{
         font-weight: 600;
         padding: 6px 13px;
-        border: 1px solid #d0d7de;
-        background-color: #f6f8fa;
+        border: 1px solid {c["border"]};
+        background-color: {c["surface_alt"]};
     }}
     
     table td {{
         padding: 6px 13px;
-        border: 1px solid #d0d7de;
+        border: 1px solid {c["border"]};
     }}
     
     table tr {{
-        background-color: #ffffff;
-        border-top: 1px solid #d8dee4;
+        background-color: {c["surface"]};
+        border-top: 1px solid {c["border"]};
     }}
     
     table tr:nth-child(2n) {{
-        background-color: #f6f8fa;
+        background-color: {c["surface_alt"]};
     }}
     
     /* Lists */
@@ -636,7 +920,7 @@ window.MathJax = {{
         height: 0.25em;
         padding: 0;
         margin: 24px 0;
-        background-color: #d0d7de;
+        background-color: {c["border"]};
         border: 0;
     }}
     
@@ -644,7 +928,7 @@ window.MathJax = {{
     img {{
         max-width: 100%;
         box-sizing: content-box;
-        background-color: #ffffff;
+        background-color: {c["surface"]};
     }}
     
     /* Task Lists */
@@ -702,38 +986,5 @@ window.MathJax = {{
 </body>
 </html>"""
 
-    def _show_error(self, message: str):
-        """
-        Display an error message in the web view.
-        
-        Args:
-            message: Error message to display
-        """
-        error_html = f"""
-        <html>
-        <head>
-        <style>
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-                padding: 40px;
-                max-width: 600px;
-                margin: 0 auto;
-            }}
-            h2 {{
-                color: #d73a49;
-                border-bottom: 2px solid #d73a49;
-                padding-bottom: 8px;
-            }}
-            p {{
-                color: #586069;
-                line-height: 1.6;
-            }}
-        </style>
-        </head>
-        <body>
-            <h2>Error Loading Documentation</h2>
-            <p>{message}</p>
-        </body>
-        </html>
-        """
-        self.web_view.setHtml(error_html)
+    def _show_error(self, message: str) -> None:
+        self._show_status(message)

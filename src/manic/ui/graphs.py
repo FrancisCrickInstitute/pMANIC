@@ -1229,10 +1229,11 @@ class GraphView(QWidget):
             force_destroy: If True, completely destroy widgets (slower but prevents artifacts).
                           If False, use pooling (faster but may have visual artifacts).
         """
-        self.clear_selection()
         self._current_compound = ""
         self._current_samples = []
         self._identity = None
+        # After the reset, so selection listeners do not reload a deleted compound.
+        self.clear_selection()
         self._hide_legend()
         self._set_title("")
         self._clear_layout(force_destroy=force_destroy)

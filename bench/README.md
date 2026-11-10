@@ -28,6 +28,29 @@ artifact:
 2. **A JSON file when `--benchmark-autosave` is passed** in `.benchmarks/<platform>/`, named `<id>_<git sha>_<timestamp>.json`, holding every timing plus machine, workload, and commit info. This is the run history. Always select its id explicitly when comparing.
 3. **A plot per stage** in `.benchmarks/plots/run-<stage>.svg`. With `--benchmark-compare` the baseline sits beside the current run; `plot_next` labels every target separately. Open them in a browser or the editor. They are overwritten each run; copy them if you want to keep one.
 
+## Reference results
+
+The bench times code. `bench/reference/` records what the code computes, so a change to any exported number is seen and has a history.
+
+- `labelled.tsv` and `unlabelled.tsv` hold every cell of the full Excel export of the two bench datasets: about 98,000 numbers.
+- `HISTORY.md` has one entry per pull request that changed them, with the reason and the size of the change on each sheet.
+
+```bash
+uv run python bench/reference.py check                          # does the code still give these results?
+uv run python bench/reference.py update --pr 281 --why "..."    # this pull request means to change them
+```
+
+`check` fails when a number moved by more than 0.05%, or when any text or cell appeared or disappeared. The tolerance is there because the same code gives slightly different fits on another machine: a CI runner differed from the machine that made the reference in 22 of 52,569 numbers, by 0.004% at most. CI runs the check on every pull request, on macOS only. A pull request that changes results on purpose runs `update` and commits the two files and the new history entry, so the reviewer sees how much moved. The comparison uses the bench datasets only; a change that real data would show and these do not is not caught.
+
+When the check fails on your pull request:
+
+1. Read the table it prints. Each sheet shows how many numbers changed, the typical change and the largest.
+2. If you meant to change results, run `update`. Give `--why` one sentence a scientist can read, and commit `labelled.tsv`, `unlabelled.tsv` and `HISTORY.md` with the code.
+3. If you did not, the change has a side effect. `git diff` after a local `update` shows which cells moved; discard that diff once you have found the cause.
+4. If the pull request touches no calculation and only a few numbers moved by less than 0.05%, the CI runner's maths library has drifted. Run `update` on the runner's output or raise `RELATIVE_TOLERANCE` in `bench/reference.py`, and say which in the history entry.
+
+To see when a result last changed, read `HISTORY.md`, or run `git log -p -- bench/reference/labelled.tsv` for the cells themselves.
+
 ## Saved runs
 
 Saved runs stay local. `.benchmarks/` is gitignored because timings from different machines are not comparable, and a fresh baseline costs 90 s, so there is nothing worth sharing. Save a baseline before you start, compare against it while you work, and delete the directory whenever you like.

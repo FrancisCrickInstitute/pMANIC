@@ -59,6 +59,12 @@ Record only from a quiet machine. Use the same machine label every time for the
 same machine, and compare only rows with the same label. The hostname is never
 written.
 
+A run also depends on the bench itself. `510ce490` and `a48f5ec8` were measured
+before the UI redesign with the harness of that time, so their window stages
+(`resize`, `session_roundtrip`, `clear_session` and the plot stages) are not
+comparable with later runs. When a change to `bench/` alters what a stage does,
+say so in the commit message.
+
 The plot stages drive the real `MainWindow` on Qt's offscreen platform, so no window appears.
 
 ## What is measured

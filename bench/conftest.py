@@ -384,6 +384,8 @@ def _update_digest(digest, path: Path) -> None:
 DB_WRITERS = (
     "src/manic/models/schema.sql",
     "src/manic/io/eic_importer.py",
+    "src/manic/io/cdf_reader.py",
+    "src/manic/processors/eic_calculator.py",
     "src/manic/io/compounds_import.py",
     "src/manic/processors/eic_correction_manager.py",
 )

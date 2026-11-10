@@ -101,3 +101,16 @@ def test_destructive_confirmations_default_to_cancel(qapp, monkeypatch, tmp_path
         window.close()
 
 
+def test_sample_list_opened_from_the_menu_is_remembered_and_shown_checked(qapp, monkeypatch):
+    window = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    assert not window.show_samples_action.isChecked()
+    window.show_samples_action.trigger()
+    assert window.toolbar.samples_section.is_expanded()
+    window.close()
+
+    reopened = _make_window(monkeypatch, AnalysisMode.LABELLED)
+    try:
+        assert reopened.toolbar.samples_section.is_expanded()
+        assert reopened.show_samples_action.isChecked()
+    finally:
+        reopened.close()

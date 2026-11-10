@@ -505,9 +505,8 @@ class MainWindow(QMainWindow):
         self.show_samples_action = QAction("Sample List", self)
         self.show_samples_action.setCheckable(True)
         self.show_samples_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
-        self.show_samples_action.toggled.connect(
-            self.toolbar.samples_section.set_expanded
-        )
+        self.show_samples_action.setChecked(self.toolbar.samples_section.is_expanded())
+        self.show_samples_action.triggered.connect(self.toolbar.samples_section.choose)
         # Asking for the list shows it, so it opens the sidebar too.
         self.show_samples_action.triggered.connect(
             lambda shown: shown and self.show_sidebar_action.setChecked(True)

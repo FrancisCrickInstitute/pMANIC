@@ -371,9 +371,12 @@ class CollapsibleSection(QWidget):
         self.set_expanded(expanded)
 
     def _on_header_toggled(self, checked: bool) -> None:
-        if checked == self._expanded:
-            return  # set_expanded already moved the check
-        self.set_expanded(checked)
+        if checked != self._expanded:  # else set_expanded already moved the check
+            self.choose(checked)
+
+    def choose(self, expanded: bool) -> None:
+        """Open or close as a user's choice, which is remembered; set_expanded is not."""
+        self.set_expanded(expanded)
         if self._settings_key:
             QSettings().setValue(self._settings_key, self._expanded)
 

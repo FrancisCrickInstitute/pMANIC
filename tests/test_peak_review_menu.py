@@ -160,6 +160,13 @@ def test_clear_bad_mark_clears_the_review(grid):
     assert reviews == [("Cmp", ["B"], None)]
 
 
+def test_clearing_acceptance_leaves_a_marked_bad_peak_in_the_selection_alone(grid):
+    reviews = _plot(grid, {"Acc1": ACCEPTED, "Acc2": ACCEPTED, "Bad": REJECTED})
+    grid.select_samples(["Acc1", "Acc2", "Bad"])
+    _context_menu(grid, "Acc1")["Clear Acceptance (2 Peaks)"].trigger()
+    assert reviews == [("Cmp", ["Acc1", "Acc2"], None)]
+
+
 @pytest.mark.parametrize(
     ("overrides", "selected", "checked", "chosen", "emitted"),
     [
@@ -272,7 +279,7 @@ def test_review_keys_reach_the_grid_from_the_sidebar_lists_but_not_a_text_field(
         samples.blockSignals(True)
         toolbar.update_sample_list(["A", "B", "C", "N"])
         samples.setCurrentRow(3)
-        window.show_samples_action.setChecked(True)
+        window.show_samples_action.trigger()
         compounds = toolbar.compound_list
 
         compounds.setFocus()

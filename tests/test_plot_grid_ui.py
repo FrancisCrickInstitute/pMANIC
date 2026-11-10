@@ -8,6 +8,7 @@ from PySide6.QtTest import QTest
 
 from manic.io.compound_reader import Compound
 from manic.models.analysis import IonChannel, IonRole
+from manic.processors.tile_y_scale import YScalePolicy
 from manic.ui import theme
 from manic.ui.chart_header import ChartHeader
 from manic.ui.graphs import ClickableChartView, GraphView
@@ -202,3 +203,14 @@ def test_icon_buttons_have_accessible_names(grid):
     assert grid.settings_button.accessibleName() == "Settings"
     assert ChartHeader("Peak area").expand_button.accessibleName() == "Enlarge peak area chart"
 
+
+def test_replotting_keeps_the_selection_for_samples_still_shown(grid):
+    grid.plot_compound("Valine", ["S1", "S2", "S3", "S4"])
+    grid.select_samples(["S2", "S4"])
+
+    grid.set_y_scale_policy(YScalePolicy.SHARED_EXTRACT)
+    assert grid.get_selected_samples() == ["S2", "S4"]
+    grid.plot_compound("Valine", ["S1", "S2", "S3"])
+    assert grid.get_selected_samples() == ["S2"]
+    grid.plot_compound("Leucine", ["S1", "S2", "S3"])
+    assert grid.get_selected_samples() == []

@@ -5,7 +5,7 @@
 
 `check` exports both datasets with the current code and compares every cell with
 bench/reference/<dataset>.tsv. It fails when a number moved by more than 0.05%, or
-when any text, sheet or cell appeared or disappeared. CI runs it on every pull request.
+when any text, sheet or cell appeared or disappeared. The pre-push hook in .githooks runs it.
 
 `update` rewrites those files and adds an entry to bench/reference/HISTORY.md saying
 which pull request changed the results, why, and by how much on each sheet. A pull

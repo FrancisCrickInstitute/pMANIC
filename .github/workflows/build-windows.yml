@@ -21,6 +21,15 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
+      # The only Windows run of the test suite: no installer is built from code that fails it.
+      - name: Run tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          uv sync --locked
+          uv run pytest -q
+
       - name: Build app with PyInstaller
         shell: pwsh
         run: |

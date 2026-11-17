@@ -1,0 +1,9 @@
+#!/bin/sh
+# The checks GitHub Actions used to run on macOS. They run here because the reference
+# was made on Apple silicon and macOS runner minutes are the costly ones.
+# shortcut: tests the working tree, not the commits being pushed; stash or commit first.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+uv run pytest -q
+uv run python scripts/generate_bench_data.py --mode both
+uv run python bench/reference.py check

@@ -46,7 +46,7 @@ Create the release page for the tag before you start. The job uploads onto that 
 8. Repeat steps 2 to 7. In the left list click **Build macOS installer**. Type the same tag.
 9. When both rows show a green tick, open the release page for that tag. Under **Assets** you should see `MANIC-Setup-Windows.zip` and `MANIC-Setup-Mac.dmg.zip`.
 
-The Windows job on `v5.0.0-alpha` took 7 minutes 33 seconds. The Mac job took 2 minutes 41 seconds. Those are measured on the first runs, not a promise.
+The Windows job runs the test suite before it builds. If a test fails, the job stops and attaches nothing. The Windows job on `v5.0.0-alpha` took 7 minutes 33 seconds, before that test step was added. The Mac job took 2 minutes 41 seconds. Those are measured on the first runs, not a promise.
 
 If a job fails, open the red row and read the last error. Fix that, then run that one job again. You do not need to rerun the job that already went green. Running the same job again replaces that zip on the release page.
 

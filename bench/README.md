@@ -40,14 +40,14 @@ uv run python bench/reference.py check                          # does the code 
 uv run python bench/reference.py update --pr 281 --why "..."    # this pull request means to change them
 ```
 
-`check` fails when a number moved by more than 0.05%, or when any text or cell appeared or disappeared. The tolerance is there because the same code gives slightly different fits on another machine: a CI runner differed from the machine that made the reference in 22 of 52,569 numbers, by 0.004% at most. CI runs the check on every pull request, on macOS only. A pull request that changes results on purpose runs `update` and commits the two files and the new history entry, so the reviewer sees how much moved. The comparison uses the bench datasets only; a change that real data would show and these do not is not caught.
+`check` fails when a number moved by more than 0.05%, or when any text or cell appeared or disappeared. The tolerance is there because the same code gives slightly different fits on another machine: a GitHub macOS runner differed from the machine that made the reference in 22 of 52,569 numbers, by 0.004% at most. The pre-push hook in `.githooks/` runs the check before every push; GitHub does not run it. A pull request that changes results on purpose runs `update` and commits the two files and the new history entry, so the reviewer sees how much moved. The comparison uses the bench datasets only; a change that real data would show and these do not is not caught.
 
-When the check fails on your pull request:
+When the check fails on your push:
 
 1. Read the table it prints. Each sheet shows how many numbers changed, the typical change and the largest.
 2. If you meant to change results, run `update`. Give `--why` one sentence a scientist can read, and commit `labelled.tsv`, `unlabelled.tsv` and `HISTORY.md` with the code.
 3. If you did not, the change has a side effect. `git diff` after a local `update` shows which cells moved; discard that diff once you have found the cause.
-4. If the pull request touches no calculation and only a few numbers moved by less than 0.05%, the CI runner's maths library has drifted. Run `update` on the runner's output or raise `RELATIVE_TOLERANCE` in `bench/reference.py`, and say which in the history entry.
+4. If the pull request touches no calculation and only a few numbers moved by less than 0.05%, your machine's maths library differs from the one that made the reference. Run `update` on your machine's output or raise `RELATIVE_TOLERANCE` in `bench/reference.py`, and say which in the history entry.
 
 To see when a result last changed, read `HISTORY.md`, or run `git log -p -- bench/reference/labelled.tsv` for the cells themselves.
 

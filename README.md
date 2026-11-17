@@ -247,7 +247,12 @@ pip install uv
 
 # Sync dependencies from lockfile
 uv sync
+
+# Run the tests and the results check before every push (once per clone)
+git config core.hooksPath .githooks
 ```
+
+No GitHub Action tests a pull request. The hook in `.githooks/pre-push` runs the test suite and the results check on your machine instead, and a failure stops the push. The Windows installer job runs the test suite on Windows before it builds.
 
 ### Tracking speed over time
 
@@ -269,7 +274,7 @@ Developers: the performance suite lives in `bench/` and is documented in [bench/
 
 ### Changing a result
 
-Every number MANIC exports for two synthetic datasets is recorded in `bench/reference/`, and CI fails when the code no longer reproduces them. If your change is meant to alter results, run `uv run python bench/reference.py update --pr <number> --why "<one sentence>"` and commit what it writes. `bench/reference/HISTORY.md` is the list of every pull request that changed a result. See `bench/README.md`.
+Every number MANIC exports for two synthetic datasets is recorded in `bench/reference/`, and the pre-push hook fails when the code no longer reproduces them. If your change is meant to alter results, run `uv run python bench/reference.py update --pr <number> --why "<one sentence>"` and commit what it writes. `bench/reference/HISTORY.md` is the list of every pull request that changed a result. See `bench/README.md`.
 
 ### Building Executables
 

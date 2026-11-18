@@ -29,6 +29,7 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.processors.natural_abundance_correction import (
     NaturalAbundanceCorrectionError,
+    NaturalAbundanceCorrector,
     formula_element_counts,
 )
 
@@ -91,13 +92,18 @@ class CompoundRow(BaseModel):
             value = getattr(self, field)
             if value is not None and value < 0:
                 raise ValueError(f"{field} cannot be negative")
-        if self.formula:
-            count = formula_element_counts(self.formula).get(self.label_type, 0)
-            if self.label_atoms > count:
+        if self.label_atoms > 0:
+            # Without a usable formula the compound can never be corrected or exported.
+            if not self.formula:
                 raise ValueError(
-                    f"label_atoms={self.label_atoms} exceeds {self.label_type} "
-                    f"count {count} in formula {self.formula}"
+                    "a labelled compound needs a formula for natural isotope correction"
                 )
+            try:
+                NaturalAbundanceCorrector().validate_formula(
+                    self.formula, self.label_type, self.label_atoms
+                )
+            except NaturalAbundanceCorrectionError as exc:
+                raise ValueError(str(exc)) from exc
         return self
     
     @validator("formula")

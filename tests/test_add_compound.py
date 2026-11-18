@@ -497,11 +497,14 @@ def test_after_add_regenerates_eics_when_samples_loaded(monkeypatch):
         ("O", 3, "label type 'O' is not supported"),
         ("c", 3, "label type 'c' is not supported"),
         ("C", 4, "label_atoms=4 exceeds C count 3"),
+        ("C", 3, "a labelled compound needs a formula"),
     ],
 )
 def test_labelled_dialog_rejects_impossible_label(qapp, label_type, label_atoms, message):
     dialog = AddCompoundDialog(analysis_mode=AnalysisMode.LABELLED)
     _fill_labelled(dialog)
+    if "needs a formula" in message:
+        dialog.formula.clear()
     dialog.label_type.setText(label_type)
     dialog.label_atoms.setValue(label_atoms)
     _add_button(dialog).click()
@@ -577,6 +580,8 @@ def _write_labelled_list(path, **overrides):
     [
         ({"LabelType": "O"}, "row 2 (Water): label type 'O' is not supported"),
         ({"LabelType": "H", "LabelAtoms": 3}, "row 2 (Water): label_atoms=3 exceeds H count 2"),
+        ({"Formula": None}, "row 2 (Water): a labelled compound needs a formula"),
+        ({"Formula": "H2Se"}, "row 2 (Water): No natural abundance vector for element Se"),
         ({"Amount in StdMix": -1}, "row 2 (Water): amount_in_std_mix cannot be negative"),
         ({"Int Std amount": -1}, "row 2 (Water): int_std_amount cannot be negative"),
     ],

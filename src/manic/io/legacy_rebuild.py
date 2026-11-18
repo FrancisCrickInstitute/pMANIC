@@ -5,7 +5,9 @@ from types import SimpleNamespace
 from typing import Optional
 
 import xlsxwriter
+from pydantic import ValidationError
 
+from manic.io.compounds_import import CompoundRow, validation_reasons
 from manic.io.legacy_raw_values_reader import read_raw_values_workbook
 from manic.io.in_memory_provider import InMemoryDataProvider
 import pandas as pd
@@ -41,16 +43,21 @@ def _read_compounds_as_dicts(filepath: str) -> list[dict]:
     required = {"name", "tr", "mass0", "loffset", "roffset", "labelatoms"}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"Compounds file missing columns: {', '.join(sorted(missing))}")
+        raise ValueError("Needs a labelled compound list, with mass0 and labelAtoms columns.")
+
+    # Rows without a name are notes or spacing, as in the compound list import.
+    df = df[df["name"].notna() & df["name"].astype(str).str.strip().ne("")]
 
     out: list[dict] = []
-    for _, row in df.iterrows():
+    errors: list[str] = []
+    for idx, row in df.iterrows():
+        where = f"row {idx + 2} ({row['name']})"
         try:
             # Optional fields
             def get_opt(key, default=None):
                 return (row[key] if key in row and pd.notna(row[key]) else default)
 
-            out.append({
+            compound = {
                 'compound_name': str(row['name']).strip(),
                 'retention_time': float(row['tr']),
                 'mass0': float(row['mass0']),
@@ -65,9 +72,16 @@ def _read_compounds_as_dicts(filepath: str) -> list[dict]:
                 'amount_in_std_mix': float(get_opt('amountinstdmix', None)) if pd.notna(get_opt('amountinstdmix', float('nan'))) else None,
                 'int_std_amount': float(get_opt('intstdamount', None)) if pd.notna(get_opt('intstdamount', float('nan'))) else None,
                 'mm_files': get_opt('mmfiles', None),
-            })
-        except Exception as e:
-            logger.warning(f"Skipping invalid compound row: {e}")
+            }
+            # The same checks as the compound list import; a refused row is never skipped.
+            CompoundRow(**compound)
+            out.append(compound)
+        except ValidationError as exc:
+            errors.append(f"{where}: {validation_reasons(exc)}")
+        except (TypeError, ValueError) as exc:
+            errors.append(f"{where}: {exc}")
+    if errors:
+        raise ValueError("Invalid compound data:\n" + "\n".join(errors))
     return out
 
 

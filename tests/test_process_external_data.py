@@ -10,9 +10,9 @@ def test_standard_is_chosen_from_the_compounds_file(qapp, tmp_path, monkeypatch)
 
     path = tmp_path / "compounds.csv"
     path.write_text(
-        "name,tr,mass0,loffset,roffset,labelatoms,intstdamount,amountinstdmix\n"
-        "Alanine,5,116,0.1,0.1,3,,\n"
-        "scyllo-Ins,9,318,0.1,0.1,6,1.5,2\n"
+        "name,tr,mass0,loffset,roffset,labelatoms,formula,intstdamount,amountinstdmix\n"
+        "Alanine,5,116,0.1,0.1,3,C3H7NO2,,\n"
+        "scyllo-Ins,9,318,0.1,0.1,6,C6H12O6,1.5,2\n"
     )
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(path), ""))
     dialog = UpdateOldDataDialog()
@@ -84,7 +84,9 @@ def test_workbook_without_raw_values_is_refused_and_a_valid_pair_is_ready(qapp, 
     from openpyxl import Workbook
 
     compounds = tmp_path / "compounds.csv"
-    compounds.write_text("name,tr,mass0,loffset,roffset,labelatoms\nAlanine,5,116,0.1,0.1,3\n")
+    compounds.write_text(
+        "name,tr,mass0,loffset,roffset,labelatoms,formula\nAlanine,5,116,0.1,0.1,3,C3H7NO2\n"
+    )
     other = tmp_path / "other.xlsx"
     Workbook().save(other)
     dialog = UpdateOldDataDialog()
@@ -100,3 +102,22 @@ def test_workbook_without_raw_values_is_refused_and_a_valid_pair_is_ready(qapp, 
     assert not dialog._raw_error.isVisible()
     assert not dialog._compounds_error.isVisible()
     dialog.close()
+
+
+def test_compound_list_rows_are_checked_like_a_compound_list_import(tmp_path):
+    """A row the import would refuse is refused here too, never skipped."""
+    import pytest
+
+    from manic.io.legacy_rebuild import _read_compounds_as_dicts
+
+    header = "name,tr,mass0,loffset,roffset,labelatoms,formula\n"
+    path = tmp_path / "compounds.csv"
+    path.write_text(header + "Ala,1,116,0.1,0.1,2,C3H7NO2\n,,,,,,\nIS,2,318,0.1,0.1,0,\n")
+    # A blank-name row is spacing, as in the import.
+    assert [c["compound_name"] for c in _read_compounds_as_dicts(str(path))] == ["Ala", "IS"]
+
+    path.write_text(header + "Ala,1,116,0.1,0.1,2,\nGly,1,x,0.1,0.1,1,C2H5NO2\n")
+    with pytest.raises(ValueError) as refused:
+        _read_compounds_as_dicts(str(path))
+    assert "row 2 (Ala): a labelled compound needs a formula" in str(refused.value)
+    assert "row 3 (Gly)" in str(refused.value)

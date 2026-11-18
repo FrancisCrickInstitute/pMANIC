@@ -95,9 +95,7 @@ class CompoundRow(BaseModel):
         if self.label_atoms > 0:
             # Without a usable formula the compound can never be corrected or exported.
             if not self.formula:
-                raise ValueError(
-                    "a labelled compound needs a formula for natural isotope correction"
-                )
+                raise ValueError("a labelled compound needs a formula")
             try:
                 NaturalAbundanceCorrector().validate_formula(
                     self.formula, self.label_type, self.label_atoms
@@ -158,6 +156,11 @@ class CompoundRow(BaseModel):
             result += elem + (str(count) if count > 1 else '')
         
         return result if result else None
+
+
+def validation_reasons(exc: ValidationError) -> str:
+    """The reasons a row was refused, as one line for a message to the user."""
+    return "; ".join(e["msg"].removeprefix("Value error, ") for e in exc.errors())
 
 
 def _require_readable_formula(formula: str) -> None:
@@ -376,10 +379,9 @@ def import_compound_excel(
                 )
             )
         except ValidationError as exc:
-            reasons = "; ".join(
-                e["msg"].removeprefix("Value error, ") for e in exc.errors()
+            validation_errors.append(
+                f"row {idx + 2} ({row['name']}): {validation_reasons(exc)}"
             )
-            validation_errors.append(f"row {idx + 2} ({row['name']}): {reasons}")
 
     if validation_errors:
         raise ValueError(

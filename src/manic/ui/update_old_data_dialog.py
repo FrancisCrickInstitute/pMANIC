@@ -127,9 +127,11 @@ class UpdateOldDataDialog(QDialog):
         try:
             compounds = _read_compounds_as_dicts(path)
             error = "" if compounds else "No compounds in this file."
-        except ValueError:
-            # The reader's only ValueError is missing columns; every compound list has the others.
-            compounds, error = [], "Needs a labelled compound list, with mass0 and labelAtoms columns."
+        except ValueError as exc:
+            # A long list names every bad row; beside the field, the first few are enough to act on.
+            lines = str(exc).splitlines()
+            more = [f"and {len(lines) - 4} more rows"] if len(lines) > 4 else []
+            compounds, error = [], "\n".join(lines[:4] + more)
         except Exception:
             compounds, error = [], "Could not read this file."
         self.compounds_path = None if error else path
@@ -169,6 +171,10 @@ class UpdateOldDataDialog(QDialog):
     def _show_error(self, label, text: str) -> None:
         label.setText(text)
         self._form.setRowVisible(label, bool(text))
+        # The form sizes a wrapped label by its unwrapped lines and clips a long message.
+        width = self.c_edit.parentWidget().width()
+        label.setMinimumHeight(label.heightForWidth(width) if text else 0)
+        self.adjustSize()
 
     def _update_ok(self):
         ok = bool(self.compounds_path) and bool(self.raw_values_path)

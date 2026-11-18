@@ -75,15 +75,6 @@ class InMemoryDataProvider:
                 logger.warning("No corrected values for %s in %s: %s", name, sample_name, exc)
                 continue
 
-            # Log if correction yields near-zero while raw has signal
-            raw_total = float(np.sum(vec))
-            corr_total = float(np.sum(corr_vec))
-            if raw_total > 1e-6 and corr_total <= 1e-9:
-                logger.debug(
-                    f"UpdateOldData: corrected total ~0 for {name} in {sample_name} (raw_total={raw_total:.6g}). "
-                    "This can occur when correcting integrated vectors."
-                )
-
             corrected[name] = corr_vec.astype(float).tolist()
 
         self._corrected_cache[sample_name] = corrected

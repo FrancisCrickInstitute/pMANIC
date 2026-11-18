@@ -36,7 +36,7 @@ def _deconvolve_all(corpus, level: str) -> list[list[float]]:
             fit_type=fit_type,
             noise_gate=noise_gate,
         )
-        areas, _corrected = integrate_bundle_areas(
+        areas = integrate_bundle_areas(
             eic.time,
             bundle,
             matrix,

@@ -248,18 +248,19 @@ def test_preview_areas_do_not_refit_a_corrected_matrix(monkeypatch):
         time, raw, compound, use_corrected=True
     )
     preview = deconvolve_for_display(time, raw, apply_correction=scale_m1, **FIT)
-    _, expected = integrate_bundle_areas(
-        time,
-        preview.bundle,
-        raw,
-        correct_areas=scale_m1,
-        baseline_correction=False,
-        use_legacy=False,
-        retention_time=7.0,
-        loffset=4.0,
-        roffset=4.0,
-        label_atoms=1,
-        channel_count=2,
+    expected = scale_m1(
+        integrate_bundle_areas(
+            time,
+            preview.bundle,
+            raw,
+            baseline_correction=False,
+            use_legacy=False,
+            retention_time=7.0,
+            loffset=4.0,
+            roffset=4.0,
+            label_atoms=1,
+            channel_count=2,
+        )
     )
     old_path = calculate_peak_areas(
         time,
@@ -310,11 +311,10 @@ def test_mixed_fallback_keeps_outside_peak_zero(use_legacy):
     assert bundle.channels[4].result.model is None
     assert not bundle.uses_model_areas()
 
-    raw_areas, corrected_areas = integrate_bundle_areas(
+    raw_areas = integrate_bundle_areas(
         time,
         bundle,
         raw,
-        correct_areas=lambda areas: areas,
         baseline_correction=False,
         use_legacy=use_legacy,
         retention_time=retention_time,
@@ -326,7 +326,6 @@ def test_mixed_fallback_keeps_outside_peak_zero(use_legacy):
 
     assert raw_areas[0] > 0.0
     assert raw_areas[4] == pytest.approx(0.0)
-    assert corrected_areas == pytest.approx(raw_areas)
 
 
 def test_nic_preview_hides_outside_peak_during_mixed_fallback():

@@ -81,9 +81,9 @@ def test_data_provider_bulk_sql_picks_the_override(empty_db, monkeypatch):
     fits: dict[str, str] = {}
 
     def capture_run(_provider, _use_legacy, task):
-        kind, row, _y_blob = task
+        row, _y_blob = task
         fits[row["sample_name"]] = row["deconvolution_fit_type"]
-        return kind, row["sample_name"], row["compound_name"], [1.0], None
+        return row["sample_name"], row["compound_name"], [1.0], None
 
     import manic.io.data_provider as provider_module
 

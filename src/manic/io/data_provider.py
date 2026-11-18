@@ -6,7 +6,6 @@ import os
 import threading
 import time
 import zlib
-from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import get_context
 from typing import Dict, List, Optional, Sequence
@@ -68,40 +67,22 @@ def _run_integration(provider: "DataProvider", use_legacy: bool, task) -> tuple:
     Shared by the thread path (``provider`` is the main instance) and the
     process path (``provider`` is the per-process worker instance), so the
     integration/deconvolution logic lives in exactly one place. ``task`` carries
-    only picklable data: the kind, the row as a plain dict, and the compressed
-    intensity blob.
+    only picklable data: the row as a plain dict and the compressed intensity blob.
     """
-    kind, row, y_blob = task
+    row, y_blob = task
     time_data = np.frombuffer(zlib.decompress(row['x_axis']), dtype=np.float64)
     intensity_data = np.frombuffer(zlib.decompress(y_blob), dtype=np.float64)
     baseline_flag = bool(row['baseline_correction']) if row['baseline_correction'] else False
-    corrected_areas = None
-    if kind == "raw_and_corrected":
-        areas, corrected_areas = (
-            provider._calculate_raw_and_corrected_areas_from_raw_component(
-                time_data,
-                intensity_data,
-                row,
-                use_legacy=use_legacy,
-                baseline_correction=baseline_flag,
-            )
-        )
-    else:
-        areas = calculate_peak_areas(
+    areas, corrected_areas = (
+        provider._calculate_raw_and_corrected_areas_from_raw_component(
             time_data,
             intensity_data,
-            row['label_atoms'] or 0,
-            row['retention_time'],
-            row['loffset'],
-            row['roffset'],
-            channel_count=row.get('channel_count'),
+            row,
             use_legacy=use_legacy,
             baseline_correction=baseline_flag,
-            chromatographic_peak_deconvolution_stringency=row['deconvolution_level'],
-            chromatographic_peak_deconvolution_fit_type=row['deconvolution_fit_type'],
-            chromatographic_peak_deconvolution_noise_gate=row['deconvolution_noise_gate'],
         )
-    return kind, row['sample_name'], row['compound_name'], areas, corrected_areas
+    )
+    return row['sample_name'], row['compound_name'], areas, corrected_areas
 
 
 def _integrate_task(task) -> tuple:
@@ -288,12 +269,10 @@ class DataProvider:
                 compound_labels[compound_name] = label_atoms
                 if sample_name not in raw_data:
                     continue
-                kind = "raw_and_corrected" if label_atoms > 0 else "raw"
-                tasks.append((kind, dict(row), row['y_axis']))
+                tasks.append((dict(row), row['y_axis']))
                 if chromatographic_peak_deconvolution_enabled(row['deconvolution_level']):
                     deconv_task_count += 1
 
-            task_counts = Counter(task[0] for task in tasks)
             task_time = time.perf_counter() - task_start
             total = max(1, len(tasks))
             use_legacy = self.use_legacy_integration
@@ -311,13 +290,7 @@ class DataProvider:
                 # and integrate everything a second time on threads.
                 results = executor.map(worker, tasks)
                 try:
-                    for (
-                        kind,
-                        sample_name,
-                        compound_name,
-                        areas,
-                        corrected_areas,
-                    ) in results:
+                    for sample_name, compound_name, areas, corrected_areas in results:
                         raw_data[sample_name][compound_name] = areas
                         if corrected_areas:
                             corrected_data[sample_name][compound_name] = (
@@ -411,12 +384,11 @@ class DataProvider:
         total_time = time.perf_counter() - load_start
         logger.info(
             "Bulk export load completed in %.2fs "
-            "(samples=%d, raw_rows=%d, tasks=%d, task_counts=%s)",
+            "(samples=%d, raw_rows=%d, tasks=%d)",
             total_time,
             len(raw_data),
             len(raw_rows),
             len(tasks),
-            dict(task_counts),
         )
         logger.info(
             "Bulk export load timing: db_query=%.2fs, task_build=%.2fs, "
@@ -799,7 +771,7 @@ class DataProvider:
         use_legacy: bool,
         baseline_correction: bool,
     ) -> tuple[List[float], List[float]]:
-        raw_areas, _ = integrate_bundle_areas(
+        raw_areas = integrate_bundle_areas(
             time_data,
             bundle,
             raw_intensity,

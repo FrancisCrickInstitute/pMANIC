@@ -161,11 +161,10 @@ def integrated_display_areas(
     )
     prepared = plot_display(time, raw, compound, use_corrected=False)
     if prepared.display is not None:
-        _, areas = integrate_bundle_areas(
+        areas = integrate_bundle_areas(
             time,
             prepared.display.bundle,
             raw,
-            correct_areas=correct_areas,
             baseline_correction=bool(getattr(compound, "baseline_correction", 0)),
             use_legacy=use_legacy,
             retention_time=compound.retention_time,
@@ -174,16 +173,16 @@ def integrated_display_areas(
             label_atoms=label_atoms,
             channel_count=channel_count,
         )
-        return areas
-    areas = calculate_peak_areas(
-        time,
-        raw.ravel(),
-        label_atoms,
-        chromatographic_peak_deconvolution_stringency=getattr(
-            compound, "deconvolution_level", "off"
-        ),
-        **common,
-    )
+    else:
+        areas = calculate_peak_areas(
+            time,
+            raw.ravel(),
+            label_atoms,
+            chromatographic_peak_deconvolution_stringency=getattr(
+                compound, "deconvolution_level", "off"
+            ),
+            **common,
+        )
     if correct_areas is None:
         return areas
     return [float(area) for area in correct_areas(areas)]

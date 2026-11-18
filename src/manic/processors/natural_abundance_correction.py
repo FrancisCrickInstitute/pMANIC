@@ -531,9 +531,10 @@ class NaturalAbundanceCorrector:
         Correct one integrated isotopologue area vector, then clamp negatives.
 
         Exported and on-screen areas use this rather than integrating corrected
-        traces. The solve is linear, so the two agree except for the clamp, and
-        clamping every scan keeps the positive noise in channels whose true
-        amount is zero. That adds false label, most for small peaks.
+        traces. The solve is linear, so with baseline correction off the two
+        agree except for the clamp, and clamping every scan keeps the positive
+        noise in channels whose true amount is zero. That adds false label,
+        most for small peaks.
         """
         column = np.asarray(areas, dtype=np.float64).reshape(-1, 1)
         return self.correct_time_series(

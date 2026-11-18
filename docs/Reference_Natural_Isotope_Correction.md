@@ -129,7 +129,7 @@ If you analyze a purely unlabeled standard:
 **Result:** Corrected values for M+0 are typically **higher** than raw values because they account for the signal "lost" to natural heavy isotopes.   
 
 ### Non-Negativity
-After the solve, MANIC sets any negative corrected area (e.g., $-0.5$) to **0**. This applies to the integrated areas, not to each scan. It is the step the MATLAB tool uses, not a constrained fit: a non-negative least-squares fit gives a different answer whenever a value would be negative, because it adjusts the other isotopologues to compensate.   
+After the solve, MANIC sets any negative corrected area (e.g., $-0.5$) to **0**. This applies to the integrated areas, not to each scan. It is a plain clamp, not a constrained fit: a non-negative least-squares fit gives a different answer whenever a value would be negative, because it adjusts the other isotopologues to compensate. The legacy MATLAB tool used a constrained fit (`fmincon`, each fraction held between 0 and 1 and the fractions summing to 1), so the two tools agree on the order of the steps but not on every number.   
 
 ---
 

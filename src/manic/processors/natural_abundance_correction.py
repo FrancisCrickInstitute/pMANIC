@@ -8,7 +8,7 @@ and solves measured = C @ true, then clamps negatives to zero.
 
 Notes:
 - Optimization (SLSQP/fmincon-style) fallback has been removed; only the
-  direct linear solve is used now (to match MATLAB behavior and for speed).
+  direct linear solve is used now, for speed. MATLAB itself fits with fmincon.
 - Derivatization math exactly mirrors MATLAB calculateTheoreticalMass0New.
 """
 
@@ -556,9 +556,10 @@ class NaturalAbundanceCorrector:
         Natural abundance correction can be formulated as a linear system:
             correction_matrix × true_abundances = measured_abundances
 
-        The unconstrained solve is followed by clamping negatives to zero, as
-        MATLAB GVISO does. This is not constrained optimisation: non-negative
-        least squares gives a different answer whenever the clamp is active.
+        The unconstrained solve is followed by clamping negatives to zero.
+        This is not constrained optimisation: non-negative least squares gives
+        a different answer whenever the clamp is active, and so does MATLAB
+        GVISO, which fits with fmincon under bounds and a sum-to-one constraint.
 
         NUMERICAL REQUIREMENTS:
         - Matrix condition number < 1e10 (automatically verified by caller)

@@ -62,6 +62,26 @@ def _make_corrector(compound: Compound, correct):
     return apply
 
 
+def uncorrectable_reason(compound: Compound) -> Optional[str]:
+    """Why a labelled compound gets no corrected areas, or None when correction can run."""
+    if (compound.label_atoms or 0) <= 0:
+        return None
+    if not compound.formula:
+        return "no formula"
+    try:
+        NaturalAbundanceCorrector()._get_cached_correction_matrix(
+            compound.formula,
+            compound.label_type,
+            compound.label_atoms,
+            compound.tbdms,
+            compound.meox,
+            compound.me,
+        )
+    except NaturalAbundanceCorrectionError as exc:
+        return str(exc)
+    return None
+
+
 def compute_corrected_intensity(eic: EIC, compound: Compound) -> Optional[np.ndarray]:
     if not compound.formula:
         return None

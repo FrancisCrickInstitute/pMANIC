@@ -757,7 +757,8 @@ class DataProvider:
                 chromatographic_peak_deconvolution_fit_type=row["deconvolution_fit_type"],
                 chromatographic_peak_deconvolution_noise_gate=row["deconvolution_noise_gate"],
             )
-            if label_atoms > 0 and row["formula"]:
+            if label_atoms > 0:
+                # No formula fails here too: raw areas must never pass as corrected.
                 return raw_areas, self._corrected_or_empty(raw_areas, row)
             # Return a distinct corrected list so downstream consumers can never
             # mutate raw and corrected areas through the same object.

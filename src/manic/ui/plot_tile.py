@@ -74,13 +74,20 @@ _QC_BADGES = {
 
 
 def tile_badges(
-    verdict: PeakVerdict, identity: IdentitySampleAssessment | None
+    verdict: PeakVerdict,
+    identity: IdentitySampleAssessment | None,
+    uncorrectable: str | None = None,
 ) -> list[TileBadge]:
     """Badges for a tile: the peak review verdict, then any qualifier QC problem.
 
     A clean pass gets no badge, so the badges that do show stand out.
     """
     badges = [PEAK_BADGES[verdict]] if verdict in PEAK_BADGES else []
+    if uncorrectable:
+        # No corrected area exists to judge, whatever the verdict: not a weak peak.
+        if verdict is PeakVerdict.FAIL:
+            badges = []
+        badges.insert(0, TileBadge("Not corrected", PeakVerdict.FAIL, uncorrectable))
     if identity is not None and identity.qc is not None:
         # A qualifier with no verdict lacks its ratio or tolerance in the method, which
         # holds for every sample: the grid header says so once, so it marks no tile.

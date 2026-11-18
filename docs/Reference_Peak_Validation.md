@@ -15,6 +15,8 @@ A peak is considered **Invalid/Weak** (and flagged **Below threshold**) if its t
 > Automated validation requires an Internal Standard to be selected. If no standard is selected, no peak gets a **Below threshold** badge.
 >
 > If a standard is selected but its reference peak area is 0 in a sample (for example, a failed injection), every peak in that sample is flagged **Below threshold**, because there is nothing to compare it with. A manual Accept or Reject still overrides this. A standard with no known amount does not affect validation; it leaves the Abundances cells empty (see [Abundance Calculation](Reference_Abundance_Calculation.md)).
+>
+> A labelled compound with no formula, or with a formula MANIC cannot correct, has no corrected area to compare. Its tiles always show a **Not corrected** badge, in place of **Below threshold** and whether or not validation is on, the line above the plots gives the reason, and export is refused until the compound list is fixed. This is not a weak peak.
 
 ### Formula
 $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$

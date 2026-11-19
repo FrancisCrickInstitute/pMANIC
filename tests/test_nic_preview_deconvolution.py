@@ -82,8 +82,8 @@ def test_nic_preview_keeps_the_same_selected_component():
 def test_nic_preview_heights_are_correction_of_the_raw_selected_component():
     time, raw = _raw_labelled_pair()
 
-    def scale_m1(matrix):
-        out = np.asarray(matrix, dtype=np.float64).copy()
+    def scale_m1(values):
+        out = np.asarray(values, dtype=np.float64).copy()
         out[1] *= 0.4
         return out
 
@@ -234,13 +234,13 @@ def test_preview_areas_do_not_refit_a_corrected_matrix(monkeypatch):
     time, raw = _raw_labelled_pair()
     noisy_m1 = np.vstack([raw[0], _noise_row(time)])
 
-    def scale_m1(matrix):
-        out = np.asarray(matrix, dtype=np.float64).copy()
+    def scale_m1(values):
+        out = np.asarray(values, dtype=np.float64).copy()
         out[1] *= 0.4
         return out
 
     monkeypatch.setattr(
-        "manic.processors.display_deconvolution.make_time_series_corrector",
+        "manic.processors.display_deconvolution.make_area_corrector",
         lambda _compound: scale_m1,
     )
     compound = _plot_compound()
@@ -248,18 +248,19 @@ def test_preview_areas_do_not_refit_a_corrected_matrix(monkeypatch):
         time, raw, compound, use_corrected=True
     )
     preview = deconvolve_for_display(time, raw, apply_correction=scale_m1, **FIT)
-    _, expected = integrate_bundle_areas(
-        time,
-        preview.bundle,
-        raw,
-        correct_time_series=scale_m1,
-        baseline_correction=False,
-        use_legacy=False,
-        retention_time=7.0,
-        loffset=4.0,
-        roffset=4.0,
-        label_atoms=1,
-        channel_count=2,
+    expected = scale_m1(
+        integrate_bundle_areas(
+            time,
+            preview.bundle,
+            raw,
+            baseline_correction=False,
+            use_legacy=False,
+            retention_time=7.0,
+            loffset=4.0,
+            roffset=4.0,
+            label_atoms=1,
+            channel_count=2,
+        )
     )
     old_path = calculate_peak_areas(
         time,
@@ -310,11 +311,10 @@ def test_mixed_fallback_keeps_outside_peak_zero(use_legacy):
     assert bundle.channels[4].result.model is None
     assert not bundle.uses_model_areas()
 
-    raw_areas, corrected_areas = integrate_bundle_areas(
+    raw_areas = integrate_bundle_areas(
         time,
         bundle,
         raw,
-        correct_time_series=lambda matrix: matrix,
         baseline_correction=False,
         use_legacy=use_legacy,
         retention_time=retention_time,
@@ -326,7 +326,6 @@ def test_mixed_fallback_keeps_outside_peak_zero(use_legacy):
 
     assert raw_areas[0] > 0.0
     assert raw_areas[4] == pytest.approx(0.0)
-    assert corrected_areas == pytest.approx(raw_areas)
 
 
 def test_nic_preview_hides_outside_peak_during_mixed_fallback():

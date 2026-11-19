@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.sample_reader import list_stale_samples
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
+from manic.processors.eic_correction_manager import uncorrectable_reason
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.display_deconvolution import (
     plot_display,
@@ -125,6 +126,20 @@ def qc_key_html(identity: IdentityAssessmentSet | None) -> str:
     ]
     return "Qualifier QC:&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(
         f'<span style="color:{qcolor.name()};">●</span>&nbsp;{name}' for qcolor, name in entries
+    )
+
+
+def _uncorrectable_note(compound_name: str) -> str | None:
+    """The grid-header line and tile tooltip for a labelled compound MANIC cannot correct."""
+    try:
+        reason = uncorrectable_reason(read_compound_with_session(compound_name, None))
+    except LookupError:
+        return None
+    if reason is None:
+        return None
+    return (
+        f"Not corrected for natural isotopes: {reason}. "
+        "Export is refused until the compound list is fixed."
     )
 
 
@@ -380,6 +395,7 @@ class GraphView(QWidget):
         self._prepared_displays = {}
 
         self._identity: IdentityAssessmentSet | None = None
+        self._uncorrectable: str | None = None
 
         self._y_scale_policy = YScalePolicy.PER_TILE_EXTRACT
         self._last_validation_data: Dict[str, PeakVerdict] | None = None
@@ -558,7 +574,8 @@ class GraphView(QWidget):
             identity = None
         self._identity = identity
         note = qualifier_gap_note(identity) if identity is not None else None
-        self.qc_note.setText(note or "")
+        self._uncorrectable = _uncorrectable_note(compound_name)
+        self.qc_note.setText(note or self._uncorrectable or "")
         self._show_qc_text()
 
         # Re-plotting the same compound (a fit or scale change) keeps selection and focus.
@@ -1087,11 +1104,13 @@ class GraphView(QWidget):
             else {clicked_plot}
         )
         if review is PeakReview.ACCEPTED:
-            plots = {
-                plot
-                for plot in plots
-                if self._verdict_for_plot(plot) in (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
-            }
+            # With no corrected area there is no weak peak to accept; an old acceptance still clears.
+            acceptable = (
+                (PeakVerdict.ACCEPTED,)
+                if self._uncorrectable
+                else (PeakVerdict.FAIL, PeakVerdict.ACCEPTED)
+            )
+            plots = {plot for plot in plots if self._verdict_for_plot(plot) in acceptable}
         missing = {plot for plot in plots if self._review_for_plot(plot) is not review}
         return (review, missing) if missing else (None, plots)
 
@@ -2081,7 +2100,7 @@ class GraphView(QWidget):
         verdict = getattr(container, "verdict", PeakVerdict.PASS)
         sample_name = getattr(container.chart_view, "sample_name", "")
         identity = self._sample_identity(sample_name)
-        container.set_badges(tile_badges(verdict, identity))
+        container.set_badges(tile_badges(verdict, identity, self._uncorrectable))
 
     def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:

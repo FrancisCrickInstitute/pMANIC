@@ -107,7 +107,7 @@ def _cell_areas(job: tuple[str, str, str, list[str], str, float]) -> dict[str, n
             fit_type=fit_type,
             noise_gate=noise_gate,
         )
-        areas, _ = integrate_bundle_areas(
+        areas = integrate_bundle_areas(
             eic.time,
             bundle,
             matrix,

@@ -1411,20 +1411,18 @@ def test_legacy_multi_ion_integrates_the_selected_component(baseline_correction)
 
 
 @pytest.mark.parametrize("baseline_correction", [False, True])
-def test_legacy_bundle_areas_integrate_and_correct_the_selected_component(
+def test_legacy_bundle_areas_integrate_the_selected_component(
     baseline_correction,
 ):
     time, raw = _legacy_overlap_matrix()
     bundle = deconvolve_channel_matrix(
         time, raw, stringency="4", **_LEGACY_OVERLAP_WINDOW
     )
-    swap_m0_m2 = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype=np.float64)
 
-    raw_areas, corrected_areas = integrate_bundle_areas(
+    raw_areas = integrate_bundle_areas(
         time,
         bundle,
         raw,
-        correct_time_series=lambda matrix: swap_m0_m2 @ matrix,
         baseline_correction=baseline_correction,
         use_legacy=True,
         label_atoms=2,
@@ -1432,7 +1430,6 @@ def test_legacy_bundle_areas_integrate_and_correct_the_selected_component(
     )
 
     assert raw_areas == pytest.approx(_LEGACY_SELECTED_AREAS, rel=1e-5)
-    assert corrected_areas == pytest.approx(_LEGACY_SELECTED_AREAS[::-1], rel=1e-5)
 
 
 def _projected_residual(x_rel, shape_model, values_matrix, y, ridge, scale):

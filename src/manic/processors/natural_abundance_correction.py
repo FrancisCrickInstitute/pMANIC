@@ -8,7 +8,7 @@ and solves measured = C @ true, then clamps negatives to zero.
 
 Notes:
 - Optimization (SLSQP/fmincon-style) fallback has been removed; only the
-  direct linear solve is used now (to match MATLAB behavior and for speed).
+  direct linear solve is used now, for speed. MATLAB itself fits with fmincon.
 - Derivatization math exactly mirrors MATLAB calculateTheoreticalMass0New.
 """
 
@@ -517,6 +517,30 @@ class NaturalAbundanceCorrector:
         self._direct_solves += 1
         return corrected_2d
 
+    def correct_areas(
+        self,
+        areas,
+        formula: str,
+        label_element: str,
+        label_atoms: int,
+        tbdms: int = 0,
+        meox: int = 0,
+        me: int = 0,
+    ) -> np.ndarray:
+        """
+        Correct one integrated isotopologue area vector, then clamp negatives.
+
+        Exported and on-screen areas use this rather than integrating corrected
+        traces. The solve is linear, so with baseline correction off the two
+        agree except for the clamp, and clamping every scan keeps the positive
+        noise in channels whose true amount is zero. That adds false label,
+        most for small peaks.
+        """
+        column = np.asarray(areas, dtype=np.float64).reshape(-1, 1)
+        return self.correct_time_series(
+            column, formula, label_element, label_atoms, tbdms, meox, me
+        )[:, 0]
+
     def _correct_vectorized_direct(
         self, intensity_2d: np.ndarray, correction_matrix: np.ndarray
     ) -> np.ndarray:
@@ -525,15 +549,17 @@ class NaturalAbundanceCorrector:
 
         This method leverages NumPy's optimized linear algebra routines to process entire
         chromatographic time series simultaneously, rather than iterating through individual
-        time points. This approach is mathematically equivalent to per-point optimization
+        time points. This approach is the same as solving each time point separately,
         but dramatically faster for well-conditioned correction matrices.
 
         MATHEMATICAL BASIS:
         Natural abundance correction can be formulated as a linear system:
             correction_matrix × true_abundances = measured_abundances
 
-        For well-conditioned matrices, direct inversion via np.linalg.solve() provides
-        the same solution as constrained optimization but with ~50-100x speedup.
+        The unconstrained solve is followed by clamping negatives to zero.
+        This is not constrained optimisation: non-negative least squares gives
+        a different answer whenever the clamp is active, and so does MATLAB
+        GVISO, which fits with fmincon under bounds and a sum-to-one constraint.
 
         NUMERICAL REQUIREMENTS:
         - Matrix condition number < 1e10 (automatically verified by caller)

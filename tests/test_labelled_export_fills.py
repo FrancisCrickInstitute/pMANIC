@@ -14,7 +14,8 @@ def _insert_compound(name: str, rt: float, mass0: float) -> None:
     with database.get_connection() as conn:
         conn.execute(
             "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, mass0, label_atoms, "
-            "int_std_amount, amount_in_std_mix, mm_files) VALUES (?, ?, 0.6, 0.6, ?, 1, 10.0, 1.0, 'S1')",
+            "formula, int_std_amount, amount_in_std_mix, mm_files) "
+            "VALUES (?, ?, 0.6, 0.6, ?, 1, 'C1', 10.0, 1.0, 'S1')",
             (name, rt, mass0),
         )
 

@@ -15,6 +15,7 @@ from manic.processors.eic_correction_manager import (
     _process_compound_batch_corrections,
     compute_corrected_intensity,
     ensure_corrections_for_export,
+    uncorrectable_reason,
 )
 from manic.processors.natural_abundance_correction import (
     NaturalAbundanceCorrectionError,
@@ -138,8 +139,10 @@ def test_ensure_corrections_for_export_raises_naming_uncorrectable(review_db):
         ensure_corrections_for_export()
 
 
-def test_load_bulk_omits_labelled_without_corrected_keeps_unlabelled_raw(
-    review_db,
+@pytest.mark.parametrize("formula", ["C1Se1", None])
+@pytest.mark.parametrize("deconvolution_level", ["off", "4"])
+def test_load_bulk_omits_labelled_when_correction_fails_keeps_unlabelled_raw(
+    review_db, formula, deconvolution_level
 ):
     time = np.linspace(0.0, 1.0, 5)
     with database.get_connection() as conn:
@@ -148,7 +151,7 @@ def test_load_bulk_omits_labelled_without_corrected_keeps_unlabelled_raw(
             "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
             "mass0, label_atoms, formula, label_type, deconvolution_level) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("Labeled", 1.0, 0.2, 0.2, 100.0, 1, "C1", "C", "off"),
+            ("Labeled", 1.0, 0.2, 0.2, 100.0, 1, formula, "C", deconvolution_level),
         )
         conn.execute(
             "INSERT INTO compounds (compound_name, retention_time, loffset, roffset, "
@@ -422,3 +425,18 @@ def test_bulk_load_cancel_stops_pulling_and_closes_the_task_stream(
         f"expected the loop to stop at the first refused progress tick, "
         f"pulled {len(pulled)} of {task_count}"
     )
+
+
+@pytest.mark.parametrize(
+    "formula, label_atoms, expected",
+    [("C1", 1, None), (None, 0, None), (None, 1, "no formula"), ("C1Se1", 1, "Se")],
+)
+def test_uncorrectable_reason_names_why_no_corrected_area_exists(
+    formula, label_atoms, expected
+):
+    compound = Compound(
+        compound_name="X", retention_time=1.0, loffset=0.2, roffset=0.2,
+        label_atoms=label_atoms, mass0=100.0, formula=formula, label_type="C",
+    )
+    reason = uncorrectable_reason(compound)
+    assert reason is None if expected is None else expected in reason

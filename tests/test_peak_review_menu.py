@@ -145,6 +145,12 @@ def test_accept_enabled_only_on_failed_or_accepted_tiles(grid):
         assert actions[reject].isEnabled()
 
 
+def test_accept_is_refused_when_the_compound_cannot_be_corrected(grid):
+    _plot(grid, VERDICTS)
+    grid._uncorrectable = "no formula"
+    assert not _context_menu(grid, "A")["Accept Peak (Below Threshold)"].isEnabled()
+
+
 def test_accept_emits_review_for_clicked_tile(grid):
     reviews = _plot(grid, VERDICTS)
     grid.select_samples(["B", "C"])

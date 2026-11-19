@@ -27,14 +27,23 @@ logger = logging.getLogger(__name__)
 
 
 def make_time_series_corrector(compound: Compound):
+    return _make_corrector(compound, NaturalAbundanceCorrector.correct_time_series)
+
+
+def make_area_corrector(compound: Compound):
+    return _make_corrector(compound, NaturalAbundanceCorrector.correct_areas)
+
+
+def _make_corrector(compound: Compound, correct):
     if not compound.formula or (compound.label_atoms or 0) <= 0:
         return None
     corrector = NaturalAbundanceCorrector()
 
-    def apply(matrix: np.ndarray) -> np.ndarray:
-        raw = np.asarray(matrix, dtype=np.float64)
+    def apply(values: np.ndarray) -> np.ndarray:
+        raw = np.asarray(values, dtype=np.float64)
         try:
-            return corrector.correct_time_series(
+            return correct(
+                corrector,
                 raw,
                 compound.formula,
                 compound.label_type,
@@ -51,6 +60,26 @@ def make_time_series_corrector(compound: Compound):
             return raw
 
     return apply
+
+
+def uncorrectable_reason(compound: Compound) -> Optional[str]:
+    """Why a labelled compound gets no corrected areas, or None when correction can run."""
+    if (compound.label_atoms or 0) <= 0:
+        return None
+    if not compound.formula:
+        return "no formula"
+    try:
+        NaturalAbundanceCorrector()._get_cached_correction_matrix(
+            compound.formula,
+            compound.label_type,
+            compound.label_atoms,
+            compound.tbdms,
+            compound.meox,
+            compound.me,
+        )
+    except NaturalAbundanceCorrectionError as exc:
+        return str(exc)
+    return None
 
 
 def compute_corrected_intensity(eic: EIC, compound: Compound) -> Optional[np.ndarray]:

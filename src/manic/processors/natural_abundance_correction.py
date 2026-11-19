@@ -333,7 +333,7 @@ class NaturalAbundanceCorrector:
         for element, count in elements.items():
             if count > 0 and not hasattr(self.abundances, element):
                 raise NaturalAbundanceCorrectionError(
-                    f"No natural abundance vector for element {element}"
+                    f"MANIC has no natural isotope abundances for element {element}"
                 )
 
     def build_correction_matrix(

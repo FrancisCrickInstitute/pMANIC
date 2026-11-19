@@ -168,7 +168,7 @@ class AddCompoundDialog(QDialog):
         self._row(identity, "Compound name", self.compound_name)
         if not unlabelled:
             self.formula = QLineEdit()
-            self.formula.setPlaceholderText("Optional, e.g. C6H12O6 or C6 H12 O6")
+            self.formula.setPlaceholderText("Needed with label atoms, e.g. C6H12O6 or C6 H12 O6")
             self._row(identity, "Formula", self.formula)
 
         retention = self._section(layout, "Retention")

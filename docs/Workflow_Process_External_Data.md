@@ -37,7 +37,7 @@ Both workflows correct the integrated areas, so the correction is the same. With
 
 ### Prerequisites
 * **Legacy Results File:** An Excel (`.xlsx`) workbook with a **Raw Values** sheet of uncorrected peak areas, laid out like MANIC's own Raw Values export. CSV files are not accepted. Each compound needs label atoms + 1 isotopologue columns. If a compound has a different number, the rebuild stops before writing anything and names that compound.
-* **Matching Compound List:** A Compound Definition file (Step 1) that matches the metabolite names in your legacy file. This is required to provide the *Molecular Formulas* and *Label Atoms* needed for correction.
+* **Matching Compound List:** A Compound Definition file (Step 1) that matches the metabolite names in your legacy file. This is required to provide the *Molecular Formulas* and *Label Atoms* needed for correction. MANIC checks each row as it does when you load a compound list. If a row is invalid, for example a labelled compound with no formula, MANIC names it beside the field and does not run.
 
 ### Steps
 1.  Choose **File → Process External Data...**.

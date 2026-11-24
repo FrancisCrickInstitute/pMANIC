@@ -586,112 +586,121 @@ class GraphView(QWidget):
         focused = self._focused_plot() if same_compound else None
         kept_focus = focused.sample_name if focused is not None else None
 
-        self._clear_layout()
-        self._set_title(compound_name)
-        if not samples:
-            self._hide_unused_tiles()
-            self._hide_legend()
+        grid_host = self._scroll.widget()
+        if grid_host is not None:
+            grid_host.setUpdatesEnabled(False)
+        try:
+            self._clear_layout()
+            self._set_title(compound_name)
+            if not samples:
+                self._hide_unused_tiles()
+                self._hide_legend()
+                self._update_selection_summary()
+                return
+
+            self._current_compound = compound_name
+            self._current_samples = samples
+            self._sample_fit_types = get_sample_fit_types(compound_name)
+            self._stale_samples = set(list_stale_samples())
+
+            if eics is None:
+                with measure_time("get_eics_from_db"):
+                    eics = get_eics_for_compound(
+                        compound_name, samples, use_corrected=False
+                    )
+
+            num = len(eics)
+            if num == 0:
+                self._hide_unused_tiles()
+                self._hide_legend()
+                return
+
+            self._last_validation_data = validation_data
+
+            prepared_list = []
+            scale_inputs: list[TileScaleInput] = []
+            retention_times = []
+            for eic in eics:
+                compound = read_compound_with_session(eic.compound_name, eic.sample_name)
+                retention_times.append(compound.retention_time)
+                prepared = (
+                    prepared_displays.get((eic.sample_name, eic.compound_name))
+                    if prepared_displays is not None
+                    else None
+                )
+                if prepared is None:
+                    prepared = plot_display(
+                        eic.time,
+                        eic.intensity,
+                        compound,
+                        use_corrected=self.use_corrected,
+                    )
+                prepared_list.append(prepared)
+                scale_inputs.append(
+                    TileScaleInput(
+                        prepared=prepared,
+                        raw_intensity=eic.intensity,
+                        independent_channels=compound.is_unlabelled_target,
+                    )
+                )
+            self._prepared_displays = {
+                (eic.sample_name, eic.compound_name): prepared
+                for eic, prepared in zip(eics, prepared_list)
+            }
+            tile_axes = axes_for_tiles(self._y_scale_policy, scale_inputs)
+            self._tr_text = retention_time_text(retention_times)
+
+            self._update_channel_legend(compound_name, eics)
+
+            with measure_time("build_plots_and_add_to_layout"):
+                plot_containers = [
+                    self._get_container_from_pool(
+                        eic,
+                        verdict=validation_data.get(eic.sample_name, PeakVerdict.PASS)
+                        if validation_data
+                        else PeakVerdict.PASS,
+                        axis_scale=axis_scale,
+                    )
+                    for eic, axis_scale in zip(eics, tile_axes, strict=True)
+                ]
+
+                self._current_plots = [
+                    container.chart_view for container in plot_containers
+                ]
+
+                # Reused tiles stay visible: hiding and re-showing them costs a
+                # synchronous relayout of every card. Updates are suspended around
+                # the redraw, so all tiles paint together when re-enabled.
+                self._place_tiles(force=True)
+                for container in plot_containers:
+                    if container.isHidden():
+                        container.show()
+                self._hide_unused_tiles()
+
+            if same_compound:
+                names = [plot.sample_name for plot in self._current_plots]
+                self._focus_index = names.index(kept_focus) if kept_focus in names else None
+                for plot in self._current_plots:
+                    if plot.sample_name in kept_selection:
+                        plot.set_selected(True)
+                        self._selected_plots.add(plot)
+            elif self._focus_index is not None and self._focus_index >= num:
+                self._focus_index = None
+            self._paint_focus()
             self._update_selection_summary()
-            return
+            self._layout.activate()
+            if same_compound and self.get_selected_samples() != kept_selection:
+                self.selection_changed.emit(self.get_selected_samples())
 
-        self._current_compound = compound_name
-        self._current_samples = samples
-        self._sample_fit_types = get_sample_fit_types(compound_name)
-        self._stale_samples = set(list_stale_samples())
-
-        if eics is None:
-            with measure_time("get_eics_from_db"):
-                eics = get_eics_for_compound(
-                    compound_name, samples, use_corrected=False
-                )
-
-        num = len(eics)
-        if num == 0:
-            self._hide_unused_tiles()
-            self._hide_legend()
-            return
-
-        self._last_validation_data = validation_data
-
-        prepared_list = []
-        scale_inputs: list[TileScaleInput] = []
-        retention_times = []
-        for eic in eics:
-            compound = read_compound_with_session(eic.compound_name, eic.sample_name)
-            retention_times.append(compound.retention_time)
-            prepared = (
-                prepared_displays.get((eic.sample_name, eic.compound_name))
-                if prepared_displays is not None
-                else None
-            )
-            if prepared is None:
-                prepared = plot_display(
-                    eic.time,
-                    eic.intensity,
-                    compound,
-                    use_corrected=self.use_corrected,
-                )
-            prepared_list.append(prepared)
-            scale_inputs.append(
-                TileScaleInput(
-                    prepared=prepared,
-                    raw_intensity=eic.intensity,
-                    independent_channels=compound.is_unlabelled_target,
-                )
-            )
-        self._prepared_displays = {
-            (eic.sample_name, eic.compound_name): prepared
-            for eic, prepared in zip(eics, prepared_list)
-        }
-        tile_axes = axes_for_tiles(self._y_scale_policy, scale_inputs)
-        self._tr_text = retention_time_text(retention_times)
-
-        self._update_channel_legend(compound_name, eics)
-
-        with measure_time("build_plots_and_add_to_layout"):
-            plot_containers = [
-                self._get_container_from_pool(
-                    eic,
-                    verdict=validation_data.get(eic.sample_name, PeakVerdict.PASS)
-                    if validation_data
-                    else PeakVerdict.PASS,
-                    axis_scale=axis_scale,
-                )
-                for eic, axis_scale in zip(eics, tile_axes, strict=True)
-            ]
-
-            self._current_plots = [
-                container.chart_view for container in plot_containers
-            ]
-
-            # Reused tiles stay visible: hiding and re-showing them costs a
-            # synchronous relayout of every card. Nothing paints until the
-            # event loop runs, so there is no flash either way.
-            self._place_tiles(force=True)
-            for container in plot_containers:
-                if container.isHidden():
-                    container.show()
-            self._hide_unused_tiles()
-
-        if same_compound:
-            names = [plot.sample_name for plot in self._current_plots]
-            self._focus_index = names.index(kept_focus) if kept_focus in names else None
-            for plot in self._current_plots:
-                if plot.sample_name in kept_selection:
-                    plot.set_selected(True)
-                    self._selected_plots.add(plot)
-        elif self._focus_index is not None and self._focus_index >= num:
-            self._focus_index = None
-        self._paint_focus()
-        self._update_selection_summary()
-        self._layout.activate()
-        if same_compound and self.get_selected_samples() != kept_selection:
-            self.selection_changed.emit(self.get_selected_samples())
-
-        self._prepared_displays.clear()
+            self._prepared_displays.clear()
+        finally:
+            if grid_host is not None:
+                grid_host.setUpdatesEnabled(True)
 
     def _hide_unused_tiles(self) -> None:
         for container in self._available_containers:
+            self._clear_chart_series_pool(container.chart_view.chart())
+            container.set_caption("")
             container.hide()
 
     def _grid_viewport(self) -> tuple[int, int]:
@@ -1464,6 +1473,79 @@ class GraphView(QWidget):
         container.set_scale(axis_scale.scale_exp)
         self._apply_validation_styling(container, verdict)
 
+    def _clear_chart_series_pool(self, chart: QChart, start: int = 0) -> None:
+        pool = getattr(chart, "_series_pool", None)
+        if not pool:
+            return
+        for series in pool[start:]:
+            if series.count():
+                series.clear()
+            if series.isVisible():
+                series.setVisible(False)
+            if series.name():
+                series.setName("")
+            if series.property("guide_role") is not None:
+                series.setProperty("guide_role", None)
+
+    def _acquire_line_series(
+        self,
+        chart: QChart,
+        x_axis: QValueAxis,
+        y_axis: QValueAxis,
+        xs: np.ndarray,
+        ys: np.ndarray,
+        pen: QPen,
+        *,
+        name: str = "",
+        guide_role: str | None = None,
+    ) -> QLineSeries:
+        """Reuse an attached QLineSeries when inside _draw_eic, else attach a new one."""
+        cursor = getattr(chart, "_series_cursor", None)
+        if cursor is not None:
+            pool: list[QLineSeries] = chart._series_pool
+            if cursor < len(pool):
+                series = pool[cursor]
+                chart._series_cursor = cursor + 1
+                series.setPen(pen)
+                if series.name() != name:
+                    series.setName(name)
+                if series.property("guide_role") != guide_role:
+                    series.setProperty("guide_role", guide_role)
+                if xs.size:
+                    series.replaceNp(xs, ys)
+                elif series.count():
+                    series.clear()
+                if not series.isVisible():
+                    series.setVisible(True)
+                return series
+            series = QLineSeries()
+            if xs.size:
+                series.appendNp(xs, ys)
+            series.setPen(pen)
+            if name:
+                series.setName(name)
+            if guide_role is not None:
+                series.setProperty("guide_role", guide_role)
+            chart.addSeries(series)
+            series.attachAxis(x_axis)
+            series.attachAxis(y_axis)
+            pool.append(series)
+            chart._series_cursor = cursor + 1
+            return series
+
+        series = QLineSeries()
+        if xs.size:
+            series.appendNp(xs, ys)
+        series.setPen(pen)
+        if name:
+            series.setName(name)
+        if guide_role is not None:
+            series.setProperty("guide_role", guide_role)
+        chart.addSeries(series)
+        series.attachAxis(x_axis)
+        series.attachAxis(y_axis)
+        return series
+
     def _update_chart_data(
         self,
         chart_view: ClickableChartView,
@@ -1476,31 +1558,24 @@ class GraphView(QWidget):
         try:
             chart_view.sample_name = eic.sample_name
             chart_view.compound_name = eic.compound_name
-            chart.removeAllSeries()
             axes = chart.axes()
             if len(axes) > 1:
                 self._draw_eic(chart, axes[0], axes[1], eic, axis_scale)
         except Exception as e:
+            self._clear_chart_series_pool(chart)
             # A failed redraw must not break the rest of the grid.
             logger.error(f"Error updating chart data: {e}")
 
     def _return_containers_to_pool(self):
-        """Empty every current tile and return it to the pool for reuse."""
+        """Return current tiles to the pool without destroying their attached series."""
         for plot in self._current_plots:
             plot.set_selected(False)
-            plot.chart().removeAllSeries()
-            plot.chart().setTitle("")
-            plot.update()
 
             container = plot.parent()
             while container and not hasattr(container, "chart_view"):
                 container = container.parent()
 
             if container and container in self._container_pool:
-                if hasattr(container, "caption"):
-                    container.caption.setText("")
-                    container.caption.update()
-
                 self._available_containers.append(container)
 
         self._current_plots.clear()
@@ -1528,38 +1603,46 @@ class GraphView(QWidget):
 
     def _draw_eic(self, chart, x_axis, y_axis, eic, axis_scale: YAxisScale) -> None:
         """Traces, ranges, tR guides and baselines of one tile, on axes it already has."""
-        compound = read_compound_with_session(eic.compound_name, eic.sample_name)
-        prepared = self._plot_display_for(eic, compound)
-        scale_factor = axis_scale.scale_factor
-        scaled_y_max = axis_scale.scaled_max
-        channel_styles = self._channel_styles_for(compound, eic.sample_name)
-        self._add_eic_series(
-            chart,
-            x_axis,
-            y_axis,
-            eic.time,
-            eic.intensity,
-            compound,
-            scale_factor,
-            prepared=prepared,
-            channel_styles=channel_styles,
-        )
+        if not hasattr(chart, "_series_pool"):
+            chart._series_pool = list(chart.series())
+        chart._series_cursor = 0
+        try:
+            compound = read_compound_with_session(eic.compound_name, eic.sample_name)
+            prepared = self._plot_display_for(eic, compound)
+            scale_factor = axis_scale.scale_factor
+            scaled_y_max = axis_scale.scaled_max
+            channel_styles = self._channel_styles_for(compound, eic.sample_name)
+            self._add_eic_series(
+                chart,
+                x_axis,
+                y_axis,
+                eic.time,
+                eic.intensity,
+                compound,
+                scale_factor,
+                prepared=prepared,
+                channel_styles=channel_styles,
+            )
 
-        # The x range is the actual EIC extract, so it reflects the tR window.
-        self._set_tile_ranges(x_axis, y_axis, eic.time, scaled_y_max)
-        _fit_time_ticks(chart)
-        self._add_tile_guides(chart, x_axis, y_axis, compound, scaled_y_max)
-        self._add_baseline_lines(
-            chart,
-            x_axis,
-            y_axis,
-            eic.time,
-            eic.intensity,
-            compound,
-            scale_factor,
-            prepared=prepared,
-            channel_styles=channel_styles,
-        )
+            # The x range is the actual EIC extract, so it reflects the tR window.
+            self._set_tile_ranges(x_axis, y_axis, eic.time, scaled_y_max)
+            _fit_time_ticks(chart)
+            self._add_tile_guides(chart, x_axis, y_axis, compound, scaled_y_max)
+            self._add_baseline_lines(
+                chart,
+                x_axis,
+                y_axis,
+                eic.time,
+                eic.intensity,
+                compound,
+                scale_factor,
+                prepared=prepared,
+                channel_styles=channel_styles,
+            )
+        finally:
+            cursor = getattr(chart, "_series_cursor", 0) or 0
+            chart._series_cursor = None
+            self._clear_chart_series_pool(chart, start=cursor)
 
     def _set_tile_ranges(self, x_axis, y_axis, eic_time, scaled_y_max) -> None:
         x_min = float(np.min(eic_time))
@@ -1597,19 +1680,18 @@ class GraphView(QWidget):
         width: float = 1.2,
     ):
         """Add a vertical guide line to the chart."""
-        line_series = QLineSeries()
-        line_series.append(x_pos, y_start)
-        line_series.append(x_pos, y_end)
-        if role:
-            line_series.setProperty("guide_role", role)
         pen = QPen(color, width)
         if dashed:
             pen.setStyle(Qt.DashLine)
-        line_series.setPen(pen)
-        chart.addSeries(line_series)
-        line_series.attachAxis(x_axis)
-        line_series.attachAxis(y_axis)
-        return line_series
+        return self._acquire_line_series(
+            chart,
+            x_axis,
+            y_axis,
+            np.array([x_pos, x_pos], dtype=np.float64),
+            np.array([y_start, y_end], dtype=np.float64),
+            pen,
+            guide_role=role,
+        )
 
     def _add_baseline_lines(
         self,
@@ -1679,15 +1761,16 @@ class GraphView(QWidget):
                     multi_trace=eic_intensity.ndim > 1,
                 )
                 qcolor = style.color
-                baseline_series = QLineSeries()
-                baseline_series.append(td_base[0], baseline_y_scaled[0])
-                baseline_series.append(td_base[-1], baseline_y_scaled[-1])
                 baseline_pen = QPen(qcolor, 1.2)
                 baseline_pen.setStyle(Qt.DashLine)
-                baseline_series.setPen(baseline_pen)
-                chart.addSeries(baseline_series)
-                baseline_series.attachAxis(x_axis)
-                baseline_series.attachAxis(y_axis)
+                self._acquire_line_series(
+                    chart,
+                    x_axis,
+                    y_axis,
+                    np.array([td_base[0], td_base[-1]], dtype=np.float64),
+                    np.array([baseline_y_scaled[0], baseline_y_scaled[-1]], dtype=np.float64),
+                    baseline_pen,
+                )
                 drew_baseline = True
             if drew_baseline:
                 return
@@ -1708,18 +1791,17 @@ class GraphView(QWidget):
                     baseline_y_scaled = (
                         baseline_y / scale_factor if scale_factor != 0 else baseline_y
                     )
-
-                    baseline_series = QLineSeries()
-                    baseline_series.append(td_base[0], baseline_y_scaled[0])
-                    baseline_series.append(td_base[-1], baseline_y_scaled[-1])
-
                     style = self._style_at(channel_styles, i, multi_trace=True)
                     baseline_pen = QPen(style.color, 1.2)
                     baseline_pen.setStyle(Qt.DashLine)
-                    baseline_series.setPen(baseline_pen)
-                    chart.addSeries(baseline_series)
-                    baseline_series.attachAxis(x_axis)
-                    baseline_series.attachAxis(y_axis)
+                    self._acquire_line_series(
+                        chart,
+                        x_axis,
+                        y_axis,
+                        np.array([td_base[0], td_base[-1]], dtype=np.float64),
+                        np.array([baseline_y_scaled[0], baseline_y_scaled[-1]], dtype=np.float64),
+                        baseline_pen,
+                    )
         else:
             idata_win = draw_intensity[mask]
             baseline_result = compute_linear_baseline(td_win, idata_win)
@@ -1728,17 +1810,16 @@ class GraphView(QWidget):
                 baseline_y_scaled = (
                     baseline_y / scale_factor if scale_factor != 0 else baseline_y
                 )
-
-                baseline_series = QLineSeries()
-                baseline_series.append(td_base[0], baseline_y_scaled[0])
-                baseline_series.append(td_base[-1], baseline_y_scaled[-1])
-
                 baseline_pen = QPen(dark_red_colour, 1.2)
                 baseline_pen.setStyle(Qt.DashLine)
-                baseline_series.setPen(baseline_pen)
-                chart.addSeries(baseline_series)
-                baseline_series.attachAxis(x_axis)
-                baseline_series.attachAxis(y_axis)
+                self._acquire_line_series(
+                    chart,
+                    x_axis,
+                    y_axis,
+                    np.array([td_base[0], td_base[-1]], dtype=np.float64),
+                    np.array([baseline_y_scaled[0], baseline_y_scaled[-1]], dtype=np.float64),
+                    baseline_pen,
+                )
 
     def _add_model_component_series(
         self,
@@ -1785,15 +1866,14 @@ class GraphView(QWidget):
             finite = np.isfinite(scaled)
             if not np.any(finite):
                 continue
-            series = QLineSeries()
-            series.appendNp(
+            self._acquire_line_series(
+                chart,
+                x_axis,
+                y_axis,
                 np.ascontiguousarray(grid[finite], dtype=np.float64),
                 np.ascontiguousarray(scaled[finite], dtype=np.float64),
+                pen,
             )
-            series.setPen(pen)
-            chart.addSeries(series)
-            series.attachAxis(x_axis)
-            series.attachAxis(y_axis)
 
     def _sample_identity(self, sample_name: str) -> IdentitySampleAssessment | None:
         if self._identity is None:
@@ -2013,7 +2093,6 @@ class GraphView(QWidget):
 
             pen = QPen(pen_color, width)
             pen.setStyle(line_style)
-            series = QLineSeries()
             scaled_trace = trace / scale_factor if scale_factor != 0 else trace
             keep = np.isfinite(scaled_trace)
             if mask_matrix is not None:
@@ -2021,20 +2100,23 @@ class GraphView(QWidget):
             if np.any(keep):
                 xs = np.ascontiguousarray(eic_time[keep], dtype=np.float64)
                 ys = np.ascontiguousarray(scaled_trace[keep], dtype=np.float64)
-                series.appendNp(
-                    np.ascontiguousarray(xs, dtype=np.float64),
-                    np.ascontiguousarray(ys, dtype=np.float64),
-                )
-            series.setPen(pen)
-            if (
-                not raw_context
-                and multi_trace
-                and has_defined_channel(compound, i)
-            ):
-                series.setName(channel_legend_label(compound, i))
-            chart.addSeries(series)
-            series.attachAxis(x_axis)
-            series.attachAxis(y_axis)
+            else:
+                xs = np.empty(0, dtype=np.float64)
+                ys = np.empty(0, dtype=np.float64)
+            series_name = (
+                channel_legend_label(compound, i)
+                if not raw_context and multi_trace and has_defined_channel(compound, i)
+                else ""
+            )
+            self._acquire_line_series(
+                chart,
+                x_axis,
+                y_axis,
+                xs,
+                ys,
+                pen,
+                name=series_name,
+            )
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

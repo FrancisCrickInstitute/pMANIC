@@ -99,6 +99,11 @@ def is_available() -> bool:
     return _load_library() is not None
 
 
+def backend_name() -> str:
+    """Human-readable name of the active peak-fitting backend for logs and changelogs."""
+    return "Rust" if is_available() else "SciPy"
+
+
 def fit_shape_candidate_rust(
     x_rel: np.ndarray,
     y: np.ndarray,

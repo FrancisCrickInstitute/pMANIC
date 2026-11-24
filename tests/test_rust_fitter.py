@@ -245,6 +245,41 @@ def test_missing_symbol_falls_back_in_dev_and_raises_when_frozen(tmp_path, monke
         rust_fitter.reset_loader()
 
 
+def test_export_changelog_records_active_peak_fitter_backend(tmp_path, monkeypatch):
+    from manic.io.changelog_writer import generate_changelog
+
+    export_a = tmp_path / "run_a" / "out.xlsx"
+    export_a.parent.mkdir()
+    generate_changelog(
+        str(export_a),
+        internal_standard=None,
+        use_legacy_integration=False,
+        mass_tolerance=0.2,
+        min_peak_area_ratio=0.05,
+    )
+    text_a = next(export_a.parent.glob("changelog_*.md")).read_text(encoding="utf-8")
+    expected_a = "Rust" if rust_fitter.is_available() else "SciPy"
+    assert f"- **Peak Fitter Backend:** {expected_a}" in text_a
+
+    monkeypatch.setenv("MANIC_DISABLE_RUST_FITTER", "1")
+    rust_fitter.reset_loader()
+    try:
+        export_b = tmp_path / "run_b" / "out.xlsx"
+        export_b.parent.mkdir()
+        generate_changelog(
+            str(export_b),
+            internal_standard=None,
+            use_legacy_integration=False,
+            mass_tolerance=0.2,
+            min_peak_area_ratio=0.05,
+        )
+        text_b = next(export_b.parent.glob("changelog_*.md")).read_text(encoding="utf-8")
+        assert "- **Peak Fitter Backend:** SciPy" in text_b
+    finally:
+        monkeypatch.delenv("MANIC_DISABLE_RUST_FITTER", raising=False)
+        rust_fitter.reset_loader()
+
+
 def test_env_flag_forces_scipy_fallback(monkeypatch):
     monkeypatch.setenv("MANIC_DISABLE_RUST_FITTER", "1")
     rust_fitter.reset_loader()

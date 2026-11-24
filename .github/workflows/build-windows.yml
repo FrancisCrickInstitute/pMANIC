@@ -30,14 +30,19 @@ jobs:
         run: .\scripts\build_rust_fitter.bat
 
       # The only Windows run of the test suite: no installer is built from code that fails it.
+      - name: Sync test environment
+        shell: pwsh
+        run: uv sync --locked
+
+      - name: Verify Rust peak fitter loads
+        shell: pwsh
+        run: uv run python -c "from manic.processors import rust_fitter; assert rust_fitter.is_available(), 'Rust peak fitter failed to load'"
+
       - name: Run tests
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
-        run: |
-          uv sync --locked
-          uv run python -c "from manic.processors import rust_fitter; assert rust_fitter.is_available(), 'Rust peak fitter failed to load'"
-          uv run pytest -q
+        run: uv run pytest -q
 
       - name: Build app with PyInstaller
         shell: pwsh

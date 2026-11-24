@@ -260,6 +260,12 @@ class DataExporter:
         try:
             start_time = time.time()
             logger.info(f"Starting Excel export to {filepath}")
+            # Resolve the peak-fitter backend before writing any workbook so a
+            # broken frozen bundle fails cleanly instead of leaving an .xlsx
+            # without its changelog.
+            from manic.processors import rust_fitter
+
+            rust_fitter.backend_name()
 
             # Optional per-call override of integration mode
             if use_legacy_integration is not None:

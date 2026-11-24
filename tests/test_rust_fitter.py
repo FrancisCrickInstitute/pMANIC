@@ -294,7 +294,12 @@ def test_missing_library_raises_in_frozen_build(monkeypatch):
             deconv.deconvolve_eic(
                 time, peak, retention_time=0.5, loffset=0.2, roffset=0.2, stringency="4"
             )
+        monkeypatch.setenv("MANIC_DISABLE_RUST_FITTER", "1")
+        rust_fitter.reset_loader()
+        assert not rust_fitter.is_available()
+        assert rust_fitter.backend_name() == "SciPy"
     finally:
+        monkeypatch.delenv("MANIC_DISABLE_RUST_FITTER", raising=False)
         rust_fitter.reset_loader()
 
 

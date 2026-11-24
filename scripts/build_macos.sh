@@ -34,15 +34,12 @@ echo ""
 echo "Step 1: Cleaning previous build..."
 rm -rf "${DIST_DIR}/${APP_NAME}.app" "${DIST_DIR}/${APP_NAME}" build *.spec.lock || true
 
-if command -v cargo &> /dev/null; then
-    echo "Building Rust peak fitter..."
-    bash scripts/build_rust_fitter.sh || exit 1
-elif [ "${MANIC_ALLOW_SCIPY_ONLY_BUILD:-0}" = "1" ]; then
-    echo "cargo not found; packaging without Rust peak fitter (MANIC_ALLOW_SCIPY_ONLY_BUILD=1)."
-else
-    echo "Error: cargo is required to build the Rust peak fitter. Install Rust or set MANIC_ALLOW_SCIPY_ONLY_BUILD=1." >&2
+if ! command -v cargo &> /dev/null; then
+    echo "Error: cargo is required to build the Rust peak fitter." >&2
     exit 1
 fi
+echo "Building Rust peak fitter..."
+bash scripts/build_rust_fitter.sh || exit 1
 
 echo ""
 echo "Step 2: Building .app bundle with PyInstaller..."

@@ -28,18 +28,13 @@ try:
 except Exception:
     pass
 
-rust_binaries = []
 rust_lib = 'src/manic/processors/manic_fitter.dll'
-if os.environ.get('MANIC_ALLOW_SCIPY_ONLY_BUILD') == '1':
-    pass
-elif os.path.exists(rust_lib):
-    rust_binaries.append((rust_lib, 'manic/processors'))
-else:
+if not os.path.exists(rust_lib):
     raise FileNotFoundError(
         f"Missing compiled Rust peak fitter at {rust_lib}. "
-        "Run `scripts\\build_rust_fitter.bat` first, or set "
-        "MANIC_ALLOW_SCIPY_ONLY_BUILD=1 to package without it."
+        "Run `scripts\\build_rust_fitter.bat` first."
     )
+rust_binaries = [(rust_lib, 'manic/processors')]
 
 a = Analysis(
     ['src/manic/main.py'],

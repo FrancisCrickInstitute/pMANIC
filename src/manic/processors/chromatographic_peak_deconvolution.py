@@ -1346,6 +1346,7 @@ def _component_shape_gradients(
 def _normal_equations(
     shape_matrix: np.ndarray, ones: np.ndarray, ridge: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
+    # Match np.column_stack's memory layout (C for K=1, F for K>1) so BLAS keeps bit-exact rounding.
     order = "F" if shape_matrix.shape[0] > 1 else "C"
     design = np.empty(
         (ones.size, 1 + shape_matrix.shape[0]), dtype=np.float64, order=order
@@ -1387,20 +1388,6 @@ def _variable_projection_jacobian(
 
     column_count = component_count * param_count
     grads = gradients.reshape(column_count, points)
-
-    if channels == 1:
-        weights_1d = coef[1:, 0]
-        grads_res = (grads @ residual).T
-        if component_count == 1:
-            naive = grads.T * weights_1d[0]
-            projected = naive - design @ (gram_inv_design_t @ naive)
-            feedback = gram_inv_design_t[1, :][:, None] * grads_res
-        else:
-            component_of_column = np.repeat(np.arange(component_count), param_count)
-            naive = grads.T * weights_1d[component_of_column][None, :]
-            projected = naive - design @ (gram_inv_design_t @ naive)
-            feedback = gram_inv_design_t[component_of_column + 1, :].T * grads_res
-        return (projected + feedback) / channel_scale[0]
 
     weights = coef[1:]
     component_of_column = np.repeat(np.arange(component_count), param_count)

@@ -187,7 +187,7 @@ Measured on the 11,700 cells of both bench datasets (levels 4 and 7 together):
 | exact Jacobian for all three shapes | 3 | 2 | 0 |
 | Rust TRF backend with exact Jacobian for all three shapes | 4 | 3 | 0 |
 
-Finite differences estimate a derivative by subtracting two nearly equal residuals, which magnifies last-digit noise in the inputs; the exact Jacobian does not subtract, so a 1e-12 nudge stays a 1e-12 nudge. The cells that still move are all at level 7 on planted hard scenarios (near co-elution, noisy traces) where the data genuinely do not determine the split. A change to the fitter should not raise these counts.
+Finite differences estimate a derivative by subtracting two nearly equal residuals, which magnifies last-digit noise in the inputs; the exact Jacobian does not subtract, so a 1e-12 nudge stays a 1e-12 nudge. The cells that still move are all at level 7 on planted hard scenarios (near co-elution, noisy traces) where the data genuinely do not determine the split or sit on the `max_nfev = 460` cut-off; single-seed counts vary by one or two cells across backends, while level 4 should remain at 0 and level-7 counts should stay in this low single-digit range.
 
 ## Maintenance
 

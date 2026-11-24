@@ -86,6 +86,10 @@ def _load_library():
                     f"Bundled Rust peak fitter failed to load from {path}: {exc}"
                 ) from exc
             logger.warning("Could not load Rust peak fitter from %s", path, exc_info=True)
+    if getattr(sys, "frozen", False):
+        raise RustFitterError(
+            f"Bundled Rust peak fitter is missing ({_library_filename()})"
+        )
     logger.info("Peak fitter backend: SciPy (Rust library not present)")
     return None
 

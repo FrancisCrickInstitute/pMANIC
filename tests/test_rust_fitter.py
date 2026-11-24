@@ -280,6 +280,24 @@ def test_export_changelog_records_active_peak_fitter_backend(tmp_path, monkeypat
         rust_fitter.reset_loader()
 
 
+def test_missing_library_raises_in_frozen_build(monkeypatch):
+    monkeypatch.setattr(rust_fitter, "_candidate_paths", lambda: [])
+    monkeypatch.setattr(rust_fitter.sys, "frozen", True, raising=False)
+    rust_fitter.reset_loader()
+    try:
+        with pytest.raises(rust_fitter.RustFitterError, match="missing"):
+            rust_fitter.is_available()
+        time = np.linspace(0.0, 1.0, 61, dtype=np.float64)
+        peak = 500.0 * np.exp(-0.5 * ((time - 0.5) / 0.04) ** 2)
+        _clear_caches()
+        with pytest.raises(rust_fitter.RustFitterError, match="missing"):
+            deconv.deconvolve_eic(
+                time, peak, retention_time=0.5, loffset=0.2, roffset=0.2, stringency="4"
+            )
+    finally:
+        rust_fitter.reset_loader()
+
+
 def test_env_flag_forces_scipy_fallback(monkeypatch):
     monkeypatch.setenv("MANIC_DISABLE_RUST_FITTER", "1")
     rust_fitter.reset_loader()

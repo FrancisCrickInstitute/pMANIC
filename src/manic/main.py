@@ -1,8 +1,7 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 from pathlib import Path
-
-from manic.models.database import clear_database, init_db
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +14,12 @@ def configure_logging() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s(): %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[
-            logging.FileHandler(log_dir / "manic.log", encoding="utf-8"),  # log file
+            RotatingFileHandler(
+                log_dir / "manic.log",
+                maxBytes=5 * 1024 * 1024,
+                backupCount=2,
+                encoding="utf-8",
+            ),
             logging.StreamHandler(),  # console
         ],
     )
@@ -24,9 +28,7 @@ def configure_logging() -> None:
 def main():
     from PySide6.QtWidgets import QApplication
 
-    from manic.models.analysis import AnalysisContext
     from manic.ui.analysis_mode_dialog import choose_analysis_mode
-    from manic.ui.main_window import MainWindow
     from manic.utils.utils import apply_app_stylesheet
 
     configure_logging()
@@ -41,8 +43,13 @@ def main():
         logger.info("Application start cancelled before analysis selection")
         return 0
 
-    init_db()
-    clear_database()
+    # Import MainWindow and database only after the user chooses a mode so the
+    # first dialog appears without loading numpy, QtCharts, or heavy I/O modules.
+    from manic.models.analysis import AnalysisContext
+    from manic.models.database import reset_database
+    from manic.ui.main_window import MainWindow
+
+    reset_database()
     logger.info("Database initialized")
 
     manic = MainWindow(AnalysisContext(selected_mode))

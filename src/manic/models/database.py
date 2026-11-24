@@ -75,6 +75,32 @@ def init_db() -> None:
     logger.info("database ready at %s", DB_FILE)
 
 
+def reset_database() -> None:
+    """Start from a fresh SQLite file, avoiding full-file DELETE/integrity scans on launch."""
+    # Release any cached connection first so Windows can unlink the file.
+    _close_cached_connection()
+    # Unlinking the database and WAL sidecars reclaims disk space from prior
+    # sessions immediately instead of leaving a multi-hundred-MB file behind.
+    removed = True
+    for path in (
+        DB_FILE,
+        DB_FILE.parent / f"{DB_FILE.name}-wal",
+        DB_FILE.parent / f"{DB_FILE.name}-shm",
+    ):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.warning("Could not remove %s during reset (%s); clearing in place", path, exc)
+            removed = False
+            break
+
+    init_db()
+    if not removed:
+        clear_database()
+
+
 def _run_migrations(conn: sqlite3.Connection) -> None:
     """Run database migrations to handle schema changes"""
 
@@ -518,14 +544,9 @@ def _clear_database_fast(progress_callback=None):
         if progress_callback:
             progress_callback(2, 4, "Re-enabling database constraints...")
             
-        # OPTIMIZATION 3: Re-enable foreign keys and verify integrity
+        # OPTIMIZATION 3: Re-enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON")
-        
-        # Verify database integrity (quick check)
-        integrity_result = conn.execute("PRAGMA integrity_check(1)").fetchone()
-        if integrity_result[0] != "ok":
-            logger.warning(f"Database integrity check failed: {integrity_result[0]}")
-        
+
         if progress_callback:
             progress_callback(4, 4, "Database clearing complete")
     

@@ -45,14 +45,6 @@ from manic.constants import (
     DEFAULT_RT_WINDOW,
     minimum_extract_rt_window,
 )
-from manic.io.compounds_import import (
-    UnlabelledCompoundRecord,
-    detect_compound_list_format,
-    import_compound_excel,
-    insert_compound,
-    insert_unlabelled_compound,
-    taken_compound_names,
-)
 from manic.io.data_provider import DataProvider
 from manic.io.eic_importer import reextract_session_eics
 from manic.io.list_compound_names import list_compound_names
@@ -92,7 +84,7 @@ from manic.processors.display_deconvolution import (
 )
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import calculate_peak_areas
-from manic.models.database import clear_database, get_connection
+from manic.models.database import clear_database, get_connection, reset_database
 from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.models.sample_fit_type import set_sample_fit_type
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
@@ -1102,7 +1094,7 @@ class MainWindow(QMainWindow):
                 return
 
         try:
-            clear_database()
+            reset_database()
         except Exception as exc:
             self._show_message("critical", "Could not clear session", str(exc))
             return
@@ -1205,6 +1197,11 @@ class MainWindow(QMainWindow):
     def _load_compound_list_from(self, path: str) -> None:
         if not self.load_compound_action.isEnabled():
             return
+        from manic.io.compounds_import import (
+            detect_compound_list_format,
+            import_compound_excel,
+        )
+
         detected_mode = detect_compound_list_format(path)
         if detected_mode is not None and detected_mode is not self.analysis_mode:
             msg_box = self._create_message_box(
@@ -1239,6 +1236,12 @@ class MainWindow(QMainWindow):
             self._show_message("warning", "Error", str(e))
 
     def show_add_compound_dialog(self) -> None:
+        from manic.io.compounds_import import (
+            UnlabelledCompoundRecord,
+            insert_compound,
+            insert_unlabelled_compound,
+            taken_compound_names,
+        )
         from manic.ui.add_compound_dialog import AddCompoundDialog
 
         if self._background_work_running("adding a compound"):

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from xlsxwriter.format import Format
+from typing import TYPE_CHECKING
 
 from manic.validation.peak_verdict import PEAK_VERDICT_FILL, PeakVerdict
+
+if TYPE_CHECKING:
+    from xlsxwriter.format import Format
 
 BASELINE_OFF_FONT_COLOR = "#1F5FBF"
 

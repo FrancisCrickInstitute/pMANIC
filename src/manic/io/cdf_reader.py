@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from netCDF4 import Dataset
 
 
 @dataclass(slots=True)
@@ -32,6 +31,9 @@ def read_cdf_file(
     path: str | Path, rt_range: tuple[float, float] | None = None
 ) -> CdfFileData:
     """Read a CDF file, or only the scans inside ``rt_range`` (minutes)."""
+    # Defer netCDF4/HDF5 shared-library load until a CDF file is actually opened.
+    from netCDF4 import Dataset
+
     path = Path(path).expanduser()
     with Dataset(path, "r") as cdf:
         variables = cdf.variables

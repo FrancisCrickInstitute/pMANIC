@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Iterator, Literal, Mapping, Sequence
-
-import numpy as np
+from typing import TYPE_CHECKING, Iterator, Literal, Mapping, Sequence
 
 from manic.models.analysis import IonChannel, IonRole
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class IdentityStatus(StrEnum):
@@ -283,6 +284,7 @@ def quantifier_apex_time(
     A maximum on the first or last in-window scan is the slope of a peak
     outside the window, not an apex, so it returns ``None``.
     """
+    import numpy as np
 
     time_array = np.asarray(time, dtype=np.float64)
     intensity_array = np.asarray(intensity, dtype=np.float64)

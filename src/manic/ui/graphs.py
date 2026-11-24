@@ -693,6 +693,9 @@ class GraphView(QWidget):
                 self.selection_changed.emit(self.get_selected_samples())
 
             self._prepared_displays.clear()
+        except Exception:
+            self._hide_unused_tiles()
+            raise
         finally:
             if grid_host is not None:
                 grid_host.setUpdatesEnabled(True)
@@ -1500,6 +1503,9 @@ class GraphView(QWidget):
         guide_role: str | None = None,
     ) -> QLineSeries:
         """Reuse an attached QLineSeries when inside _draw_eic, else attach a new one."""
+        if xs.size:
+            xs = np.ascontiguousarray(xs, dtype=np.float64)
+            ys = np.ascontiguousarray(ys, dtype=np.float64)
         cursor = getattr(chart, "_series_cursor", None)
         if cursor is not None:
             pool: list[QLineSeries] = chart._series_pool
@@ -1518,20 +1524,6 @@ class GraphView(QWidget):
                 if not series.isVisible():
                     series.setVisible(True)
                 return series
-            series = QLineSeries()
-            if xs.size:
-                series.appendNp(xs, ys)
-            series.setPen(pen)
-            if name:
-                series.setName(name)
-            if guide_role is not None:
-                series.setProperty("guide_role", guide_role)
-            chart.addSeries(series)
-            series.attachAxis(x_axis)
-            series.attachAxis(y_axis)
-            pool.append(series)
-            chart._series_cursor = cursor + 1
-            return series
 
         series = QLineSeries()
         if xs.size:
@@ -1544,6 +1536,9 @@ class GraphView(QWidget):
         chart.addSeries(series)
         series.attachAxis(x_axis)
         series.attachAxis(y_axis)
+        if cursor is not None:
+            chart._series_pool.append(series)
+            chart._series_cursor = cursor + 1
         return series
 
     def _update_chart_data(

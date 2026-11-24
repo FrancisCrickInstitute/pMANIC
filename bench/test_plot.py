@@ -43,7 +43,7 @@ def _assert_grid(window, case, compound: str) -> None:
     assert window.graph_view.get_current_compound() == compound
     plots = window.graph_view._current_plots
     assert len(plots) == case.n_samples
-    assert all(plot.chart().series() for plot in plots)
+    assert all(any(s.isVisible() for s in plot.chart().series()) for plot in plots)
     if case.labelled:
         ratios = window.summary.isotopologue_ratios._current_ratios
         assert ratios is not None and ratios.shape[0] == case.n_samples

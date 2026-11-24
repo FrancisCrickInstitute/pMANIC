@@ -107,11 +107,16 @@ def test_graphview_reuses_qline_series_and_hides_spares_matching_cold_plot(qapp,
     assert all_after == all_before
 
 
-def test_graphview_restores_updates_enabled_after_error(qapp, empty_db, monkeypatch):
+def test_graphview_restores_updates_enabled_and_hides_stale_tiles_after_error(
+    qapp, empty_db, monkeypatch
+):
     samples = _seed_two_compounds()
     view = GraphView()
     grid_host = view._scroll.widget()
     assert grid_host.updatesEnabled()
+
+    view.plot_compound("Multi", samples)
+    assert len(view._current_plots) == 2
 
     monkeypatch.setattr(
         "manic.ui.graphs.get_eics_for_compound",
@@ -120,3 +125,8 @@ def test_graphview_restores_updates_enabled_after_error(qapp, empty_db, monkeypa
     with pytest.raises(RuntimeError, match="boom"):
         view.plot_compound("Single", samples)
     assert grid_host.updatesEnabled()
+    assert view._current_plots == []
+    for container in view._container_pool:
+        assert container.isHidden()
+        assert container.caption.text() == ""
+        assert all(not s.isVisible() for s in container.chart_view.chart().series())

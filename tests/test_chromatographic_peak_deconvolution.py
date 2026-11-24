@@ -719,6 +719,7 @@ def test_sparse_clean_peak_is_not_treated_as_messy():
 
 
 def test_cheap_path_keeps_a_usable_fit_when_max_nfev_is_hit(monkeypatch):
+    monkeypatch.setattr(deconv.rust_fitter, "is_available", lambda: False)
     real = deconv.least_squares
 
     def exhausted(*args, **kwargs):
@@ -748,6 +749,7 @@ def test_cheap_path_keeps_a_usable_fit_when_max_nfev_is_hit(monkeypatch):
 
 
 def test_overlap_path_rejects_a_fit_that_only_hit_max_nfev(monkeypatch):
+    monkeypatch.setattr(deconv.rust_fitter, "is_available", lambda: False)
     real = deconv.least_squares
 
     def exhausted(*args, **kwargs):

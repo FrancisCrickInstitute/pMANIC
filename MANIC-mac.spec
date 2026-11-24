@@ -20,10 +20,23 @@ hiddenimports = [
     'PySide6.QtWebEngineWidgets',
 ]
 
+rust_binaries = []
+rust_lib = 'src/manic/processors/libmanic_fitter.dylib'
+if os.environ.get('MANIC_ALLOW_SCIPY_ONLY_BUILD') == '1':
+    pass
+elif os.path.exists(rust_lib):
+    rust_binaries.append((rust_lib, 'manic/processors'))
+else:
+    raise FileNotFoundError(
+        f"Missing compiled Rust peak fitter at {rust_lib}. "
+        "Run `bash scripts/build_rust_fitter.sh` first, or set "
+        "MANIC_ALLOW_SCIPY_ONLY_BUILD=1 to package without it."
+    )
+
 a = Analysis(
     ['src/manic/main.py'],
     pathex=['src'],
-    binaries=[],
+    binaries=rust_binaries,
     datas=[
         ('src/manic/resources/*', 'src/manic/resources'),
         ('src/manic/models/schema.sql', 'src/manic/models'),
@@ -72,7 +85,7 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=['libmanic_fitter.dylib'],
     name='MANIC'
 )
 

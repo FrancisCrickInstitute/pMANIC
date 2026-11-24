@@ -3,6 +3,17 @@ setlocal enabledelayedexpansion
 
 REM Build MANIC on Windows using uv (if available) or pip fallback, then Inno Setup
 
+where cargo >nul 2>&1
+if %ERRORLEVEL%==0 (
+  echo Building Rust peak fitter...
+  call scripts\build_rust_fitter.bat || goto :error
+) else if "%MANIC_ALLOW_SCIPY_ONLY_BUILD%"=="1" (
+  echo cargo not found; packaging without Rust peak fitter ^(MANIC_ALLOW_SCIPY_ONLY_BUILD=1^).
+) else (
+  echo Error: cargo is required to build the Rust peak fitter. Install Rust or set MANIC_ALLOW_SCIPY_ONLY_BUILD=1.
+  goto :error
+)
+
 where uv >nul 2>&1
 if %ERRORLEVEL%==0 (
   echo Detected uv; using uv for build

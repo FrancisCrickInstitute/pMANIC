@@ -54,10 +54,26 @@ def test_main_window_import_skips_heavy_io_modules():
     assert loaded == []
 
 
-def test_reset_database_replaces_file_and_sidecars(tmp_path, monkeypatch):
+def test_reset_database_removes_stale_sidecars(tmp_path, monkeypatch):
     db_path = tmp_path / "manic.db"
     wal_path = tmp_path / "manic.db-wal"
     shm_path = tmp_path / "manic.db-shm"
+    monkeypatch.setattr(database, "DB_FILE", db_path)
+
+    database.init_db()
+    database._close_cached_connection()
+    wal_path.write_bytes(b"stale-wal")
+    shm_path.write_bytes(b"stale-shm")
+
+    database.reset_database()
+
+    assert db_path.is_file()
+    assert not wal_path.exists()
+    assert not shm_path.exists()
+
+
+def test_reset_database_closes_cached_connection_before_unlink(tmp_path, monkeypatch):
+    db_path = tmp_path / "manic.db"
     monkeypatch.setattr(database, "DB_FILE", db_path)
 
     database.init_db()
@@ -66,8 +82,6 @@ def test_reset_database_replaces_file_and_sidecars(tmp_path, monkeypatch):
             "INSERT INTO compounds (compound_name, retention_time, mass0) VALUES (?, ?, ?)",
             ("Alanine", 4.2, 116.1),
         )
-    wal_path.write_bytes(b"stale-wal")
-    shm_path.write_bytes(b"stale-shm")
     assert getattr(database._conn_local, "conn", None) is not None
 
     real_unlink = type(db_path).unlink
@@ -83,8 +97,6 @@ def test_reset_database_replaces_file_and_sidecars(tmp_path, monkeypatch):
 
     assert conn_state_at_unlink == [None]
     assert db_path.is_file()
-    assert not wal_path.exists()
-    assert not shm_path.exists()
     with database.get_connection() as conn:
         count = conn.execute("SELECT COUNT(*) FROM compounds").fetchone()[0]
     assert count == 0

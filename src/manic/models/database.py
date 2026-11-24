@@ -83,9 +83,9 @@ def reset_database() -> None:
     # sessions immediately instead of leaving a multi-hundred-MB file behind.
     removed = True
     for path in (
-        DB_FILE,
         DB_FILE.parent / f"{DB_FILE.name}-wal",
         DB_FILE.parent / f"{DB_FILE.name}-shm",
+        DB_FILE,
     ):
         try:
             path.unlink()

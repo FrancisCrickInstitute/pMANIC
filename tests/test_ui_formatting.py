@@ -118,7 +118,7 @@ def test_refresh_mode_charts_shares_one_provider(monkeypatch):
         def __init__(self, use_legacy_integration=False):
             created.append(self)
 
-        def assess_unlabelled_identities(self, compound_name, sample_names):
+        def assess_unlabelled_identities(self, compound_name, sample_names, **_kwargs):
             return SimpleNamespace(compound_name=compound_name, samples=tuple(sample_names))
 
     monkeypatch.setattr("manic.ui.main_window.DataProvider", CountingProvider)
@@ -130,7 +130,7 @@ def test_refresh_mode_charts_shares_one_provider(monkeypatch):
         use_legacy_integration=False,
         graph_view=SimpleNamespace(get_current_samples=lambda: ["S1"]),
         _update_targeted_qc=lambda identity: seen_qc.append(identity),
-        _update_total_abundance=lambda compound, provider=None: seen_abundance.append(
+        _update_total_abundance=lambda compound, provider=None, **_kwargs: seen_abundance.append(
             provider
         ),
     )

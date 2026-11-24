@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import math
 import threading
 import warnings
 from dataclasses import dataclass
@@ -488,16 +489,21 @@ def _deconvolve_matrix(
     window_time = time[fit_mask]
     window_matrix = np.maximum(np.asarray(matrix[:, fit_mask], dtype=np.float64), 0.0)
 
-    summed_window = np.sum(window_matrix, axis=0)
-    candidate_count = len(_candidate_peak_indices(window_matrix, params))
+    summed_window = (
+        window_matrix[0]
+        if window_matrix.shape[0] == 1
+        else np.sum(window_matrix, axis=0)
+    )
     if _too_messy_to_fit(summed_window, min_smoothness):
         fitted = None
     else:
+        candidate_count = len(_candidate_peak_indices(window_matrix, params))
+        window_bytes = window_matrix.tobytes()
         try:
             if candidate_count < 2:
                 fitted = _fit_single_component_model_cached(
                     window_time.tobytes(),
-                    window_matrix.tobytes(),
+                    window_bytes,
                     window_matrix.shape,
                     params,
                     retention_time,
@@ -505,7 +511,7 @@ def _deconvolve_matrix(
             else:
                 fitted = _fit_joint_component_model_cached(
                     window_time.tobytes(),
-                    window_matrix.tobytes(),
+                    window_bytes,
                     window_matrix.shape,
                     params,
                     retention_time,
@@ -630,6 +636,10 @@ class FitMissing(Exception):
 # Fits computed ahead of a render on worker processes (see fit_prefetch), keyed
 # like the caches below; each is consumed once, on its cache miss.
 _prefetched: dict[tuple, FittedComponentModel | None] = {}
+_prefetched_lock = threading.Lock()
+# Thread-local single-entry hand-off used when background callbacks seed the
+# LRU caches so they cannot race with discard_prefetched() or GUI pops.
+_local_prefetched = threading.local()
 # While this thread's ``keys`` is a list, cache misses record their key there
 # and raise FitMissing. Thread-local so a background export never probes.
 _probe = threading.local()
@@ -637,13 +647,26 @@ _probe = threading.local()
 
 def _cached_fit(fit, *args) -> FittedComponentModel | None:
     key = (fit.__name__, *args)
-    if key in _prefetched:
-        return _prefetched.pop(key)
+    local_entry = getattr(_local_prefetched, "entry", None)
+    if local_entry is not None and local_entry[0] == key:
+        _local_prefetched.entry = None
+        return local_entry[1]
+    with _prefetched_lock:
+        if key in _prefetched:
+            return _prefetched.pop(key)
     keys = getattr(_probe, "keys", None)
     if keys is not None:
         keys.append(key)
         raise FitMissing
     return fit(*args)
+
+
+def has_cached_fits() -> bool:
+    """True when either in-process fit cache holds at least one entry."""
+    return (
+        _fit_single_component_model_cached.cache_info().currsize > 0
+        or _fit_joint_component_model_cached.cache_info().currsize > 0
+    )
 
 
 @functools.lru_cache(maxsize=8192)
@@ -742,7 +765,8 @@ def _fit_joint_component_model(
 
     # Data-driven width estimate from the dominant peak, so the initial sigma and
     # the sigma upper bound track the actual peaks instead of half the window.
-    typical_sigma = _estimate_peak_sigma(np.sum(y, axis=0), dt, params)
+    summed = y[0] if channels == 1 else np.sum(y, axis=0)
+    typical_sigma = _estimate_peak_sigma(summed, dt, params)
     init_sigma = float(np.clip(typical_sigma if typical_sigma > 0 else min_sigma * 2.0,
                                min_sigma, x_span))
     max_sigma = min(max(min_sigma * 4.0, init_sigma * 4.0), x_span)
@@ -823,6 +847,7 @@ def _fit_shape_candidate(
         np.percentile(y, 95, axis=1) - np.percentile(y, 10, axis=1),
         max(max_y * 1e-6, np.finfo(float).eps),
     )
+    y_t = y.T
     ridge = 1e-12 * np.eye(1 + component_count)
     ones = np.ones(points)
 
@@ -863,14 +888,15 @@ def _fit_shape_candidate(
         # be fast; non-negativity is only enforced once on the final fit, where a
         # per-channel NNLS cleans up any channel with a negative coefficient.
         design, gram = normal or _normal_equations(shape_matrix, ones, ridge)
-        coef = np.linalg.solve(gram, design.T @ y.T)
+        coef = np.linalg.solve(gram, design.T @ y_t)
         if enforce_nonneg:
             for channel in np.flatnonzero(np.any(coef < 0.0, axis=0)):
                 coef[:, channel], _ = nnls(design, y[channel])
         return coef[0], coef[1:].T
 
     # least_squares asks for the Jacobian at the point whose residual it just
-    # evaluated, so the residual keeps its shapes and normal equations for it.
+    # evaluated, so the residual keeps its raw shapes, normalised shapes, and
+    # normal equations for it.
     last_evaluation: dict = {}
 
     def residual(values: np.ndarray) -> np.ndarray:
@@ -879,12 +905,19 @@ def _fit_shape_candidate(
         )
         raw = _raw_component_shapes(x_rel, shape_model, values_matrix)
         shape_matrix = _normalize_rows(raw)
-        normal = _normal_equations(shape_matrix, ones, ridge)
+        design, gram = _normal_equations(shape_matrix, ones, ridge)
+        coef = np.linalg.solve(gram, design.T @ y_t)
         last_evaluation.clear()
-        last_evaluation[values_matrix.tobytes()] = (raw, shape_matrix, normal)
-        intercept, weights = solve_linear(shape_matrix, normal=normal)
-        total = intercept[:, None] + weights @ shape_matrix
-        return ((total - y) / channel_scale[:, None]).ravel()
+        last_evaluation[values_matrix.tobytes()] = (
+            raw,
+            shape_matrix,
+            design,
+            gram,
+        )
+        baseline = coef[0]
+        weights = coef[1:].T
+        model = baseline[:, None] + weights @ shape_matrix
+        return ((model - y) / channel_scale[:, None]).ravel()
 
     def jacobian(values: np.ndarray) -> np.ndarray:
         values_matrix = np.asarray(values, dtype=np.float64).reshape(
@@ -966,7 +999,8 @@ def _prioritize_target_seed(
 def _candidate_peak_indices(
     matrix: np.ndarray, params: ChromatographicPeakDeconvolutionParameters
 ) -> list[int]:
-    traces = [np.sum(matrix, axis=0), *[trace for trace in matrix]]
+    summed = matrix[0] if matrix.shape[0] == 1 else np.sum(matrix, axis=0)
+    traces = (summed,) if matrix.shape[0] == 1 else (summed, *matrix)
     candidates: list[tuple[int, float]] = []
 
     for trace in traces:
@@ -976,7 +1010,6 @@ def _candidate_peak_indices(
             candidates.append((apex, float(trace[apex])))
 
     if not candidates:
-        summed = np.sum(matrix, axis=0)
         candidates.append((int(np.argmax(summed)), float(np.max(summed))))
 
     min_distance = max(1, int(np.floor(params.min_width_points / 2.0)))
@@ -989,12 +1022,12 @@ def _candidate_peak_indices(
     # find_peaks misses a peak clipped at the EIC extract edge.
     if len(merged) < 2:
         leftover = _leftover_peak_index(
-            np.sum(matrix, axis=0),
+            summed,
             exclude_indices=[index for index, _ in merged],
             min_height_fraction=params.min_height_fraction,
         )
         if leftover is not None:
-            merged.append((leftover, float(np.sum(matrix, axis=0)[leftover])))
+            merged.append((leftover, float(summed[leftover])))
 
     merged.sort(key=lambda item: item[1], reverse=True)
     return [index for index, _ in merged]
@@ -1185,6 +1218,11 @@ def _shape_param_count(shape_model: PeakShapeModel) -> int:
 
 
 def _normalize_rows(shapes: np.ndarray) -> np.ndarray:
+    if shapes.shape[0] == 1:
+        m = float(shapes[0].max())
+        if m > 0.0 and math.isfinite(m):
+            return shapes / m
+        return np.zeros_like(shapes, dtype=np.float64)
     max_shapes = np.max(shapes, axis=1)
     normalized = np.zeros_like(shapes, dtype=np.float64)
     valid = (max_shapes > 0) & np.isfinite(max_shapes)
@@ -1283,6 +1321,16 @@ def _component_shape_gradients(
 
     if shapes is None:
         shapes = _normalize_rows(raw)
+    if raw.shape[0] == 1:
+        max_idx = int(np.argmax(raw[0]))
+        max_val = float(raw[0, max_idx])
+        if max_val > 0.0 and math.isfinite(max_val):
+            max_grad = raw_gradients[0, :, max_idx]
+            gradients = (
+                raw_gradients - shapes[0:1, None, :] * max_grad[None, :, None]
+            ) / max_val
+            return shapes, gradients
+        return shapes, np.zeros_like(raw_gradients)
     max_shapes = np.max(raw, axis=1)
     valid = (max_shapes > 0) & np.isfinite(max_shapes)
     max_gradients = np.take_along_axis(
@@ -1298,7 +1346,12 @@ def _component_shape_gradients(
 def _normal_equations(
     shape_matrix: np.ndarray, ones: np.ndarray, ridge: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    design = np.column_stack([ones, shape_matrix.T])
+    order = "F" if shape_matrix.shape[0] > 1 else "C"
+    design = np.empty(
+        (ones.size, 1 + shape_matrix.shape[0]), dtype=np.float64, order=order
+    )
+    design[:, 0] = 1.0
+    design[:, 1:] = shape_matrix.T
     return design, design.T @ design + ridge
 
 
@@ -1324,17 +1377,32 @@ def _variable_projection_jacobian(
         shapes, gradients = _component_shape_gradients(x_rel, shape_model, values_matrix)
         design, gram = _normal_equations(shapes, ones, ridge)
     else:
-        raw, shapes, (design, gram) = evaluated
+        raw, shapes, design, gram = evaluated
         shapes, gradients = _component_shape_gradients(
             x_rel, shape_model, values_matrix, raw=raw, shapes=shapes
         )
     gram_inv_design_t = np.linalg.solve(gram, design.T)
     coef = gram_inv_design_t @ y.T
     residual = y.T - design @ coef
-    weights = coef[1:]
 
     column_count = component_count * param_count
     grads = gradients.reshape(column_count, points)
+
+    if channels == 1:
+        weights_1d = coef[1:, 0]
+        grads_res = (grads @ residual).T
+        if component_count == 1:
+            naive = grads.T * weights_1d[0]
+            projected = naive - design @ (gram_inv_design_t @ naive)
+            feedback = gram_inv_design_t[1, :][:, None] * grads_res
+        else:
+            component_of_column = np.repeat(np.arange(component_count), param_count)
+            naive = grads.T * weights_1d[component_of_column][None, :]
+            projected = naive - design @ (gram_inv_design_t @ naive)
+            feedback = gram_inv_design_t[component_of_column + 1, :].T * grads_res
+        return (projected + feedback) / channel_scale[0]
+
+    weights = coef[1:]
     component_of_column = np.repeat(np.arange(component_count), param_count)
     naive = grads.T[:, None, :] * weights[component_of_column].T[None, :, :]
     flat = naive.reshape(points, channels * column_count)

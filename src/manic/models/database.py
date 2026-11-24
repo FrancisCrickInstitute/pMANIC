@@ -1,5 +1,7 @@
 import logging
+import os
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,6 +16,41 @@ DB_FILE = Path.home() / ".manic_app" / "manic.db"
 # Path to schema.sql that works in both dev and frozen builds
 SCHEMA_SQL_PATH = Path(resource_path('models', 'schema.sql'))
 
+_conn_local = threading.local()
+
+
+def _db_file_identity(path: Path) -> tuple[str, tuple[int, int] | None]:
+    resolved = str(path.resolve())
+    try:
+        st = os.stat(resolved)
+        return resolved, (st.st_dev, st.st_ino)
+    except OSError:
+        return resolved, None
+
+
+def _open_connection(db_file: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_file)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+    except sqlite3.OperationalError:
+        # Readonly fixtures and some sandbox paths cannot create the -wal file.
+        pass
+    return conn
+
+
+def _close_cached_connection() -> None:
+    conn = getattr(_conn_local, "conn", None)
+    _conn_local.conn = None
+    _conn_local.identity = None
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 
 def init_db() -> None:
     """
@@ -21,6 +58,7 @@ def init_db() -> None:
     Also handles database migrations.
     Idempotent: safe to call at every application start-up.
     """
+    _close_cached_connection()
     # Check the .manic_app directory exists
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -236,33 +274,65 @@ def get_connection():
     Yield a read-write connection with foreign-keys enforced.
     Commits on normal exit, rolls back on exception.
 
+    Reuses a thread-local connection while DB_FILE and its inode stay unchanged,
+    avoiding repeated connect/PRAGMA/close overhead on read-heavy paths. Nested
+    calls on the same thread open a separate connection to preserve transaction
+    isolation.
+
     Example usage:
 
         with get_connection() as conn:
             conn.execute("INSERT INTO compounds (...) VALUES (...)")
 
     """
-    conn = None  #  ensure the name exists
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
+    db_file = Path(DB_FILE)
+    depth = getattr(_conn_local, "depth", 0)
+    if depth > 0:
+        conn = None
         try:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = NORMAL")
-        except sqlite3.OperationalError:
-            # Readonly fixtures and some sandbox paths cannot create the -wal file.
-            pass
-        yield conn  #  hand the connection to callers
-        conn.commit()  #  normal exit ⇒ commit
+            conn = _open_connection(db_file)
+            yield conn
+            conn.commit()
+        except Exception:
+            if conn is not None:
+                conn.rollback()
+            logger.exception("DB transaction rolled back")
+            raise
+        finally:
+            if conn is not None:
+                conn.close()
+        return
+
+    identity = _db_file_identity(db_file)
+    conn = getattr(_conn_local, "conn", None)
+    if conn is None or getattr(_conn_local, "identity", None) != identity or identity[1] is None:
+        _close_cached_connection()
+        conn = _open_connection(db_file)
+        _conn_local.conn = conn
+        _conn_local.identity = _db_file_identity(db_file)
+
+    _conn_local.depth = 1
+    ok = False
+    try:
+        yield conn
+        conn.commit()
+        # Capture inode after the first write creates a brand-new DB file.
+        if _conn_local.identity is not None and _conn_local.identity[1] is None:
+            _conn_local.identity = _db_file_identity(db_file)
+        ok = True
     except Exception:
-        if conn is not None:
-            conn.rollback()  #  roll back only if we had a connection
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         logger.exception("DB transaction rolled back")
         raise
     finally:
-        if conn is not None:  #  close only if we actually opened it
-            conn.close()
+        _conn_local.depth = 0
+        if not ok:
+            # Close on any abnormal exit (including BaseException or callbacks
+            # raising mid-block) so uncommitted work and session PRAGMAs never leak.
+            _close_cached_connection()
 
 
 def soft_delete_compound(compound_name: str) -> bool:

@@ -339,12 +339,19 @@ def test_assess_unlabelled_identities_keeps_sample_failures_in_the_snapshot(
 
     provider = DataProvider()
 
-    def fake_assess(sample_name, compound_name):
-        if sample_name == "broken":
-            raise RuntimeError("EIC file is missing")
-        return qc
+    def fake_assess_by_sample(compound_name, sample_names):
+        return {
+            sample_name: (
+                RuntimeError("EIC file is missing")
+                if sample_name == "broken"
+                else qc
+            )
+            for sample_name in sample_names
+        }
 
-    monkeypatch.setattr(provider, "assess_unlabelled_identity", fake_assess)
+    monkeypatch.setattr(
+        provider, "assess_unlabelled_identity_by_sample", fake_assess_by_sample
+    )
 
     snapshot = provider.assess_unlabelled_identities("Target", ["S1", "broken"])
 
@@ -370,7 +377,7 @@ def test_main_window_tolerates_compound_level_identity_failures(failure):
     from manic.ui.main_window import MainWindow
 
     class Provider:
-        def assess_unlabelled_identities(self, compound_name, sample_names):
+        def assess_unlabelled_identities(self, compound_name, sample_names, **_kwargs):
             raise failure
 
     window = SimpleNamespace()

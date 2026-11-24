@@ -23,7 +23,6 @@ from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.io.eic_importer import samples_needing_reextraction
 from manic.models.analysis import AnalysisMode
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
-from manic.processors.eic_processing import get_eics_for_compound
 from manic.ui.sidebar_widgets import CollapsibleSection
 from manic.ui.theme import set_style_property
 
@@ -562,9 +561,23 @@ class IntegrationWindow(QWidget):
         """Populate fields with ranges for multiple samples"""
         
         try:
-            eics = get_eics_for_compound(compound_name, sample_names)
+            if not sample_names:
+                self._clear_fields()
+                return
 
-            if not eics:
+            from manic.models.database import get_connection
+
+            placeholders = ",".join("?" for _ in sample_names)
+            with get_connection() as conn:
+                has_eic = (
+                    conn.execute(
+                        f"SELECT 1 FROM eic WHERE compound_name = ? "
+                        f"AND sample_name IN ({placeholders}) AND deleted = 0 LIMIT 1",
+                        [compound_name, *sample_names],
+                    ).fetchone()
+                    is not None
+                )
+            if not has_eic:
                 logger.warning(f"No EIC data found for compound {compound_name}")
                 self._clear_fields()
                 return

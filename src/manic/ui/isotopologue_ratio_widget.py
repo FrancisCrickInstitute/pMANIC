@@ -26,7 +26,10 @@ from PySide6.QtWidgets import (
 
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.eic_reader import EIC
-from manic.processors.display_deconvolution import integrated_display_areas
+from manic.processors.display_deconvolution import (
+    apply_display_correction,
+    integrated_display_areas,
+)
 
 from . import theme
 from .chart_header import ChartHeader
@@ -140,7 +143,13 @@ class IsotopologueRatioWidget(QWidget):
         self._current_ratios: Optional[np.ndarray] = None
         self._current_sample_names: Optional[List[str]] = None
 
-    def update_ratios(self, compound_name: str, eics: List[EIC]) -> None:
+    def update_ratios(
+        self,
+        compound_name: str,
+        eics: List[EIC],
+        *,
+        raw_areas_by_sample: Optional[dict[str, list[float]]] = None,
+    ) -> None:
         """Integrate ``eics`` and chart each sample's isotopologue ratios."""
         if not eics or not compound_name:
             self.clear()
@@ -149,7 +158,9 @@ class IsotopologueRatioWidget(QWidget):
         self._current_eics = eics
         self._current_compound = compound_name
 
-        ratios, total_abundances = self._calculate_integrated_data(eics, compound_name)
+        ratios, total_abundances = self._calculate_integrated_data(
+            eics, compound_name, raw_areas_by_sample=raw_areas_by_sample
+        )
 
         if ratios is None:
             self.clear()
@@ -175,7 +186,11 @@ class IsotopologueRatioWidget(QWidget):
         self._update_chart(ordered_ratios, self._current_sample_names)
 
     def _calculate_integrated_data(
-        self, eics: List[EIC], compound_name: str
+        self,
+        eics: List[EIC],
+        compound_name: str,
+        *,
+        raw_areas_by_sample: Optional[dict[str, list[float]]] = None,
     ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         ratios = []
         total_abundances = []
@@ -183,13 +198,26 @@ class IsotopologueRatioWidget(QWidget):
 
         for eic in eics:
             compound = read_compound_with_session(compound_name, eic.sample_name)
-            isotope_areas = integrated_display_areas(
-                eic.time,
-                eic.intensity,
-                compound,
-                use_corrected=self.use_corrected,
-                use_legacy=self.use_legacy,
+            precomputed = (
+                raw_areas_by_sample.get(eic.sample_name)
+                if raw_areas_by_sample is not None
+                else None
             )
+            if precomputed is not None:
+                isotope_areas = apply_display_correction(
+                    precomputed,
+                    compound,
+                    use_corrected=self.use_corrected,
+                    is_multi_trace=eic.intensity.ndim > 1,
+                )
+            else:
+                isotope_areas = integrated_display_areas(
+                    eic.time,
+                    eic.intensity,
+                    compound,
+                    use_corrected=self.use_corrected,
+                    use_legacy=self.use_legacy,
+                )
             total_area = sum(isotope_areas)
             total_abundances.append(total_area)
 

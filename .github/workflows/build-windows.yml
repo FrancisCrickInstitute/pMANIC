@@ -55,6 +55,22 @@ jobs:
           if (-not $bundled) { throw "manic_fitter.dll missing from dist\MANIC" }
           uv run python -c "import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); assert hasattr(lib, 'manic_fit_shape_candidate')" $bundled.FullName
 
+      - name: Smoke test packaged app
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\MANIC\MANIC.exe" -ArgumentList "--smoke-test" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(120000)) {
+            $p.Kill($true)
+            if (Test-Path "$HOME\.manic_app\manic.log") { Get-Content "$HOME\.manic_app\manic.log" -Tail 60 }
+            throw "MANIC.exe --smoke-test timed out after 120s"
+          }
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path "$HOME\.manic_app\manic.log") { Get-Content "$HOME\.manic_app\manic.log" -Tail 60 }
+            throw "MANIC.exe --smoke-test failed with exit code $($p.ExitCode)"
+          }
+
       - name: Build installer with Inno Setup
         shell: pwsh
         run: |
@@ -68,6 +84,7 @@ jobs:
           path: dist/MANIC-Setup-Windows.zip
 
       - name: Attach to release
+        if: startsWith(inputs.tag, 'v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

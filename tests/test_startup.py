@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 
@@ -127,3 +128,19 @@ def test_reset_database_falls_back_when_file_locked(tmp_path, monkeypatch):
     with database.get_connection() as conn:
         count = conn.execute("SELECT COUNT(*) FROM compounds").fetchone()[0]
     assert count == 0
+
+
+def test_smoke_test_flag_succeeds_from_source(tmp_path):
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path),
+        "USERPROFILE": str(tmp_path),
+    }
+    proc = subprocess.run(
+        [sys.executable, "-m", "manic.main", "--smoke-test"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr

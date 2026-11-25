@@ -185,8 +185,9 @@ Measured on the 11,700 cells of both bench datasets (levels 4 and 7 together):
 | finite-difference Jacobian (`main` before the exact Jacobian) | 16 | 8 | 2 |
 | exact Jacobian for gaussian and bi-gaussian | 3 | 1 | 0 |
 | exact Jacobian for all three shapes | 3 | 2 | 0 |
+| Rust TRF backend with exact Jacobian for all three shapes | 4 | 3 | 0 |
 
-Finite differences estimate a derivative by subtracting two nearly equal residuals, which magnifies last-digit noise in the inputs; the exact Jacobian does not subtract, so a 1e-12 nudge stays a 1e-12 nudge. The cells that still move are all at level 7 on planted hard scenarios (near co-elution, noisy traces) where the data genuinely do not determine the split. A change to the fitter should not raise these counts.
+Finite differences estimate a derivative by subtracting two nearly equal residuals, which magnifies last-digit noise in the inputs; the exact Jacobian does not subtract, so a 1e-12 nudge stays a 1e-12 nudge. The cells that still move are all at level 7 on planted hard scenarios (near co-elution, noisy traces) where the data genuinely do not determine the split. A change to the fitter should keep level 4 at 0 and not raise these counts (the Rust row's one-cell increase at level 7 is a known exception tracked in #330).
 
 ## Maintenance
 

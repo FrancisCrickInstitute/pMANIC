@@ -21,14 +21,28 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
+      - name: Test Rust peak fitter
+        shell: pwsh
+        run: cargo test --manifest-path rust/manic_fitter/Cargo.toml
+
+      - name: Build Rust peak fitter
+        shell: pwsh
+        run: .\scripts\build_rust_fitter.bat
+
       # The only Windows run of the test suite: no installer is built from code that fails it.
+      - name: Sync test environment
+        shell: pwsh
+        run: uv sync --locked
+
+      - name: Verify Rust peak fitter loads
+        shell: pwsh
+        run: uv run python -c "from manic.processors import rust_fitter; assert rust_fitter.is_available(), 'Rust peak fitter failed to load'"
+
       - name: Run tests
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
-        run: |
-          uv sync --locked
-          uv run pytest -q
+        run: uv run pytest -q
 
       - name: Build app with PyInstaller
         shell: pwsh
@@ -37,6 +51,9 @@ jobs:
           uv pip install pyinstaller pyinstaller-hooks-contrib
           uv run pyinstaller -y --clean MANIC.spec
           if (-not (Test-Path dist\MANIC\MANIC.exe)) { throw "dist\MANIC\MANIC.exe not produced" }
+          $bundled = Get-ChildItem -Path dist\MANIC -Recurse -Filter manic_fitter.dll | Select-Object -First 1
+          if (-not $bundled) { throw "manic_fitter.dll missing from dist\MANIC" }
+          uv run python -c "import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); assert hasattr(lib, 'manic_fit_shape_candidate')" $bundled.FullName
 
       - name: Build installer with Inno Setup
         shell: pwsh

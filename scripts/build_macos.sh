@@ -34,6 +34,13 @@ echo ""
 echo "Step 1: Cleaning previous build..."
 rm -rf "${DIST_DIR}/${APP_NAME}.app" "${DIST_DIR}/${APP_NAME}" build *.spec.lock || true
 
+if ! command -v cargo &> /dev/null; then
+    echo "Error: cargo is required to build the Rust peak fitter." >&2
+    exit 1
+fi
+echo "Building Rust peak fitter..."
+bash scripts/build_rust_fitter.sh || exit 1
+
 echo ""
 echo "Step 2: Building .app bundle with PyInstaller..."
 $UV_RUN pyinstaller -y --clean MANIC-mac.spec || exit 1

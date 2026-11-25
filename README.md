@@ -261,6 +261,9 @@ pip install uv
 # Sync dependencies from lockfile
 uv sync
 
+# Build the Rust peak fitter (optional for dev; falls back to SciPy if absent)
+bash scripts/build_rust_fitter.sh   # Windows: scripts\build_rust_fitter.bat
+
 # Run the tests and the results check before every push (once per clone)
 git config core.hooksPath .githooks
 ```

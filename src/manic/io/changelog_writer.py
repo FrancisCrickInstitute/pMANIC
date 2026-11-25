@@ -8,6 +8,7 @@ from typing import Optional
 from manic.__version__ import __version__
 from manic.models.analysis import AnalysisMode
 from manic.models.database import get_connection
+from manic.processors import rust_fitter
 from manic.io.changelog_sections import (
     format_cell_colour_key,
     format_compounds_table_for_data_export,
@@ -155,6 +156,7 @@ def generate_changelog(
 - **Peak Validation Threshold:** {format_peak_validation_threshold(min_peak_area_ratio)}
 - **Integration Method:** {"Legacy Unit-Spacing (MATLAB Compatible)" if use_legacy_integration else "Time-based integration (scientifically accurate)"}
 - **Expected Value Scale:** {"~100× larger than time-based method" if use_legacy_integration else "Physically meaningful units"}
+- **Peak Fitter Backend:** {rust_fitter.backend_name()}
 {processing_description}
 
 ## Data Summary

@@ -21,15 +21,27 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
+      - name: Test and build Rust peak fitter
+        run: |
+          cargo test --manifest-path rust/manic_fitter/Cargo.toml
+          bash scripts/build_rust_fitter.sh
+
       - name: Build app with PyInstaller
         run: |
           uv sync
+          uv run python -c "from manic.processors import rust_fitter; assert rust_fitter.is_available(), 'Rust peak fitter failed to load'"
           uv pip install pyinstaller pyinstaller-hooks-contrib
           uv run pyinstaller -y --clean MANIC-mac.spec
           if [ ! -d dist/MANIC.app ]; then
             echo "dist/MANIC.app not produced" >&2
             exit 1
           fi
+          BUNDLED_LIB=$(find dist/MANIC.app -name libmanic_fitter.dylib -print -quit)
+          if [ -z "$BUNDLED_LIB" ]; then
+            echo "libmanic_fitter.dylib missing from dist/MANIC.app" >&2
+            exit 1
+          fi
+          uv run python -c "import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); assert hasattr(lib, 'manic_fit_shape_candidate')" "$BUNDLED_LIB"
 
       - name: Build DMG and zip
         run: |

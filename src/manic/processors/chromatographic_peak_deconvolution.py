@@ -10,6 +10,8 @@ from typing import Literal
 
 import numpy as np
 
+from manic.processors import rust_fitter
+
 
 def _imported_on_first_call(module: str, name: str):
     # SciPy takes ~0.4 s to import, which the window does not need to open.
@@ -516,6 +518,8 @@ def _deconvolve_matrix(
                     params,
                     retention_time,
                 )
+        except rust_fitter.RustFitterError:
+            raise
         except Exception:
             fitted = None
 
@@ -934,38 +938,62 @@ def _fit_shape_candidate(
             evaluated=last_evaluation.get(values_matrix.tobytes()),
         )
 
-    try:
-        result = least_squares(
-            residual,
-            x0=np.asarray(initial, dtype=np.float64),
-            bounds=(np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)),
-            jac=jacobian,
-            x_scale="jac",
-            max_nfev=params.max_nfev,
+    x0_arr = np.asarray(initial, dtype=np.float64)
+    lower_arr = np.asarray(lower, dtype=np.float64)
+    upper_arr = np.asarray(upper, dtype=np.float64)
+
+    if rust_fitter.is_available():
+        rust_out = rust_fitter.fit_shape_candidate_rust(
+            x_rel,
+            y,
+            channel_scale,
+            shape_model,
+            x0_arr,
+            lower_arr,
+            upper_arr,
+            component_count,
+            params.max_nfev,
         )
-    except Exception:
-        return None
+        if rust_out is None:
+            return None
+        result_x, result_status = rust_out
+        result_success = result_status > 0
+    else:
+        try:
+            result = least_squares(
+                residual,
+                x0=x0_arr,
+                bounds=(lower_arr, upper_arr),
+                jac=jacobian,
+                x_scale="jac",
+                max_nfev=params.max_nfev,
+            )
+        except Exception:
+            return None
+        result_x = result.x
+        result_status = result.status
+        result_success = result.success
 
     # status 0 is max_nfev. Keep that only on the cheap 1-component path.
-    if not result.success and (params.max_components != 1 or result.status != 0):
+    if not result_success and (params.max_components != 1 or result_status != 0):
         return None
-    if not np.all(np.isfinite(result.x)):
+    if not np.all(np.isfinite(result_x)):
         return None
 
-    centers, shape_matrix = shapes_from(result.x)
+    centers, shape_matrix = shapes_from(result_x)
     intercept, weights = solve_linear(shape_matrix, enforce_nonneg=True)
     baseline = np.repeat(intercept[:, None], points, axis=1)
     components = weights.T[:, :, None] * shape_matrix[:, None, :]
     scaled_residual = (baseline + np.sum(components, axis=0) - y) / channel_scale[:, None]
     rss = float(np.sum(scaled_residual**2))
     observation_count = int(y.size)
-    parameter_count = channels * (1 + component_count) + int(result.x.size)
+    parameter_count = channels * (1 + component_count) + int(result_x.size)
     bic = observation_count * np.log(max(rss / observation_count, np.finfo(float).eps))
     bic += parameter_count * np.log(max(observation_count, 2))
 
     # Capture the continuous-model parameters in the same (center-sorted) order as
     # ``centers``/``components`` so the fit can be re-evaluated on any time grid.
-    ordered_params = np.asarray(result.x, dtype=np.float64).reshape(
+    ordered_params = np.asarray(result_x, dtype=np.float64).reshape(
         component_count, param_count
     )
     ordered_params = ordered_params[np.argsort(ordered_params[:, 0])]

@@ -14,3 +14,7 @@ OLD_MANIC/
 testdata/
 bench/cache/
 .benchmarks/
+rust/manic_fitter/target/
+src/manic/processors/libmanic_fitter.dylib
+src/manic/processors/libmanic_fitter.so
+src/manic/processors/manic_fitter.dll

@@ -40,6 +40,9 @@ Both workflows correct the integrated areas, so the correction is the same. With
 * **Matching Compound List:** A Compound Definition file (Step 1) that matches the metabolite names in your legacy file. This is required to provide the *Molecular Formulas* and *Label Atoms* needed for correction. MANIC checks each row as it does when you load a compound list. If a row is invalid, for example a labelled compound with no formula, MANIC names it beside the field and does not run.
 
 ### Steps
+
+![Process external data dialog](_assets/screenshots/process_external_data.png)
+
 1.  Choose **File → Process External Data...**.
 2.  In **Process external data**, set **Compounds file** with **Browse…**.
 3.  Set **Raw Values workbook** with **Browse…**. If a file cannot be used, the reason shows under its field and **Rebuild export…** stays off.

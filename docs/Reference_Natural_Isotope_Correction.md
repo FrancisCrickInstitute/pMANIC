@@ -113,6 +113,8 @@ The areas that enter this correction must be the same kind of measurement on eve
 
 The **Show corrected data** preview (**Settings → Natural abundance**) still corrects every scan to draw the traces, and draws negative scans at 0; [Natural Abundance Correction preview](Reference_Chromatographic_Peak_Deconvolution.md#natural-abundance-correction-preview) describes what it draws. The drawn trace is a picture of the correction, not the number: an isotopologue whose corrected area is 0 can still show small positive blips. The Isotopologue ratio bars, the tile verdicts and the Corrected Values sheet all correct the integrated raw areas. Each time-based bar is one isotopologue's corrected area divided by the sample's total, so it equals the Isotope Ratio sheet number. Legacy export uses unit-spacing integration and different units.
 
+![Settings, Natural abundance page](_assets/screenshots/settings_natural_abundance.png)
+
 ---
 
 ## 4. Interpretation of Results

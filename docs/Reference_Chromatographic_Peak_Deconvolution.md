@@ -14,6 +14,8 @@ Deconvolution settings are per compound and apply to every sample. When the leve
 
 ## One fit for display and integration
 
+![Detailed view of one sample showing fitted curves over the faint raw signal and dashed baselines](_assets/screenshots/detail_view.png)
+
 When deconvolution is on and every non-empty ion of the compound in that sample has a usable model, the selected peak is a continuous analytic model (Gaussian, Bi-Gaussian, or EMG). Display and export use that same fitted model:
 
 - **Plots** draw the model on a dense grid, with the faint raw EIC underneath. [Natural Abundance Correction preview](#natural-abundance-correction-preview) changes what they draw.
@@ -71,6 +73,8 @@ The next sample of the same compound can still use model areas if every non-empt
 
 ## Per-Compound Settings
 
+![Settings, Deconvolution page](_assets/screenshots/settings_deconvolution.png)
+
 The resolution level, peak-shape fit type, and noise gate are stored **per compound** (persisted in the session database), not as a single global option. Each compound can use a different setting, and the choice applies to all of that compound's samples. The plot may show only some samples. Save still writes the compound row, so hidden samples use the same setting when you plot them or export.
 
 Settings are edited from **Settings → Deconvolution** with a compound selected. When the selected compound departs from the default, the status bar names its setting, and the settings are written to the export changelog so a processed result can be reproduced exactly.
@@ -84,6 +88,8 @@ The Deconvolution page includes an **"Apply to all compounds"** checkbox. When t
 A sample can override the compound fit type without changing resolution or the noise gate. Right-click selected plot tiles and choose **Curve Fit** (the **Review** menu has the same submenu), or use the **Per-sample curve fit** table in **Settings → Deconvolution**. The table has one row for every sample with an override and every sample selected in the plot area; the selected samples' rows open selected. The table follows the plot selection while Settings is open. Unsaved changes are kept, and a sample with an unsaved fit keeps its row after you deselect it. Each row is editable. Select rows and choose **Set fit for *N* selected** to change them together. With more than one override, **Remove all overrides** sets every row to **Use compound setting**. Nothing is written until Save. An override shows on the tile caption as `Sample  ·  Gaussian` (or Auto, Bi-Gaussian, EMG). Tiles that inherit the compound setting keep the sample name only. Export, session export, and the changelog use the same override. Choosing **Use Compound Setting** in the **Curve Fit** submenu, or **Use compound setting** in Settings, returns that sample to the compound fit type.
 
 ## Resolution Levels
+
+![Resolution choices in the sidebar Deconvolution section](_assets/screenshots/sidebar_deconvolution_levels.png)
 
 Chromatographic peak deconvolution can be turned off, or run at levels `1` through `7`.
 

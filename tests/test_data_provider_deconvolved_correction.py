@@ -33,12 +33,6 @@ def test_corrected_export_uses_deconvolved_raw_component(empty_db, monkeypatch):
             [0, 8, 8, 0, 0],
         ]
     )
-    stored_full_trace_correction = np.vstack(
-        [
-            [100, 100, 100, 100, 100],
-            [50, 50, 50, 50, 50],
-        ]
-    )
     selected_component = np.vstack(
         [
             [0, 10, 10, 0, 0],
@@ -59,12 +53,6 @@ def test_corrected_export_uses_deconvolved_raw_component(empty_db, monkeypatch):
         conn.execute(
             "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis) VALUES (?, ?, ?, ?)",
             ("S1", "Urea", _blob(time), _blob(raw.ravel())),
-        )
-        conn.execute(
-            "INSERT INTO eic_corrected "
-            "(sample_name, compound_name, x_axis, y_axis_corrected, correction_applied, deleted) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            ("S1", "Urea", _blob(time), _blob(stored_full_trace_correction.ravel()), 1, 0),
         )
 
     deconvolution_calls = []

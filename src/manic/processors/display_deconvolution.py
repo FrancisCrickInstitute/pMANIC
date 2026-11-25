@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,6 +18,11 @@ from manic.processors.eic_correction_manager import (
     make_time_series_corrector,
 )
 from manic.processors.integration import calculate_peak_areas, integrate_bundle_areas
+from manic.processors.natural_abundance_correction import (
+    NaturalAbundanceCorrectionError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -188,12 +194,20 @@ def apply_display_correction(
     is_multi_trace: bool,
 ) -> list[float]:
     areas = list(raw_areas)
-    correct_areas = (
-        make_area_corrector(compound) if use_corrected and is_multi_trace else None
-    )
-    if correct_areas is None:
+    if not (use_corrected and is_multi_trace and (compound.label_atoms or 0) > 0):
         return areas
-    return [float(area) for area in correct_areas(areas)]
+    correct_areas = make_area_corrector(compound)
+    if correct_areas is None:
+        return []
+    try:
+        return [float(area) for area in correct_areas(areas)]
+    except NaturalAbundanceCorrectionError as exc:
+        logger.warning(
+            "Display area correction failed for %s: %s",
+            compound.compound_name,
+            exc,
+        )
+        return []
 
 
 def integrated_display_areas(

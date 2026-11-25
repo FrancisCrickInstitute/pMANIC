@@ -151,7 +151,7 @@ def test_seed_compound_raw_areas_matches_provider_compute(use_legacy, deconv_lev
     seeded = DataProvider(use_legacy_integration=use_legacy)
 
     for name, _atoms, _formula, _label_type, _y, _has_ions in cases:
-        eics = get_eics_for_compound(name, ["S1"], use_corrected=False)
+        eics = get_eics_for_compound(name, ["S1"])
         compound = read_compound_with_session(name, "S1")
         prepared = plot_display(eics[0].time, eics[0].intensity, compound, use_corrected=False)
         raw_areas = integrate_prepared_raw_areas(
@@ -213,7 +213,7 @@ def test_bulk_export_reuses_parent_cached_fits_and_observed_rt(monkeypatch):
 
     # Partially warm: fit only S1 on screen, then run a full bulk load. The
     # cache-miss tasks (S2, S3) must not record unfitted FitMissing placeholders.
-    eics = get_eics_for_compound("Target", samples, use_corrected=False)
+    eics = get_eics_for_compound("Target", samples)
     first_compound = read_compound_with_session("Target", eics[0].sample_name)
     plot_display(eics[0].time, eics[0].intensity, first_compound, use_corrected=False)
     partial_provider = DataProvider()

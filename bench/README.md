@@ -100,7 +100,6 @@ a change under 10% as noise until a second run repeats it.
 | Test | Stage | Default work | Assertion |
 | --- | --- | --- | --- |
 | `import` | Compound CSV plus CDF import into a fresh database | 30 files | row count |
-| `corrections` | Natural abundance correction over every EIC (labelled only) | 2,850 cells | count |
 | `deconvolve_hard_windows[*-4]` | Deconvolution plus integration at the shipped default (level 4, balanced gate) | 12 hard windows | one finite area per channel |
 | `deconvolve_hard_windows[*-7]` | Same at level 7 with the noise gate off | `--bench-full` only, 60 windows | as above |
 | `plot_first` | First plot after opening: a fresh window, cold caches, full tile grid | 30 tiles | grid and sidebar populated |
@@ -129,7 +128,7 @@ Import, export and the tile grid scale linearly with samples, so 30 is enough to
 | `--bench-full` | 60 deconvolution windows at levels 4 and 7, and every compound navigated in separately identified `plot_next` rows. This is a distinct workload and requires a matching full baseline. |
 | `--bench-repeat N` | N rounds per stage (default 1). Use 3 when a change looks like it moved something by less than 10 %. |
 | `--bench-scan-dt-s 0.1` | Generate and use dense-axis data. The scan interval is part of the workload identity and corpus validation. |
-| `-k import` | Only the stages whose test name matches. Names: `import`, `corrections`, `deconvolve`, `plot_first`, `plot_next`, `export`, `startup`, `session_roundtrip`, `regenerate`, `resize`, `select_samples`, `detailed_plot`, `clear_session`, `labelled`, `unlabelled`. |
+| `-k import` | Only the stages whose test name matches. Names: `import`, `deconvolve`, `plot_first`, `plot_next`, `export`, `startup`, `session_roundtrip`, `regenerate`, `resize`, `select_samples`, `detailed_plot`, `clear_session`, `labelled`, `unlabelled`. |
 | `--benchmark-compare=0003` | Compare against a specific saved run by its 4-digit prefix instead of the latest. |
 | `--benchmark-autosave` | Save this run as a baseline. Leave it off for candidate runs so repeated compares keep pointing at the same baseline. |
 | `--benchmark-histogram=PATH` | Change where the plots are written (default `.benchmarks/plots/run`). |

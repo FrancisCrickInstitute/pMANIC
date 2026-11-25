@@ -675,7 +675,7 @@ class DataProvider:
             raise ValueError(
                 f"{compound_name!r} does not have quantifier/qualifier channels"
             )
-        eic = read_eic(sample_name, compound, use_corrected=False)
+        eic = read_eic(sample_name, compound)
         return self._assess_identity(sample_name, compound, eic)
 
     def assess_unlabelled_identity_by_sample(
@@ -709,9 +709,7 @@ class DataProvider:
             eics = (
                 {
                     eic.sample_name: eic
-                    for eic in read_eics_batch(
-                        samples_needing_eic, first, use_corrected=False
-                    )
+                    for eic in read_eics_batch(samples_needing_eic, first)
                 }
                 if first is not None and samples_needing_eic
                 else {}

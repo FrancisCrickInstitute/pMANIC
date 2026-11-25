@@ -121,3 +121,118 @@ def test_compound_list_rows_are_checked_like_a_compound_list_import(tmp_path):
         _read_compounds_as_dicts(str(path))
     assert "row 2 (Ala): a labelled compound needs a formula" in str(refused.value)
     assert "row 3 (Gly)" in str(refused.value)
+
+
+def _write_custom_raw_values(path, rows):
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Raw Values"
+    for row in rows:
+        sheet.append(row)
+    book.save(path)
+
+
+def test_raw_values_reader_rejects_isotope_gap_duplicate_and_non_numeric(tmp_path):
+    import pytest
+
+    from manic.io.legacy_raw_values_reader import (
+        RawValuesFormatError,
+        read_raw_values_workbook,
+    )
+
+    gap_xlsx = tmp_path / "gap.xlsx"
+    _write_custom_raw_values(
+        gap_xlsx,
+        [
+            ["Compound Name", None, "Alanine", "Alanine"],
+            ["Mass", None, 116, 118],
+            ["Isotope", None, 0, 2],
+            ["tR", None, 5.0, 5.0],
+            [None, "Sample_01", 1000, 5],
+        ],
+    )
+    with pytest.raises(RawValuesFormatError, match="Alanine.*gap.*M\\+1"):
+        read_raw_values_workbook(str(gap_xlsx))
+
+    dup_xlsx = tmp_path / "dup.xlsx"
+    _write_custom_raw_values(
+        dup_xlsx,
+        [
+            ["Compound Name", None, "Alanine", "Alanine", "Alanine", "Alanine"],
+            ["Mass", None, 116, 117, 117, 118],
+            ["Isotope", None, 0, 1, 1, 2],
+            ["tR", None, 5.0, 5.0, 5.0, 5.0],
+            [None, "Sample_01", 1000, 50, 99, 5],
+        ],
+    )
+    with pytest.raises(RawValuesFormatError, match="Alanine.*duplicate.*M\\+1"):
+        read_raw_values_workbook(str(dup_xlsx))
+
+    bad_cell_xlsx = tmp_path / "bad_cell.xlsx"
+    _write_custom_raw_values(
+        bad_cell_xlsx,
+        [
+            ["Compound Name", None, "Alanine", "Alanine"],
+            ["Mass", None, 116, 117],
+            ["Isotope", None, 0, 1],
+            ["tR", None, 5.0, 5.0],
+            [None, "Sample_01", 1000, "not-a-number"],
+        ],
+    )
+    with pytest.raises(RawValuesFormatError, match="Alanine.*Sample_01"):
+        read_raw_values_workbook(str(bad_cell_xlsx))
+
+
+def test_update_old_data_dialog_shows_specific_raw_values_format_error(
+    qapp, tmp_path, monkeypatch
+):
+    compounds = tmp_path / "compounds.csv"
+    compounds.write_text(
+        "name,tr,mass0,loffset,roffset,labelatoms,formula\nAlanine,5,116,0.1,0.1,2,C3H7NO2\n"
+    )
+    gap_xlsx = tmp_path / "gap.xlsx"
+    _write_custom_raw_values(
+        gap_xlsx,
+        [
+            ["Compound Name", None, "Alanine", "Alanine"],
+            ["Mass", None, 116, 118],
+            ["Isotope", None, 0, 2],
+            ["tR", None, 5.0, 5.0],
+            [None, "Sample_01", 1000, 5],
+        ],
+    )
+    dialog = UpdateOldDataDialog()
+    dialog.show()
+    _pick(monkeypatch, dialog, compounds, gap_xlsx)
+    assert not dialog._ok_button.isEnabled()
+    assert dialog._raw_error.isVisible()
+    assert "Alanine" in dialog._raw_error.text()
+    dialog.close()
+
+
+def test_rebuild_refuses_uncorrectable_compound_before_writing(tmp_path):
+    import pytest
+
+    from manic.io.legacy_rebuild import rebuild_export_from_files
+
+    compounds = tmp_path / "compounds.csv"
+    compounds.write_text(
+        "name,tr,mass0,loffset,roffset,labelatoms,formula\nSeleno,5,116,0.1,0.1,1,C1Se1\n"
+    )
+    raw = tmp_path / "raw.xlsx"
+    _write_custom_raw_values(
+        raw,
+        [
+            ["Compound Name", None, "Seleno", "Seleno"],
+            ["Mass", None, 116, 117],
+            ["Isotope", None, 0, 1],
+            ["tR", None, 5.0, 5.0],
+            [None, "Sample_01", 1000, 10],
+        ],
+    )
+    out = tmp_path / "out.xlsx"
+    with pytest.raises(ValueError, match="Seleno"):
+        rebuild_export_from_files(str(compounds), str(raw), str(out))
+    assert not out.exists()

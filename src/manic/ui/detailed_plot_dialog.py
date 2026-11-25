@@ -416,9 +416,7 @@ class DetailedPlotDialog(QDialog):
     def _load_eic_data(self):
         """Load EIC data for the compound-sample combination."""
         try:
-            eics = get_eics_for_compound(
-                self.compound_name, [self.sample_name], use_corrected=False
-            )
+            eics = get_eics_for_compound(self.compound_name, [self.sample_name])
             if eics:
                 self.eic_data = eics[0]
                 logger.debug(f"Loaded EIC data: {len(self.eic_data.time)} points")

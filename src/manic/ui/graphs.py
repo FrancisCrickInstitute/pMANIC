@@ -143,6 +143,26 @@ def _uncorrectable_note(compound_name: str) -> str | None:
     )
 
 
+def _uncorrectable_standard_note(
+    internal_standard: str | None, plotted_compound: str
+) -> str | None:
+    """Header warning when the selected internal standard cannot be corrected."""
+    if not internal_standard or internal_standard == plotted_compound:
+        return None
+    try:
+        reason = uncorrectable_reason(
+            read_compound_with_session(internal_standard, None)
+        )
+    except LookupError:
+        return None
+    if reason is None:
+        return None
+    return (
+        f"Internal standard {internal_standard} cannot be corrected for natural "
+        f"isotopes ({reason}). Peak thresholds cannot be checked until it is fixed."
+    )
+
+
 class ClickableChartView(QChartView):
     """Custom QChartView that can be selected"""
 
@@ -396,6 +416,8 @@ class GraphView(QWidget):
 
         self._identity: IdentityAssessmentSet | None = None
         self._uncorrectable: str | None = None
+        self._internal_standard: str | None = None
+        self._internal_standard_uncorrectable: str | None = None
 
         self._y_scale_policy = YScalePolicy.PER_TILE_EXTRACT
         self._last_validation_data: Dict[str, PeakVerdict] | None = None
@@ -575,10 +597,11 @@ class GraphView(QWidget):
         if identity is not None and identity.compound_name != compound_name:
             identity = None
         self._identity = identity
-        note = qualifier_gap_note(identity) if identity is not None else None
         self._uncorrectable = _uncorrectable_note(compound_name)
-        self.qc_note.setText(note or self._uncorrectable or "")
-        self._show_qc_text()
+        self._internal_standard_uncorrectable = _uncorrectable_standard_note(
+            self._internal_standard, compound_name
+        )
+        self._update_qc_note()
 
         # Re-plotting the same compound (a fit or scale change) keeps selection and focus.
         same_compound = compound_name == self._current_compound
@@ -605,9 +628,7 @@ class GraphView(QWidget):
 
             if eics is None:
                 with measure_time("get_eics_from_db"):
-                    eics = get_eics_for_compound(
-                        compound_name, samples, use_corrected=False
-                    )
+                    eics = get_eics_for_compound(compound_name, samples)
 
             num = len(eics)
             if num == 0:
@@ -793,9 +814,38 @@ class GraphView(QWidget):
         if self._qc_key_wanted:
             self.qc_key.setText(qc_key_html(self._identity))
 
+    def set_internal_standard(self, internal_standard: str | None) -> None:
+        self._internal_standard = internal_standard
+        if self._current_compound:
+            self._internal_standard_uncorrectable = _uncorrectable_standard_note(
+                internal_standard, self._current_compound
+            )
+            self._update_qc_note()
+
+    def _update_qc_note(self) -> None:
+        parts = [
+            part
+            for part in (
+                qualifier_gap_note(self._identity)
+                if self._identity is not None
+                else None,
+                self._uncorrectable,
+                self._internal_standard_uncorrectable,
+            )
+            if part
+        ]
+        self.qc_note.setText(" ".join(parts))
+        self._show_qc_text()
+
     def _show_qc_text(self, *_args) -> None:
         self.qc_key.setVisible(self._qc_key_wanted)
-        self.qc_note.setVisible(bool(self.qc_note.text()) and not self.summary_button.isChecked())
+        has_correction_warning = bool(
+            self._uncorrectable or self._internal_standard_uncorrectable
+        )
+        self.qc_note.setVisible(
+            bool(self.qc_note.text())
+            and (has_correction_warning or not self.summary_button.isChecked())
+        )
 
     def _set_title(self, compound_name: str) -> None:
         self._tr_text = ""
@@ -1278,6 +1328,8 @@ class GraphView(QWidget):
         self._current_compound = ""
         self._current_samples = []
         self._identity = None
+        self._uncorrectable = None
+        self._internal_standard_uncorrectable = None
         # After the reset, so selection listeners do not reload a deleted compound.
         self.clear_selection()
         self._hide_legend()

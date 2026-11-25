@@ -382,10 +382,6 @@ def _stub_window_extract(monkeypatch) -> list[float]:
         lambda _path, _rt_range=None: SimpleNamespace(sample_name="s1"),
     )
     monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
-    monkeypatch.setattr(
-        "manic.processors.eic_correction_manager.apply_correction_to_eic",
-        lambda *_args, **_kwargs: False,
-    )
     return captured_windows
 
 
@@ -395,42 +391,6 @@ def _stored_rt_window(db_path: Path) -> float:
             "SELECT rt_window FROM eic WHERE compound_name = ? AND sample_name = ?",
             ("Glucose", "s1"),
         ).fetchone()[0]
-
-
-def test_batch_read_falls_back_to_raw_per_sample(tmp_path, monkeypatch):
-    db_path = tmp_path / "eics.db"
-    sample_files = {
-        "s1": tmp_path / "s1.cdf",
-        "s2": tmp_path / "s2.cdf",
-    }
-    monkeypatch.setattr(database, "DB_FILE", db_path)
-    _seed_eic_db(db_path, sample_files)
-    corrected = np.array([2.0, 20.0, 2.0], dtype=np.float64)
-    time_axis = np.array([7.07, 7.17, 7.27], dtype=np.float64)
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            INSERT INTO eic_corrected (
-                sample_name, compound_name, x_axis, y_axis_corrected
-            ) VALUES (?, ?, ?, ?)
-            """,
-            (
-                "s1",
-                "Glucose",
-                _compress(time_axis),
-                _compress(corrected),
-            ),
-        )
-
-    eics = read_eics_batch(
-        ["s1", "s2"],
-        read_compound("Glucose"),
-        use_corrected=True,
-    )
-
-    assert [eic.sample_name for eic in eics] == ["s1", "s2"]
-    assert eics[0].intensity == pytest.approx(corrected)
-    assert eics[1].intensity == pytest.approx([1.0, 10.0, 1.0])
 
 
 class TestRecoveryAfterEmptyExtract:
@@ -452,10 +412,6 @@ class TestRecoveryAfterEmptyExtract:
             raise EmptyRtWindowError("no scans inside RT window")
 
         monkeypatch.setattr("manic.io.eic_importer.extract_eic", _no_scans)
-        monkeypatch.setattr(
-            "manic.processors.eic_correction_manager.apply_correction_to_eic",
-            lambda *_args, **_kwargs: False,
-        )
 
         with pytest.raises(
             ValueError,
@@ -628,10 +584,6 @@ class TestRecoveryAfterEmptyExtract:
                 intensity=new_intensity,
             ),
         )
-        monkeypatch.setattr(
-            "manic.processors.eic_correction_manager.apply_correction_to_eic",
-            lambda *_args, **_kwargs: False,
-        )
 
         regenerated = regenerate_compound_eics(
             "Glucose",
@@ -783,10 +735,6 @@ class TestRecoveryAfterEmptyExtract:
             lambda _path, _rt_range=None: SimpleNamespace(sample_name="s1"),
         )
         monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
-        monkeypatch.setattr(
-            "manic.processors.eic_correction_manager.apply_correction_to_eic",
-            lambda *_args, **_kwargs: False,
-        )
 
         regenerate_compound_eics(
             "Glucose",
@@ -827,10 +775,6 @@ class TestRecoveryAfterEmptyExtract:
                 time=np.array([7.0, 7.1, 7.2]),
                 intensity=np.array([2.0, 20.0, 2.0]),
             ),
-        )
-        monkeypatch.setattr(
-            "manic.processors.eic_correction_manager.apply_correction_to_eic",
-            lambda *_args, **_kwargs: False,
         )
         pending = PendingRegeneration(
             compound_name="Glucose",
@@ -951,76 +895,6 @@ class TestRecoveryAfterEmptyExtract:
         assert restored == pytest.approx([7.07, 7.17, 7.27])
         assert session_count == 0
 
-    def test_lost_correction_rejects_change_and_keeps_existing_rows(
-        self, tmp_path, monkeypatch
-    ):
-        db_path = tmp_path / "regen.db"
-        cdf_path = tmp_path / "s1.cdf"
-        cdf_path.write_bytes(b"cdf")
-        monkeypatch.setattr(database, "DB_FILE", db_path)
-        _seed_eic_db(db_path, {"s1": cdf_path})
-        original_time = np.array([7.07, 7.17, 7.27], dtype=np.float64)
-        original_corrected = np.array([2.0, 20.0, 2.0], dtype=np.float64)
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO eic_corrected (
-                    sample_name, compound_name, x_axis, y_axis_corrected
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (
-                    "s1",
-                    "Glucose",
-                    _compress(original_time),
-                    _compress(original_corrected),
-                ),
-            )
-        monkeypatch.setattr(
-            "manic.io.eic_importer.read_cdf_file",
-            lambda _path, _rt_range=None: object(),
-        )
-        monkeypatch.setattr(
-            "manic.io.eic_importer.extract_eic",
-            lambda *_args, **_kwargs: SimpleNamespace(
-                time=np.array([7.0, 7.1, 7.2]),
-                intensity=np.array([3.0, 30.0, 3.0]),
-            ),
-        )
-        monkeypatch.setattr(
-            "manic.io.eic_importer.compute_corrected_intensity",
-            lambda *_args, **_kwargs: None,
-        )
-
-        with pytest.raises(
-            RuntimeError,
-            match="Could not recreate the natural abundance correction.*sample 's1'",
-        ):
-            regenerate_compound_eics(
-                "Glucose",
-                0.2,
-                ["s1"],
-                retention_time=7.10,
-            )
-
-        with sqlite3.connect(db_path) as conn:
-            raw = conn.execute(
-                "SELECT x_axis FROM eic WHERE compound_name = ? AND sample_name = ?",
-                ("Glucose", "s1"),
-            ).fetchone()[0]
-            corrected = conn.execute(
-                """
-                SELECT y_axis_corrected FROM eic_corrected
-                WHERE compound_name = ? AND sample_name = ?
-                """,
-                ("Glucose", "s1"),
-            ).fetchone()[0]
-        assert np.frombuffer(zlib.decompress(raw), dtype=np.float64) == pytest.approx(
-            original_time
-        )
-        assert np.frombuffer(
-            zlib.decompress(corrected), dtype=np.float64
-        ) == pytest.approx(original_corrected)
-
     def test_extracts_each_sample_around_its_own_retention_time(
         self, tmp_path, monkeypatch
     ):
@@ -1049,10 +923,6 @@ class TestRecoveryAfterEmptyExtract:
             )
 
         monkeypatch.setattr("manic.io.eic_importer.extract_eic", _extract)
-        monkeypatch.setattr(
-            "manic.processors.eic_correction_manager.apply_correction_to_eic",
-            lambda *_args, **_kwargs: False,
-        )
 
         regenerated = regenerate_compound_eics(
             "Glucose",

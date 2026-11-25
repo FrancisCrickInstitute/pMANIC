@@ -13,7 +13,6 @@ from manic.io.in_memory_provider import InMemoryDataProvider
 from manic.models import database
 from manic.models.analysis import AnalysisMode
 from manic.processors.calibration import calculate_mrrf_values
-from manic.processors.eic_correction_manager import process_all_corrections
 from manic.processors.natural_abundance_correction import NaturalAbundanceCorrector
 from manic.sheet_generators import (
     abundances,
@@ -279,46 +278,6 @@ def test_unlabelled_abundances_units_row_marks_assumed_mrrf_as_relative():
     sheet = load_workbook(output)["Abundances"]
     assert [sheet.cell(4, col).value for col in (3, 4)] == ["nmol", "Relative"]
     assert exporter.assumed_mrrf == {"NoStandard"}
-
-
-def test_process_all_corrections_matches_correct_time_series(empty_db):
-    time = np.array([0.0, 1.0, 2.0], dtype=np.float64)
-    intensity = np.array(
-        [
-            [100.0, 80.0, 20.0],
-            [10.0, 8.0, 2.0],
-        ],
-        dtype=np.float64,
-    )
-    with database.get_connection() as conn:
-        conn.execute(
-            "INSERT INTO compounds (compound_name, retention_time, mass0, label_atoms, "
-            "formula, label_type, tbdms, meox, me) "
-            "VALUES ('Pyruvate', 1.0, 87.0, 1, 'C1H4', 'C', 0, 0, 0)"
-        )
-        conn.execute("INSERT INTO samples (sample_name, file_name) VALUES ('S1', '/fake/S1.cdf')")
-        conn.execute(
-            "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window) "
-            "VALUES (?, ?, ?, ?, 0.4)",
-            (
-                "S1",
-                "Pyruvate",
-                zlib.compress(time.tobytes()),
-                zlib.compress(intensity.ravel().tobytes()),
-            ),
-        )
-
-    assert process_all_corrections() == 1
-    expected = NaturalAbundanceCorrector().correct_time_series(
-        intensity, "C1H4", "C", 1, 0, 0, 0
-    )
-    with database.get_connection() as conn:
-        row = conn.execute(
-            "SELECT y_axis_corrected FROM eic_corrected "
-            "WHERE sample_name = 'S1' AND compound_name = 'Pyruvate'"
-        ).fetchone()
-    stored = np.frombuffer(zlib.decompress(row["y_axis_corrected"]), dtype=np.float64)
-    np.testing.assert_allclose(stored, expected.ravel())
 
 
 def test_export_to_excel_stops_and_leaves_no_file_when_callback_says_stop(

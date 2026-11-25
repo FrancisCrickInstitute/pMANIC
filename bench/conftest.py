@@ -26,7 +26,6 @@ from manic.io.eic_importer import import_eics
 from manic.io.eic_reader import read_eics_batch
 from manic.models import database
 from manic.models.analysis import AnalysisMode
-from manic.processors.eic_correction_manager import process_all_corrections
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.*=false")
@@ -260,11 +259,7 @@ def corpus(case, db, bench_config):
         compound = read_compound(name)
         windows.extend(
             (compound, eic)
-            for eic in read_eics_batch(
-                samples,
-                compound,
-                use_corrected=False,
-            )
+            for eic in read_eics_batch(samples, compound)
         )
     assert len(windows) == len(keys)
     return windows
@@ -411,8 +406,6 @@ def cached_db(case: Case) -> Path:
             stale.unlink()
         print(f"\nbuilding {path.name} (first run only)", flush=True)
         import_dataset(case, path)
-        if case.labelled:
-            process_all_corrections()
     database.DB_FILE = path
     return path
 

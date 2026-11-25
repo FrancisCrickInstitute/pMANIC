@@ -136,6 +136,20 @@ DEFAULT_DECONVOLUTION = (
 COMPOUND_LIST_SUFFIXES = {".csv", ".xls", ".xlsx"}
 
 
+def _wait_for_thread(owner: object, thread_attr: str) -> None:
+    """Stop and wait for a background QThread so Qt never aborts or races on reuse."""
+    thread = getattr(owner, thread_attr, None)
+    if thread is None:
+        return
+    try:
+        if thread.isRunning():
+            thread.quit()
+            thread.wait()
+    except RuntimeError:
+        pass
+    setattr(owner, thread_attr, None)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, analysis_context: AnalysisContext | None = None):
         super().__init__()
@@ -186,6 +200,7 @@ class MainWindow(QMainWindow):
         self.cdf_data_loaded = False
         self._thread = None
         self._export_thread = None
+        self._closing = False
         self._export_worker = None
         self._export_progress_dialog = None
         self._skip_close_guard = False
@@ -1122,17 +1137,20 @@ class MainWindow(QMainWindow):
                 )
             else:
                 quit_text = (
-                    "An import or reload is still running. Quitting now leaves "
-                    "the database partly written."
+                    "An import or reload is still running. Quitting now waits "
+                    "for it to finish before closing."
                 )
             if not self._confirm("Quit MANIC?", quit_text, "", "Quit"):
                 event.ignore()
                 return
+            self._closing = True
+            self.hide()
             if running == "_export_thread":
                 if self._export_worker is not None:
                     self._export_worker.cancel()
-                if self._export_thread is not None:
-                    self._export_thread.wait()
+                _wait_for_thread(self, "_export_thread")
+            else:
+                _wait_for_thread(self, running)
         elif self.compound_data_loaded or self.cdf_data_loaded:
             if not self._confirm(
                 "Quit MANIC?",
@@ -1318,6 +1336,8 @@ class MainWindow(QMainWindow):
     def _load_cdf_folder(self, path: str):
         if not self.load_cdf_action.isEnabled():
             return
+        if self._background_work_running("importing CDF files"):
+            return
         self._recent_cdf.add(path)
         self.open_recent_menu.setEnabled(True)
 
@@ -1346,6 +1366,9 @@ class MainWindow(QMainWindow):
         QCoreApplication.processEvents()
 
     def _import_ok(self, rows: int):
+        _wait_for_thread(self, "_thread")
+        if getattr(self, "_closing", False):
+            return
         # Spawn the fit workers while the user picks a compound. Only a speed-up:
         # without workers each plot fits in this thread, as before.
         try:
@@ -1369,6 +1392,9 @@ class MainWindow(QMainWindow):
         self.show_post_load_checklist()
 
     def _import_fail(self, msg: str):
+        _wait_for_thread(self, "_thread")
+        if getattr(self, "_closing", False):
+            return
         self.progress_dialog.close()
         msg_box = self._create_message_box("critical", "Import failed", msg)
         msg_box.exec()
@@ -1449,9 +1475,7 @@ class MainWindow(QMainWindow):
                 compound_reads.enter_context(
                     compound_reads_cached(compound_name, samples)
                 )
-                eics = get_eics_for_compound(
-                    compound_name, samples, use_corrected=False
-                )
+                eics = get_eics_for_compound(compound_name, samples)
                 if not self._reusing_fits:
                     prefetch_display_fits(
                         compound_name,
@@ -1506,6 +1530,9 @@ class MainWindow(QMainWindow):
                         eics_by_sample=eics_by_sample,
                         areas_by_sample=raw_areas_by_sample,
                         compounds_by_sample=compounds_by_sample,
+                    )
+                    self.graph_view.set_internal_standard(
+                        self.toolbar.get_internal_standard()
                     )
                     self.graph_view.plot_compound(
                         compound_name,
@@ -1705,7 +1732,10 @@ class MainWindow(QMainWindow):
             abundances, eics = (
                 self.summary.isotopologue_ratios.get_last_total_abundances()
             )
-            if abundances is None:
+            if abundances is None and not (
+                self.summary.isotopologue_ratios.use_corrected
+                and any(eic.intensity.ndim > 1 for eic in current_eics)
+            ):
                 abundances = self._calculate_total_abundances_fallback(
                     compound_name, current_eics
                 )
@@ -1887,6 +1917,7 @@ class MainWindow(QMainWindow):
 
         compound = self.graph_view.get_current_compound()
         samples = self.graph_view.get_current_samples()
+        self.graph_view.set_internal_standard(internal_standard)
         if compound and samples:
             self.graph_view.apply_peak_verdicts(self._peak_verdicts(compound, samples))
 
@@ -2133,6 +2164,9 @@ class MainWindow(QMainWindow):
         self, regenerated_count: int, failed_samples: list
     ):
         """Handle mass tolerance reload completion"""
+        _wait_for_thread(self, "_mass_tol_thread")
+        if getattr(self, "_closing", False):
+            return
         if failed_samples and not regenerated_count:
             self._mass_tolerance_reload_failed(
                 f"no sample could be read: {', '.join(failed_samples)}"
@@ -2176,6 +2210,9 @@ class MainWindow(QMainWindow):
 
     def _mass_tolerance_reload_failed(self, error_msg: str, eics_replaced: bool = False):
         """Handle mass tolerance reload failure"""
+        _wait_for_thread(self, "_mass_tol_thread")
+        if getattr(self, "_closing", False):
+            return
         if hasattr(self, "mass_tol_progress_dialog"):
             self.mass_tol_progress_dialog.close()
 
@@ -2217,6 +2254,9 @@ class MainWindow(QMainWindow):
             QCoreApplication.processEvents()
 
     def _regeneration_completed(self, regenerated_count: int):
+        _wait_for_thread(self, "_regen_thread")
+        if getattr(self, "_closing", False):
+            return
         if hasattr(self, "regen_progress_dialog"):
             self.regen_progress_dialog.close()
 
@@ -2266,6 +2306,9 @@ class MainWindow(QMainWindow):
             msg_box.exec()
 
     def _regeneration_failed(self, error_msg: str):
+        _wait_for_thread(self, "_regen_thread")
+        if getattr(self, "_closing", False):
+            return
         if hasattr(self, "regen_progress_dialog"):
             self.regen_progress_dialog.close()
 
@@ -2608,9 +2651,26 @@ class MainWindow(QMainWindow):
 
             selected_compound = self.toolbar.get_selected_compound()
             selected_samples = self.toolbar.get_selected_samples()
+            has_compound = (
+                bool(active_compounds)
+                and bool(selected_compound)
+                and not selected_compound.startswith("- No")
+            )
+            has_samples = (
+                bool(active_samples)
+                and bool(selected_samples)
+                and not any(s.startswith("- No") for s in selected_samples)
+            )
 
-            if selected_compound and selected_samples:
+            if has_compound and has_samples:
                 self.on_samples_selected(selected_samples)
+            elif has_compound:
+                self._show_no_samples(selected_compound)
+            else:
+                self.graph_view.clear_all_plots()
+                self.summary.clear()
+                self.toolbar.integration.populate_fields(None)
+                self._refresh_shell()
 
         except Exception as e:
             logger.error(f"Failed to refresh after session import: {e}")

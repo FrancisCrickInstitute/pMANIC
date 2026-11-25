@@ -4,6 +4,11 @@
 # shortcut: tests the working tree, not the commits being pushed; stash or commit first.
 set -e
 cd "$(git rev-parse --show-toplevel)"
+if [ -f rust/manic_fitter/Cargo.toml ]; then
+  cargo test --manifest-path rust/manic_fitter/Cargo.toml
+  bash scripts/build_rust_fitter.sh
+  uv run python -c "from manic.processors import rust_fitter; assert rust_fitter.is_available(), 'Rust peak fitter failed to load'"
+fi
 uv run pytest -q
 uv run python scripts/generate_bench_data.py --mode both
 uv run python bench/reference.py check

@@ -302,3 +302,17 @@ def test_background_lookahead_prefetch_does_not_deadlock_on_immediate_or_cancell
     assert len(fit_prefetch._bg_futures) >= 2
     fit_prefetch.cancel_background_prefetch()
     assert not fit_prefetch._bg_futures
+
+
+def test_reset_pool_shuts_down_broken_pool(monkeypatch):
+    calls: list[tuple[bool, bool]] = []
+
+    class FakePool:
+        def shutdown(self, wait: bool = True, cancel_futures: bool = False) -> None:
+            calls.append((wait, cancel_futures))
+
+    fake = FakePool()
+    monkeypatch.setattr(fit_prefetch, "_pool", fake)
+    fit_prefetch.reset_pool(fake)
+    assert fit_prefetch._pool is None
+    assert calls == [(False, True)]

@@ -81,11 +81,15 @@ def start_pool() -> ProcessPoolExecutor:
 
 
 def reset_pool(broken_pool: ProcessPoolExecutor) -> None:
-    """Drop a broken shared pool so the next caller starts a fresh one."""
+    """Drop and shut down a broken shared pool so the next caller starts a fresh one."""
     global _pool
     with _pool_lock:
         if _pool is broken_pool:
             _pool = None
+    try:
+        broken_pool.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
 
 
 def _seed_lru_from_result(key: tuple, ok: bool, fitted: object) -> None:

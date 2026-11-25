@@ -367,7 +367,7 @@ per-qualifier detail. Peak-area validation against an internal standard (the lig
 ## 8. Excel export
 
 Unlabelled exports keep the labelled matrix layout for the two sheets that
-still make scientific sense, then add Qualifier QC.
+still make scientific sense, then add Qualifier QC and Notes.
 
 ### Raw Values
 
@@ -431,6 +431,12 @@ states how to read the sheets: Raw Values and Abundances are Q-only
 observed RT is the raw Q apex, a failed non-empty ion fit forces raw-window
 areas for every non-empty ion of that compound/sample, empty ions stay at
 area 0, and composite identity status stays in the Identity chart.
+
+### Notes
+
+The last sheet lists your sample notes, one row per note, with the columns
+`Compound`, `Sample` and `Note`. It has its header row even with no notes.
+See [Sample notes](01_user_guide.md#sample-notes).
 
 ---
 

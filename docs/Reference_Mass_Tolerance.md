@@ -44,6 +44,8 @@ A mass that lies exactly on a window edge depends on how the instrument stored i
 
 ## Configuration
 
+![Settings, Extraction page](_assets/screenshots/settings_extraction.png)
+
 **Settings → Extraction**, **Mass tolerance (Da)**   
 
 * **Default:** `0.20 Da`

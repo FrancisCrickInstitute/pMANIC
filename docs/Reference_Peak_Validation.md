@@ -42,6 +42,9 @@ $$\text{Area}_{metabolite} < (\text{Area}_{IS} \times \text{Threshold})$$
 The validation status is communicated in two places:
 
 ### 1. In the Application (Step 4)
+
+![Plot grid showing Accepted and Marked bad review badges beside normal plots](_assets/screenshots/review_selected.png)
+
 When reviewing integration, look under each plot's sample name:
 
 * **No badge:** The peak meets the threshold, or no internal standard is set, so it was not checked.
@@ -57,6 +60,8 @@ Every sheet of the results workbook fills a peak's cells by its status:
 ---
 
 ## 3. Configuration
+
+![Settings, Peak validation page](_assets/screenshots/settings_peak_validation.png)
 
 You can adjust the strictness of this check in the settings.
 

@@ -16,6 +16,7 @@ from manic.io.changelog_sections import (
     format_peak_reviews_section,
     format_peak_validation_threshold,
     format_sample_fit_types_section,
+    format_sample_notes_section,
     format_unlabelled_compounds_table_for_data_export,
 )
 
@@ -82,6 +83,16 @@ def generate_changelog(
             """
         ).fetchall()
 
+        sample_notes = conn.execute(
+            """
+            SELECT sn.compound_name, sn.sample_name, sn.note
+            FROM sample_note sn
+            JOIN compounds c ON c.compound_name = sn.compound_name AND c.deleted = 0
+            JOIN samples s ON s.sample_name = sn.sample_name AND s.deleted = 0
+            ORDER BY c.id, s.sample_name
+            """
+        ).fetchall()
+
         # Get deleted items for audit trail
         deleted_compounds_query = """
             SELECT compound_name FROM compounds WHERE deleted = 1 ORDER BY compound_name
@@ -114,7 +125,8 @@ def generate_changelog(
 - **Quantitative claim:** Peak Area without an internal standard. With an IS, nmol when Amount in StdMix is set, otherwise Relative. Compounds whose MRRF could not be computed are labelled Relative. Single-point response factor, not a calibration curve"""
         sheets_description = """1. **Raw Values** - One column per compound, Q-ion area only. `Mass` is the Q m/z. Qualifier-ion areas are on Qualifier QC
 2. **Abundances** - One column per compound, Q-ion response only. Units row is Peak Area, nmol, or Relative
-3. **Qualifier QC** - Same matrix layout, one block of columns per compound: Quant area, then area, observed qualifier/Q ratio and expected ratio for each qualifier. An observed ratio is shaded red when it is outside tolerance and grey when it was not assessed. No shading means it passed. Each block ends with an Outcome column for the compound in that sample: Pass, Partial, Fail, Not detected or No qualifiers. The Tolerance row is the fractional tolerance for each qualifier. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook"""
+3. **Qualifier QC** - Same matrix layout, one block of columns per compound: Quant area, then area, observed qualifier/Q ratio and expected ratio for each qualifier. An observed ratio is shaded red when it is outside tolerance and grey when it was not assessed. No shading means it passed. Each block ends with an Outcome column for the compound in that sample: Pass, Partial, Fail, Not detected or No qualifiers. The Tolerance row is the fractional tolerance for each qualifier. Composite identity status and ΔRT stay in the Identity chart and are not in this workbook
+4. **Notes** - One row per sample note: Compound, Sample and Note. The header row alone when there are no notes"""
         key_processing_notes = """- Integration uses the shared Q/qualifier window [tR - lOffset, tR + rOffset]. A qualifier peak outside that window integrates near zero and fails ratio QC
 - Q-ion area alone supplies the analytical response. Qualifier-ion areas are identity evidence
 - Current tR is used for integration and for the in-app identity RT check. Changing tR updates both. That RT check is not written to the workbook
@@ -128,7 +140,8 @@ def generate_changelog(
 2. **Corrected Values** - Natural isotope abundance corrected signals
 3. **Isotope Ratio** - Normalized corrected values (fractions sum to 1.0)
 4. **% Label Incorporation** - Percentage of experimental label incorporation
-5. **Abundances** - Absolute metabolite concentrations via internal standard calibration"""
+5. **Abundances** - Absolute metabolite concentrations via internal standard calibration
+6. **Notes** - One row per sample note: Compound, Sample and Note. The header row alone when there are no notes"""
         key_processing_notes = """- Integration boundaries determined by compound-specific loffset/roffset values
 - Natural-isotope correction applied to labelled isotopologue channels
 - Peak-area validation uses the configured internal-standard reference isotopologue
@@ -219,6 +232,9 @@ def generate_changelog(
     fit_section = format_sample_fit_types_section(sample_fit_types)
     if fit_section:
         changelog_content += "\n" + fit_section + "\n"
+    notes_section = format_sample_notes_section(sample_notes)
+    if notes_section:
+        changelog_content += "\n" + notes_section + "\n"
 
     changelog_content += f"""
 ## Export Sheets Generated

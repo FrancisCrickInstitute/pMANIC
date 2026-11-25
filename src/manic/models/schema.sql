@@ -99,6 +99,15 @@ CREATE TABLE IF NOT EXISTS peak_review (
     PRIMARY KEY (compound_name, sample_name)
 );
 
+-- Free-text notes on one sample of one compound. No foreign keys, so a note
+-- survives a soft delete and returns when its sample or compound is recovered.
+CREATE TABLE IF NOT EXISTS sample_note (
+    compound_name TEXT NOT NULL,
+    sample_name   TEXT NOT NULL,
+    note          TEXT NOT NULL,
+    PRIMARY KEY (compound_name, sample_name)
+);
+
 -- Per-sample curve-fit overrides (absence inherits the compound setting)
 CREATE TABLE IF NOT EXISTS sample_fit_type (
     compound_name TEXT NOT NULL,

@@ -23,6 +23,7 @@ from manic.models.database import (
 )
 from manic.models.peak_review import get_peak_reviews
 from manic.models.sample_fit_type import get_sample_fit_types
+from manic.models.sample_note import MAX_NOTE_CHARS, get_sample_notes
 from manic.processors.chromatographic_peak_deconvolution import (
     PEAK_SHAPE_FIT_TYPES,
     normalize_fit_type,
@@ -38,6 +39,7 @@ from manic.io.changelog_sections import (
     format_peak_reviews_section,
     format_peak_validation_threshold,
     format_sample_fit_types_section,
+    format_sample_notes_section,
 )
 
 logger = logging.getLogger(__name__)
@@ -338,6 +340,11 @@ def export_session_method(
                 )
             ]
 
+            method_data["sample_notes"] = [
+                {"compound_name": compound_name, "sample_name": sample_name, "note": note}
+                for (compound_name, sample_name), note in sorted(get_sample_notes().items())
+            ]
+
             # Export deleted sample names
             cursor = conn.execute("""
                 SELECT sample_name FROM samples WHERE deleted = 1 ORDER BY sample_name
@@ -461,6 +468,7 @@ def import_session_overrides(
 
         _import_peak_reviews(method_data)
         _import_sample_fit_types(method_data)
+        _import_sample_notes(method_data)
 
         if not session_overrides:
             logger.info("No session overrides to import")
@@ -573,6 +581,36 @@ def _import_sample_fit_types(method_data: dict) -> None:
                 VALUES (?, ?, ?)
                 """,
                 (item["compound_name"], item["sample_name"], fit_type),
+            )
+
+
+def _import_sample_notes(method_data: dict) -> None:
+    # Session files from before notes existed have no key: leave the notes as they are.
+    if "sample_notes" not in method_data:
+        return
+
+    with get_connection() as conn:
+        conn.execute("DELETE FROM sample_note")
+        for item in method_data["sample_notes"] or []:
+            known = conn.execute(
+                """
+                SELECT 1 FROM compounds c, samples s
+                WHERE c.compound_name = ? AND s.sample_name = ?
+                """,
+                (item["compound_name"], item["sample_name"]),
+            ).fetchone()
+            note = item.get("note")
+            valid = isinstance(note, str) and 0 < len(note.strip()) <= MAX_NOTE_CHARS
+            if known is None or not valid:
+                logger.warning(
+                    "Skipping note for %s/%s - unknown compound or sample, or not a usable note",
+                    item["compound_name"],
+                    item["sample_name"],
+                )
+                continue
+            conn.execute(
+                "INSERT INTO sample_note (compound_name, sample_name, note) VALUES (?, ?, ?)",
+                (item["compound_name"], item["sample_name"], note.strip()),
             )
 
 
@@ -897,6 +935,7 @@ def _generate_changelog(method_data: dict, changelog_path: Path) -> None:
             f.write(
                 format_sample_fit_types_section(method_data.get("sample_fit_types", []))
             )
+            f.write(format_sample_notes_section(method_data.get("sample_notes", [])))
 
             f.write("\n---\n\n")
 

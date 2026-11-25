@@ -638,6 +638,17 @@ class MainWindow(QMainWindow):
         menu.addAction(self.reject_peak_action)
         self.review_fit_menu = menu.addMenu("Curve Fit")
         menu.addSeparator()
+        self.note_action = QAction("Add Note...", self)
+        self.note_action.triggered.connect(
+            lambda: self._with_note_lead(self.graph_view.edit_note)
+        )
+        menu.addAction(self.note_action)
+        self.remove_note_action = QAction("Remove Note", self)
+        self.remove_note_action.triggered.connect(
+            lambda: self._with_note_lead(lambda plot: self.graph_view.set_note(plot, ""))
+        )
+        menu.addAction(self.remove_note_action)
+        menu.addSeparator()
         # The Peak window's baseline toggle, so it sits with the peak commands.
         baseline = self.toolbar.baseline_checkbox
         self.baseline_action = QAction("Baseline Correction", self)
@@ -666,6 +677,9 @@ class MainWindow(QMainWindow):
             accept=self.accept_peak_action,
             reject=self.reject_peak_action,
             fit_menu=self.review_fit_menu,
+            note=self.note_action,
+            remove_note=self.remove_note_action,
+            note_plot=view.note_lead(),
         )
 
     def _focus_flagged(self, step: int) -> None:
@@ -692,6 +706,12 @@ class MainWindow(QMainWindow):
         else:
             message = f"{lead.sample_name} is not Below threshold"
         show_status_toast(self.statusBar(), message).setProperty("refusal", True)
+
+    def _with_note_lead(self, command) -> None:
+        lead = self.graph_view.note_lead()
+        if lead is not None:
+            command(lead)
+        self._sync_review_menu()
 
     def _with_review_lead(self, command) -> None:
         lead = self.graph_view.review_lead()
@@ -2643,6 +2663,8 @@ class MainWindow(QMainWindow):
     def _refresh_after_session_import(self):
         """Refresh display after session import if data is currently displayed."""
         try:
+            # The imported session owns the database notes; discard any pre-import draft.
+            self.graph_view.close_note_editor()
             active_compounds = list_compound_names()
             active_samples = list_active_samples()
             self.toolbar.update_compound_list(active_compounds)
@@ -3074,6 +3096,7 @@ class MainWindow(QMainWindow):
                         compound, [], self.graph_view.get_current_samples()
                     )
                 with QSignalBlocker(self.graph_view):
+                    self.graph_view.close_note_editor()
                     self.graph_view.clear_all_plots()
                 self.summary.clear()
 

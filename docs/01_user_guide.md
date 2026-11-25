@@ -101,7 +101,7 @@ After the import finishes, MANIC opens a **Check your data setup** dialog. It sh
 
 ![Check your data setup dialog with nor-Leucine chosen as internal standard and every MM pattern matched](_assets/screenshots/checklist_labelled.png)
 
-**Changing an MM pattern.** Click **How do I change a pattern?** under the table for the short version. For a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. For a compound not in the list, use **File → Add Compound...**, which sets its pattern without reloading.
+**Changing an MM pattern.** Click **How do I change a pattern?** under the table for the short version. For a compound already in the list, edit its `mmfiles` cell in the compound list file, choose **File → Clear Session**, then load the compound list and the raw data again. Clear Session also removes the internal standard, integration changes, peak reviews, sample notes, curve-fit choices and any compounds added with **Add Compound**, so fix patterns before you review. Importing a session exported earlier brings its old patterns back. For a compound not in the list, use **File → Add Compound...**, which sets its pattern without reloading.
 
 **Prerequisites**   
 
@@ -143,6 +143,7 @@ Selecting a compound shows a grid of mini-plots, one for each sample ticked in t
     * **No badge:** The area meets the threshold, or no internal standard is set, so it was not checked.
     * **Below threshold** (light red badge and tile): Weak peak. The area is below 0.5% of the internal standard reference peak, unless you change **Minimum area ratio** in **Settings → Peak validation**.
     * **Accepted** (light purple) or **Marked bad** (tan): You reviewed a weak peak from the **Review** menu or the plot right-click menu.
+* **Note chip** (pencil and the start of the text): You wrote a note on this sample for this compound. See [Sample notes](#sample-notes).
 * **Blue outline:** The plot is selected for editing.
 
 Click **Shared Y** in the grid header, or choose **View → Shared Y-Scale**, to use one common intensity scale for all sample tiles. Choose it again to let each tile autoscale to its own tallest peak.
@@ -155,6 +156,21 @@ Scan the grid of plots. Look for:
 * **Peak Centering:** Is the peak centered on the grey line? If retention times have shifted, you may need to adjust the `tR`.
 * **Peak Coverage:** Do the blue dashed lines fully bracket the peak without cutting off "tails" or including neighboring noise?
 * **Validation:** Pay attention to plots with a **Below threshold** badge. These indicate potential issues (low signal or missed peaks) that require manual review. Right-click the plot, or open the **Review** menu, and choose **Accept Peak (Below Threshold)** or **Mark Peak as Bad** to record your decision. With several plots selected, both commands act on the whole selection and name the count, for example **Mark 3 Peaks as Bad**. Choose the same command again to clear the decision.
+
+#### Sample notes
+
+![Plot grid for Pyruvate with note chips on three tiles and the inline note editor open beside Bio_014](_assets/screenshots/sample_notes.png)
+
+A note records why you handled a peak the way you did, for example a co-eluting shoulder or a suspect injection. Each note belongs to one sample for the compound on screen. A note never changes a result.
+
+* **Add a note:** Right-click a plot and choose **Add Note...**. A small editor opens beside the plot, so the chromatogram stays in view while you type. Press **Enter** or click **Save** to save. Press **Shift+Enter** for a new line. Press **Escape** to cancel, which leaves an existing note unchanged.
+* **Read a note:** The plot shows a note chip beside its badges, with the start of the text. Hover over the chip to read the whole note. The inspection window shows the note under the sample name.
+* **Change a note:** Click the chip, or right-click the plot and choose **Edit Note...**.
+* **Remove a note:** Right-click the plot and choose **Remove Note**, click **Remove** in the editor, or save an empty note.
+
+The note commands always act on one plot. From the right-click menu that is the plot you clicked, even when several plots are selected. In the **Review** menu they act on the selected or focused plot and are unavailable while several plots are selected.
+
+Notes are saved by **Export Session** and restored by **Import Session**, are listed in the changelog, and are written to the **Notes** sheet of the exported workbook. A note stays with a deleted sample or compound and returns when you recover it. **Clear Session** removes all notes.
 
 #### 2. Detailed Inspection (Optional)
 For ambiguous peaks, inspecting the raw data more closely might be helpful:
@@ -181,6 +197,7 @@ You can adjust integration parameters for all samples at once or for specific ou
 * **Inspect *sample*...** (Return)
 * **Select All Plots** (Ctrl+A, ⌘A on macOS), **Deselect All** (Esc), **Show Only Selected Samples**, **Show All Samples**
 * **Accept Peak (Below Threshold)**, **Mark Peak as Bad**, and the **Curve Fit** submenu
+* **Add Note...** or **Edit Note...**, and **Remove Note**, for one plot. See [Sample notes](#sample-notes)
 
 Click a plot so the grid has keyboard focus. Move the focus between plots with the arrow keys and press Space to select or deselect the focused plot.
 
@@ -242,7 +259,7 @@ To add an expected ratio:
 2.  Choose **File → Clear Session** and confirm.
 3.  Load the compound list, then the raw data, again.
 
-Clear Session also removes the review work in the session: integration changes, peak reviews, curve-fit choices, tolerances set in Settings, the internal standard and compounds added with **Add Compound**. Add missing ratios before you review. Importing a session exported earlier restores the ratios saved in it, so export a new session after the reload.
+Clear Session also removes the review work in the session: integration changes, peak reviews, sample notes, curve-fit choices, tolerances set in Settings, the internal standard and compounds added with **Add Compound**. Add missing ratios before you review. Importing a session exported earlier restores the ratios saved in it, so export a new session after the reload.
 
 ---
 
@@ -318,11 +335,11 @@ When you export data, the changelog file will include a **"Deleted Items"** sect
 The export generates two files in your selected directory:
 
 1.  **Data File (`.xlsx`):** The multi-sheet workbook containing your results.
-2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, the mass tolerance (Da) and peak-validation threshold, any deleted items excluded from export, and a table of all session-specific integration overrides. This serves as an audit trail for reproducibility.
+2.  **Changelog (`changelog_YYYYMMDD_HHMM.md`):** A text file documenting the exact parameters used for this analysis, including software version, date, the mass tolerance (Da) and peak-validation threshold, any deleted items excluded from export, a table of all session-specific integration overrides, and any sample notes. This serves as an audit trail for reproducibility.
 
 **Workbook Structure**   
 
-The Excel file contains five worksheets by default. A sixth sheet is optional.
+The Excel file contains six worksheets by default. One more sheet is optional.
 
 | Worksheet | Description |
 | :--- | :--- |
@@ -331,6 +348,7 @@ The Excel file contains five worksheets by default. A sixth sheet is optional.
 | **3. Isotope Ratio** | Normalized distributions where all isotopologues for a compound sum to 1.0. Used for comparing labeling patterns independent of concentration. |
 | **4. % Label Incorporation** | The percentage of the metabolite pool that has incorporated the experimental label. Includes background correction derived from MM files (standard mixture). |
 | **5. Abundances** | Absolute amounts (nmol), Relative ratios, or raw Peak Areas depending on standard selection. |
+| **6. Notes** | Your sample notes in long format, one row per note, with the columns **Compound**, **Sample** and **Note**. Rows follow the compound list order, then sample order. Notes on deleted samples or compounds are left out. The sheet is always last and always has its header row, even with no notes. Unlabelled exports have this sheet too. |
 | **% Carbons Labelled** (optional) | Off by default. Tick **Include % Carbons Labelled sheet** in **Export Data** to add the weighted average enrichment of the total carbon pool. |
 
 **Validation & Errors**   
@@ -355,7 +373,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
 **File → Export Session...**
 
 * **Function:** Creates a `.json` file containing your analytical method and a human-readable changelog.
-* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, the labelled internal-standard reference peak (M+N), the mass tolerance (Da), and the peak-validation threshold.
+* **What is saved:** Compound library, retention times, all integration offsets (global and sample-specific), each compound's processing settings (baseline correction and deconvolution level, fit type, and noise gate), the selected internal standard, the labelled internal-standard reference peak (M+N), the mass tolerance (Da), the peak-validation threshold, peak reviews, per-sample curve fits, and sample notes.
 * **What is NOT saved:** The raw mass spectrometry data (CDF content).
 * **Use Case:** Archiving your analysis method or sharing it with a colleague who has the same raw files.
 
@@ -391,8 +409,9 @@ Right-click a plot for these commands. The **Review** menu in the menu bar offer
 * **Accept Peak (Below Threshold)**
 * **Mark Peak as Bad**
 * **Curve Fit** (submenu)
+* **Add Note...**, or **Edit Note...** and **Remove Note** when the plot has a note
 
-**Select Only This Sample**, **Inspect *sample*...**, **Accept Peak (Below Threshold)**, **Mark Peak as Bad**, and **Curve Fit** need a plot under the pointer. When that plot is selected, the review commands act on every selected plot and name the count, for example **Mark 3 Peaks as Bad** or **Curve Fit for 3 Samples**. **Show Only Selected Samples** needs at least one selected plot. On a plot outside the selection it reads **Show Only This Sample** and shows that plot alone.
+**Select Only This Sample**, **Inspect *sample*...**, **Accept Peak (Below Threshold)**, **Mark Peak as Bad**, **Curve Fit**, and the note commands need a plot under the pointer. When that plot is selected, the review commands act on every selected plot and name the count, for example **Mark 3 Peaks as Bad** or **Curve Fit for 3 Samples**. The note commands act on the clicked plot alone. **Show Only Selected Samples** needs at least one selected plot. On a plot outside the selection it reads **Show Only This Sample** and shows that plot alone.
 
 ### Detailed Sample View
 

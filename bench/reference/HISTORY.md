@@ -75,3 +75,19 @@ Natural-isotope correction now runs once on the integrated isotopologue areas in
 | Abundances | 2665 | 739 | 0.1% | 1e+02% | 1 |
 
 The one other cell is Glycerol's Abundances unit, nmol to Relative: its MM-file peaks have no raw signal, and the old per-scan correction gave them a corrected area from noise alone, so an MRRF was computed from nothing. Unlabelled numbers did not change.
+
+## 2026-11-25, #334
+
+Every workbook gains a Notes sheet, placed last, that lists the analyst's sample notes; it is the header row alone when there are no notes, and no value on any other sheet changes.
+
+**labelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Notes | 0 | 0 |  |  | 3 |
+
+**unlabelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Notes | 0 | 0 |  |  | 3 |

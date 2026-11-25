@@ -471,6 +471,7 @@ def test_unlabelled_excel_export_uses_targeted_sheets(empty_db, tmp_path):
         "Raw Values",
         "Abundances",
         "Qualifier QC",
+        "Notes",
     ]
     raw = workbook["Raw Values"]
     assert raw["A1"].value == "Compound Name"

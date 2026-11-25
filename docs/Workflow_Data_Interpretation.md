@@ -96,6 +96,16 @@ When you export data from MANIC (Step 5), the application generates a multi-shee
 
 ---
 
+## 7. Notes
+**Description:** Every per-sample note you wrote during review, written as the last sheet in both labelled and unlabelled workbooks.
+
+* **Columns:** **Compound**, **Sample**, and **Note**.
+* **Order:** Rows follow the compound list order, then the sample order within each compound.
+* **Empty state:** When no notes exist, the sheet is still written with its header row only.
+* **Effect on numbers:** None. Notes record context for downstream review and never change any calculated value.
+
+---
+
 ## Color Codes & Validation
 MANIC automatically validates every peak during export. You may see coloured cells in your Excel file:
 

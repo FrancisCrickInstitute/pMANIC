@@ -217,6 +217,36 @@ def format_sample_fit_types_section(overrides: Iterable[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+def _markdown_cell(value: str) -> str:
+    return (
+        value.replace("|", "\\|")
+        .replace("\r\n", "<br>")
+        .replace("\r", "<br>")
+        .replace("\n", "<br>")
+    )
+
+
+def format_sample_notes_section(notes: Iterable[dict]) -> str:
+    rows = list(notes)
+    if not rows:
+        return ""
+    out = [
+        "## Sample Notes",
+        "Notes the analyst wrote on a sample for a compound.",
+        "",
+        "| Compound | Sample | Note |",
+        "|----------|--------|------|",
+    ]
+    for row in rows:
+        # One table row per note: a pipe or a line break would end the cell.
+        out.append(
+            f"| {_markdown_cell(row['compound_name'])} "
+            f"| {_markdown_cell(row['sample_name'])} "
+            f"| {_markdown_cell(row['note'])} |"
+        )
+    return "\n".join(out) + "\n"
+
+
 def format_cell_colour_key() -> str:
     return (
         "## Cell Colour Key\n"

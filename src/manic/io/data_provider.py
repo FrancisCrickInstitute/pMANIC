@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import functools
 import logging
-import os
 import threading
 import time
 import zlib
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from multiprocessing import get_context
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
@@ -18,10 +16,14 @@ from manic.io.mm_matching import (
     resolve_mm_samples_from_names,
 )
 from manic.validation.peak_verdict import PeakReview, PeakVerdict, resolve_verdict
+from manic.validation.unlabelled_identity import quantifier_apex_time
+from manic.processors import chromatographic_peak_deconvolution as _deconv
+from manic.processors import fit_prefetch as _fit_prefetch
 from manic.processors.chromatographic_peak_deconvolution import (
     chromatographic_peak_deconvolution_enabled,
     deconvolve_channel_matrix,
     get_deconvolution_fit_cache_info,
+    has_cached_fits,
 )
 from manic.processors.integration import (
     calculate_peak_areas,
@@ -38,8 +40,8 @@ logger = logging.getLogger(__name__)
 # spawn/pickle startup cost; below this the bulk export stays on threads.
 _PROCESS_POOL_MIN_TASKS = 64
 
-# Per-worker-process DataProvider, created once by the pool initializer and
-# reused for every task in that process. It carries no shared mutable state
+# Per-worker-process DataProvider, created lazily on first task in that worker
+# and reused for every subsequent task. It carries no shared mutable state
 # beyond a (per-process) natural-abundance corrector, so a fresh instance is
 # equivalent to the main one for integration purposes.
 _WORKER_PROVIDER: Optional["DataProvider"] = None
@@ -53,12 +55,6 @@ def _row_channel_count(row) -> Optional[int]:
     if value is None or int(value) <= 0:
         return None
     return int(value)
-
-
-def _init_export_worker(use_legacy: bool) -> None:
-    """ProcessPoolExecutor initializer: build this process's DataProvider once."""
-    global _WORKER_PROVIDER
-    _WORKER_PROVIDER = DataProvider(use_legacy_integration=use_legacy)
 
 
 def _run_integration(provider: "DataProvider", use_legacy: bool, task) -> tuple:
@@ -82,13 +78,28 @@ def _run_integration(provider: "DataProvider", use_legacy: bool, task) -> tuple:
             baseline_correction=baseline_flag,
         )
     )
-    return row['sample_name'], row['compound_name'], areas, corrected_areas
+    observed_rt = None
+    if row.get('has_quantifier'):
+        observed_rt = quantifier_apex_time(
+            time_data,
+            intensity_data,
+            _row_channel_count(row) or 1,
+            expected_rt=row['retention_time'],
+            loffset=row['loffset'],
+            roffset=row['roffset'],
+        )
+    return row['sample_name'], row['compound_name'], areas, corrected_areas, observed_rt
 
 
-def _integrate_task(task) -> tuple:
+def _integrate_task(item) -> tuple:
     """Module-level worker entry for ProcessPoolExecutor (must be picklable)."""
-    provider = _WORKER_PROVIDER
-    return _run_integration(provider, provider.use_legacy_integration, task)
+    global _WORKER_PROVIDER
+    use_legacy, task = item
+    if _WORKER_PROVIDER is None:
+        _WORKER_PROVIDER = DataProvider(use_legacy_integration=use_legacy)
+    elif _WORKER_PROVIDER.use_legacy_integration != use_legacy:
+        _WORKER_PROVIDER.set_use_legacy_integration(use_legacy)
+    return _run_integration(_WORKER_PROVIDER, use_legacy, task)
 
 
 class DataProvider:
@@ -107,8 +118,10 @@ class DataProvider:
         self._background_ratios_cache: Dict[str, Dict[str, float]] = {}
         self._bulk_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
         self._bulk_raw_sample_data_cache: Dict[str, Dict[str, List[float]]] = {}
+        self._bulk_observed_rt_cache: Dict[str, Dict[str, Optional[float]]] = {}
         self._targeted_area_cache: Dict[tuple, List[float]] = {}
         self._has_quantifier_cache: Dict[str, bool] = {}
+        self._active_samples_cache: Optional[List[str]] = None
         self._corrector_local = threading.local()
         self._cache_valid: bool = False
 
@@ -123,9 +136,65 @@ class DataProvider:
         self._background_ratios_cache.clear()
         self._bulk_sample_data_cache.clear()
         self._bulk_raw_sample_data_cache.clear()
+        self._bulk_observed_rt_cache.clear()
         self._targeted_area_cache.clear()
         self._has_quantifier_cache.clear()
+        self._active_samples_cache = None
         self._cache_valid = False
+
+    def seed_compound_raw_areas(
+        self,
+        compound_name: str,
+        raw_areas_by_sample: Dict[str, List[float]],
+        compounds_by_sample: Dict[str, object],
+    ) -> None:
+        """Populate the per-compound cache from raw areas already integrated on screen.
+
+        Uses the same ``_corrected_or_empty`` path and raw DB ``label_type`` as
+        ``_compute_compound_areas`` so peak-verdict areas cannot diverge from
+        the provider.
+        """
+        raw_label_type = None
+        loaded_label_type = False
+        for sample_name, raw_areas in raw_areas_by_sample.items():
+            compound = compounds_by_sample.get(sample_name)
+            if compound is None:
+                continue
+            self._has_quantifier_cache[compound_name] = bool(
+                compound.is_unlabelled_target
+            )
+            if self._cache_valid:
+                continue
+            label_atoms = compound.label_atoms or 0
+            if label_atoms > 0:
+                if not loaded_label_type:
+                    with get_connection() as conn:
+                        db_row = conn.execute(
+                            "SELECT label_type FROM compounds "
+                            "WHERE compound_name = ? AND deleted = 0 LIMIT 1",
+                            (compound_name,),
+                        ).fetchone()
+                    raw_label_type = (
+                        db_row["label_type"] if db_row is not None else compound.label_type
+                    )
+                    loaded_label_type = True
+                if len(raw_areas) != label_atoms + 1:
+                    seeded: List[float] = []
+                else:
+                    row = {
+                        "compound_name": compound_name,
+                        "sample_name": sample_name,
+                        "formula": compound.formula,
+                        "label_type": raw_label_type,
+                        "label_atoms": label_atoms,
+                        "tbdms": compound.tbdms,
+                        "meox": compound.meox,
+                        "me": compound.me,
+                    }
+                    seeded = self._corrected_or_empty(raw_areas, row)
+            else:
+                seeded = list(raw_areas)
+            self._targeted_area_cache[(sample_name, compound_name)] = seeded
 
     def get_total_sample_count(self) -> int:
         with get_connection() as conn:
@@ -162,13 +231,17 @@ class DataProvider:
         tokens = parse_mm_tokens(mm_files_field)
         if not tokens:
             return []
-        with get_connection() as conn:
-            names = [
-                row["sample_name"]
-                for row in conn.execute(
-                    "SELECT sample_name FROM samples WHERE deleted=0"
-                )
-            ]
+        names = self._active_samples_cache
+        if names is None:
+            with get_connection() as conn:
+                names = [
+                    row["sample_name"]
+                    for row in conn.execute(
+                        "SELECT sample_name FROM samples WHERE deleted=0"
+                    )
+                ]
+            if self._cache_valid:
+                self._active_samples_cache = names
         return resolve_mm_samples_from_names(mm_files_field, names)
 
     def load_bulk_sample_data(
@@ -201,6 +274,7 @@ class DataProvider:
         logger.info("Loading all sample data in bulk (corrected)...")
         raw_data: Dict[str, Dict[str, List[float]]] = {}
         corrected_data: Dict[str, Dict[str, List[float]]] = {}
+        observed_rt_data: Dict[str, Dict[str, Optional[float]]] = {}
 
         with get_connection() as conn:
             query_start = time.perf_counter()
@@ -211,6 +285,7 @@ class DataProvider:
             for sample_name in samples:
                 raw_data[sample_name] = {}
                 corrected_data[sample_name] = {}
+                observed_rt_data[sample_name] = {}
 
             # Always load raw data first (needed for both scenarios)
             raw_eic_query = """
@@ -219,6 +294,9 @@ class DataProvider:
                        COALESCE(NULLIF((SELECT COUNT(*) FROM compound_ions ci
                                  WHERE ci.compound_name = c.compound_name), 0),
                                 c.label_atoms + 1) AS channel_count,
+                       EXISTS(SELECT 1 FROM compound_ions ci
+                              WHERE ci.compound_name = c.compound_name
+                                AND ci.role = 'quantifier') AS has_quantifier,
                        COALESCE(sa.retention_time, c.retention_time) as retention_time,
                        COALESCE(sa.loffset, c.loffset) as loffset,
                        COALESCE(sa.roffset, c.roffset) as roffset,
@@ -267,9 +345,12 @@ class DataProvider:
                 compound_name = row['compound_name']
                 label_atoms = row['label_atoms'] or 0
                 compound_labels[compound_name] = label_atoms
+                self._has_quantifier_cache[compound_name] = bool(row['has_quantifier'])
                 if sample_name not in raw_data:
                     continue
-                tasks.append((dict(row), row['y_axis']))
+                row_dict = dict(row)
+                y_blob = row_dict.pop('y_axis')
+                tasks.append((row_dict, y_blob))
                 if chromatographic_peak_deconvolution_enabled(row['deconvolution_level']):
                     deconv_task_count += 1
 
@@ -278,80 +359,109 @@ class DataProvider:
             use_legacy = self.use_legacy_integration
 
             cancel_exc = None
+            processed = 0
 
-            def consume(executor, worker) -> None:
-                nonlocal cancel_exc
-                processed = 0
-                # Hold the map generator so it can be closed on cancel. Closing
-                # it runs its finally, which cancels every task that has not
-                # started, so a cancel does not sit through the whole queue.
-                # The exception is re-raised by the caller once the pool has
-                # shut down; raising here would trip the process-pool fallback
-                # and integrate everything a second time on threads.
-                results = executor.map(worker, tasks)
+            def _record_result(item: tuple) -> None:
+                nonlocal processed, cancel_exc
+                sample_name, compound_name, areas, corrected_areas, obs_rt = item
+                raw_data[sample_name][compound_name] = areas
+                if corrected_areas:
+                    corrected_data[sample_name][compound_name] = corrected_areas
+                if self._has_quantifier_cache.get(compound_name):
+                    observed_rt_data[sample_name][compound_name] = obs_rt
+                processed += 1
+                if progress_callback and processed % 25 == 0:
+                    try:
+                        progress_callback(int(processed / total * 100))
+                    except Exception as exc:
+                        cancel_exc = exc
+
+            def consume(results) -> None:
                 try:
-                    for sample_name, compound_name, areas, corrected_areas in results:
-                        raw_data[sample_name][compound_name] = areas
-                        if corrected_areas:
-                            corrected_data[sample_name][compound_name] = (
-                                corrected_areas
-                            )
-                        processed += 1
-                        if progress_callback and processed % 25 == 0:
-                            try:
-                                progress_callback(int(processed / total * 100))
-                            except Exception as exc:
-                                cancel_exc = exc
-                                break
+                    for item in results:
+                        _record_result(item)
+                        if cancel_exc is not None:
+                            break
                 finally:
                     results.close()
 
-            max_workers = min(os.cpu_count() or 1, 8)
+            max_workers = _fit_prefetch.pool_worker_count()
             integration_start = time.perf_counter()
             fit_cache_before = get_deconvolution_fit_cache_info()
 
+            # Reuse in-process cached fits built during browsing before sending
+            # remaining misses to worker processes. Skip probing on a cold cache.
+            pending_tasks = tasks
+            pending_deconv_count = deconv_task_count
+            reused_from_cache = 0
+            if deconv_task_count > 0 and has_cached_fits():
+                pending_tasks = []
+                pending_deconv_count = 0
+                _deconv._probe.keys = []
+                try:
+                    for task in tasks:
+                        if cancel_exc is not None:
+                            break
+                        _deconv._probe.keys.clear()
+                        result = _run_integration(self, use_legacy, task)
+                        if not _deconv._probe.keys:
+                            _record_result(result)
+                            reused_from_cache += 1
+                        else:
+                            pending_tasks.append(task)
+                            if chromatographic_peak_deconvolution_enabled(
+                                task[0]['deconvolution_level']
+                            ):
+                                pending_deconv_count += 1
+                finally:
+                    _deconv._probe.keys = None
+
             # The per-window curve fit is GIL-bound (a Python residual driving
             # scipy.least_squares), so threads barely parallelise it. When there
-            # is enough *deconvolution* work we fan the fits out to worker
-            # processes for true multicore scaling; otherwise (few/no fits, or a
-            # deconvolution-off export) the spawn/pickle overhead is not worth it
-            # so we stay on threads. (Worker processes do not share the in-memory
-            # fit LRU cache, but export windows are mostly distinct anyway.)
-            #
-            # Force the "spawn" start method explicitly: it matches the frozen
-            # build and avoids the fork+threads/Qt deadlock hazard on Linux.
+            # is enough *deconvolution* work we fan the fits out to the shared
+            # warm worker pool for true multicore scaling; otherwise we stay on
+            # threads.
             ran_with_processes = False
-            if deconv_task_count >= _PROCESS_POOL_MIN_TASKS:
-                try:
-                    with ProcessPoolExecutor(
-                        max_workers=max_workers,
-                        mp_context=get_context("spawn"),
-                        initializer=_init_export_worker,
-                        initargs=(use_legacy,),
-                    ) as executor:
-                        consume(executor, _integrate_task)
-                    ran_with_processes = True
-                except Exception:
-                    # Never let a process-pool problem (spawn/pickle/broken pool)
-                    # block an export: fall back to the in-process thread path,
-                    # which recomputes everything and overwrites idempotently.
-                    logger.warning(
-                        "Process-pool export integration failed; "
-                        "falling back to threads",
-                        exc_info=True,
-                    )
-            if not ran_with_processes:
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    consume(executor, functools.partial(_run_integration, self, use_legacy))
+            if cancel_exc is None and pending_tasks:
+                if pending_deconv_count >= _PROCESS_POOL_MIN_TASKS:
+                    pool = None
+                    try:
+                        _fit_prefetch.cancel_background_prefetch()
+                        pool = _fit_prefetch.start_pool()
+                        chunksize = max(
+                            1,
+                            min(32, len(pending_tasks) // max(1, max_workers * 4)),
+                        )
+                        work = [(use_legacy, t) for t in pending_tasks]
+                        consume(pool.map(_integrate_task, work, chunksize=chunksize))
+                        ran_with_processes = True
+                    except Exception:
+                        if pool is not None:
+                            _fit_prefetch.reset_pool(pool)
+                        logger.warning(
+                            "Process-pool export integration failed; "
+                            "falling back to threads",
+                            exc_info=True,
+                        )
+                if not ran_with_processes and cancel_exc is None:
+                    processed = reused_from_cache
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        consume(
+                            executor.map(
+                                functools.partial(_run_integration, self, use_legacy),
+                                pending_tasks,
+                            )
+                        )
             if cancel_exc is not None:
                 raise cancel_exc
             integration_time = time.perf_counter() - integration_start
             fit_cache_after = get_deconvolution_fit_cache_info()
             logger.info(
-                "Bulk export integration used %s (workers=%d, tasks=%d) in %.2fs",
+                "Bulk export integration used %s (workers=%d, tasks=%d, reused_cached=%d) in %.2fs",
                 "processes" if ran_with_processes else "threads",
                 max_workers,
-                len(tasks),
+                len(pending_tasks),
+                reused_from_cache,
                 integration_time,
             )
 
@@ -378,6 +488,8 @@ class DataProvider:
 
         self._bulk_raw_sample_data_cache = raw_data
         self._bulk_sample_data_cache = corrected_data
+        self._bulk_observed_rt_cache = observed_rt_data
+        self._active_samples_cache = list(samples)
         self._cache_valid = True
         if progress_callback:
             progress_callback(100)
@@ -577,6 +689,7 @@ class DataProvider:
         """
         from manic.io.compound_reader import read_compounds_with_session
         from manic.io.eic_reader import read_eics_batch
+        from manic.validation.unlabelled_identity import assess_identity
 
         try:
             compounds = read_compounds_with_session(compound_name, list(sample_names))
@@ -585,10 +698,24 @@ class DataProvider:
                 raise ValueError(
                     f"{compound_name!r} does not have quantifier/qualifier channels"
                 )
-            eics = {
-                eic.sample_name: eic
-                for eic in read_eics_batch(list(sample_names), first, use_corrected=False)
-            } if first is not None else {}
+            samples_needing_eic = [
+                sample_name
+                for sample_name in sample_names
+                if not (
+                    self._cache_valid
+                    and compound_name in self._bulk_observed_rt_cache.get(sample_name, {})
+                )
+            ]
+            eics = (
+                {
+                    eic.sample_name: eic
+                    for eic in read_eics_batch(
+                        samples_needing_eic, first, use_corrected=False
+                    )
+                }
+                if first is not None and samples_needing_eic
+                else {}
+            )
         except Exception:
             # One unreadable sample must not fail the others: read one by one.
             results: dict = {}
@@ -603,6 +730,24 @@ class DataProvider:
 
         results: dict = {}
         for sample_name in sample_names:
+            cached_rts = (
+                self._bulk_observed_rt_cache.get(sample_name, {})
+                if self._cache_valid
+                else {}
+            )
+            if compound_name in cached_rts:
+                compound = compounds[sample_name]
+                try:
+                    results[sample_name] = assess_identity(
+                        self.get_compound_areas(sample_name, compound_name),
+                        compound.analysis_channels,
+                        expected_rt=compound.retention_time,
+                        observed_rt=cached_rts[compound_name],
+                        rt_tolerance=compound.rt_tolerance,
+                    )
+                except Exception as exc:
+                    results[sample_name] = exc
+                continue
             eic = eics.get(sample_name)
             if eic is None:
                 results[sample_name] = LookupError(
@@ -617,11 +762,8 @@ class DataProvider:
                 results[sample_name] = exc
         return results
 
-    def _assess_identity(self, sample_name: str, compound, eic):
-        from manic.validation.unlabelled_identity import (
-            assess_identity,
-            quantifier_apex_time,
-        )
+    def _assess_identity(self, sample_name: str, compound, eic, areas=None):
+        from manic.validation.unlabelled_identity import assess_identity
 
         compound_name = compound.compound_name
         observed_rt = quantifier_apex_time(
@@ -633,7 +775,7 @@ class DataProvider:
             roffset=compound.roffset,
         )
         return assess_identity(
-            self.get_compound_areas(sample_name, compound_name),
+            areas if areas is not None else self.get_compound_areas(sample_name, compound_name),
             compound.analysis_channels,
             expected_rt=compound.retention_time,
             observed_rt=observed_rt,
@@ -644,6 +786,9 @@ class DataProvider:
         self,
         compound_name: str,
         sample_names: Sequence[str],
+        *,
+        eics_by_sample: Optional[Dict[str, object]] = None,
+        areas_by_sample: Optional[Dict[str, List[float]]] = None,
     ):
         from manic.io.compound_reader import read_compound_with_session
         from manic.validation.unlabelled_identity import (
@@ -659,25 +804,52 @@ class DataProvider:
             )
         channels = tuple(compound.analysis_channels)
 
+        if eics_by_sample is not None:
+            by_sample: dict = {}
+            for sample_name in sample_names:
+                eic = eics_by_sample.get(sample_name)
+                if eic is None:
+                    by_sample[sample_name] = LookupError(
+                        f"EIC not found for {compound_name} in {sample_name}"
+                    )
+                    continue
+                try:
+                    sample_compound = read_compound_with_session(
+                        compound_name, sample_name
+                    )
+                    sample_areas = (
+                        areas_by_sample.get(sample_name)
+                        if areas_by_sample is not None
+                        else None
+                    )
+                    by_sample[sample_name] = self._assess_identity(
+                        sample_name, sample_compound, eic, areas=sample_areas
+                    )
+                except Exception as exc:
+                    by_sample[sample_name] = exc
+        else:
+            by_sample = self.assess_unlabelled_identity_by_sample(
+                compound_name, sample_names
+            )
+
         samples = []
         for sample_name in sample_names:
-            try:
-                qc = self.assess_unlabelled_identity(sample_name, compound_name)
-            except Exception as exc:
+            outcome = by_sample[sample_name]
+            if isinstance(outcome, Exception):
                 samples.append(
                     IdentitySampleAssessment(
                         sample_name=sample_name,
                         qc=None,
-                        qualifiers=qualifier_pair(channels, None, error=str(exc)),
-                        error=str(exc),
+                        qualifiers=qualifier_pair(channels, None, error=str(outcome)),
+                        error=str(outcome),
                     )
                 )
                 continue
             samples.append(
                 IdentitySampleAssessment(
                     sample_name=sample_name,
-                    qc=qc,
-                    qualifiers=qualifier_pair(channels, qc),
+                    qc=outcome,
+                    qualifiers=qualifier_pair(channels, outcome),
                 )
             )
         return IdentityAssessmentSet(compound_name, channels, tuple(samples))

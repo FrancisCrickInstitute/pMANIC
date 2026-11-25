@@ -565,6 +565,8 @@ class GraphView(QWidget):
         validation_data: Dict[str, PeakVerdict] = None,
         *,
         identity: IdentityAssessmentSet | None = None,
+        eics=None,
+        prepared_displays: dict | None = None,
     ) -> None:
         """
         Build one mini-plot per active sample for the selected *compound*.
@@ -597,10 +599,11 @@ class GraphView(QWidget):
         self._sample_fit_types = get_sample_fit_types(compound_name)
         self._stale_samples = set(list_stale_samples())
 
-        with measure_time("get_eics_from_db"):
-            eics = get_eics_for_compound(
-                compound_name, samples, use_corrected=False
-            )
+        if eics is None:
+            with measure_time("get_eics_from_db"):
+                eics = get_eics_for_compound(
+                    compound_name, samples, use_corrected=False
+                )
 
         num = len(eics)
         if num == 0:
@@ -610,19 +613,25 @@ class GraphView(QWidget):
 
         self._last_validation_data = validation_data
 
-        prepared_displays = []
+        prepared_list = []
         scale_inputs: list[TileScaleInput] = []
         retention_times = []
         for eic in eics:
             compound = read_compound_with_session(eic.compound_name, eic.sample_name)
             retention_times.append(compound.retention_time)
-            prepared = plot_display(
-                eic.time,
-                eic.intensity,
-                compound,
-                use_corrected=self.use_corrected,
+            prepared = (
+                prepared_displays.get((eic.sample_name, eic.compound_name))
+                if prepared_displays is not None
+                else None
             )
-            prepared_displays.append(prepared)
+            if prepared is None:
+                prepared = plot_display(
+                    eic.time,
+                    eic.intensity,
+                    compound,
+                    use_corrected=self.use_corrected,
+                )
+            prepared_list.append(prepared)
             scale_inputs.append(
                 TileScaleInput(
                     prepared=prepared,
@@ -632,7 +641,7 @@ class GraphView(QWidget):
             )
         self._prepared_displays = {
             (eic.sample_name, eic.compound_name): prepared
-            for eic, prepared in zip(eics, prepared_displays)
+            for eic, prepared in zip(eics, prepared_list)
         }
         tile_axes = axes_for_tiles(self._y_scale_policy, scale_inputs)
         self._tr_text = retention_time_text(retention_times)
@@ -1440,9 +1449,6 @@ class GraphView(QWidget):
         axis_scale: YAxisScale,
     ):
         chart_view = container.chart_view
-        chart_view.chart().removeAllSeries()
-        container.set_caption("")
-
         chart_view.set_selected(False)
 
         # Reset container sizing to clear any cached geometry from previous use
@@ -1470,7 +1476,6 @@ class GraphView(QWidget):
         try:
             chart_view.sample_name = eic.sample_name
             chart_view.compound_name = eic.compound_name
-            chart_view.set_selected(False)
             chart.removeAllSeries()
             axes = chart.axes()
             if len(axes) > 1:

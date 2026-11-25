@@ -126,6 +126,76 @@ def display_y_max(intensity) -> float:
     return float(np.max(finite))
 
 
+def integrate_prepared_raw_areas(
+    time,
+    raw_intensity,
+    compound,
+    prepared: PlotDisplay,
+    *,
+    use_legacy: bool = False,
+) -> list[float]:
+    """Integrate raw channel areas reusing an already-computed PlotDisplay."""
+    raw = np.asarray(raw_intensity, dtype=np.float64)
+    if raw.ndim > 1:
+        channel_count = int(raw.shape[0])
+        label_atoms = channel_count - 1
+    else:
+        channel_count = 1
+        label_atoms = 0
+
+    baseline_correction = bool(getattr(compound, "baseline_correction", 0))
+    if prepared.display is not None:
+        return integrate_bundle_areas(
+            time,
+            prepared.display.bundle,
+            raw,
+            baseline_correction=baseline_correction,
+            use_legacy=use_legacy,
+            retention_time=compound.retention_time,
+            loffset=compound.loffset,
+            roffset=compound.roffset,
+            label_atoms=label_atoms,
+            channel_count=channel_count,
+        )
+
+    return calculate_peak_areas(
+        time,
+        raw.ravel(),
+        label_atoms,
+        retention_time=compound.retention_time,
+        loffset=compound.loffset,
+        roffset=compound.roffset,
+        channel_count=channel_count,
+        use_legacy=use_legacy,
+        baseline_correction=baseline_correction,
+        chromatographic_peak_deconvolution_stringency=getattr(
+            compound, "deconvolution_level", "off"
+        ),
+        chromatographic_peak_deconvolution_fit_type=getattr(
+            compound, "deconvolution_fit_type", "auto"
+        ),
+        chromatographic_peak_deconvolution_noise_gate=getattr(
+            compound, "deconvolution_noise_gate", "balanced"
+        ),
+    )
+
+
+def apply_display_correction(
+    raw_areas: list[float],
+    compound,
+    *,
+    use_corrected: bool,
+    is_multi_trace: bool,
+) -> list[float]:
+    areas = list(raw_areas)
+    correct_areas = (
+        make_area_corrector(compound) if use_corrected and is_multi_trace else None
+    )
+    if correct_areas is None:
+        return areas
+    return [float(area) for area in correct_areas(areas)]
+
+
 def integrated_display_areas(
     time,
     raw_intensity,
@@ -135,54 +205,10 @@ def integrated_display_areas(
     use_legacy: bool = False,
 ) -> list[float]:
     raw = np.asarray(raw_intensity, dtype=np.float64)
-    if raw.ndim > 1:
-        channel_count = int(raw.shape[0])
-        label_atoms = channel_count - 1
-    else:
-        channel_count = 1
-        label_atoms = 0
-
-    common = dict(
-        retention_time=compound.retention_time,
-        loffset=compound.loffset,
-        roffset=compound.roffset,
-        channel_count=channel_count,
-        use_legacy=use_legacy,
-        baseline_correction=bool(getattr(compound, "baseline_correction", 0)),
-        chromatographic_peak_deconvolution_fit_type=getattr(
-            compound, "deconvolution_fit_type", "auto"
-        ),
-        chromatographic_peak_deconvolution_noise_gate=getattr(
-            compound, "deconvolution_noise_gate", "balanced"
-        ),
-    )
-    correct_areas = (
-        make_area_corrector(compound) if use_corrected and raw.ndim > 1 else None
-    )
     prepared = plot_display(time, raw, compound, use_corrected=False)
-    if prepared.display is not None:
-        areas = integrate_bundle_areas(
-            time,
-            prepared.display.bundle,
-            raw,
-            baseline_correction=bool(getattr(compound, "baseline_correction", 0)),
-            use_legacy=use_legacy,
-            retention_time=compound.retention_time,
-            loffset=compound.loffset,
-            roffset=compound.roffset,
-            label_atoms=label_atoms,
-            channel_count=channel_count,
-        )
-    else:
-        areas = calculate_peak_areas(
-            time,
-            raw.ravel(),
-            label_atoms,
-            chromatographic_peak_deconvolution_stringency=getattr(
-                compound, "deconvolution_level", "off"
-            ),
-            **common,
-        )
-    if correct_areas is None:
-        return areas
-    return [float(area) for area in correct_areas(areas)]
+    areas = integrate_prepared_raw_areas(
+        time, raw, compound, prepared, use_legacy=use_legacy
+    )
+    return apply_display_correction(
+        areas, compound, use_corrected=use_corrected, is_multi_trace=raw.ndim > 1
+    )

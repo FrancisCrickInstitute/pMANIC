@@ -4,7 +4,6 @@ import json
 import zlib
 
 import numpy as np
-import pytest
 
 from manic.io.changelog_writer import generate_changelog
 from manic.io.compound_reader import read_compound_with_session
@@ -83,7 +82,7 @@ def test_data_provider_bulk_sql_picks_the_override(empty_db, monkeypatch):
     def capture_run(_provider, _use_legacy, task):
         row, _y_blob = task
         fits[row["sample_name"]] = row["deconvolution_fit_type"]
-        return row["sample_name"], row["compound_name"], [1.0], None
+        return row["sample_name"], row["compound_name"], [1.0], None, None
 
     import manic.io.data_provider as provider_module
 

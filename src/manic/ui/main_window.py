@@ -86,14 +86,21 @@ from manic.processors.chromatographic_peak_deconvolution import (
     normalize_noise_gate,
     normalize_stringency,
 )
+from manic.processors.display_deconvolution import (
+    integrate_prepared_raw_areas,
+    plot_display,
+)
+from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.integration import calculate_peak_areas
 from manic.models.database import clear_database, get_connection
 from manic.models.peak_review import get_peak_reviews, set_peak_review
 from manic.models.sample_fit_type import set_sample_fit_type
 from manic.validation.peak_verdict import PeakReview, PeakVerdict
 from manic.processors.fit_prefetch import (
+    cancel_background_prefetch,
     discard_prefetched,
     prefetch_display_fits,
+    prefetch_display_fits_async,
     start_pool,
 )
 from manic.ui.graphs import GraphView
@@ -195,6 +202,10 @@ class MainWindow(QMainWindow):
 
         # Cached DataProvider for validation (reused to avoid repeated bulk loads)
         self._validation_provider = None
+        self._lookahead_target: tuple[str, list[str]] | None = None
+        self._lookahead_timer = QTimer(self)
+        self._lookahead_timer.setSingleShot(True)
+        self._lookahead_timer.timeout.connect(self._run_lookahead_prefetch)
 
         self.setup_ui()
 
@@ -1106,6 +1117,8 @@ class MainWindow(QMainWindow):
         logger.info(f"New analysis session started in {mode.display_name} mode")
 
     def closeEvent(self, event):
+        self._lookahead_timer.stop()
+        cancel_background_prefetch()
         if self._skip_close_guard:
             event.accept()
             return
@@ -1392,6 +1405,30 @@ class MainWindow(QMainWindow):
         samples = self.graph_view.get_current_samples()
         self.graph_view.apply_peak_verdicts(self._peak_verdicts(compound_name, samples))
 
+    def _schedule_lookahead_prefetch(self, compound_name: str, samples: list[str]) -> None:
+        """Warm the next compound in the list while the user inspects the current one."""
+        names = self.toolbar.compound_list.real_names()
+        try:
+            idx = names.index(compound_name)
+        except ValueError:
+            return
+        if idx + 1 >= len(names):
+            return
+        self._lookahead_target = (names[idx + 1], list(samples))
+        self._lookahead_timer.start(150)
+
+    def _run_lookahead_prefetch(self) -> None:
+        target = self._lookahead_target
+        self._lookahead_target = None
+        if target is None:
+            return
+        next_compound, samples = target
+        prefetch_display_fits_async(
+            next_compound,
+            samples,
+            use_corrected=self.graph_view.use_corrected,
+        )
+
     def on_plot_button(self, compound_name, samples):
         if not compound_name or compound_name.startswith("- No"):
             return
@@ -1402,27 +1439,78 @@ class MainWindow(QMainWindow):
             self._show_no_samples(compound_name)
             return
 
+        self._lookahead_timer.stop()
         compound_reads = ExitStack()
         try:
             if samples:
                 compound_reads.enter_context(
                     compound_reads_cached(compound_name, samples)
                 )
+                eics = get_eics_for_compound(
+                    compound_name, samples, use_corrected=False
+                )
                 if not self._reusing_fits:
                     prefetch_display_fits(
                         compound_name,
                         samples,
                         use_corrected=self.graph_view.use_corrected,
+                        eics=eics,
                     )
                 with measure_time("total_plotting_speed"):
+                    prepared_displays = {}
+                    raw_areas_by_sample: dict[str, list[float]] = {}
+                    compounds_by_sample: dict[str, object] = {}
+                    for eic in eics:
+                        compound = read_compound_with_session(
+                            eic.compound_name, eic.sample_name
+                        )
+                        compounds_by_sample[eic.sample_name] = compound
+                        prepared = plot_display(
+                            eic.time,
+                            eic.intensity,
+                            compound,
+                            use_corrected=self.graph_view.use_corrected,
+                        )
+                        prepared_displays[(eic.sample_name, eic.compound_name)] = (
+                            prepared
+                        )
+                        raw_areas_by_sample[eic.sample_name] = (
+                            integrate_prepared_raw_areas(
+                                eic.time,
+                                eic.intensity,
+                                compound,
+                                prepared,
+                                use_legacy=self.use_legacy_integration,
+                            )
+                        )
+
+                    if self.toolbar.get_internal_standard():
+                        if self._validation_provider is None:
+                            self._validation_provider = DataProvider(
+                                use_legacy_integration=self.use_legacy_integration,
+                            )
+                        self._validation_provider.seed_compound_raw_areas(
+                            compound_name,
+                            raw_areas_by_sample,
+                            compounds_by_sample,
+                        )
                     validation_data = self._peak_verdicts(compound_name, samples)
 
-                    provider, identity = self._identity_snapshot(compound_name, samples)
+                    eics_by_sample = {eic.sample_name: eic for eic in eics}
+                    provider, identity = self._identity_snapshot(
+                        compound_name,
+                        samples,
+                        eics_by_sample=eics_by_sample,
+                        areas_by_sample=raw_areas_by_sample,
+                        compounds_by_sample=compounds_by_sample,
+                    )
                     self.graph_view.plot_compound(
                         compound_name,
                         samples,
                         validation_data,
                         identity=identity,
+                        eics=eics,
+                        prepared_displays=prepared_displays,
                     )
 
                 # A re-plot of the same compound keeps its selection (graph view).
@@ -1440,7 +1528,10 @@ class MainWindow(QMainWindow):
                     samples,
                     identity=identity,
                     provider=provider,
+                    eics=eics,
+                    raw_areas_by_sample=raw_areas_by_sample,
                 )
+                self._schedule_lookahead_prefetch(compound_name, samples)
         except LookupError as err:
             msg_box = self._create_message_box("warning", "Missing data", str(err))
             msg_box.exec()
@@ -1471,8 +1562,6 @@ class MainWindow(QMainWindow):
             return []
 
         try:
-            from manic.processors.eic_processing import get_eics_for_compound
-
             return get_eics_for_compound(compound, samples)
         except Exception as e:
             logger.error(f"Error getting current EICs: {e}")
@@ -1514,17 +1603,50 @@ class MainWindow(QMainWindow):
 
         return np.asarray(abundances, dtype=float)
 
-    def _identity_snapshot(self, compound_name: str, sample_names: list[str]):
+    def _identity_snapshot(
+        self,
+        compound_name: str,
+        sample_names: list[str],
+        *,
+        eics_by_sample: dict | None = None,
+        areas_by_sample: dict[str, list[float]] | None = None,
+        compounds_by_sample: dict[str, object] | None = None,
+    ):
         if self.analysis_mode is not AnalysisMode.UNLABELLED:
             return None, None
         provider = DataProvider(use_legacy_integration=self.use_legacy_integration)
-        return provider, self._assess_identities(provider, compound_name, sample_names)
+        if areas_by_sample is not None and compounds_by_sample is not None:
+            provider.seed_compound_raw_areas(
+                compound_name,
+                areas_by_sample,
+                compounds_by_sample,
+            )
+        return provider, self._assess_identities(
+            provider,
+            compound_name,
+            sample_names,
+            eics_by_sample=eics_by_sample,
+            areas_by_sample=areas_by_sample,
+        )
 
-    def _assess_identities(self, provider, compound_name, sample_names):
+    def _assess_identities(
+        self,
+        provider,
+        compound_name,
+        sample_names,
+        *,
+        eics_by_sample: dict | None = None,
+        areas_by_sample: dict[str, list[float]] | None = None,
+    ):
         if not compound_name or not sample_names:
             return None
         try:
-            return provider.assess_unlabelled_identities(compound_name, sample_names)
+            return provider.assess_unlabelled_identities(
+                compound_name,
+                sample_names,
+                eics_by_sample=eics_by_sample,
+                areas_by_sample=areas_by_sample,
+            )
         except (LookupError, ValueError):
             logger.warning(
                 "Identity assessment unavailable for %r", compound_name, exc_info=True
@@ -1539,6 +1661,8 @@ class MainWindow(QMainWindow):
         skip_qc: bool = False,
         identity=None,
         provider=None,
+        eics=None,
+        raw_areas_by_sample: dict[str, list[float]] | None = None,
     ) -> None:
         if self.analysis_mode is not AnalysisMode.LABELLED:
             if provider is None:
@@ -1552,16 +1676,28 @@ class MainWindow(QMainWindow):
                         provider, compound_name, samples
                     )
                 self._update_targeted_qc(identity)
-        self._update_total_abundance(compound_name, provider)
+        self._update_total_abundance(
+            compound_name,
+            provider,
+            eics=eics,
+            raw_areas_by_sample=raw_areas_by_sample,
+        )
 
     def _update_total_abundance(
-        self, compound_name: str, provider: DataProvider | None = None
+        self,
+        compound_name: str,
+        provider: DataProvider | None = None,
+        *,
+        eics=None,
+        raw_areas_by_sample: dict[str, list[float]] | None = None,
     ) -> None:
-        current_eics = self._get_current_eics()
+        current_eics = eics if eics is not None else self._get_current_eics()
         if self.analysis_mode is AnalysisMode.LABELLED:
             self.summary.isotopologue_ratios.use_legacy = self.use_legacy_integration
             self.summary.isotopologue_ratios.update_ratios(
-                compound_name, current_eics
+                compound_name,
+                current_eics,
+                raw_areas_by_sample=raw_areas_by_sample,
             )
             abundances, eics = (
                 self.summary.isotopologue_ratios.get_last_total_abundances()
@@ -2836,6 +2972,8 @@ class MainWindow(QMainWindow):
         reply = confirm.exec()
 
         if reply == QMessageBox.Yes:
+            self._lookahead_timer.stop()
+            cancel_background_prefetch()
             progress = QProgressDialog(
                 "Preparing to clear session...", None, 0, 100, self
             )

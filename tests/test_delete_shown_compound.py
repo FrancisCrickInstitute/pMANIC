@@ -1,5 +1,5 @@
 import logging
-from types import SimpleNamespace
+import zlib
 
 import numpy as np
 from PySide6.QtWidgets import QLineEdit, QMessageBox
@@ -12,6 +12,8 @@ FIELDS = ["lo_input", "tr_input", "ro_input"]
 
 
 def test_deleting_the_shown_compound_does_not_reload_it(qapp, monkeypatch, caplog):
+    time = np.linspace(0.8, 1.2, 81, dtype=np.float64)
+    intensity = np.ones((1, 81), dtype=np.float64)
     with database.get_connection() as conn:
         for name, offset in (("Alanine", 0.1), ("Glycine", 0.2)):
             conn.execute(
@@ -21,18 +23,13 @@ def test_deleting_the_shown_compound_does_not_reload_it(qapp, monkeypatch, caplo
             )
         for sample in ("S1", "S2"):
             conn.execute("INSERT INTO samples (sample_name) VALUES (?)", (sample,))
-    time = np.linspace(0.8, 1.2, 81)
+            for name in ("Alanine", "Glycine"):
+                conn.execute(
+                    "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis, rt_window) "
+                    "VALUES (?, ?, ?, ?, 0.2)",
+                    (sample, name, zlib.compress(time.tobytes()), zlib.compress(intensity.tobytes())),
+                )
 
-    def eics(compound, samples, **_kwargs):
-        return [
-            SimpleNamespace(
-                sample_name=s, compound_name=compound, time=time, intensity=np.ones((1, 81))
-            )
-            for s in samples
-        ]
-
-    monkeypatch.setattr("manic.ui.graphs.get_eics_for_compound", eics)
-    monkeypatch.setattr("manic.ui.integration_window_widget.get_eics_for_compound", eics)
     monkeypatch.setattr(MainWindow, "_refresh_mode_charts", lambda *_a, **_k: None)
     monkeypatch.setattr(QMessageBox, "exec", lambda _self: QMessageBox.StandardButton.Yes)
     window = _make_window(monkeypatch)

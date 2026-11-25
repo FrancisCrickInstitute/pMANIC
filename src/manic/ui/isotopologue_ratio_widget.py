@@ -218,6 +218,9 @@ class IsotopologueRatioWidget(QWidget):
                     use_corrected=self.use_corrected,
                     use_legacy=self.use_legacy,
                 )
+            if self.use_corrected and eic.intensity.ndim > 1 and not isotope_areas:
+                # Never plot raw ratios or totals when natural-isotope correction fails.
+                return None, None
             total_area = sum(isotope_areas)
             total_abundances.append(total_area)
 

@@ -1,23 +1,15 @@
 """
-Integration module for natural abundance correction in EIC processing.
-
-This module provides functions to apply natural abundance correction
-to EIC data and store the corrected results in the database.
+Natural abundance correction helpers for display preview and export validation.
 """
 
 import logging
-import sqlite3
-import time
 import zlib
-from contextlib import nullcontext
 from typing import Optional
 
 import numpy as np
 
 from manic.io.compound_reader import Compound, read_compound
-from manic.io.eic_reader import read_eic
 from manic.models.database import get_connection
-from manic.processors.eic_calculator import EIC
 from manic.processors.natural_abundance_correction import (
     NaturalAbundanceCorrectionError,
     NaturalAbundanceCorrector,
@@ -27,14 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def make_time_series_corrector(compound: Compound):
-    return _make_corrector(compound, NaturalAbundanceCorrector.correct_time_series)
-
-
-def make_area_corrector(compound: Compound):
-    return _make_corrector(compound, NaturalAbundanceCorrector.correct_areas)
-
-
-def _make_corrector(compound: Compound, correct):
+    """Return a time-series corrector for chromatogram preview, or None if unlabelled/no formula."""
     if not compound.formula or (compound.label_atoms or 0) <= 0:
         return None
     corrector = NaturalAbundanceCorrector()
@@ -42,8 +27,7 @@ def _make_corrector(compound: Compound, correct):
     def apply(values: np.ndarray) -> np.ndarray:
         raw = np.asarray(values, dtype=np.float64)
         try:
-            return correct(
-                corrector,
+            return corrector.correct_time_series(
                 raw,
                 compound.formula,
                 compound.label_type,
@@ -58,6 +42,27 @@ def _make_corrector(compound: Compound, correct):
                 compound.compound_name,
             )
             return raw
+
+    return apply
+
+
+def make_area_corrector(compound: Compound):
+    """Return an area corrector for a labelled compound, or None if unlabelled/no formula."""
+    if not compound.formula or (compound.label_atoms or 0) <= 0:
+        return None
+    corrector = NaturalAbundanceCorrector()
+
+    def apply(values: np.ndarray) -> np.ndarray:
+        raw = np.asarray(values, dtype=np.float64)
+        return corrector.correct_areas(
+            raw,
+            compound.formula,
+            compound.label_type,
+            compound.label_atoms,
+            compound.tbdms,
+            compound.meox,
+            compound.me,
+        )
 
     return apply
 
@@ -82,396 +87,49 @@ def uncorrectable_reason(compound: Compound) -> Optional[str]:
     return None
 
 
-def compute_corrected_intensity(eic: EIC, compound: Compound) -> Optional[np.ndarray]:
-    if not compound.formula:
-        return None
-    intensity = np.asarray(eic.intensity)
-    if intensity.ndim == 1:
-        n_channels = (compound.label_atoms or 0) + 1
-        if n_channels > 1 and intensity.size % n_channels == 0:
-            intensity = intensity.reshape(n_channels, -1)
-        else:
-            return None
-    corrector = NaturalAbundanceCorrector()
-    return corrector.correct_time_series(
-        intensity,
-        compound.formula,
-        compound.label_type,
-        compound.label_atoms,
-        compound.tbdms,
-        compound.meox,
-        compound.me,
-    )
-
-
-def apply_correction_to_eic(sample_name: str, compound_name: str) -> bool:
-    """
-    Apply natural abundance correction to an EIC and store in database.
-
-    Args:
-        sample_name: Sample to correct
-        compound_name: Compound to correct
-
-    Returns:
-        True if correction was successful, False otherwise
-    """
-    try:
-        compound = read_compound(compound_name)
-
-        if not compound.formula:
-            logger.warning(f"No formula for {compound_name}, skipping correction")
-            return False
-
-        eic = read_eic(sample_name, compound, use_corrected=False)
-        corrected_intensity = compute_corrected_intensity(eic, compound)
-        if corrected_intensity is None:
-            logger.warning(f"No isotopologue data for {compound_name} in {sample_name}")
-            return False
-
-        store_corrected_eic(sample_name, compound_name, eic.time, corrected_intensity)
-
-        logger.debug(f"Corrected {compound_name} in {sample_name}")
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Correction failed for {compound_name} in {sample_name}: {e}")
-        return False
-
-
-def store_corrected_eic(
-    sample_name: str,
-    compound_name: str,
-    time_array: np.ndarray,
-    corrected_intensity: np.ndarray,
-    connection: sqlite3.Connection | None = None,
-) -> None:
-    """
-    Store corrected EIC data in the database.
-
-    Args:
-        sample_name: Sample name
-        compound_name: Compound name
-        time_array: Time points (same as original)
-        corrected_intensity: Corrected intensity array
-    """
-    # Compress arrays for storage
-    time_blob = zlib.compress(time_array.tobytes())
-    intensity_blob = zlib.compress(corrected_intensity.tobytes())
-
-    sql = """
-        INSERT OR REPLACE INTO eic_corrected
-        (sample_name, compound_name, x_axis, y_axis_corrected,
-         correction_applied, timestamp, deleted)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """
-
-    connection_context = (
-        nullcontext(connection) if connection is not None else get_connection()
-    )
-    with connection_context as conn:
-        conn.execute(
-            sql,
-            (
-                sample_name,
-                compound_name,
-                time_blob,
-                intensity_blob,
-                1,  # correction_applied
-                time.time(),
-                0,  # deleted
-            ),
-        )
-
-
-def process_all_corrections(progress_cb=None) -> int:
-    """
-    PHASE A OPTIMIZED: Process natural abundance corrections with batch operations.
-
-    This optimized version implements batch database operations for ~2-5x speedup:
-    1. Batch read all EICs for each compound
-    2. Process corrections in memory using cached matrices
-    3. Batch write all corrected results
-
-    Performance Comparison:
-    - Original: N × (read EIC + process + write) database transactions
-    - Optimized: 1 × (batch read + vectorized process + batch write) per compound
-    - Speedup: 2-5x for database operations + 20-100x for corrections = overall ~50-200x
-
-    Returns:
-        Number of corrections applied
-    """
-    import time
-
-    start_time = time.time()
-
-    # Get all compounds that need correction with full metadata
-    # Include both labeled compounds (label_atoms > 0) AND internal standards (label_atoms = 0).
-    # Soft-deleted compounds keep EICs, so a restored one needs its corrections too.
-    compound_sql = """
-        SELECT DISTINCT c.compound_name, c.formula, c.label_type, c.label_atoms,
-                        c.tbdms, c.meox, c.me
-        FROM compounds c
-        WHERE c.formula IS NOT NULL
-        AND EXISTS (
-            SELECT 1 FROM eic e
-            WHERE e.compound_name = c.compound_name
-            AND e.deleted = 0
-        )
-    """
-
-    count = 0
-    failed_count = 0
-    corrector = NaturalAbundanceCorrector()  # Reuse single instance with caching
-
+def ensure_corrections_for_export() -> None:
+    """Refuse export if any active labelled compound with EICs cannot be corrected."""
     with get_connection() as conn:
-        compounds = conn.execute(compound_sql).fetchall()
+        rows = conn.execute(
+            """
+            SELECT DISTINCT c.compound_name
+            FROM eic e
+            JOIN compounds c ON e.compound_name = c.compound_name
+            WHERE e.deleted = 0
+              AND c.deleted = 0
+              AND c.label_atoms > 0
+            ORDER BY c.compound_name
+            """
+        ).fetchall()
+        if not rows:
+            return
 
-        if not compounds:
-            logger.info("No compounds requiring correction")
-            return 0
-
-        # Process each compound with batch operations
-        for compound_idx, compound_row in enumerate(compounds):
-            compound_name = compound_row["compound_name"]
-
-            # PHASE A OPTIMIZATION 3: Batch database operations
-            batch_results = _process_compound_batch_corrections(
-                compound_name, compound_row, corrector, conn
-            )
-
-            count += batch_results["successful"]
-            failed_count += batch_results["failed"]
-
-            if progress_cb:
-                progress_cb(compound_idx + 1, len(compounds))
-
-    # MEMORY MANAGEMENT: Explicitly clear correction matrix cache after batch processing
-    # This prevents memory accumulation in long-running applications while maintaining
-    # performance during the current correction session through matrix reuse
-    try:
-        cache_stats = corrector.get_cache_statistics()
-        corrector.clear_cache()
-
-        # Log performance summary with cache efficiency metrics
-        if count > 0 or failed_count > 0:
-            elapsed = time.time() - start_time
-            hit_rate = cache_stats.get("hit_rate_percent", 0)
-            logger.info(
-                f"Natural abundance corrections: {count} successful ({elapsed:.1f}s, {hit_rate:.1f}% cache hit rate)"
-            )
-    except Exception:
-        # Fallback logging if cache operations fail
-        if count > 0 or failed_count > 0:
-            elapsed = time.time() - start_time
-            logger.info(
-                f"Natural abundance corrections: {count} successful ({elapsed:.1f}s)"
-            )
-
-    return count
-
-
-def _process_compound_batch_corrections(
-    compound_name: str, compound_row: dict, corrector: NaturalAbundanceCorrector, conn
-) -> dict:
-    """
-    PHASE A OPTIMIZATION 3: Batch process all corrections for a single compound.
-
-    This function implements the batch database pattern:
-    1. Single query to read all uncorrected EICs for the compound
-    2. Vectorized correction processing using cached matrices
-    3. Single executemany() to write all corrected results
-
-    Performance Impact:
-    - Database I/O: N individual operations → 2 batch operations (read + write)
-    - Mathematical processing: Leverages cached matrices and vectorized operations
-    - Overall speedup: ~5-10x per compound
-
-    Args:
-        compound_name: Target compound identifier
-        compound_row: Compound metadata from database
-        corrector: Reusable corrector instance with caching
-        conn: Database connection for batch operations
-
-    Returns:
-        dict: {"successful": int, "failed": int}
-    """
-    successful = 0
-    failed = 0
-
-    # Batch read: Get all EICs for this compound that need correction
-    batch_eic_sql = """
-        SELECT e.sample_name, e.x_axis, e.y_axis
-        FROM eic e
-        WHERE e.compound_name = ?
-        AND e.deleted = 0
-        AND NOT EXISTS (
-            SELECT 1 FROM eic_corrected ec
-            WHERE ec.sample_name = e.sample_name
-            AND ec.compound_name = e.compound_name
-            AND ec.deleted = 0
-        )
-    """
-
-    eic_rows = conn.execute(batch_eic_sql, (compound_name,)).fetchall()
-
-    if not eic_rows:
-        return {"successful": 0, "failed": 0}
-
-    # Prepare batch correction results for database insertion
-    correction_batch = []
-
-    # Process each EIC using optimized correction algorithm
-    for eic_row in eic_rows:
-        try:
-            sample_name = eic_row["sample_name"]
-
-            # Decompress EIC data
-            time_array = np.frombuffer(
-                zlib.decompress(eic_row["x_axis"]), dtype=np.float64
-            )
-            intensity_bytes = zlib.decompress(eic_row["y_axis"])
-            intensity_array = np.frombuffer(intensity_bytes, dtype=np.float64)
-
-            # Handle both labeled compounds and internal standards
-            label_atoms = compound_row["label_atoms"]
-            n_timepoints = len(time_array)
-
-            # Natural abundance correction for all compounds (label_atoms >= 0)
-            n_isotopologues = label_atoms + 1
-            if len(intensity_array) == n_isotopologues * n_timepoints:
-                intensity_2d = intensity_array.reshape(n_isotopologues, n_timepoints)
-            elif len(intensity_array) == n_timepoints and n_isotopologues == 1:
-                # Single isotopologue case stored as 1D
-                intensity_2d = intensity_array.reshape(1, n_timepoints)
-            else:
-                # Dimension mismatch; skip this EIC
+        failed: list[str] = []
+        for row in rows:
+            name = row["compound_name"]
+            compound = read_compound(name)
+            reason = uncorrectable_reason(compound)
+            if reason is not None:
+                failed.append(f"{name} ({reason})")
                 continue
 
-            corrected_intensity_2d = corrector.correct_time_series(
-                intensity_2d,
-                compound_row["formula"],
-                compound_row["label_type"],
-                compound_row["label_atoms"],
-                compound_row["tbdms"],
-                compound_row["meox"],
-                compound_row["me"],
-            )
+            expected_channels = (compound.label_atoms or 0) + 1
+            eic_rows = conn.execute(
+                "SELECT x_axis, y_axis FROM eic "
+                "WHERE compound_name = ? AND deleted = 0",
+                (name,),
+            ).fetchall()
+            for eic_row in eic_rows:
+                n_times = len(zlib.decompress(eic_row["x_axis"])) // 8
+                n_vals = len(zlib.decompress(eic_row["y_axis"])) // 8
+                if n_vals != expected_channels * n_times:
+                    failed.append(name)
+                    break
 
-            # Prepare corrected data for batch insertion
-            corrected_flat = corrected_intensity_2d.ravel()
-            # The time axis is unchanged, so store the bytes just read rather
-            # than compressing the same array again.
-            time_blob = eic_row["x_axis"]
-            intensity_blob = zlib.compress(corrected_flat.tobytes())
-
-            correction_batch.append(
-                (
-                    sample_name,
-                    compound_name,
-                    time_blob,
-                    intensity_blob,
-                    1,  # correction_applied
-                    time.time(),
-                    0,  # deleted
-                )
-            )
-
-            successful += 1
-
-        except NaturalAbundanceCorrectionError as e:
-            logger.warning(
-                "Skipping correction for %s in %s: %s",
-                compound_name,
-                eic_row["sample_name"],
-                e,
-            )
-            failed += 1
-        except Exception as e:
-            logger.debug(
-                f"Correction failed for {compound_name} in {eic_row['sample_name']}: {e}"
-            )
-            failed += 1
-
-    # Batch write: Insert all corrections for this compound at once
-    if correction_batch:
-        try:
-            conn.executemany(
-                """
-                INSERT OR REPLACE INTO eic_corrected
-                (sample_name, compound_name, x_axis, y_axis_corrected,
-                 correction_applied, timestamp, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                correction_batch,
-            )
-        except Exception as e:
-            logger.error(f"Batch insert failed for {compound_name}: {e}")
-            # Count all as failed if batch insert fails
-            failed += successful
-            successful = 0
-
-    return {"successful": successful, "failed": failed}
-
-
-# Legacy individual correction function removed - replaced with batch processing
-
-
-def has_correction(sample_name: str, compound_name: str) -> bool:
-    """
-    Check if corrected data exists for a sample/compound pair.
-
-    Args:
-        sample_name: Sample name
-        compound_name: Compound name
-
-    Returns:
-        True if corrected data exists
-    """
-    sql = """
-        SELECT COUNT(*) as count
-        FROM eic_corrected
-        WHERE sample_name = ? AND compound_name = ?
-        AND deleted = 0 AND correction_applied = 1
-    """
-
-    with get_connection() as conn:
-        row = conn.execute(sql, (sample_name, compound_name)).fetchone()
-        return row["count"] > 0 if row else False
-
-
-_MISSING_CORRECTIONS_SQL = """
-    SELECT DISTINCT c.compound_name
-    FROM eic e
-    JOIN compounds c ON e.compound_name = c.compound_name
-    LEFT JOIN eic_corrected ec
-       ON ec.sample_name = e.sample_name
-      AND ec.compound_name = e.compound_name
-      AND ec.deleted = 0
-    WHERE e.deleted = 0
-      AND c.deleted = 0
-      AND c.label_atoms > 0
-      AND ec.id IS NULL
-    ORDER BY c.compound_name
-"""
-
-
-def compounds_missing_corrections() -> list[str]:
-    with get_connection() as conn:
-        return [row[0] for row in conn.execute(_MISSING_CORRECTIONS_SQL)]
-
-
-def ensure_corrections_for_export() -> None:
-    missing = compounds_missing_corrections()
-    if not missing:
-        return
-    logger.info("Applying natural isotope corrections for %d compounds", len(missing))
-    process_all_corrections(progress_cb=None)
-    still_missing = compounds_missing_corrections()
-    if still_missing:
+    if failed:
         raise RuntimeError(
             "Natural abundance correction failed for: "
-            + ", ".join(still_missing)
+            + ", ".join(failed)
             + ". Fix the formula or label_atoms for these compounds, "
             "or delete them, then export again."
         )

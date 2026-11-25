@@ -9,11 +9,8 @@ from netCDF4 import Dataset
 from manic.io.compound_reader import Compound
 from manic.io.eic_importer import regenerate_all_eics_with_mass_tolerance
 from manic.models import database
-from manic.processors.eic_calculator import EIC
 from manic.io.data_provider import DataProvider
 from manic.processors.eic_correction_manager import (
-    _process_compound_batch_corrections,
-    compute_corrected_intensity,
     ensure_corrections_for_export,
     uncorrectable_reason,
 )
@@ -51,62 +48,6 @@ def _insert_labelled_eic(conn, *, sample, compound, formula, label_atoms, channe
         "INSERT INTO eic (sample_name, compound_name, x_axis, y_axis) VALUES (?, ?, ?, ?)",
         (sample, compound, _blob(time), _blob(intensity)),
     )
-
-
-def test_batch_correction_skips_channel_shortfall_and_writes_valid_row(review_db):
-    with database.get_connection() as conn:
-        _insert_labelled_eic(
-            conn,
-            sample="S1",
-            compound="Short",
-            formula="C3H6O3",
-            label_atoms=3,
-            channels=2,
-        )
-        _insert_labelled_eic(
-            conn,
-            sample="S1",
-            compound="Valid",
-            formula="C1",
-            label_atoms=1,
-            channels=2,
-        )
-
-    corrector = NaturalAbundanceCorrector()
-    with database.get_connection() as conn:
-        short_row = conn.execute(
-            "SELECT formula, label_type, label_atoms, tbdms, meox, me "
-            "FROM compounds WHERE compound_name = ?",
-            ("Short",),
-        ).fetchone()
-        valid_row = conn.execute(
-            "SELECT formula, label_type, label_atoms, tbdms, meox, me "
-            "FROM compounds WHERE compound_name = ?",
-            ("Valid",),
-        ).fetchone()
-        short_result = _process_compound_batch_corrections(
-            "Short", short_row, corrector, conn
-        )
-        valid_result = _process_compound_batch_corrections(
-            "Valid", valid_row, corrector, conn
-        )
-        short_corrected = conn.execute(
-            "SELECT 1 FROM eic_corrected WHERE compound_name = ? AND sample_name = ?",
-            ("Short", "S1"),
-        ).fetchone()
-        valid_corrected = conn.execute(
-            "SELECT y_axis_corrected FROM eic_corrected "
-            "WHERE compound_name = ? AND sample_name = ?",
-            ("Valid", "S1"),
-        ).fetchone()
-
-    assert short_result["successful"] == 0
-    assert short_corrected is None
-    assert valid_result["successful"] == 1
-    assert valid_corrected is not None
-    stored = np.frombuffer(zlib.decompress(valid_corrected["y_axis_corrected"]), dtype=np.float64)
-    assert stored.size == 10
-    assert np.any(stored != np.arange(1, 11, dtype=np.float64))
 
 
 def test_ensure_corrections_for_export_raises_naming_uncorrectable(review_db):
@@ -176,31 +117,6 @@ def test_load_bulk_omits_labelled_when_correction_fails_keeps_unlabelled_raw(
     assert "Labeled" not in corrected["S1"]
     assert "Unlabeled" in corrected["S1"]
     assert corrected["S1"]["Unlabeled"] == raw["Unlabeled"]
-
-
-def test_ravelled_eic_matches_reshaped_time_series():
-    matrix = np.array(
-        [
-            [100.0, 110.0, 120.0, 110.0, 100.0],
-            [10.0, 11.0, 12.0, 11.0, 10.0],
-        ],
-        dtype=np.float64,
-    )
-    eic = EIC("X", "S1", np.linspace(0.0, 1.0, 5), matrix.ravel(), 1)
-    compound = Compound(
-        compound_name="X",
-        retention_time=1.0,
-        loffset=0.2,
-        roffset=0.2,
-        label_atoms=1,
-        mass0=100.0,
-        formula="C1",
-        label_type="C",
-    )
-    got = compute_corrected_intensity(eic, compound)
-    expected = NaturalAbundanceCorrector().correct_time_series(matrix, "C1", "C", 1)
-    assert got is not None
-    np.testing.assert_allclose(got, expected)
 
 
 def test_unknown_element_raises():
@@ -440,3 +356,151 @@ def test_uncorrectable_reason_names_why_no_corrected_area_exists(
     )
     reason = uncorrectable_reason(compound)
     assert reason is None if expected is None else expected in reason
+
+
+def test_ill_conditioned_correction_matrix_is_refused():
+    corrector = NaturalAbundanceCorrector()
+    with pytest.raises(NaturalAbundanceCorrectionError, match="ill-conditioned"):
+        corrector._get_cached_correction_matrix("C2000", "C", 10, 0, 0, 0)
+    compound = Compound(
+        compound_name="Giant", retention_time=1.0, loffset=0.2, roffset=0.2,
+        label_atoms=10, mass0=100.0, formula="C2000", label_type="C",
+    )
+    reason = uncorrectable_reason(compound)
+    assert reason is not None and "ill-conditioned" in reason
+
+
+def test_ensure_corrections_for_export_refuses_bad_formula_without_eic_corrected(review_db):
+    with database.get_connection() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert "eic_corrected" not in tables
+        _insert_labelled_eic(
+            conn,
+            sample="S1",
+            compound="BadElem",
+            formula="C1Se1",
+            label_atoms=1,
+            channels=2,
+        )
+        _insert_labelled_eic(
+            conn,
+            sample="S1",
+            compound="NoFormula",
+            formula=None,
+            label_atoms=1,
+            channels=2,
+        )
+
+    with pytest.raises(RuntimeError, match="BadElem.*Se.*NoFormula.*no formula"):
+        ensure_corrections_for_export()
+
+
+def test_display_bars_show_no_corrected_ratios_when_correction_fails(qapp, review_db):
+    from manic.io.eic_reader import EIC
+    from manic.processors.display_deconvolution import apply_display_correction
+    from manic.ui.isotopologue_ratio_widget import IsotopologueRatioWidget
+
+    compound = Compound(
+        compound_name="Seleno", retention_time=1.0, loffset=0.2, roffset=0.2,
+        label_atoms=1, mass0=100.0, formula="C1Se1", label_type="C",
+    )
+    assert apply_display_correction(
+        [100.0, 10.0], compound, use_corrected=True, is_multi_trace=True
+    ) == []
+    assert apply_display_correction(
+        [100.0, 10.0], compound, use_corrected=False, is_multi_trace=True
+    ) == [100.0, 10.0]
+
+    with database.get_connection() as conn:
+        _insert_labelled_eic(
+            conn,
+            sample="S1",
+            compound="Seleno",
+            formula="C1Se1",
+            label_atoms=1,
+            channels=2,
+        )
+
+    widget = IsotopologueRatioWidget()
+    widget.use_corrected = True
+    eic = EIC(
+        "S1",
+        "Seleno",
+        np.linspace(0.0, 1.0, 5),
+        np.array([[100.0] * 5, [10.0] * 5], dtype=np.float64),
+    )
+    widget.update_ratios("Seleno", [eic], raw_areas_by_sample={"S1": [100.0, 10.0]})
+    assert widget._current_ratios is None
+    assert widget.get_last_total_abundances()[0] is None
+    widget.close()
+
+
+def test_in_memory_provider_raises_on_uncorrectable_compound():
+    from manic.io.in_memory_provider import InMemoryDataProvider
+
+    provider = InMemoryDataProvider(
+        compounds=[
+            {
+                "compound_name": "Seleno",
+                "retention_time": 1.0,
+                "mass0": 100.0,
+                "loffset": 0.1,
+                "roffset": 0.1,
+                "label_atoms": 1,
+                "formula": "C1Se1",
+                "label_type": "C",
+                "tbdms": 0,
+                "meox": 0,
+                "me": 0,
+            }
+        ],
+        samples=["S1"],
+        raw_data={"S1": {"Seleno": [100.0, 10.0]}},
+    )
+    with pytest.raises(NaturalAbundanceCorrectionError, match="Seleno"):
+        provider.get_sample_corrected_data("S1")
+
+
+def test_graph_header_names_uncorrectable_internal_standard(qapp, review_db):
+    from manic.ui.graphs import GraphView
+
+    with database.get_connection() as conn:
+        _insert_labelled_eic(
+            conn,
+            sample="S1",
+            compound="Target",
+            formula="C1",
+            label_atoms=1,
+            channels=2,
+        )
+        _insert_labelled_eic(
+            conn,
+            sample="S1",
+            compound="BadIS",
+            formula=None,
+            label_atoms=1,
+            channels=2,
+        )
+
+    view = GraphView()
+    try:
+        view.set_internal_standard("BadIS")
+        view.plot_compound("Target", ["S1"])
+        assert "BadIS" in view.qc_note.text()
+        assert "no formula" in view.qc_note.text()
+
+        view.set_internal_standard(None)
+        assert view.qc_note.text() == ""
+
+        view.set_internal_standard("BadIS")
+        assert "BadIS" in view.qc_note.text()
+
+        view.clear_all_plots()
+        assert view.qc_note.text() == ""
+        assert view._uncorrectable is None
+        assert view._internal_standard_uncorrectable is None
+    finally:
+        view.deleteLater()

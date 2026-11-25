@@ -91,24 +91,6 @@ CREATE TABLE IF NOT EXISTS session_activity (
     UNIQUE(compound_name, sample_name)
 );
 
--- Corrected EIC data ---------------------------------------------
-CREATE TABLE IF NOT EXISTS eic_corrected (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    sample_name    TEXT NOT NULL,
-    compound_name  TEXT NOT NULL,
-    x_axis         BLOB,   -- Same time points as raw EIC
-    y_axis_corrected BLOB, -- Natural abundance corrected intensities
-    correction_applied INTEGER DEFAULT 1,  -- Flag if correction was successful
-    timestamp      REAL,   -- When correction was performed
-    deleted        INTEGER DEFAULT 0,
-    FOREIGN KEY (sample_name)   REFERENCES samples(sample_name),
-    FOREIGN KEY (compound_name) REFERENCES compounds(compound_name),
-    UNIQUE(sample_name, compound_name)
-);
-
-CREATE INDEX IF NOT EXISTS idx_eic_corrected_sample_compound
-          ON eic_corrected(sample_name, compound_name);
-
 -- Manual peak reviews --------------------------------------------
 CREATE TABLE IF NOT EXISTS peak_review (
     compound_name TEXT NOT NULL,

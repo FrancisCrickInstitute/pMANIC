@@ -39,10 +39,10 @@ def _restore_first(kind, list_deleted, restore):
     dialog.restore_btn.click()
 
 
-def _m0(compound, samples, use_corrected=False):
+def _m0(compound, samples):
     return {
         eic.sample_name: np.round(eic.intensity[0], 4).tolist()
-        for eic in get_eics_for_compound(compound, samples, use_corrected=use_corrected)
+        for eic in get_eics_for_compound(compound, samples)
     }
 
 
@@ -74,7 +74,3 @@ def test_items_restored_after_a_tolerance_change_show_eics_at_the_new_tolerance(
     new_tolerance = [11.0, 11.0, 11.0]
     assert _m0("Pyruvate", ["s1", "s2"]) == {"s1": new_tolerance, "s2": new_tolerance}
     assert _m0("Lactate", ["s1", "s2"]) == {"s1": new_tolerance, "s2": new_tolerance}
-    assert _m0("Pyruvate", ["s1", "s2"], use_corrected=True) == {
-        "s1": [12.9016, 12.9016, 12.9016],
-        "s2": [12.9016, 12.9016, 12.9016],
-    }

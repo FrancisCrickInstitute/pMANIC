@@ -92,7 +92,7 @@ def _cell_areas(job: tuple[str, str, str, list[str], str, float]) -> dict[str, n
     fit_type, noise_gate = LEVELS[level]
     compound = read_compound(name)
     rows = {}
-    for eic in read_eics_batch(samples, compound, use_corrected=False):
+    for eic in read_eics_batch(samples, compound):
         key = f"{mode}|{level}|{name}|{eic.sample_name}"
         matrix = np.asarray(eic.intensity, dtype=np.float64)
         if eps:

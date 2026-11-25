@@ -7,9 +7,11 @@ from typing import Optional
 import xlsxwriter
 from pydantic import ValidationError
 
+from manic.io.compound_reader import Compound
 from manic.io.compounds_import import CompoundRow, validation_reasons
 from manic.io.legacy_raw_values_reader import read_raw_values_workbook
 from manic.io.in_memory_provider import InMemoryDataProvider
+from manic.processors.eic_correction_manager import uncorrectable_reason
 import pandas as pd
 
 from manic.sheet_generators import (
@@ -112,6 +114,30 @@ def rebuild_export_from_files(
         raise ValueError(
             "The Raw Values workbook needs label atoms + 1 isotopologue columns for each compound: "
             + ", ".join(mismatched)
+        )
+
+    uncorrectable = []
+    for comp in compounds:
+        reason = uncorrectable_reason(
+            Compound(
+                compound_name=comp["compound_name"],
+                retention_time=comp["retention_time"],
+                loffset=comp["loffset"],
+                roffset=comp["roffset"],
+                label_atoms=comp["label_atoms"],
+                mass0=comp["mass0"],
+                formula=comp.get("formula"),
+                label_type=comp.get("label_type") or "C",
+                tbdms=comp.get("tbdms") or 0,
+                meox=comp.get("meox") or 0,
+                me=comp.get("me") or 0,
+            )
+        )
+        if reason is not None:
+            uncorrectable.append(f"{comp['compound_name']} ({reason})")
+    if uncorrectable:
+        raise ValueError(
+            "Natural abundance correction failed for: " + ", ".join(uncorrectable)
         )
 
     provider = InMemoryDataProvider(compounds, samples, raw_data, use_legacy_integration=use_legacy_integration)

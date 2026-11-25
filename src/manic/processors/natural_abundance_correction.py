@@ -266,8 +266,7 @@ class NaturalAbundanceCorrector:
             deriv_formula, label_element, label_atoms
         )
 
-        # Analyze matrix conditioning (diagnostic only; direct solver is always used)
-        condition_number = np.linalg.cond(correction_matrix)
+        condition_number = self._require_well_conditioned(correction_matrix)
         use_direct_solver = True
 
         # Cache the results for future use
@@ -275,6 +274,15 @@ class NaturalAbundanceCorrector:
         self._matrix_cache[cache_key] = cached_result
 
         return cached_result
+
+    @staticmethod
+    def _require_well_conditioned(correction_matrix: np.ndarray) -> float:
+        condition_number = float(np.linalg.cond(correction_matrix))
+        if not np.isfinite(condition_number) or condition_number >= 1e10:
+            raise NaturalAbundanceCorrectionError(
+                f"Correction matrix is ill-conditioned (condition number {condition_number:.2e})"
+            )
+        return condition_number
 
     def clear_cache(self):
         """
@@ -499,6 +507,7 @@ class NaturalAbundanceCorrector:
                 label_atoms,
                 max_isotopologues=n_isotopologues_measured
             )
+            self._require_well_conditioned(correction_matrix)
         elif n_isotopologues_measured < n_isotopologues_expected:
             logger.error(
                 f"Measured data has {n_isotopologues_measured} isotopologues but label_atoms={label_atoms} "
@@ -586,34 +595,3 @@ class NaturalAbundanceCorrector:
         except np.linalg.LinAlgError as e:
             logger.error(f"Direct solver failed: {e}")
             raise NaturalAbundanceCorrectionError(f"Direct solver failed: {e}") from e
-
-
-
-def correct_eic_data(
-    eic_intensity: np.ndarray,
-    compound_formula: str,
-    label_atoms: int,
-    label_element: str = "C",
-    tbdms: int = 0,
-    meox: int = 0,
-    me: int = 0,
-) -> np.ndarray:
-    """
-    Convenience function to correct EIC data for natural abundance.
-
-    Args:
-        eic_intensity: 2D intensity array (n_isotopologues, n_timepoints)
-        compound_formula: Molecular formula
-        label_atoms: Number of labeled positions
-        label_element: Labeled element (default 'C')
-        tbdms: TBDMS groups
-        meox: MeOX groups
-        me: Methylations
-
-    Returns:
-        Corrected intensity array
-    """
-    corrector = NaturalAbundanceCorrector()
-    return corrector.correct_time_series(
-        eic_intensity, compound_formula, label_element, label_atoms, tbdms, meox, me
-    )

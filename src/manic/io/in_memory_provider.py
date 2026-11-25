@@ -72,8 +72,9 @@ class InMemoryDataProvider:
                     int(comp.get('me') or 0),
                 )
             except NaturalAbundanceCorrectionError as exc:
-                logger.warning("No corrected values for %s in %s: %s", name, sample_name, exc)
-                continue
+                raise NaturalAbundanceCorrectionError(
+                    f"Natural abundance correction failed for {name}: {exc}"
+                ) from exc
 
             corrected[name] = corr_vec.astype(float).tolist()
 

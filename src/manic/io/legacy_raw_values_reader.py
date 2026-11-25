@@ -1,8 +1,31 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, List
 
 import pandas as pd
+
+
+class RawValuesFormatError(ValueError):
+    """Raised when a Raw Values sheet has malformed isotope headers or non-numeric cells."""
+
+
+def _parse_isotope_index(value: object, compound_name: str, col_num: int) -> int:
+    if pd.isna(value) or isinstance(value, bool):
+        raise RawValuesFormatError(
+            f"Compound '{compound_name}' has an invalid isotope header {value!r} in column {col_num}."
+        )
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise RawValuesFormatError(
+            f"Compound '{compound_name}' has a non-integer isotope header {value!r} in column {col_num}."
+        ) from exc
+    if not math.isfinite(numeric) or not numeric.is_integer() or numeric < 0:
+        raise RawValuesFormatError(
+            f"Compound '{compound_name}' has an invalid isotope header {value!r} in column {col_num}."
+        )
+    return int(numeric)
 
 
 def read_raw_values_workbook(path: str) -> tuple[List[str], Dict[str, Dict[str, List[float]]]]:
@@ -20,19 +43,40 @@ def read_raw_values_workbook(path: str) -> tuple[List[str], Dict[str, Dict[str, 
       Row 4: 'tR'            | None | [retention time repeated]
       Row 5+: None           | sample_name | [values]
     """
-    # Read without headers to preserve positions
-    df = pd.read_excel(path, sheet_name='Raw Values', header=None, engine='openpyxl')
+    df = pd.read_excel(path, sheet_name="Raw Values", header=None, engine="openpyxl")
+    if df.shape[0] < 4 or df.shape[1] < 3:
+        raise ValueError("Raw Values sheet does not have the expected MANIC layout.")
 
-    # Header rows
     compounds_row = df.iloc[0, 2:].tolist()
     isotopes_row = df.iloc[2, 2:].tolist()
 
-    # Build column mapping: col_index -> (compound_name, isotope_index)
     col_map: Dict[int, tuple[str, int]] = {}
-    for idx, (cmp, iso) in enumerate(zip(compounds_row, isotopes_row)):
-        col_map[2 + idx] = (str(cmp), int(iso))
+    compound_isos: Dict[str, List[int]] = {}
+    for idx, (cmp_val, iso_val) in enumerate(zip(compounds_row, isotopes_row)):
+        col = 2 + idx
+        if pd.isna(cmp_val) or not str(cmp_val).strip():
+            raise RawValuesFormatError(
+                f"Missing compound name in Raw Values column {col + 1}."
+            )
+        cmp_name = str(cmp_val).strip()
+        iso = _parse_isotope_index(iso_val, cmp_name, col + 1)
+        seen = compound_isos.setdefault(cmp_name, [])
+        if iso in seen:
+            raise RawValuesFormatError(
+                f"Compound '{cmp_name}' has duplicate isotope column M+{iso}."
+            )
+        seen.append(iso)
+        col_map[col] = (cmp_name, iso)
 
-    # Samples and data rows
+    for cmp_name, isos in compound_isos.items():
+        expected = list(range(len(isos)))
+        if sorted(isos) != expected:
+            missing = sorted(set(range(max(isos) + 1)) - set(isos))
+            raise RawValuesFormatError(
+                f"Compound '{cmp_name}' has a gap in its isotope columns "
+                f"(missing {', '.join(f'M+{m}' for m in missing)})."
+            )
+
     samples: List[str] = []
     raw_data: Dict[str, Dict[str, List[float]]] = {}
 
@@ -44,26 +88,29 @@ def read_raw_values_workbook(path: str) -> tuple[List[str], Dict[str, Dict[str, 
         samples.append(sample)
         raw_data[sample] = {}
 
-        # Gather values per compound by isotopologue index
         accum: Dict[str, Dict[int, float]] = {}
-        for c in range(2, df.shape[1]):
-            if c not in col_map:
-                continue
-            cmp, iso = col_map[c]
+        for c, (cmp_name, iso) in col_map.items():
             val = df.iat[ridx, c]
+            if pd.isna(val) or isinstance(val, bool):
+                raise RawValuesFormatError(
+                    f"Non-numeric or blank value for compound '{cmp_name}' "
+                    f"(M+{iso}) in sample '{sample}'."
+                )
             try:
-                fval = float(val) if not pd.isna(val) else 0.0
-            except Exception:
-                fval = 0.0
-            if cmp not in accum:
-                accum[cmp] = {}
-            accum[cmp][iso] = fval
+                fval = float(val)
+            except (TypeError, ValueError) as exc:
+                raise RawValuesFormatError(
+                    f"Non-numeric value {val!r} for compound '{cmp_name}' "
+                    f"(M+{iso}) in sample '{sample}'."
+                ) from exc
+            if not math.isfinite(fval):
+                raise RawValuesFormatError(
+                    f"Non-finite value {val!r} for compound '{cmp_name}' "
+                    f"(M+{iso}) in sample '{sample}'."
+                )
+            accum.setdefault(cmp_name, {})[iso] = fval
 
-        # Convert to ordered list per compound (0..max_iso)
-        for cmp, iso_map in accum.items():
-            max_iso = max(iso_map.keys()) if iso_map else 0
-            areas = [iso_map.get(i, 0.0) for i in range(max_iso + 1)]
-            raw_data[sample][cmp] = areas
+        for cmp_name, iso_map in accum.items():
+            raw_data[sample][cmp_name] = [iso_map[i] for i in range(len(iso_map))]
 
     return samples, raw_data
-

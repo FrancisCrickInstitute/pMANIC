@@ -183,7 +183,7 @@ Whichever check sends a channel to its raw trace, MANIC does not blank the plot 
 
 ## Natural Abundance Correction preview
 
-**Show corrected data** (**Settings → Natural abundance**) changes only what the UI draws and what the Isotopologue ratio bars show. Export still fits the raw traces, integrates that same selected component, and corrects its areas. If a compound has no correction formula or labelled atoms, preview keeps the raw fitted display and raw bars.
+**Show corrected data** (**Settings → Natural abundance**) changes only what the UI draws and what the Isotopologue ratio bars show. Export still fits the raw traces, integrates that same selected component, and corrects its areas. Unlabelled compounds keep the raw fitted display and raw bars; labelled compounds whose correction fails show no corrected bars.
 
 Preview on:
 
@@ -192,7 +192,7 @@ Preview on:
 3. When overlays are on, draw the corrected selected traces over a faint raw EIC. The raw context does not enter correction or integration. Otherwise, draw the corrected raw matrix.
 4. When both layers are present, scale the y-axis to include both.
 
-The **Summary** panel's bars and the tiles use the same raw fit. They do not re-fit stored `eic_corrected` traces. Preview draws corrected selected values at the acquisition scan times. Time-based bars and export integrate a denser evaluation of the same raw fitted model, then correct those areas. The drawn corrected trace corrects every scan and draws negative scans at 0, so it can show small positive blips in an isotopologue whose corrected area is 0.
+The **Summary** panel's bars and the tiles use the same raw fit. Preview draws corrected selected values at the acquisition scan times. Time-based bars and export integrate a denser evaluation of the same raw fitted model, then correct those areas. The drawn corrected trace corrects every scan and draws negative scans at 0, so it can show small positive blips in an isotopologue whose corrected area is 0.
 
 If the detailed-view display pipeline fails after the canvas was cleared, the dialog draws the raw EIC. The info strip reports an error only if that fallback also fails.
 

@@ -106,6 +106,9 @@ def reset_database() -> None:
 def _run_migrations(conn: sqlite3.Connection) -> None:
     """Run database migrations to handle schema changes"""
 
+    # Stored corrected EICs are no longer written or read (#194).
+    conn.execute("DROP TABLE IF EXISTS eic_corrected")
+
     # Check if session_activity table exists and has retention_time column
     try:
         cursor = conn.execute("PRAGMA table_info(session_activity)")
@@ -532,7 +535,6 @@ def _clear_database_fast(progress_callback=None):
         DELETE FROM session_activity;
         DELETE FROM peak_review;
         DELETE FROM sample_fit_type;
-        DELETE FROM eic_corrected;
         DELETE FROM eic;
         DELETE FROM tic_data;  
         DELETE FROM ms_data;
@@ -568,7 +570,6 @@ def _clear_database_detailed(progress_callback=None):
         ("session_activity", "Clearing session overrides..."),
         ("peak_review", "Clearing peak reviews..."),
         ("sample_fit_type", "Clearing per-sample fit types..."),
-        ("eic_corrected", "Clearing corrected EIC data..."),
         ("eic", "Clearing raw EIC data..."),
         ("tic_data", "Clearing TIC chromatograms..."),
         ("ms_data", "Clearing mass spectra..."),

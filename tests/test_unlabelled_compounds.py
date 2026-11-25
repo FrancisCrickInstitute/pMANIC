@@ -281,7 +281,6 @@ def test_data_provider_integrates_all_channels_but_quantifies_quantifier(
     round_trip = read_eic(
         "S1",
         read_compound("Target"),
-        use_corrected=False,
     )
     assert round_trip.intensity.shape == (3, 3)
     assert np.array_equal(round_trip.intensity, matrix)

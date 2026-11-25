@@ -14,10 +14,6 @@ from manic.io.compound_reader import Compound, read_compound
 from manic.models.database import get_connection
 from manic.models.session_activity import PendingRegeneration, SessionActivityService
 from manic.processors.eic_calculator import EIC, EmptyRtWindowError, extract_eic
-from manic.processors.eic_correction_manager import (
-    compute_corrected_intensity,
-    store_corrected_eic,
-)
 from manic.io.tic_reader import store_tic_data
 from manic.io.ms_reader import store_ms_data_batch
 
@@ -420,22 +416,7 @@ def import_eics(
     if not compounds:
         raise RuntimeError("Compounds table is empty.")
 
-    # Count compounds that will need correction
-    corrections_needed = 0
-    with get_connection() as conn:
-        # Get formula info for compounds that need correction
-        correction_sql = """
-            SELECT COUNT(DISTINCT compound_name) as count
-            FROM compounds
-            WHERE deleted = 0
-            AND formula IS NOT NULL
-            AND label_atoms > 0
-        """
-        result = conn.execute(correction_sql).fetchone()
-        correction_compounds = result["count"] if result else 0
-        corrections_needed = correction_compounds * len(cdf_files)
-
-    total_work = len(cdf_files) * len(compounds) + corrections_needed
+    total_work = len(cdf_files) * len(compounds)
     done = 0
     inserted = 0
     tic_count = 0
@@ -524,19 +505,6 @@ def import_eics(
         logger.info(
             f"Stored additional data: {tic_count} TIC chromatograms, {ms_count} MS spectra sets ({total_ms_peaks:,} total peaks)"
         )
-
-    # Automatically calculate natural abundance corrections
-    if corrections_needed > 0:
-        try:
-            # Create progress callback that continues from where EIC import left off
-            def correction_progress(current, total):
-                if progress_cb:
-                    # Map correction progress to remaining work
-                    correction_done = int((current / total) * corrections_needed)
-                    progress_cb(done + correction_done, total_work)
-
-        except Exception as e:
-            logger.warning(f"Failed to calculate natural abundance corrections: {e}")
 
     elapsed = time.time() - start
     logger.info("imported %d EICs in %.1f s", inserted, elapsed)
@@ -764,52 +732,11 @@ def regenerate_compound_eics(
         if progress_cb:
             progress_cb(done, total_work)
 
-    sample_name_list = list(extracted_eics)
-    placeholders = ", ".join("?" * len(sample_name_list))
-    with get_connection() as conn:
-        previously_corrected = {
-            row["sample_name"]
-            for row in conn.execute(
-                f"""
-                SELECT sample_name FROM eic_corrected
-                WHERE compound_name = ?
-                  AND sample_name IN ({placeholders})
-                  AND deleted = 0
-                """,
-                (compound_name, *sample_name_list),
-            ).fetchall()
-        }
-
-    corrected_by_sample: dict[str, np.ndarray] = {}
-    for sample_name, eic in extracted_eics.items():
-        try:
-            corrected = compute_corrected_intensity(eic, compound_data)
-        except Exception as e:
-            if sample_name in previously_corrected:
-                raise RuntimeError(
-                    f"Could not recreate the natural abundance correction "
-                    f"for sample '{sample_name}'. No changes were applied. {e}"
-                ) from e
-            continue
-        if corrected is None:
-            if sample_name in previously_corrected:
-                raise RuntimeError(
-                    f"Could not recreate the natural abundance correction "
-                    f"for sample '{sample_name}'. No changes were applied."
-                )
-            continue
-        corrected_by_sample[sample_name] = corrected
-
     try:
         with get_connection() as conn:
             for sample_name, eic in extracted_eics.items():
                 conn.execute(
                     "DELETE FROM eic WHERE compound_name = ? AND sample_name = ?",
-                    (compound_name, sample_name),
-                )
-                conn.execute(
-                    "DELETE FROM eic_corrected "
-                    "WHERE compound_name = ? AND sample_name = ?",
                     (compound_name, sample_name),
                 )
                 conn.execute(
@@ -830,14 +757,6 @@ def regenerate_compound_eics(
                         retention_times[sample_name],
                     ),
                 )
-                if sample_name in corrected_by_sample:
-                    store_corrected_eic(
-                        sample_name,
-                        compound_name,
-                        eic.time,
-                        corrected_by_sample[sample_name],
-                        connection=conn,
-                    )
             if pending_regeneration is not None:
                 SessionActivityService.update_session_data(
                     compound_name=compound_name,
@@ -965,20 +884,7 @@ def regenerate_all_eics_with_mass_tolerance(
     if not compounds:
         raise NothingToRegenerateError("Compounds table is empty")
 
-    # Count compounds that will need correction
-    corrections_needed = 0
-    with get_connection() as conn:
-        correction_sql = """
-            SELECT COUNT(DISTINCT compound_name) as count
-            FROM compounds
-            WHERE formula IS NOT NULL
-            AND label_atoms > 0
-        """
-        result = conn.execute(correction_sql).fetchone()
-        correction_compounds = result["count"] if result else 0
-        corrections_needed = correction_compounds * len(sample_rows)
-
-    total_work = len(sample_rows) * len(compounds) + corrections_needed
+    total_work = len(sample_rows) * len(compounds)
     done = 0
     regenerated = 0
     failed_samples = []
@@ -1083,16 +989,6 @@ def regenerate_all_eics_with_mass_tolerance(
                     f"Deleted {deleted_count} existing EIC records for '{sample_name}'"
                 )
 
-                # Also delete corrected records
-                delete_corrected = conn.execute(
-                    "DELETE FROM eic_corrected WHERE sample_name = ?", (sample_name,)
-                )
-                deleted_corrected_count = delete_corrected.rowcount
-                if deleted_corrected_count > 0:
-                    logger.debug(
-                        f"Deleted {deleted_corrected_count} corrected EIC records for '{sample_name}'"
-                    )
-
                 # Batch insert new EIC records
                 if eic_batch:
                     conn.executemany(
@@ -1127,26 +1023,6 @@ def regenerate_all_eics_with_mass_tolerance(
             # Explicit memory cleanup
             if "cdf_data" in locals():
                 del cdf_data
-
-    # Recalculate natural abundance corrections for all compounds
-    if corrections_needed > 0:
-        try:
-            from manic.processors.eic_correction_manager import process_all_corrections
-
-            logger.info("Recalculating natural abundance corrections...")
-
-            # Create progress callback that continues from where EIC regeneration left off
-            def correction_progress(current, total):
-                if progress_cb:
-                    correction_done = int((current / total) * corrections_needed)
-                    progress_cb(done + correction_done, total_work)
-
-            corrections_count = process_all_corrections(progress_cb=correction_progress)
-            logger.info(
-                f"Recalculated {corrections_count} natural abundance corrections"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to recalculate corrections: {e}")
 
     elapsed = time.time() - start
     logger.info(

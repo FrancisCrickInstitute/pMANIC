@@ -302,7 +302,7 @@ def test_get_eics_for_compound_normalise(monkeypatch):
     )
 
     # Build two EICs with different max intensity
-    def fake_read_eics_batch(samples, compound_obj, use_corrected):
+    def fake_read_eics_batch(samples, compound_obj):
         from manic.io.eic_reader import EIC
         return [
             EIC(samples[0], compound_obj.compound_name, np.array([0, 1]), np.array([1.0, 2.0])),
@@ -311,7 +311,7 @@ def test_get_eics_for_compound_normalise(monkeypatch):
 
     monkeypatch.setattr(eic_processing, 'read_eics_batch', fake_read_eics_batch)
 
-    eics = eic_processing.get_eics_for_compound('Test', ['A', 'B'], normalise=True, use_corrected=False)
+    eics = eic_processing.get_eics_for_compound('Test', ['A', 'B'], normalise=True)
     assert len(eics) == 2
     # Both should be scaled so max is 1.0
     assert eics[0].intensity.max() == 1.0

@@ -231,3 +231,100 @@ def test_selecting_internal_standard_recolours_plotted_compound(
         }
     finally:
         window.close()
+
+
+def test_load_cdf_folder_refuses_second_import_while_worker_runs(
+    qapp, empty_db, monkeypatch, tmp_path
+):
+    window = _make_window(monkeypatch)
+    window.compound_data_loaded = True
+    window.cdf_data_loaded = False
+    window._update_menu_states()
+
+    class RunningThread:
+        def isRunning(self):
+            return True
+
+    shown = []
+    monkeypatch.setattr(
+        window, "_show_message", lambda _t, title, text, *_a: shown.append((title, text))
+    )
+    window._thread = RunningThread()
+    folder = tmp_path / "cdfs"
+    folder.mkdir()
+    try:
+        window._load_cdf_folder(str(folder))
+        assert isinstance(window._thread, RunningThread)
+        assert shown and shown[0][0] == "Operation in progress"
+    finally:
+        window._thread = None
+        window.close()
+
+
+def test_close_event_waits_for_running_import_or_reload_thread(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(monkeypatch)
+    window._skip_close_guard = False
+    monkeypatch.setattr(window, "_confirm", lambda *args, **kwargs: True)
+
+    class SlowWorker(QObject):
+        finished = Signal(int)
+
+        def run(self):
+            time.sleep(0.05)
+            self.finished.emit(1)
+
+    checklist_opened = []
+    monkeypatch.setattr(
+        window, "show_post_load_checklist", lambda: checklist_opened.append(True)
+    )
+    thread = QThread(window)
+    worker = SlowWorker()
+    worker.moveToThread(thread)
+    worker.finished.connect(window._import_ok)
+    worker.finished.connect(thread.quit)
+    thread.started.connect(worker.run)
+    window._thread = thread
+    thread.start()
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+    qapp.processEvents()
+    assert event.isAccepted()
+    assert not thread.isRunning()
+    assert window._thread is None
+    assert checklist_opened == []
+
+
+def test_refresh_after_session_import_clears_screen_when_all_compounds_deleted(
+    qapp, empty_db, monkeypatch
+):
+    window = _make_window(monkeypatch)
+    try:
+        window.graph_view._current_compound = "OldCompound"
+        window.graph_view._current_samples = ["S1"]
+        window.toolbar.integration.tr_window_edit.setText("0.200")
+        window.toolbar.integration.findChild(
+            type(window.toolbar.integration.tr_window_edit), "tr_input"
+        ).setText("5.000")
+
+        cleared_summary = []
+        monkeypatch.setattr(
+            window.summary, "clear", lambda: cleared_summary.append(True)
+        )
+
+        window._refresh_after_session_import()
+
+        assert window.graph_view.get_current_compound() == ""
+        assert window.graph_view.get_current_samples() == []
+        assert cleared_summary == [True]
+        assert window.toolbar.integration.tr_window_edit.text() == ""
+        assert (
+            window.toolbar.integration.findChild(
+                type(window.toolbar.integration.tr_window_edit), "tr_input"
+            ).text()
+            == ""
+        )
+    finally:
+        window.close()

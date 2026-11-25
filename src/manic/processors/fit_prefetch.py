@@ -213,7 +213,7 @@ def prefetch_display_fits(
     """
     try:
         if eics is None:
-            eics = get_eics_for_compound(compound_name, samples, use_corrected=False)
+            eics = get_eics_for_compound(compound_name, samples)
         compounds = [
             read_compound_with_session(eic.compound_name, eic.sample_name) for eic in eics
         ]
@@ -238,7 +238,7 @@ def prefetch_display_fits_async(
     if not compound_name or not samples:
         return
     try:
-        eics = get_eics_for_compound(compound_name, samples, use_corrected=False)
+        eics = get_eics_for_compound(compound_name, samples)
         compounds_by_sample = read_compounds_with_session(
             compound_name, [eic.sample_name for eic in eics]
         )

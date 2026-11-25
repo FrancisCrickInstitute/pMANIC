@@ -196,6 +196,8 @@ class MainWindow(QMainWindow):
         self._post_load_checklist = None
         self.compound_list_path: str | None = None
         self._update_worker = None
+        self._update_check_asked_for = False
+        self._update_url = ""
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
         self._thread = None
@@ -238,34 +240,49 @@ class MainWindow(QMainWindow):
         self._update_worker.result.connect(self._on_update_check_finished)
         self._update_worker.start()
 
+    def _check_for_updates_from_menu(self):
+        self._update_check_asked_for = True
+        show_status_toast(self.statusBar(), "Checking for updates…")
+        self._check_for_updates()
+
     def _on_update_check_finished(
         self, success: bool, has_update: bool, latest_version: str, url: str
     ):
-        """Handle the result of the update check."""
-        self._show_update_check_toast(success, has_update, latest_version)
+        """A start-up check speaks only of an update; one from the Help menu always answers."""
+        asked, self._update_check_asked_for = self._update_check_asked_for, False
+        if has_update:
+            if asked:  # "Checking for updates…" must not outlast its answer.
+                for toast in self.statusBar().findChildren(ToastNotification):
+                    toast.close()
+            self._prompt_to_update(latest_version, url)
+        elif asked:
+            show_status_toast(
+                self.statusBar(), "No updates available" if success else "Update check failed"
+            )
 
-        if has_update and self._confirm(
-            "New Version Available",
+    def _prompt_to_update(self, latest_version: str, url: str) -> None:
+        """Press the update: Return accepts, and a reminder stays in the status bar after Later."""
+        self._update_url = url
+        self.update_reminder_button.setText(f"Update to v{latest_version}")
+        self.update_reminder_button.show()
+        box = self._create_message_box(
+            "question",
+            "Update MANIC",
             f"MANIC v{latest_version} is available.",
-            "",
-            "View Release Page",
-        ):
-            QDesktopServices.openUrl(QUrl(url))
+            f"You have v{__version__}, which is out of date.",
+        )
+        box.setStandardButtons(QMessageBox.NoButton)
+        box.addButton("Later", QMessageBox.RejectRole)
+        download = box.addButton("Download Update", QMessageBox.AcceptRole)
+        box.setDefaultButton(download)
+        # The stylesheet's min-width for message-box buttons would clip this label.
+        download.setMinimumWidth(download.sizeHint().width())
+        box.exec()
+        if box.clickedButton() is download:
+            self._open_update_page()
 
-    def _show_update_check_toast(
-        self,
-        success: bool,
-        has_update: bool,
-        latest_version: str,
-    ) -> None:
-        if not success:
-            message = "Update check failed"
-        elif has_update:
-            message = f"Update available (v{latest_version})"
-        else:
-            message = "No updates available"
-
-        show_status_toast(self.statusBar(), message)
+    def _open_update_page(self) -> None:
+        QDesktopServices.openUrl(QUrl(self._update_url))
 
     def setup_ui(self):
         """
@@ -417,7 +434,7 @@ class MainWindow(QMainWindow):
 
         self.check_updates_action = QAction("Check for Updates...", self)
         self.check_updates_action.setMenuRole(QAction.NoRole)
-        self.check_updates_action.triggered.connect(self._check_for_updates)
+        self.check_updates_action.triggered.connect(self._check_for_updates_from_menu)
         help_menu.addAction(self.check_updates_action)
 
         help_menu.addSeparator()
@@ -732,6 +749,14 @@ class MainWindow(QMainWindow):
             lambda: self.open_settings_page("Deconvolution")
         )
         bar.addPermanentWidget(self.deconvolution_indicator_label)
+        self.update_reminder_button = QPushButton()
+        self.update_reminder_button.setObjectName("statusUpdate")
+        self.update_reminder_button.setProperty("variant", "primary")
+        self.update_reminder_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_reminder_button.setToolTip("Open the download page for the new version.")
+        self.update_reminder_button.clicked.connect(self._open_update_page)
+        bar.addPermanentWidget(self.update_reminder_button)
+        self.update_reminder_button.hide()
 
     def _build_no_samples_panel(self) -> QWidget:
         """The workspace while every sample is unchecked in the sidebar."""

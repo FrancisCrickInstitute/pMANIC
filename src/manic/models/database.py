@@ -3,7 +3,7 @@ import os
 import sqlite3
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import List
 
@@ -62,15 +62,17 @@ def init_db() -> None:
     # Check the .manic_app directory exists
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    # open db file and sql schema in a single atomic context manager
-    with sqlite3.connect(DB_FILE) as conn:
-        # Enable foreign keys
-        conn.execute("PRAGMA foreign_keys = ON")
-        # Run migrations first
-        _run_migrations(conn)
-        # Apply base schema
-        with SCHEMA_SQL_PATH.open("r", encoding="utf-8") as fh:
-            conn.executescript(fh.read())
+    # Close the SQLite handle explicitly: Connection.__exit__ only commits or
+    # rolls back, leaving the file locked against unlink() on Windows.
+    with closing(sqlite3.connect(DB_FILE)) as conn:
+        with conn:
+            # Enable foreign keys
+            conn.execute("PRAGMA foreign_keys = ON")
+            # Run migrations first
+            _run_migrations(conn)
+            # Apply base schema
+            with SCHEMA_SQL_PATH.open("r", encoding="utf-8") as fh:
+                conn.executescript(fh.read())
 
     logger.info("database ready at %s", DB_FILE)
 

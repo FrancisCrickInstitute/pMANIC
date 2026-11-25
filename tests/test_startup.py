@@ -55,6 +55,32 @@ def test_main_window_import_skips_heavy_io_modules():
     assert loaded == []
 
 
+def test_init_db_closes_its_connection_before_returning(tmp_path, monkeypatch):
+    import sqlite3
+
+    db_path = tmp_path / "manic.db"
+    monkeypatch.setattr(database, "DB_FILE", db_path)
+
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def _tracking_connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(database.sqlite3, "connect", _tracking_connect)
+    database.init_db()
+
+    assert len(opened) == 1
+    try:
+        opened[0].execute("SELECT 1")
+    except sqlite3.ProgrammingError as exc:
+        assert "closed" in str(exc).lower()
+    else:
+        raise AssertionError("init_db() left its sqlite3 connection open")
+
+
 def test_reset_database_removes_stale_sidecars(tmp_path, monkeypatch):
     db_path = tmp_path / "manic.db"
     wal_path = tmp_path / "manic.db-wal"

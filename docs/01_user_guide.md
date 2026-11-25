@@ -159,6 +159,8 @@ Scan the grid of plots. Look for:
 
 #### Sample notes
 
+![Plot grid for Pyruvate with note chips on three tiles and the inline note editor open beside Bio_014](_assets/screenshots/sample_notes.png)
+
 A note records why you handled a peak the way you did, for example a co-eluting shoulder or a suspect injection. Each note belongs to one sample for the compound on screen. A note never changes a result.
 
 * **Add a note:** Right-click a plot and choose **Add Note...**. A small editor opens beside the plot, so the chromatogram stays in view while you type. Press **Enter** or click **Save** to save. Press **Shift+Enter** for a new line. Press **Escape** to cancel, which leaves an existing note unchanged.

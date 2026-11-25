@@ -183,6 +183,11 @@ class ElidedLabel(QLabel):
         super().resizeEvent(event)
 
     def _elide(self) -> None:
+        if not self._full:
+            super().setText("")
+            if self._hover:
+                self.setToolTip("")
+            return
         metrics = QFontMetrics(self.font())
         width = max(self.width(), 0)
         shown = metrics.elidedText(self._full, self._mode, width) if width else self._full

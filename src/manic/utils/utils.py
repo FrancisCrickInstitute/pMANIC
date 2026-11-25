@@ -1,10 +1,10 @@
-from PySide6.QtCharts import QChartView
+import sys
+
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from manic.ui import colors, theme
-from manic.ui.chart_style import remap_chart_colors
 from manic.ui.theme import FONT_SIZE
 from manic.utils.paths import resource_path
 
@@ -74,7 +74,12 @@ def apply_color_scheme(app: QApplication, dark: bool) -> None:
         return
     widgets = app.allWidgets()
     theme.restyle_inline(widgets)
-    for widget in widgets:
-        if isinstance(widget, QChartView):
-            remap_chart_colors(widget.chart(), remap)
+    if "PySide6.QtCharts" in sys.modules:
+        from PySide6.QtCharts import QChartView
+
+        from manic.ui.chart_style import remap_chart_colors
+
+        for widget in widgets:
+            if isinstance(widget, QChartView):
+                remap_chart_colors(widget.chart(), remap)
     theme.notifier.changed.emit(remap)

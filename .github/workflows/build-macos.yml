@@ -43,6 +43,10 @@ jobs:
           fi
           uv run python -c "import ctypes, sys; lib = ctypes.CDLL(sys.argv[1]); assert hasattr(lib, 'manic_fit_shape_candidate')" "$BUNDLED_LIB"
 
+      - name: Smoke test packaged app
+        timeout-minutes: 5
+        run: dist/MANIC.app/Contents/MacOS/MANIC --smoke-test
+
       - name: Build DMG and zip
         run: |
           VERSION=$(sed -n 's/^VERSION="\([^"]*\)"/\1/p' scripts/build_macos.sh)
@@ -66,6 +70,7 @@ jobs:
           path: dist/MANIC-Setup-Mac.dmg.zip
 
       - name: Attach to release
+        if: startsWith(inputs.tag, 'v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ inputs.tag }}" dist/MANIC-Setup-Mac.dmg.zip --clobber

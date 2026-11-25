@@ -1,7 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys, os
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
@@ -16,17 +15,12 @@ hiddenimports = [
     'markdown.extensions.sane_lists',
     'markdown.extensions.md_in_html',
     'pymdownx.arithmatex',
-    # QtWebEngine modules for documentation viewer
+    # Dynamically loaded Qt modules (charts, SVG icon plugins, documentation viewer)
+    'PySide6.QtCharts',
+    'PySide6.QtSvg',
     'PySide6.QtWebEngineCore',
     'PySide6.QtWebEngineWidgets',
 ]
-hiddenimports += collect_submodules('PySide6')
-
-datas_extra = []
-try:
-    datas_extra += collect_data_files('PySide6')
-except Exception:
-    pass
 
 rust_lib = 'src/manic/processors/manic_fitter.dll'
 if not os.path.exists(rust_lib):
@@ -46,12 +40,22 @@ a = Analysis(
         ('docs/*.md', 'docs'),
         ('docs/_assets/mathjax/*', 'docs/_assets/mathjax'),
         ('docs/_assets/screenshots/*', 'docs/_assets/screenshots'),
-    ] + datas_extra,
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'pytest',
+        '_pytest',
+        'pyqtgraph',
+        'pygal',
+        'pygaljs',
+        'tkinter',
+        '_tkinter',
+        'IPython',
+        'jupyter',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -73,7 +77,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     icon=icon_file
 )
@@ -84,7 +88,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=['manic_fitter.dll'],
     name='MANIC'
 )

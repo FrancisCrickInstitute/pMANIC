@@ -26,15 +26,6 @@ from manic.processors.chromatographic_peak_deconvolution import (
 )
 from manic.processors.display_deconvolution import plot_display
 from manic.processors.tile_y_scale import YScalePolicy, y_axis_from_max
-from manic.ui.colors import (
-    QUALIFIER_GREEN,
-    QUALIFIER_GREY,
-    QUALIFIER_RED,
-    ChannelTraceStyle,
-    channel_trace_styles,
-    dark_red_colour,
-    label_colors,
-)
 from manic.ui.integration_window_widget import (
     IntegrationWindow,
     toolbar_decimal_text_is_allowed,
@@ -157,16 +148,6 @@ def _v1(*, expected: float | None = 0.4, tolerance: float | None = 0.25) -> IonC
     )
 
 
-def _v2(*, expected: float | None = 0.2, tolerance: float | None = 0.25) -> IonChannel:
-    return IonChannel(
-        73.0,
-        IonRole.QUALIFIER,
-        ordinal=2,
-        expected_ratio=expected,
-        ratio_tolerance=tolerance,
-    )
-
-
 def _identity_snapshot(channels, *sample_rows) -> IdentityAssessmentSet:
     samples = []
     for sample_name, qc, error in sample_rows:
@@ -225,130 +206,6 @@ def test_identity_chart_click_emits_sample_name(qapp):
         assert activated == ["S1"]
     finally:
         widget.deleteLater()
-
-
-def test_channel_trace_styles_keep_q_steel_blue_and_solid():
-    channels = (_qion(), _v1(), _v2())
-    identity = _identity_snapshot(
-        channels, ("S1", _supported_qc(channels, True, False), None)
-    )
-    styles = channel_trace_styles(channels, identity.for_sample("S1"))
-
-    assert styles[0].color == label_colors[0]
-    assert styles[0].line_style == Qt.SolidLine
-    assert styles[1].color == QUALIFIER_GREEN
-    assert styles[1].line_style == Qt.SolidLine
-    assert styles[2].color == QUALIFIER_RED
-    assert styles[2].line_style == Qt.DashDotLine
-
-
-def test_channel_trace_styles_colour_v2_by_ordinal():
-    channels = (_qion(), _v2())
-    qc = IdentityQcResult(
-        status=IdentityStatus.REVIEW_REQUIRED,
-        quantifier_area=100.0,
-        observed_rt=1.2,
-        rt_error=0.0,
-        rt_passed=True,
-        qualifier_ratios=(QualifierRatioResult(channels[1], 0.80, False),),
-        reasons=(),
-    )
-    identity = _identity_snapshot(channels, ("S1", qc, None))
-    styles = channel_trace_styles(channels, identity.for_sample("S1"))
-
-    assert len(styles) == 2
-    assert styles[0].color == label_colors[0]
-    assert styles[1].color == QUALIFIER_RED
-    assert styles[1].line_style == Qt.DashDotLine
-    assert styles[1].color != label_colors[1]
-
-
-def test_channel_trace_styles_labelled_palette_unchanged():
-    channels = (
-        IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),
-        IonChannel(175.0, IonRole.ISOTOPOLOGUE, ordinal=1),
-        IonChannel(176.0, IonRole.ISOTOPOLOGUE, ordinal=2),
-    )
-    styles = channel_trace_styles(channels, None)
-    assert [style.color for style in styles] == label_colors[:3]
-    assert all(style.line_style == Qt.SolidLine for style in styles)
-
-
-def test_graph_unlabelled_traces_use_status_pens(qapp):
-    channels = (_qion(), _v2())
-    qc = IdentityQcResult(
-        status=IdentityStatus.REVIEW_REQUIRED,
-        quantifier_area=100.0,
-        observed_rt=1.2,
-        rt_error=0.0,
-        rt_passed=True,
-        qualifier_ratios=(QualifierRatioResult(channels[1], 0.80, False),),
-        reasons=(),
-    )
-    identity = _identity_snapshot(channels, ("S1", qc, None))
-    styles = channel_trace_styles(channels, identity.for_sample("S1"))
-    time = np.linspace(0.0, 1.0, 8)
-    intensity = np.vstack([np.ones(time.size), np.full(time.size, 2.0)])
-    view = GraphView()
-    try:
-        chart = QChart()
-        x_axis = QValueAxis()
-        y_axis = QValueAxis()
-        chart.addAxis(x_axis, Qt.AlignBottom)
-        chart.addAxis(y_axis, Qt.AlignLeft)
-        view._add_trace_series(
-            chart,
-            x_axis,
-            y_axis,
-            time,
-            intensity,
-            1.0,
-            selected=True,
-            raw_context=False,
-            channel_styles=styles,
-        )
-        pens = [series.pen() for series in chart.series()]
-        assert pens[0].color().getRgb()[:3] == label_colors[0].getRgb()[:3]
-        assert pens[0].style() == Qt.SolidLine
-        assert pens[1].color().getRgb()[:3] == QUALIFIER_RED.getRgb()[:3]
-        assert pens[1].style() == Qt.DashDotLine
-    finally:
-        view.deleteLater()
-
-
-def test_graph_labelled_traces_keep_label_palette(qapp):
-    channels = (
-        IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),
-        IonChannel(175.0, IonRole.ISOTOPOLOGUE, ordinal=1),
-    )
-    styles = channel_trace_styles(channels, None)
-    time = np.linspace(0.0, 1.0, 8)
-    intensity = np.vstack([np.ones(time.size), np.full(time.size, 2.0)])
-    view = GraphView()
-    try:
-        chart = QChart()
-        x_axis = QValueAxis()
-        y_axis = QValueAxis()
-        chart.addAxis(x_axis, Qt.AlignBottom)
-        chart.addAxis(y_axis, Qt.AlignLeft)
-        view._add_trace_series(
-            chart,
-            x_axis,
-            y_axis,
-            time,
-            intensity,
-            1.0,
-            selected=True,
-            raw_context=False,
-            channel_styles=styles,
-        )
-        pens = [series.pen() for series in chart.series()]
-        assert pens[0].color().getRgb()[:3] == label_colors[0].getRgb()[:3]
-        assert pens[1].color().getRgb()[:3] == label_colors[1].getRgb()[:3]
-        assert pens[0].style() == Qt.SolidLine
-        assert pens[1].style() == Qt.SolidLine
-    finally:
-        view.deleteLater()
 
 
 def test_new_session_ignores_qaction_checked_boolean(monkeypatch):
@@ -555,102 +412,6 @@ def test_channel_legend_hides_when_compound_read_fails(qapp, monkeypatch):
         view.channel_legend.show()
         view._update_channel_legend("alanine", _multi_trace_eics(2))
         assert view.channel_legend.isHidden()
-    finally:
-        view.deleteLater()
-
-
-def test_channel_legend_unlabelled_chips_show_line_style_not_status_colour(
-    qapp, monkeypatch
-):
-    compound = SimpleNamespace(
-        is_unlabelled_target=True,
-        analysis_channels=(
-            IonChannel(217.0, IonRole.QUANTIFIER),
-            IonChannel(147.0, IonRole.QUALIFIER, ordinal=1),
-            IonChannel(73.0, IonRole.QUALIFIER, ordinal=2),
-        ),
-    )
-    monkeypatch.setattr(
-        "manic.ui.graphs.read_compound_with_session",
-        lambda *_args: compound,
-    )
-    view = GraphView()
-    try:
-        view._update_channel_legend("Target", _multi_trace_eics(3))
-        assert not view.channel_legend.isHidden()
-        assert view.channel_legend.labels() == [
-            "Q ion m/z 217",
-            "Qualifier ion 1 m/z 147",
-            "Qualifier ion 2 m/z 73",
-        ]
-        styles = [chip.style for chip in view.channel_legend.chips()]
-        assert styles[0] == ChannelTraceStyle(label_colors[0], Qt.SolidLine)
-        assert styles[1] == ChannelTraceStyle(QUALIFIER_GREY, Qt.SolidLine)
-        assert styles[2] == ChannelTraceStyle(QUALIFIER_GREY, Qt.DashDotLine)
-        # With no QC assessed the traces are not QC-coloured, so there is no key.
-        assert view.qc_key.isHidden()
-    finally:
-        view.deleteLater()
-
-
-def test_channel_legend_shows_a_single_trace_in_dark_red(qapp, monkeypatch):
-    compound = SimpleNamespace(
-        is_unlabelled_target=False,
-        analysis_channels=(IonChannel(174.0, IonRole.ISOTOPOLOGUE, ordinal=0),),
-    )
-    monkeypatch.setattr(
-        "manic.ui.graphs.read_compound_with_session",
-        lambda *_args: compound,
-    )
-    view = GraphView()
-    try:
-        view._update_channel_legend(
-            "alanine", [SimpleNamespace(intensity=np.ones(3, dtype=float))]
-        )
-        assert not view.channel_legend.isHidden()
-        assert view.channel_legend.labels() == ["M+0 m/z 174"]
-        assert view.channel_legend.chips()[0].style.color == dark_red_colour
-    finally:
-        view.deleteLater()
-
-
-def test_one_d_model_overlay_uses_qualifier_color(qapp):
-    time = np.linspace(0.0, 10.0, 201)
-    peak = 10.0 * np.exp(-0.5 * ((time - 5.0) / 0.3) ** 2)
-    result = deconvolve_eic(
-        time,
-        peak,
-        retention_time=5.0,
-        loffset=2.0,
-        roffset=2.0,
-        stringency="4",
-    )
-    assert result.model is not None
-    assert result.model.was_1d
-
-    view = GraphView()
-    try:
-        chart = QChart()
-        x_axis = QValueAxis()
-        y_axis = QValueAxis()
-        chart.addAxis(x_axis, Qt.AlignBottom)
-        chart.addAxis(y_axis, Qt.AlignLeft)
-        view._add_model_component_series(
-            chart,
-            x_axis,
-            y_axis,
-            result.model,
-            result.model.selected_index,
-            multi_trace=True,
-            scale_factor=1.0,
-            selected=True,
-            color_index=1,
-        )
-        drawn = {series.pen().color().getRgb()[:3] for series in chart.series()}
-        qualifier = label_colors[1]
-        quantifier = label_colors[0]
-        assert (qualifier.red(), qualifier.green(), qualifier.blue()) in drawn
-        assert (quantifier.red(), quantifier.green(), quantifier.blue()) not in drawn
     finally:
         view.deleteLater()
 

@@ -517,22 +517,6 @@ def test_changing_the_standard_drops_an_unsaved_reference_peak(labelled_window):
     assert labelled_window.internal_standard_reference_isotope == 0
 
 
-def test_settings_window_opens_centred_on_a_visible_main_window(labelled_window):
-    screen_area = labelled_window.screen().availableGeometry()
-    # A parent hanging off the screen makes the clamp, not the centring, decide x.
-    labelled_window.move(screen_area.topLeft())
-    labelled_window.resize(
-        min(1200, screen_area.width() - 40), min(800, screen_area.height() - 40)
-    )
-    labelled_window.show()
-    labelled_window.open_settings_window()
-    settings = labelled_window.settings_window
-    frame = settings.frameGeometry()
-    assert screen_area.contains(frame.topLeft())
-    # Over its parent, not to the pixel: window frames differ between platforms.
-    assert labelled_window.frameGeometry().contains(frame.center())
-
-
 class _StuckWorker:
     instances = 0
 

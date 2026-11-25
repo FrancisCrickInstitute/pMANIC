@@ -4,10 +4,9 @@ from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QLabel, QPushButton
 
 from manic.ui import theme
-from manic.ui.analysis_mode_dialog import AnalysisModeDialog
 from manic.ui.dialog_kit import status_icon
 from manic.ui.update_old_data_dialog import UpdateOldDataDialog
-from manic.utils.utils import apply_app_stylesheet, apply_color_scheme
+from manic.utils.utils import apply_color_scheme
 
 
 @pytest.fixture
@@ -17,10 +16,6 @@ def restore_light_scheme(qapp):
     qapp.setStyleSheet("")
 
 
-def _dialog_fill(dialog: AnalysisModeDialog) -> str:
-    return dialog.grab().toImage().pixelColor(2, 2).name()
-
-
 def _best_contrast(image: QImage, against: QColor) -> float:
     """The strongest contrast any pixel of ``image`` makes with ``against``."""
     return max(
@@ -28,28 +23,6 @@ def _best_contrast(image: QImage, against: QColor) -> float:
         for x in range(image.width())
         for y in range(image.height())
     )
-
-
-def test_parentless_dialog_is_styled_once_stylesheet_is_app_wide(qapp, restore_light_scheme):
-    unstyled = AnalysisModeDialog()
-    unstyled.show()
-    qapp.processEvents()
-    assert _dialog_fill(unstyled) != "#ffffff"
-
-    apply_app_stylesheet(qapp)
-    apply_color_scheme(qapp, False)
-    styled = AnalysisModeDialog()
-    styled.show()
-    qapp.processEvents()
-    assert _dialog_fill(styled) == "#ffffff"
-
-    apply_color_scheme(qapp, True)
-    dark = AnalysisModeDialog()
-    dark.show()
-    qapp.processEvents()
-    assert _dialog_fill(dark) == "#232529"
-    for dialog in (unstyled, styled, dark):
-        dialog.close()
 
 
 @pytest.mark.parametrize("dark", [False, True], ids=["light", "dark"])

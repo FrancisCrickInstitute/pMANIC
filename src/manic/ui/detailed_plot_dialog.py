@@ -51,6 +51,7 @@ from manic.processors.integration import compute_linear_baseline
 from manic.validation.unlabelled_identity import quantifier_apex_time
 from manic.models.analysis import IonRole
 from manic.models.sample_fit_type import get_sample_fit_types
+from manic.models.sample_note import get_sample_notes
 from manic.ui.channel_labels import channel_legend_label, has_defined_channel
 from manic.ui.colors import (
     channel_trace_styles,
@@ -89,6 +90,28 @@ def _show_empty(plot: MatplotlibPlotWidget, title: str) -> None:
     plot.set_title(title)
     # Not finalize_plot: a failed plot may have failed there.
     plot.canvas.draw_idle()
+
+
+class _NoteScroll(QScrollArea):
+    """As tall as its text, up to four lines; a longer note scrolls."""
+
+    MAX_HEIGHT = 72
+
+    def sizeHint(self):  # noqa: N802 (Qt override)
+        hint = super().sizeHint()
+        label = self.widget()
+        if label is not None:
+            width = max(self.viewport().width(), 1)
+            hint.setHeight(min(label.heightForWidth(width), self.MAX_HEIGHT))
+        return hint
+
+    def minimumSizeHint(self):  # noqa: N802 (Qt override)
+        # A scroll area's own minimum is taller than a one-line note.
+        return self.sizeHint()
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self.updateGeometry()
 
 
 # Same meaning as on the grid tiles: dashed steel blue bounds the
@@ -159,6 +182,10 @@ class DetailedPlotDialog(QDialog):
         fit_type = get_sample_fit_types(self.compound_name).get((self.compound_name, self.sample_name))
         self.sample_label.setText(tile_caption(f"in {self.sample_name}", fit_type))
         self.sample_label.setAccessibleName(self.sample_name)
+        note = get_sample_notes(self.compound_name).get((self.compound_name, self.sample_name), "")
+        self.note_label.setText(note)
+        self.note_label.parent().parent().updateGeometry()
+        self.note_box.setVisible(bool(note))
         index = self._samples.index(self.sample_name)
         self.previous_sample.setEnabled(index > 0)
         self.next_sample.setEnabled(index < len(self._samples) - 1)
@@ -257,6 +284,7 @@ class DetailedPlotDialog(QDialog):
         header_layout.addWidget(self._build_sample_steps())
         header_layout.addStretch()
         layout.addLayout(header_layout)
+        layout.addWidget(self._build_note_box())
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -344,6 +372,40 @@ class DetailedPlotDialog(QDialog):
         layout.addLayout(info_layout)
 
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+
+    def _build_note_box(self) -> QWidget:
+        """The sample's note, read-only; it scrolls rather than take the charts' height."""
+        heading = QLabel("Note")
+        theme.style(heading, text_style("text_tertiary", 11, 600))
+        self.note_label = QLabel()
+        self.note_label.setTextFormat(Qt.PlainText)
+        self.note_label.setWordWrap(True)
+        self.note_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.note_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        theme.style(self.note_label, text_style("text", 13))
+        note_scroll = _NoteScroll()
+        note_scroll.setWidgetResizable(True)
+        note_scroll.setFrameShape(QFrame.NoFrame)
+        note_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        note_scroll.setWidget(self.note_label)
+        note_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        note_scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+
+        self.note_box = QFrame()
+        self.note_box.setObjectName("noteBox")
+        self.note_box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        theme.style(
+            self.note_box,
+            "#noteBox { background: @surface_alt; border: 1px solid @border; border-radius: 8px; }",
+        )
+        row = QHBoxLayout(self.note_box)
+        row.setContentsMargins(12, 8, 12, 8)
+        row.setSpacing(12)
+        heading.setContentsMargins(0, 2, 0, 0)
+        row.addWidget(heading, alignment=Qt.AlignTop)
+        row.addWidget(note_scroll, stretch=1)
+        self.note_box.hide()  # never shown before it has a parent
+        return self.note_box
 
     def _build_sample_steps(self) -> QWidget:
         """Previous and next sample, one segmented control; the arrow keys do the same."""

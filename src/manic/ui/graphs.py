@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.sample_reader import list_stale_samples
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
+from manic.models.sample_note import MAX_NOTE_CHARS, get_sample_notes, set_sample_note
 from manic.processors.eic_correction_manager import uncorrectable_reason
 from manic.processors.eic_processing import get_eics_for_compound
 from manic.processors.display_deconvolution import (
@@ -53,6 +54,7 @@ from .chart_header import HeaderName
 from .chart_style import set_nice_ticks, style_axis, style_chart, text_style, ui_font
 from .icon_button import icon_button, segmented
 from .identity_chart import identity_cells, identity_unassessed_note, qualifier_gap_note
+from .note_editor import NoteEditor
 from .colors import (
     QUALIFIER_GREEN,
     QUALIFIER_GREY,
@@ -409,6 +411,14 @@ class GraphView(QWidget):
         self._current_compound: str = ""
         self._current_samples: List[str] = []
         self._sample_fit_types: Dict[tuple[str, str], str] = {}
+        self._notes: Dict[tuple[str, str], str] = {}
+        # (compound, sample) the open note editor writes to.
+        self._note_target: tuple[str, str] | None = None
+        self._note_opened_text: str = ""
+        self.note_editor = NoteEditor(self)
+        self.note_editor.saved.connect(self._save_edited_note)
+        self.note_editor.cancelled.connect(self._close_note_editor)
+        self._scroll.verticalScrollBar().valueChanged.connect(self._place_note_editor)
         self._stale_samples: Set[str] = set()
 
         self.use_corrected = False
@@ -624,6 +634,7 @@ class GraphView(QWidget):
             self._current_compound = compound_name
             self._current_samples = samples
             self._sample_fit_types = get_sample_fit_types(compound_name)
+            self._notes = get_sample_notes(compound_name)
             self._stale_samples = set(list_stale_samples())
 
             if eics is None:
@@ -720,6 +731,7 @@ class GraphView(QWidget):
         finally:
             if grid_host is not None:
                 grid_host.setUpdatesEnabled(True)
+            self._place_note_editor()
 
     def _hide_unused_tiles(self) -> None:
         for container in self._available_containers:
@@ -1044,6 +1056,9 @@ class GraphView(QWidget):
         _show_shortcut(accept_action, QKeySequence(Qt.Key_A))
         _show_shortcut(reject_action, QKeySequence(Qt.Key_B))
         fit_menu = context_menu.addMenu("Curve Fit")
+        context_menu.addSeparator()
+        note_action = context_menu.addAction("Add Note...")
+        remove_note_action = context_menu.addAction("Remove Note")
         self.update_review_actions(
             clicked_plot,
             inspect=inspect_action,
@@ -1051,6 +1066,10 @@ class GraphView(QWidget):
             accept=accept_action,
             reject=reject_action,
             fit_menu=fit_menu,
+            note=note_action,
+            remove_note=remove_note_action,
+            # A note is one sample's: the clicked plot alone, whatever is selected.
+            note_plot=clicked_plot,
         )
         if clicked_plot is None:
             inspect_action.setToolTip("Right-click a specific plot to inspect it")
@@ -1062,6 +1081,8 @@ class GraphView(QWidget):
             reject_action.triggered.connect(
                 lambda: self.toggle_peak_review(clicked_plot, PeakReview.REJECTED)
             )
+            note_action.triggered.connect(lambda: self.edit_note(clicked_plot))
+            remove_note_action.triggered.connect(lambda: self.set_note(clicked_plot, ""))
 
         context_menu.popup(global_pos)
 
@@ -1077,6 +1098,11 @@ class GraphView(QWidget):
             return focused if focused in selected else selected[0]
         return focused
 
+    def note_lead(self) -> ClickableChartView | None:
+        """The one plot the Review menu's note commands act on: the review lead,
+        or None while several plots are selected, since a note is one sample's."""
+        return self.review_lead() if len(self._selected_plots) <= 1 else None
+
     def update_review_actions(
         self,
         lead: ClickableChartView | None,
@@ -1086,13 +1112,21 @@ class GraphView(QWidget):
         accept: QAction,
         reject: QAction,
         fit_menu: QMenu,
+        note: QAction,
+        remove_note: QAction,
+        note_plot: ClickableChartView | None,
     ) -> None:
         """Label, enable and check the review commands for `lead`.
 
         The plot context menu and the Review menu both call this, so their
         target counts and states always agree. `lead` None disables the
-        commands that need a plot.
+        commands that need a plot. The note commands act on `note_plot` alone.
         """
+        has_note = note_plot is not None and bool(self.note_for(note_plot))
+        note.setEnabled(note_plot is not None)
+        note.setText("Edit Note..." if has_note else "Add Note...")
+        remove_note.setVisible(has_note)
+
         inspect.setEnabled(lead is not None)
         inspect.setText(
             f"Inspect {lead.sample_name}..." if lead is not None else "Inspect Sample..."
@@ -1143,6 +1177,83 @@ class GraphView(QWidget):
 
     def inspect_plot(self, plot: ClickableChartView) -> None:
         self._show_detailed_view(plot.compound_name, plot.sample_name)
+
+    def note_for(self, plot: ClickableChartView) -> str:
+        return self._notes.get((plot.compound_name, plot.sample_name), "")
+
+    def set_note(self, plot: ClickableChartView, note: str) -> None:
+        """Save `note` for the plot's sample and compound; empty text removes it."""
+        key = (plot.compound_name, plot.sample_name)
+        set_sample_note(*key, note)
+        if note.strip():
+            self._notes[key] = note.strip()
+        else:
+            self._notes.pop(key, None)
+        if self._note_target == key:
+            self._close_note_editor()
+        if plot.parent() is not None:
+            self._restyle_container(plot.parent())
+
+    def edit_note(self, plot: ClickableChartView) -> None:
+        """Open the inline note editor beside the plot's tile."""
+        self._close_note_editor()
+        self._note_target = (plot.compound_name, plot.sample_name)
+        self._note_opened_text = self.note_for(plot)
+        self.note_editor.open(plot.sample_name, self._note_opened_text)
+        self._place_note_editor()
+
+    def _note_target_plot(self) -> ClickableChartView | None:
+        for plot in self._current_plots:
+            if (plot.compound_name, plot.sample_name) == self._note_target:
+                return plot
+        return None
+
+    def _save_edited_note(self, note: str) -> None:
+        plot = self._note_target_plot()
+        if plot is not None:
+            self.set_note(plot, note)
+        self._close_note_editor()
+
+    def _commit_note_draft(self) -> None:
+        """Persist a changed non-empty draft; deletion stays an explicit Save or Remove."""
+        if self._note_target is None:
+            return
+        text = self.note_editor.text.toPlainText().strip()
+        # shortcut: drafts past Excel's 32,767-char cap drop on navigation without a banner; upgrade if users write huge notes.
+        if text and text != self._note_opened_text and len(text) <= MAX_NOTE_CHARS:
+            set_sample_note(*self._note_target, text)
+
+    def close_note_editor(self) -> None:
+        """Close the inline note editor without saving any draft."""
+        self._close_note_editor()
+
+    def _close_note_editor(self) -> None:
+        focus = QApplication.focusWidget()
+        had_focus = focus is not None and (
+            focus is self.note_editor or self.note_editor.isAncestorOf(focus)
+        )
+        self._note_target = None
+        self._note_opened_text = ""
+        self.note_editor.hide()
+        for tile in self._container_pool:
+            tile.set_noting(False)
+        if had_focus:
+            self.setFocus()
+
+    def _place_note_editor(self, *_args) -> None:
+        """Keep the open editor beside its tile; commit draft and close if that sample left."""
+        if self._note_target is None:
+            return
+        plot = self._note_target_plot()
+        if plot is None or plot.parent() is None:
+            self._commit_note_draft()
+            self._close_note_editor()
+            return
+        tile = plot.parent()
+        for other in self._container_pool:
+            other.set_noting(other is tile)
+        anchor = QRect(tile.mapTo(self, tile.rect().topLeft()), tile.size())
+        self.note_editor.place(anchor, self.rect().adjusted(8, 8, -8, -8))
 
     def show_only_samples(self, plot: ClickableChartView | None) -> None:
         """Show only the selection, or only `plot` when it is not selected."""
@@ -1327,6 +1438,8 @@ class GraphView(QWidget):
         """
         self._current_compound = ""
         self._current_samples = []
+        self._commit_note_draft()
+        self._close_note_editor()
         self._identity = None
         self._uncorrectable = None
         self._internal_standard_uncorrectable = None
@@ -1487,6 +1600,7 @@ class GraphView(QWidget):
         chart_view.clicked.connect(self._on_plot_clicked)
         chart_view.right_clicked.connect(self._on_plot_right_clicked)
         chart_view.double_clicked.connect(self.inspect_plot)
+        container.note_clicked.connect(lambda: self.edit_note(chart_view))
 
         self._apply_validation_styling(container, verdict)
 
@@ -2220,6 +2334,7 @@ class GraphView(QWidget):
         self._layout.invalidate()
         self._layout.activate()
         self._layout.update()
+        self._place_note_editor()
 
         parent = self.parent()
         if parent:
@@ -2235,6 +2350,7 @@ class GraphView(QWidget):
         sample_name = getattr(container.chart_view, "sample_name", "")
         identity = self._sample_identity(sample_name)
         container.set_badges(tile_badges(verdict, identity, self._uncorrectable))
+        container.set_note(self._notes.get((self._current_compound, sample_name), ""))
 
     def _clear_layout(self, force_destroy: bool = False) -> None:
         if not self._layout:

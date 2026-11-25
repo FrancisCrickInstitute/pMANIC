@@ -535,6 +535,7 @@ def _clear_database_fast(progress_callback=None):
         DELETE FROM session_activity;
         DELETE FROM peak_review;
         DELETE FROM sample_fit_type;
+        DELETE FROM sample_note;
         DELETE FROM eic;
         DELETE FROM tic_data;  
         DELETE FROM ms_data;
@@ -570,6 +571,7 @@ def _clear_database_detailed(progress_callback=None):
         ("session_activity", "Clearing session overrides..."),
         ("peak_review", "Clearing peak reviews..."),
         ("sample_fit_type", "Clearing per-sample fit types..."),
+        ("sample_note", "Clearing sample notes..."),
         ("eic", "Clearing raw EIC data..."),
         ("tic_data", "Clearing TIC chromatograms..."),
         ("ms_data", "Clearing mass spectra..."),

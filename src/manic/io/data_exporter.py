@@ -1,12 +1,13 @@
 """
 Excel data export functionality for MANIC.
 
-Exports mass spectrometry data to Excel with 5 worksheets:
+Exports mass spectrometry data to Excel with 6 worksheets:
 1. Raw Values - Direct instrument signals (uncorrected peak areas)
 2. Corrected Values - Natural isotope abundance corrected signals
 3. Isotope Ratios - Normalized corrected values (sum to 1.0)
 4. % Label Incorporation - Percentage of experimental label incorporation
-5. Abundances - Absolute metabolite concentrations via internal standard calibration (final sheet)
+5. Abundances - Absolute metabolite concentrations via internal standard calibration
+6. Notes - The analyst's notes on samples, one row each (final sheet)
 
 Uses streaming approach for optimal memory usage and performance.
 """
@@ -44,6 +45,7 @@ from manic.sheet_generators import (
 from manic.sheet_generators import (
     raw_values as sheet_raw_values,
 )
+from manic.sheet_generators import notes as sheet_notes
 from manic.sheet_generators import unlabelled_results as sheet_unlabelled_results
 
 logger = logging.getLogger(__name__)
@@ -347,6 +349,7 @@ class DataExporter:
                         validation_data=validation_data,
                     ),
                 )
+                _time_phase("sheet_notes", lambda: sheet_notes.write(workbook, self))
                 _time_phase("workbook_close", workbook.close)
                 if progress_callback:
                     progress_callback(100)
@@ -449,6 +452,9 @@ class DataExporter:
                     validation_data=validation_data,
                 ),
             )
+
+            # Notes go last, so every other sheet keeps its position.
+            _time_phase("sheet_notes", lambda: sheet_notes.write(workbook, self))
 
             _time_phase("workbook_close", workbook.close)
 

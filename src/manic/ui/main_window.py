@@ -250,6 +250,8 @@ class MainWindow(QMainWindow):
     ):
         """A start-up check speaks only of an update; one from the Help menu always answers."""
         asked, self._update_check_asked_for = self._update_check_asked_for, False
+        if not self.isVisible():
+            return  # Closed, or replaced by a new session's window: nobody is here to tell.
         if has_update:
             if asked:  # "Checking for updates…" must not outlast its answer.
                 for toast in self.statusBar().findChildren(ToastNotification):
@@ -265,6 +267,8 @@ class MainWindow(QMainWindow):
         self._update_url = url
         self.update_reminder_button.setText(f"Update to v{latest_version}")
         self.update_reminder_button.show()
+        if QApplication.activeModalWidget() is not None:
+            return  # Never stack on an open dialog; the reminder waits in the status bar.
         box = self._create_message_box(
             "question",
             "Update MANIC",

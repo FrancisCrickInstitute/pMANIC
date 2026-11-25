@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from conftest import _make_window
 from PySide6.QtWidgets import QMessageBox
 
@@ -63,6 +64,7 @@ def _toasts(window):
 
 def test_a_start_up_check_stays_quiet_and_a_menu_check_answers(qapp, monkeypatch):
     window = _make_window(monkeypatch)
+    window.show()
     try:
         window._on_update_check_finished(False, False, "", "")
         window._on_update_check_finished(True, False, "5.0.0", "")
@@ -80,25 +82,43 @@ def test_a_start_up_check_stays_quiet_and_a_menu_check_answers(qapp, monkeypatch
         window.close()
 
 
+def _click(role):
+    def exec_(box):
+        next(b for b in box.buttons() if box.buttonRole(b) == role).click()
+
+    return exec_
+
+
 def test_an_update_is_pressed_on_the_user(qapp, monkeypatch):
     opened = []
     monkeypatch.setattr(main_window_module.QDesktopServices, "openUrl", opened.append)
+    newer = (True, True, "9.9.9", "https://example.test/v9.9.9")
     window = _make_window(monkeypatch)
     try:
+        # A window that is not on screen has nobody to ask.
+        monkeypatch.setattr(QMessageBox, "exec", lambda box: pytest.fail("prompted"))
+        window._on_update_check_finished(*newer)
         assert window.update_reminder_button.isHidden()
+        window.show()
+
+        # An open dialog is not stacked on, but the reminder still appears.
+        with monkeypatch.context() as patch:
+            patch.setattr(main_window_module.QApplication, "activeModalWidget", lambda: window)
+            window._on_update_check_finished(*newer)
+        assert window.update_reminder_button.text() == "Update to v9.9.9"
+        assert not window.update_reminder_button.isHidden()
+
+        # Later leaves the reminder, which still leads to the download.
+        monkeypatch.setattr(QMessageBox, "exec", _click(QMessageBox.RejectRole))
+        window._on_update_check_finished(*newer)
+        assert opened == []
+        assert not window.update_reminder_button.isHidden()
+        window.update_reminder_button.click()
+        assert [url.toString() for url in opened] == ["https://example.test/v9.9.9"]
 
         # Return takes the default button, which must be the download.
         monkeypatch.setattr(QMessageBox, "exec", lambda box: box.defaultButton().click())
-        window._on_update_check_finished(True, True, "9.9.9", "https://example.test/v9.9.9")
-        assert [url.toString() for url in opened] == ["https://example.test/v9.9.9"]
-
-        # Later leaves a reminder that still leads to the download.
-        monkeypatch.setattr(QMessageBox, "exec", lambda box: box.reject())
-        window._on_update_check_finished(True, True, "9.9.9", "https://example.test/v9.9.9")
-        assert len(opened) == 1
-        assert not window.update_reminder_button.isHidden()
-        assert window.update_reminder_button.text() == "Update to v9.9.9"
-        window.update_reminder_button.click()
+        window._on_update_check_finished(*newer)
         assert len(opened) == 2
     finally:
         window.close()

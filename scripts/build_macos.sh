@@ -17,7 +17,7 @@ if command -v uv &> /dev/null; then
     echo "Detected uv; using uv for build"
     uv venv .venv || exit 1
     uv sync || exit 1
-    uv pip install -U pyinstaller pyinstaller-hooks-contrib pyside6 || exit 1
+    uv pip install -U pyinstaller pyinstaller-hooks-contrib || exit 1
     UV_RUN="uv run"
 else
     echo "uv not found; falling back to pip"
@@ -26,13 +26,19 @@ else
     fi
     source .venv/bin/activate || exit 1
     pip install --upgrade pip || exit 1
-    pip install -U pyinstaller pyinstaller-hooks-contrib pyside6 || exit 1
+    pip install -U pyinstaller pyinstaller-hooks-contrib || exit 1
     UV_RUN=""
 fi
 
 echo ""
 echo "Step 1: Cleaning previous build..."
 rm -rf "${DIST_DIR}/${APP_NAME}.app" "${DIST_DIR}/${APP_NAME}" build *.spec.lock || true
+
+# Running pytest/QtWebEngine out of .venv leaves an empty Versions/Resources dir that
+# makes PyInstaller pick "Resources" over "A" and break QtWebEngineProcess lookup.
+for stray in .venv/lib/python*/site-packages/PySide6/Qt/lib/QtWebEngineCore.framework/Versions/Resources; do
+    [ -d "$stray" ] && rmdir "$stray" 2>/dev/null || true
+done
 
 if ! command -v cargo &> /dev/null; then
     echo "Error: cargo is required to build the Rust peak fitter." >&2
@@ -51,6 +57,15 @@ if [ ! -d "$APP_PATH" ]; then
     echo "Error: ${APP_PATH} not found after build"
     exit 1
 fi
+
+BUNDLED_LIB=$(find "$APP_PATH" -name libmanic_fitter.dylib -print -quit)
+if [ -z "$BUNDLED_LIB" ]; then
+    echo "Error: libmanic_fitter.dylib missing from ${APP_PATH}" >&2
+    exit 1
+fi
+
+echo "Smoke-testing packaged app..."
+"${APP_PATH}/Contents/MacOS/MANIC" --smoke-test || exit 1
 
 echo ""
 echo "Built app at ${APP_PATH}"

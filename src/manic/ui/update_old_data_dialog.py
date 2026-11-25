@@ -151,7 +151,10 @@ class UpdateOldDataDialog(QDialog):
     def _browse_raw(self):
         from PySide6.QtWidgets import QFileDialog
 
-        from manic.io.legacy_raw_values_reader import read_raw_values_workbook
+        from manic.io.legacy_raw_values_reader import (
+            RawValuesFormatError,
+            read_raw_values_workbook,
+        )
 
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Raw Values Workbook", "", "Excel (*.xlsx);;All files (*.*)"
@@ -159,11 +162,15 @@ class UpdateOldDataDialog(QDialog):
         if not path:
             return
         self.r_edit.setText(path)
+        error = ""
         try:
             samples, _ = read_raw_values_workbook(path)
+            if not samples:
+                error = "Needs a workbook with a MANIC Raw Values sheet."
+        except RawValuesFormatError as exc:
+            error = str(exc)
         except Exception:
-            samples = []
-        error = "" if samples else "Needs a workbook with a MANIC Raw Values sheet."
+            error = "Needs a workbook with a MANIC Raw Values sheet."
         self.raw_values_path = None if error else path
         self._show_error(self._raw_error, error)
         self._update_ok()

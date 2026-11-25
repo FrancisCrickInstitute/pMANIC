@@ -91,3 +91,15 @@ Every workbook gains a Notes sheet, placed last, that lists the analyst's sample
 | Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Notes | 0 | 0 |  |  | 3 |
+
+## 2026-11-25, #299
+
+Deconvolution now fits the same context that extraction guarantees (`max(0.20, max(loffset, roffset) + 0.10)` min, inclusive), so changing the displayed tR window no longer alters fitted areas. Labelled benchmark values do not change (default extracts are `0.20` min), though any real session with offsets `<= 0.15` min and a manually widened extract (`> 0.20` min) now fits `max(0.20, max(loffset, roffset) + 0.10)` min instead of `0.25` min. On the unlabelled benchmark, the 22 wide-offset compounds (`> 0.15` min) receive their full `0.10` min flank buffer (394 Raw Values changed, median 0.15%, with 19 cells moving by more than 5% including `U027`/`Bio_011` and `U071`/`Bio_028` moving from `0` to non-zero and `U071` shifts up to 75%, and 8 Qualifier QC outcome flips).
+
+**unlabelled**
+
+| Sheet | Numbers | Changed | Typical change | Largest change | Other cells changed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Raw Values | 3200 | 394 | 0.15% | 1e+02% |  |
+| Abundances | 2903 | 164 | 1.2% | 1e+02% |  |
+| Qualifier QC | 17799 | 1336 | 0.15% | 1e+02% | 10 |

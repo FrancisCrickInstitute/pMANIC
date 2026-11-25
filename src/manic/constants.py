@@ -86,12 +86,15 @@ MS_TIME_TOLERANCE = 0.1  # minutes for MS extraction
 MS_TIME_REFRESH_THRESHOLD = 0.02  # minutes; refresh MS data if cache is farther away
 
 # Time windows  
-DEFAULT_RT_WINDOW = 0.2  # minutes (half-window)
+DEFAULT_RT_WINDOW = 0.2  # minutes (half-window, also the minimum deconvolution context)
 
 # RT window buffer for auto-reload feature
 # Added to max(loffset, roffset) when calculating minimum RT window
 # This provides margin to prevent frequent reloads on minor adjustments
 DEFAULT_RT_WINDOW_BUFFER = 0.1  # minutes
+
+# Small margin outside the integration guides when zooming a tile's display window
+DISPLAY_RT_WINDOW_MARGIN = 0.02  # minutes
 
 
 def minimum_extract_rt_window(
@@ -100,11 +103,22 @@ def minimum_extract_rt_window(
     buffer: float = DEFAULT_RT_WINDOW_BUFFER,
     rt_tolerance: float | None = None,
 ) -> float:
-    # An unlabelled list's tR Window widens the extract; labelled lists leave it NULL.
+    # Always cover the deconvolution context floor (DEFAULT_RT_WINDOW), the
+    # integration boundaries plus buffer, and any unlabelled rt_tolerance.
     return max(
+        DEFAULT_RT_WINDOW,
         max(float(loffset or 0.0), float(roffset or 0.0)) + buffer,
         float(rt_tolerance or 0.0),
     )
+
+
+def minimum_display_rt_window(
+    loffset: float,
+    roffset: float,
+    margin: float = DISPLAY_RT_WINDOW_MARGIN,
+) -> float:
+    """Smallest displayed tR half-window that keeps both integration guides in view."""
+    return max(float(loffset or 0.0), float(roffset or 0.0)) + margin
 
 # Peak area validation
 DEFAULT_MIN_PEAK_HEIGHT_RATIO = 0.005  # Fraction of internal standard reference peak area for minimum peak validation (0.5%)

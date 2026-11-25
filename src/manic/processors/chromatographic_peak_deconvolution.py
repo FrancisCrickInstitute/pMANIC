@@ -10,6 +10,7 @@ from typing import Literal
 
 import numpy as np
 
+from manic.constants import DEFAULT_RT_WINDOW, DEFAULT_RT_WINDOW_BUFFER
 from manic.processors import rust_fitter
 
 
@@ -58,7 +59,7 @@ PEAK_SHAPE_FIT_TYPES: tuple[PeakShapeFitType, ...] = (
 )
 DEFAULT_DECONVOLUTION_LEVEL = "4"
 DEFAULT_DECONVOLUTION_FIT_TYPE = "auto"
-MIN_DECONVOLUTION_CONTEXT_MINUTES = 0.25
+MIN_DECONVOLUTION_CONTEXT_MINUTES = DEFAULT_RT_WINDOW
 
 
 @dataclass(frozen=True)
@@ -1505,10 +1506,9 @@ def _deconvolution_fit_mask(
 
     context = max(
         MIN_DECONVOLUTION_CONTEXT_MINUTES,
-        float(loffset or 0.0),
-        float(roffset or 0.0),
+        max(float(loffset or 0.0), float(roffset or 0.0)) + DEFAULT_RT_WINDOW_BUFFER,
     )
-    return (time > retention_time - context) & (time < retention_time + context)
+    return (time >= retention_time - context) & (time <= retention_time + context)
 
 
 def _smooth(y: np.ndarray, points: int) -> np.ndarray:

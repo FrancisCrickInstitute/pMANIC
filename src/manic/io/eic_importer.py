@@ -51,7 +51,12 @@ def _extract_rt_window_covering_offsets(
     ):
         loffset = max(loffset, float(session.loffset or 0.0))
         roffset = max(roffset, float(session.roffset or 0.0))
-    return max(float(requested), minimum_extract_rt_window(loffset, roffset))
+    return max(
+        float(requested),
+        minimum_extract_rt_window(
+            loffset, roffset, rt_tolerance=compound_data.rt_tolerance
+        ),
+    )
 
 
 # ─────────────────────────── Utility Functions ────────────────────────────
@@ -519,11 +524,11 @@ def eic_needs_reextraction(
     loffset: float,
     roffset: float,
 ) -> bool:
-    """False only when the EIC was cut around this tR with a window covering both offsets."""
+    """False only when the EIC was cut around this tR with a window covering the fit context."""
     return (
         extraction_rt != retention_time
         or not rt_window
-        or max(loffset, roffset) > rt_window
+        or rt_window < minimum_extract_rt_window(loffset, roffset) - 1e-9
     )
 
 

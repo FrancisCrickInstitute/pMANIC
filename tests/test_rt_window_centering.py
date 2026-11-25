@@ -79,7 +79,7 @@ class TestPerSampleReloadChecking:
         monkeypatch.setattr(
             "manic.ui.integration_window_widget.read_compound_with_session",
             lambda _compound, sample: SimpleNamespace(
-                retention_time=sample_rts[sample]
+                retention_time=sample_rts[sample], loffset=0.05, roffset=0.05
             ),
         )
         emitted = []
@@ -91,6 +91,8 @@ class TestPerSampleReloadChecking:
             _current_compound="Glucose",
             _selected_samples=["s1", "s2"],
             _all_samples=["s1", "s2"],
+            _display_windows={},
+            _pending_display_window=None,
             _get_validated_inputs=lambda: (None, 2.0, 2.0),
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
@@ -110,7 +112,7 @@ class TestPerSampleReloadChecking:
         monkeypatch.setattr(
             "manic.ui.integration_window_widget.read_compound_with_session",
             lambda _compound, sample: SimpleNamespace(
-                retention_time=sample_rts[sample]
+                retention_time=sample_rts[sample], loffset=0.05, roffset=0.05
             ),
         )
         emitted = []
@@ -121,6 +123,8 @@ class TestPerSampleReloadChecking:
         window = SimpleNamespace(
             _current_compound="Glucose",
             _all_samples=["s1", "s2"],
+            _display_windows={},
+            _pending_display_window=None,
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
                 emit=lambda *args: emitted.append(args)
@@ -147,6 +151,8 @@ class TestPerSampleReloadChecking:
         window = SimpleNamespace(
             _current_compound="Glucose",
             _all_samples=["s1"],
+            _display_windows={},
+            _pending_display_window=None,
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
                 emit=lambda *args: emitted.append(args)
@@ -159,7 +165,7 @@ class TestPerSampleReloadChecking:
         IntegrationWindow._on_regenerate_clicked(window)
 
         assert emitted == [("Glucose", 0.5, ["s1"], 5.0)]
-        assert tr_window_field.text() == "0.5"
+        assert tr_window_field.text() == "0.42"
 
     def test_update_tr_window_keeps_a_wider_requested_extract(self):
         emitted = []
@@ -173,6 +179,8 @@ class TestPerSampleReloadChecking:
         window = SimpleNamespace(
             _current_compound="Glucose",
             _all_samples=["s1"],
+            _display_windows={},
+            _pending_display_window=None,
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
                 emit=lambda *args: emitted.append(args)
@@ -199,6 +207,8 @@ class TestPerSampleReloadChecking:
         window = SimpleNamespace(
             _current_compound="Glucose",
             _all_samples=["s1", "s2"],
+            _display_windows={},
+            _pending_display_window=None,
             findChild=lambda _widget_type, name: fields.get(name),
             data_regeneration_requested=SimpleNamespace(
                 emit=lambda *args: emitted.append(args)
@@ -211,7 +221,7 @@ class TestPerSampleReloadChecking:
         IntegrationWindow._on_regenerate_clicked(window)
 
         assert emitted == [("Glucose", 0.7, ["s1", "s2"], 5.0)]
-        assert tr_window_field.text() == "0.7"
+        assert tr_window_field.text() == "0.62"
 
 
 def _two_samples_with_different_offsets(qapp):
@@ -977,6 +987,7 @@ class TestRegenerationCompletion:
                 regenerated_sample_names=("s1",),
             ),
             populate_tr_window_field=lambda *_args: calls.append("window"),
+            discard_pending_display_window=lambda: None,
         )
         graph_view = SimpleNamespace(
             get_current_compound=lambda: "Glucose",
@@ -988,6 +999,7 @@ class TestRegenerationCompletion:
         window = SimpleNamespace(
             toolbar=SimpleNamespace(integration=integration),
             graph_view=graph_view,
+            _active_regen_display_window=None,
             _validation_provider=None,
             min_peak_height_ratio=0,
             _peak_verdicts=lambda *_args: {},
@@ -1012,6 +1024,7 @@ class TestRegenerationCompletion:
         integration = SimpleNamespace(
             _pending_session_update=None,
             populate_tr_window_field=lambda *_args: None,
+            discard_pending_display_window=lambda: None,
         )
         messages = []
         window = SimpleNamespace(
@@ -1021,6 +1034,7 @@ class TestRegenerationCompletion:
                 get_current_samples=lambda: ["s1"],
                 refresh_plots_with_session_data=_refresh_fails,
             ),
+            _active_regen_display_window=None,
             _validation_provider=None,
             min_peak_height_ratio=0,
             _peak_verdicts=lambda *_args: {},
@@ -1053,6 +1067,7 @@ class TestRegenerationCompletion:
             ),
             populate_fields_from_plots=lambda *_args: refreshed.append("fields"),
             populate_tr_window_field=lambda *_args: refreshed.append("window"),
+            discard_pending_display_window=lambda: refreshed.append("discard_window"),
         )
         shown = []
         messages = []
@@ -1073,7 +1088,7 @@ class TestRegenerationCompletion:
         )
 
         assert integration._pending_session_update is None
-        assert refreshed == ["fields", "window"]
+        assert refreshed == ["discard_window", "fields", "window"]
         assert shown == ["shown"]
         assert messages == [
             (

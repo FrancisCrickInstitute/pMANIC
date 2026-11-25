@@ -218,26 +218,24 @@ On a short window, such as a laptop screen with **Samples** open, the rows under
 2.  Click **Apply**, or press Enter in a field. With plots selected, the line above the fields names them; with none selected, **Apply** changes every shown sample.
 3.  The plots will refresh immediately to show the new boundaries.
 
-> **Auto-Regeneration Feature:** When you change the `tR`, or widen an offset past the tR Window, MANIC re-reads the raw file around the new `tR`. Each plot stays centred on its sample's `tR`. Each sample keeps its own tR Window. Changing only the offsets inside the tR Window is instant. A progress bar appears while MANIC reads the files.
+> **Auto-Regeneration Feature:** When you change the `tR`, or widen an offset so the stored extract no longer covers `max(0.20, max(loffset, roffset) + 0.10)` min, MANIC re-reads the raw file around the new `tR`. Each plot stays centred on its sample's `tR`. Each sample keeps its own stored tR window. Changing only the offsets inside the stored extract's fit context is instant. A progress bar appears while MANIC reads the files.
 >
 > Only one re-extraction runs at a time. Until it finishes, an **Apply** that needs a re-extraction, **Apply window**, **Add Compound**, a mass tolerance change, a session import and an export show "Operation in progress" and change nothing.
 
-#### 6. Troubleshooting: Fixing Cut-off Peaks
-Sometimes a peak may shift so far that part of it is completely missing from the plot (cut off by the edge of the extracted data). You cannot integrate what isn't there.
-
-To fix this, you must widen the underlying data extraction window:
+#### 6. Troubleshooting: Widening or Narrowing the tR Window
+Sometimes a peak shifts past the edge of the extracted data, or a crowded region needs a tighter zoom on the plots.
 
 1.  Locate the **tR window** field in the **Peak window** section.
-2.  Increase the value (e.g., from `0.2` to `0.4` or `0.5`).
-3.  Click **Apply window**. The line under the field names how many samples it re-extracts, for example **Re-extracts all 30 shown samples**.
+2.  Type a new half-window in minutes (for example `0.4` to widen around a shifted peak, or `0.1` to zoom in on a narrow peak).
+3.  Click **Apply window**.
 
-If the shown samples hold different windows, the field shows the range, for example `0.3 - 0.8`. **Apply window** then asks for one value. When **Apply** has to re-extract samples, it uses the widest window among them, so a sample with a narrower window is widened.
+Narrowing **tR window** inside the already extracted data redraws the plots at once and scales each tile's y-axis to the visible range without re-reading the CDF files. The minimum displayed window stays just outside the left and right integration offsets (`0.02` min margin) so both dashed guides remain in view.
 
-The extract must cover the current left and right offsets plus the RT window buffer (0.1 min by default). If the typed tR window sits inside those offsets, MANIC raises it to that minimum, updates the field, and continues.
+Widening **tR window** past the stored extract re-reads only the samples whose stored extract is narrower, and shows a progress bar while doing so. Stored extracts always cover at least `0.20` min on either side of `tR` (and the offsets plus the `0.10` min buffer), so narrowing or widening the view never changes deconvolved peak areas.
 
-A progress bar will appear as MANIC re-scans the raw CDF files to extract a wider slice of time around the target peak.
+If the shown samples hold different stored windows, the field shows the range, for example `0.3 - 0.8`, and **Apply window** asks for one value. When **Apply** has to re-extract samples with mixed windows (or while a narrowed display window is set), each reloaded sample keeps its own stored extract width, widened only if its new offsets require more context.
 
-> **Important Note:** This update applies to **every sample shown in the grid** for the currently selected compound, whichever plots are selected, to ensure consistent data extraction. It does *not* affect other compounds in your library.
+> **Important Note:** This update applies to **every sample shown in the grid** for the currently selected compound, whichever plots are selected. It does *not* affect other compounds in your library.
 
 #### 7. Resetting Overrides
 If you make a mistake or want to revert to the original library definitions:
@@ -385,7 +383,7 @@ MANIC can save the state of your analysis, including compound definitions, integ
     1.  Load your Compound List (Step 1).
     2.  Load your Raw Data CDFs (Step 2).
     3.  **Import Session** to apply the saved boundaries, overrides, deconvolution/baseline settings, internal standard, mass tolerance, and peak-validation threshold. If the saved mass tolerance differs from the current one, MANIC regenerates every EIC, as it does when you change it in **Settings**.
-* **Moved peak windows:** Where a saved tR differs from the one a sample's data was extracted around, or a saved offset is wider than its tR Window, the import re-extracts that sample from its CDF file, as **Apply** does. You do not need to click **Apply** on each compound. If a CDF file has moved, the import names the compounds it could not re-extract.
+* **Moved peak windows:** Where a saved tR differs from the one a sample's data was extracted around, or the stored extract no longer covers `max(0.20, max(loffset, roffset) + 0.10)` min for the saved offsets, the import re-extracts that sample from its CDF file, as **Apply** does. You do not need to click **Apply** on each compound. If a CDF file has moved, the import names the compounds it could not re-extract.
 * **Backward compatibility:** Older session files that predate the deconvolution settings or the internal-standard keys import without error. Compounds keep their current settings for any value the file does not contain. A file with no internal-standard key leaves the current internal standard unchanged, unless the file marks that compound as deleted. Then the internal standard is cleared. A file with no mass tolerance or peak-validation threshold keeps the current Settings values.
 
 ---

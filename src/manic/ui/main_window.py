@@ -199,6 +199,7 @@ class MainWindow(QMainWindow):
         self.compound_data_loaded = False
         self.cdf_data_loaded = False
         self._thread = None
+        self._active_regen_display_window: tuple[str, float] | None = None
         self._export_thread = None
         self._closing = False
         self._export_worker = None
@@ -453,6 +454,9 @@ class MainWindow(QMainWindow):
         )
         self.toolbar.integration.data_regeneration_requested.connect(
             self.on_data_regeneration_requested
+        )
+        self.toolbar.integration.display_window_changed.connect(
+            self.on_display_window_changed
         )
         self.toolbar.baseline_correction_changed.connect(
             self.on_baseline_correction_changed
@@ -1264,6 +1268,8 @@ class MainWindow(QMainWindow):
                 analysis_mode=self.analysis_mode,
             )
             self.compound_list_path = path
+            self.graph_view.clear_display_tr_windows()
+            self.toolbar.integration.clear_display_windows()
             self.toolbar.update_label_colours(False, True)
             self.toolbar.update_compound_list(list_compound_names())
 
@@ -1398,6 +1404,8 @@ class MainWindow(QMainWindow):
         self.progress_dialog.close()
 
         show_status_toast(self.statusBar(), f"Imported {rows} EICs")
+        self.graph_view.clear_display_tr_windows()
+        self.toolbar.integration.clear_display_windows()
         self.workspace.setCurrentWidget(self.graph_view)
 
         self.toolbar.update_label_colours(True, True)
@@ -1969,6 +1977,10 @@ class MainWindow(QMainWindow):
             if self._validation_provider is not None:
                 self._validation_provider.invalidate_cache()
 
+            self.graph_view.set_display_tr_window(
+                compound_name,
+                self.toolbar.integration.display_window_for(compound_name),
+            )
             current_samples = self.graph_view.get_current_samples()
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
@@ -1998,6 +2010,10 @@ class MainWindow(QMainWindow):
             if self._validation_provider is not None:
                 self._validation_provider.invalidate_cache()
 
+            self.graph_view.set_display_tr_window(
+                compound_name,
+                self.toolbar.integration.display_window_for(compound_name),
+            )
             current_samples = self.graph_view.get_current_samples()
             validation_data = self._peak_verdicts(compound_name, current_samples)
 
@@ -2017,6 +2033,15 @@ class MainWindow(QMainWindow):
                 f"Failed to refresh plots after restore: {str(e)}",
             )
             msg_box.exec()
+
+    def on_display_window_changed(self, compound_name: str, tr_window: float):
+        """Update the plotted x-axis half-window without re-extracting or changing areas."""
+        self.graph_view.set_display_tr_window(compound_name, tr_window)
+        if compound_name == self.graph_view.get_current_compound():
+            self.graph_view.refresh_plots_with_session_data(
+                self.graph_view._last_validation_data,
+                identity=self.graph_view._identity,
+            )
 
     def on_baseline_correction_changed(self, compound_name: str, enabled: bool):
         """Handle when baseline correction checkbox is toggled - refresh plots to show/hide baseline lines"""
@@ -2068,6 +2093,7 @@ class MainWindow(QMainWindow):
                 if running == "_regen_thread"
                 else None
             )
+            self.toolbar.integration.discard_pending_display_window()
             self._background_work_running("regenerating EIC data")
             return
         rt_description = (
@@ -2088,6 +2114,9 @@ class MainWindow(QMainWindow):
 
             self._regen_thread = QThread(self)
             pending_regeneration = self.toolbar.integration._pending_session_update
+            self._active_regen_display_window = (
+                self.toolbar.integration.take_pending_display_window()
+            )
             self._regen_worker = EicRegenerationWorker(
                 compound_name,
                 tr_window,
@@ -2286,6 +2315,11 @@ class MainWindow(QMainWindow):
 
         try:
             self.toolbar.integration._pending_session_update = None
+            committed = self._active_regen_display_window
+            self._active_regen_display_window = None
+            if committed is not None:
+                self.toolbar.integration.apply_display_window(*committed)
+                self.graph_view.set_display_tr_window(*committed)
 
             current_compound = self.graph_view.get_current_compound()
             current_samples = self.graph_view.get_current_samples()
@@ -2316,6 +2350,7 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             self.toolbar.integration._pending_session_update = None
+            self.toolbar.integration.discard_pending_display_window()
             logger.error(f"Error during post-regeneration refresh: {e}")
             msg_box = self._create_message_box(
                 "warning",
@@ -2333,6 +2368,8 @@ class MainWindow(QMainWindow):
             self.regen_progress_dialog.close()
 
         self.toolbar.integration._pending_session_update = None
+        self._active_regen_display_window = None
+        self.toolbar.integration.discard_pending_display_window()
 
         try:
             current_compound = self.graph_view.get_current_compound()
@@ -2665,6 +2702,8 @@ class MainWindow(QMainWindow):
         try:
             # The imported session owns the database notes; discard any pre-import draft.
             self.graph_view.close_note_editor()
+            self.graph_view.clear_display_tr_windows()
+            self.toolbar.integration.clear_display_windows()
             active_compounds = list_compound_names()
             active_samples = list_active_samples()
             self.toolbar.update_compound_list(active_compounds)
@@ -3097,6 +3136,7 @@ class MainWindow(QMainWindow):
                     )
                 with QSignalBlocker(self.graph_view):
                     self.graph_view.close_note_editor()
+                    self.graph_view.clear_display_tr_windows()
                     self.graph_view.clear_all_plots()
                 self.summary.clear()
 

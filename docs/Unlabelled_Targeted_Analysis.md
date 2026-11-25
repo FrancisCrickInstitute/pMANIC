@@ -177,7 +177,7 @@ MANIC still imports a list that omits ratios, tolerances or the second qualifier
 
 | Column | Accepted aliases | Meaning |
 | :--- | :--- | :--- |
-| `tR Window` | `tR_Window` | Extract half-width and RT identity tolerance (minutes). If omitted, defaults to `max(lOffset, rOffset)`. A value inside the offsets is raised to `max(lOffset, rOffset) + DEFAULT_RT_WINDOW_BUFFER` when EICs are extracted. |
+| `tR Window` | `tR_Window` | Extract half-width and RT identity tolerance (minutes). If omitted, defaults to `max(lOffset, rOffset)`. A value narrower than `max(0.20, max(lOffset, rOffset) + DEFAULT_RT_WINDOW_BUFFER)` is raised to that floor when EICs are extracted. |
 | `Amount in StdMix` | | Concentration of the compound in the standard mixture (for semi-quant) |
 | `Int Std amount` | | Amount of internal standard added to samples. Right-click the compound and choose **Select as Internal Standard**. |
 | `MM Files` | | Pattern that matches MM files (standard mixture). Wildcards allowed, e.g. `*_MM_*`. |

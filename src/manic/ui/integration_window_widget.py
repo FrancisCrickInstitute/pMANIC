@@ -18,7 +18,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from manic.constants import DEFAULT_RT_WINDOW_BUFFER, minimum_extract_rt_window
+from manic.constants import (
+    DEFAULT_RT_WINDOW,
+    DEFAULT_RT_WINDOW_BUFFER,
+    minimum_display_rt_window,
+    minimum_extract_rt_window,
+)
 from manic.io.compound_reader import read_compound, read_compound_with_session
 from manic.io.eic_importer import samples_needing_reextraction
 from manic.models.analysis import AnalysisMode
@@ -178,6 +183,8 @@ class IntegrationWindow(QWidget):
         str, object, list, object
     )  # compound_name, tr_window (one or per sample), sample_names, retention_time
 
+    display_window_changed = Signal(str, float)  # compound_name, display_tr_window
+
 
 
     def __init__(
@@ -201,6 +208,8 @@ class IntegrationWindow(QWidget):
         self._window_compound = ""
         self._loaded_window = ""
         self._window_drafts: Dict[str, str] = {}
+        self._display_windows: Dict[str, float] = {}
+        self._pending_display_window: Tuple[str, float] | None = None
         # With both drafts open, only the one typed in last gets the primary button.
         self._last_draft = "peak"
 
@@ -416,16 +425,52 @@ class IntegrationWindow(QWidget):
             return "0"
         return f"{float(value):.3f}".rstrip("0").rstrip(".") or "0"
 
+    def display_window_for(self, compound_name: str) -> float | None:
+        return self._display_windows.get(compound_name)
+
+    def clear_display_windows(self) -> None:
+        self._display_windows.clear()
+        self._pending_display_window = None
+
+    def take_pending_display_window(self) -> Tuple[str, float] | None:
+        pending = self._pending_display_window
+        self._pending_display_window = None
+        return pending
+
+    def apply_display_window(self, compound_name: str, tr_window: float) -> None:
+        self._display_windows[compound_name] = float(tr_window)
+
+    def discard_pending_display_window(self) -> None:
+        self._pending_display_window = None
+
+    def _clamp_display_window(
+        self, compound_name: str, loffset: float, roffset: float
+    ) -> float | None:
+        current = self._display_windows.get(compound_name)
+        if current is None:
+            return None
+        floor = minimum_display_rt_window(loffset, roffset)
+        if current < floor:
+            self._display_windows[compound_name] = floor
+            return floor
+        return current
+
     def populate_tr_window_field(self, compound_name: str):
-        """Show the stored tR window of the shown samples, a range when they differ.
+        """Show the compound's display tR window, or the stored extract range when none is set.
 
         Falls back to the compound default when no EIC data exists yet.
         """
         try:
-            tr_windows = list(_stored_tr_windows(compound_name, self._all_samples).values())
-            if not tr_windows:
-                compound_data = read_compound(compound_name)
-                tr_windows = [getattr(compound_data, "tr_window", 0.2)]
+            display_window = self._display_windows.get(compound_name)
+            if display_window is not None:
+                tr_windows = [display_window]
+            else:
+                tr_windows = list(
+                    _stored_tr_windows(compound_name, self._all_samples).values()
+                )
+                if not tr_windows:
+                    compound_data = read_compound(compound_name)
+                    tr_windows = [getattr(compound_data, "tr_window", DEFAULT_RT_WINDOW)]
 
             field = self.tr_window_edit
             if self.has_window_draft():
@@ -450,6 +495,8 @@ class IntegrationWindow(QWidget):
             self.tr_window_edit.clear()
             self._drafts.clear()
             self._window_drafts.clear()
+            self._display_windows.clear()
+            self._pending_display_window = None
             self._loaded = self._field_texts()
             self._loaded_window = ""
             self._update_apply_button_state()
@@ -730,7 +777,7 @@ class IntegrationWindow(QWidget):
         self.window_scope_label.setText(
             f"All {shown} shown{NOT_APPLIED}"
             if window_edited
-            else f"Re-extracts all {shown} shown {'sample' if shown == 1 else 'samples'}"
+            else f"Applies to all {shown} shown {'sample' if shown == 1 else 'samples'}"
         )
         self.window_scope_label.setVisible(bool(self._current_compound and shown))
         set_style_property(self.window_scope_label, "state", "edited" if window_edited else None)
@@ -801,16 +848,19 @@ class IntegrationWindow(QWidget):
                 tr_window_field = self.findChild(QLineEdit, "tr_window_input")
                 tr_window_text = tr_window_field.text() if tr_window_field else ""
                 current_tr_window = (
-                    _parse_offset_text(tr_window_text) if tr_window_text.strip() else 0.2
+                    _parse_offset_text(tr_window_text)
+                    if tr_window_text.strip()
+                    else DEFAULT_RT_WINDOW
                 )
-                if current_tr_window is None:
-                    # A range keeps each reloaded sample's own window.
-                    stored = _stored_tr_windows(
-                        self._current_compound, samples_needing_reload
-                    )
-                    actual_window = {
+                stored = _stored_tr_windows(
+                    self._current_compound, samples_needing_reload
+                )
+                has_display_window = self._current_compound in self._display_windows
+                if current_tr_window is None or has_display_window:
+                    # A range or narrowed display window keeps each reloaded sample's own extract.
+                    per_sample = {
                         sample_name: max(
-                            stored.get(sample_name, 0.2),
+                            stored.get(sample_name, DEFAULT_RT_WINDOW),
                             calculate_minimum_rt_window(
                                 *sample_values[sample_name][1:],
                                 buffer=DEFAULT_RT_WINDOW_BUFFER,
@@ -818,13 +868,31 @@ class IntegrationWindow(QWidget):
                         )
                         for sample_name in samples_needing_reload
                     }
+                    if current_tr_window is None or len(set(per_sample.values())) > 1:
+                        actual_window = per_sample
+                    else:
+                        actual_window = next(iter(per_sample.values()))
                 else:
                     min_required_window = calculate_minimum_rt_window(
                         max(values[1] for values in sample_values.values()),
                         max(values[2] for values in sample_values.values()),
                         buffer=DEFAULT_RT_WINDOW_BUFFER,
                     )
-                    actual_window = max(current_tr_window, min_required_window)
+                    stored_floor = max(stored.values(), default=DEFAULT_RT_WINDOW)
+                    actual_window = max(
+                        current_tr_window, stored_floor, min_required_window
+                    )
+
+                if has_display_window:
+                    min_display = minimum_display_rt_window(
+                        max(values[1] for values in sample_values.values()),
+                        max(values[2] for values in sample_values.values()),
+                    )
+                    if self._display_windows[self._current_compound] < min_display:
+                        self._pending_display_window = (
+                            self._current_compound,
+                            min_display,
+                        )
 
                 logger.info(
                     f"Regenerating {len(samples_needing_reload)} samples with RT window {actual_window} min"
@@ -862,6 +930,16 @@ class IntegrationWindow(QWidget):
                 loffset=loffset,
                 roffset=roffset,
             )
+
+            if self._current_compound in self._display_windows:
+                before = self._display_windows[self._current_compound]
+                after = self._clamp_display_window(
+                    self._current_compound,
+                    max(values[1] for values in sample_values.values()),
+                    max(values[2] for values in sample_values.values()),
+                )
+                if after is not None and after != before:
+                    self.populate_tr_window_field(self._current_compound)
 
             self.session_data_applied.emit(self._current_compound, samples_to_apply)
 
@@ -909,6 +987,21 @@ class IntegrationWindow(QWidget):
                     compound_name=self._current_compound,
                     sample_names=samples_to_restore,
                 )
+
+                if self._current_compound in self._display_windows:
+                    restored = [
+                        read_compound_with_session(self._current_compound, name)
+                        for name in (self._all_samples or samples_to_restore)
+                    ]
+                    if restored:
+                        before = self._display_windows[self._current_compound]
+                        after = self._clamp_display_window(
+                            self._current_compound,
+                            max(c.loffset for c in restored),
+                            max(c.roffset for c in restored),
+                        )
+                        if after is not None and after != before:
+                            self.populate_tr_window_field(self._current_compound)
 
                 self.session_data_restored.emit(
                     self._current_compound, samples_to_restore
@@ -1039,22 +1132,40 @@ class IntegrationWindow(QWidget):
                 tr_window_field.setFocus()
                 return
 
-            lo_field = self.findChild(QLineEdit, "lo_input")
-            ro_field = self.findChild(QLineEdit, "ro_input")
-            loffset = _widest_offset(lo_field.text()) if lo_field else None
-            roffset = _widest_offset(ro_field.text()) if ro_field else None
-            if (
-                loffset is not None
-                and roffset is not None
-                and loffset >= 0
-                and roffset >= 0
-            ):
-                min_required = calculate_minimum_rt_window(
+            shown_compounds = []
+            for sample_name in self._all_samples:
+                try:
+                    shown_compounds.append(
+                        read_compound_with_session(self._current_compound, sample_name)
+                    )
+                except Exception:
+                    pass
+            if shown_compounds:
+                loffset = max(float(c.loffset or 0.0) for c in shown_compounds)
+                roffset = max(float(c.roffset or 0.0) for c in shown_compounds)
+                has_offsets = True
+            else:
+                lo_field = self.findChild(QLineEdit, "lo_input")
+                ro_field = self.findChild(QLineEdit, "ro_input")
+                loffset = _widest_offset(lo_field.text()) if lo_field else None
+                roffset = _widest_offset(ro_field.text()) if ro_field else None
+                has_offsets = (
+                    loffset is not None
+                    and roffset is not None
+                    and loffset >= 0
+                    and roffset >= 0
+                )
+            if has_offsets:
+                min_display = minimum_display_rt_window(loffset, roffset)
+                if tr_window < min_display:
+                    tr_window = min_display
+                    tr_window_field.setText(self._format_number(tr_window))
+                min_extract = calculate_minimum_rt_window(
                     loffset, roffset, buffer=DEFAULT_RT_WINDOW_BUFFER
                 )
-                if tr_window < min_required:
-                    tr_window = min_required
-                    tr_window_field.setText(self._format_number(tr_window))
+            else:
+                min_extract = DEFAULT_RT_WINDOW
+            needed_extract = max(tr_window, min_extract)
 
         except ValueError:
             self._show_message(
@@ -1081,19 +1192,48 @@ class IntegrationWindow(QWidget):
             )
             return
 
+        stored = _stored_tr_windows(self._current_compound, samples_to_affect)
+        if stored:
+            samples_to_reload = [
+                sample_name
+                for sample_name in samples_to_affect
+                if sample_name in stored
+                and stored[sample_name] < needed_extract - 1e-9
+            ]
+        else:
+            samples_to_reload = list(samples_to_affect)
+
+        if not samples_to_reload:
+            self._display_windows[self._current_compound] = tr_window
+            self._pending_display_window = None
+            formatted = self._format_number(tr_window)
+            tr_window_field.setText(formatted)
+            self._window_compound = self._current_compound
+            self._loaded_window = formatted
+            self._window_drafts.pop(self._current_compound, None)
+            self._update_apply_button_state()
+            self.display_window_changed.emit(self._current_compound, tr_window)
+            return
+
+        self._pending_display_window = (self._current_compound, tr_window)
+
         if rt_mode == "range" and len(samples_to_affect) > 1:
             retention_time = {
                 sample_name: read_compound_with_session(
                     self._current_compound, sample_name
                 ).retention_time
-                for sample_name in samples_to_affect
+                for sample_name in samples_to_reload
             }
 
         try:
             self.data_regeneration_requested.emit(
-                self._current_compound, tr_window, samples_to_affect, retention_time
+                self._current_compound,
+                needed_extract,
+                samples_to_reload,
+                retention_time,
             )
         except Exception as e:
+            self._pending_display_window = None
             self._show_message(
                 "critical",
                 "Regeneration Failed",

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from manic.constants import minimum_display_rt_window
 from manic.io.compound_reader import read_compound_with_session
 from manic.io.sample_reader import list_stale_samples
 from manic.models.sample_fit_type import FIT_TYPE_LABELS, get_sample_fit_types
@@ -412,6 +413,7 @@ class GraphView(QWidget):
         self._current_samples: List[str] = []
         self._sample_fit_types: Dict[tuple[str, str], str] = {}
         self._notes: Dict[tuple[str, str], str] = {}
+        self._display_tr_windows: Dict[str, float] = {}
         # (compound, sample) the open note editor writes to.
         self._note_target: tuple[str, str] | None = None
         self._note_opened_text: str = ""
@@ -649,12 +651,16 @@ class GraphView(QWidget):
 
             self._last_validation_data = validation_data
 
+            display_window = self._display_tr_windows.get(compound_name)
             prepared_list = []
             scale_inputs: list[TileScaleInput] = []
+            x_bounds_list: list[tuple[float, float]] = []
             retention_times = []
             for eic in eics:
                 compound = read_compound_with_session(eic.compound_name, eic.sample_name)
                 retention_times.append(compound.retention_time)
+                x_bounds = self._tile_x_bounds(eic.time, compound, display_window)
+                x_bounds_list.append(x_bounds)
                 prepared = (
                     prepared_displays.get((eic.sample_name, eic.compound_name))
                     if prepared_displays is not None
@@ -673,6 +679,8 @@ class GraphView(QWidget):
                         prepared=prepared,
                         raw_intensity=eic.intensity,
                         independent_channels=compound.is_unlabelled_target,
+                        time=eic.time,
+                        x_bounds=x_bounds if display_window is not None else None,
                     )
                 )
             self._prepared_displays = {
@@ -692,8 +700,11 @@ class GraphView(QWidget):
                         if validation_data
                         else PeakVerdict.PASS,
                         axis_scale=axis_scale,
+                        x_bounds=x_bounds,
                     )
-                    for eic, axis_scale in zip(eics, tile_axes, strict=True)
+                    for eic, axis_scale, x_bounds in zip(
+                        eics, tile_axes, x_bounds_list, strict=True
+                    )
                 ]
 
                 self._current_plots = [
@@ -732,6 +743,41 @@ class GraphView(QWidget):
             if grid_host is not None:
                 grid_host.setUpdatesEnabled(True)
             self._place_note_editor()
+
+    def set_display_tr_window(
+        self, compound_name: str, tr_window: float | None
+    ) -> None:
+        if tr_window is None:
+            self._display_tr_windows.pop(compound_name, None)
+        else:
+            self._display_tr_windows[compound_name] = float(tr_window)
+
+    def display_tr_window_for(self, compound_name: str) -> float | None:
+        return self._display_tr_windows.get(compound_name)
+
+    def clear_display_tr_windows(self) -> None:
+        self._display_tr_windows.clear()
+
+    @staticmethod
+    def _tile_x_bounds(
+        eic_time: np.ndarray,
+        compound,
+        display_window: float | None,
+    ) -> tuple[float, float]:
+        raw_min = float(np.min(eic_time))
+        raw_max = float(np.max(eic_time))
+        if display_window is None:
+            return raw_min, raw_max
+        rt = float(compound.retention_time)
+        half = max(
+            float(display_window),
+            minimum_display_rt_window(compound.loffset, compound.roffset),
+        )
+        x_min = max(raw_min, rt - half)
+        x_max = min(raw_max, rt + half)
+        if x_max <= x_min:
+            return raw_min, raw_max
+        return x_min, x_max
 
     def _hide_unused_tiles(self) -> None:
         for container in self._available_containers:
@@ -1567,6 +1613,7 @@ class GraphView(QWidget):
         verdict: PeakVerdict = PeakVerdict.PASS,
         *,
         axis_scale: YAxisScale,
+        x_bounds: tuple[float, float] | None = None,
     ) -> QWidget:
         """A pooled tile redrawn with ``eic``, or a new one when the pool is empty.
 
@@ -1574,10 +1621,14 @@ class GraphView(QWidget):
         ownership intact; the grid layout decides when they show."""
         if self._available_containers:
             container = self._available_containers.pop()
-            self._update_container_data(container, eic, verdict, axis_scale=axis_scale)
+            self._update_container_data(
+                container, eic, verdict, axis_scale=axis_scale, x_bounds=x_bounds
+            )
             return container
         else:
-            container = self._create_plot_container(eic, verdict, axis_scale=axis_scale)
+            container = self._create_plot_container(
+                eic, verdict, axis_scale=axis_scale, x_bounds=x_bounds
+            )
             self._container_pool.append(container)
             return container
 
@@ -1587,9 +1638,10 @@ class GraphView(QWidget):
         verdict: PeakVerdict = PeakVerdict.PASS,
         *,
         axis_scale: YAxisScale,
+        x_bounds: tuple[float, float] | None = None,
     ) -> QWidget:
         """A new tile, connected and filtered once for its whole pooled life."""
-        chart_view = self._build_plot(eic, axis_scale=axis_scale)
+        chart_view = self._build_plot(eic, axis_scale=axis_scale, x_bounds=x_bounds)
 
         container = PlotTile(chart_view)
         self._apply_text_size(container)
@@ -1625,6 +1677,7 @@ class GraphView(QWidget):
         verdict: PeakVerdict = PeakVerdict.PASS,
         *,
         axis_scale: YAxisScale,
+        x_bounds: tuple[float, float] | None = None,
     ):
         chart_view = container.chart_view
         chart_view.set_selected(False)
@@ -1636,7 +1689,9 @@ class GraphView(QWidget):
         chart_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         chart_view.setMinimumSize(0, 0)
 
-        self._update_chart_data(chart_view, eic, axis_scale=axis_scale)
+        self._update_chart_data(
+            chart_view, eic, axis_scale=axis_scale, x_bounds=x_bounds
+        )
 
         container.set_caption(self._tile_caption_for(eic))
         container.set_scale(axis_scale.scale_exp)
@@ -1713,6 +1768,7 @@ class GraphView(QWidget):
         eic,
         *,
         axis_scale: YAxisScale,
+        x_bounds: tuple[float, float] | None = None,
     ):
         """Redraw a reused chart's series on the axes it keeps."""
         chart = chart_view.chart()
@@ -1721,7 +1777,7 @@ class GraphView(QWidget):
             chart_view.compound_name = eic.compound_name
             axes = chart.axes()
             if len(axes) > 1:
-                self._draw_eic(chart, axes[0], axes[1], eic, axis_scale)
+                self._draw_eic(chart, axes[0], axes[1], eic, axis_scale, x_bounds=x_bounds)
         except Exception as e:
             self._clear_chart_series_pool(chart)
             # A failed redraw must not break the rest of the grid.
@@ -1743,7 +1799,11 @@ class GraphView(QWidget):
         self._selected_plots.clear()
 
     def _build_plot(
-        self, eic, axis_scale: YAxisScale
+        self,
+        eic,
+        axis_scale: YAxisScale,
+        *,
+        x_bounds: tuple[float, float] | None = None,
     ) -> ClickableChartView:
         """Create a ClickableChartView with EIC data and guide lines."""
         chart = QChart()
@@ -1759,10 +1819,19 @@ class GraphView(QWidget):
         chart.addAxis(y_axis, Qt.AlignLeft)
         # The tile's width settles after layout and on every resize.
         chart.plotAreaChanged.connect(lambda _area, c=chart: _fit_time_ticks(c))
-        self._draw_eic(chart, x_axis, y_axis, eic, axis_scale)
+        self._draw_eic(chart, x_axis, y_axis, eic, axis_scale, x_bounds=x_bounds)
         return ClickableChartView(chart, eic.sample_name, eic.compound_name)
 
-    def _draw_eic(self, chart, x_axis, y_axis, eic, axis_scale: YAxisScale) -> None:
+    def _draw_eic(
+        self,
+        chart,
+        x_axis,
+        y_axis,
+        eic,
+        axis_scale: YAxisScale,
+        *,
+        x_bounds: tuple[float, float] | None = None,
+    ) -> None:
         """Traces, ranges, tR guides and baselines of one tile, on axes it already has."""
         if not hasattr(chart, "_series_pool"):
             chart._series_pool = list(chart.series())
@@ -1785,8 +1854,9 @@ class GraphView(QWidget):
                 channel_styles=channel_styles,
             )
 
-            # The x range is the actual EIC extract, so it reflects the tR window.
-            self._set_tile_ranges(x_axis, y_axis, eic.time, scaled_y_max)
+            self._set_tile_ranges(
+                x_axis, y_axis, eic.time, scaled_y_max, x_bounds=x_bounds
+            )
             _fit_time_ticks(chart)
             self._add_tile_guides(chart, x_axis, y_axis, compound, scaled_y_max)
             self._add_baseline_lines(
@@ -1805,9 +1875,20 @@ class GraphView(QWidget):
             chart._series_cursor = None
             self._clear_chart_series_pool(chart, start=cursor)
 
-    def _set_tile_ranges(self, x_axis, y_axis, eic_time, scaled_y_max) -> None:
-        x_min = float(np.min(eic_time))
-        x_max = float(np.max(eic_time))
+    def _set_tile_ranges(
+        self,
+        x_axis,
+        y_axis,
+        eic_time,
+        scaled_y_max,
+        *,
+        x_bounds: tuple[float, float] | None = None,
+    ) -> None:
+        if x_bounds is not None:
+            x_min, x_max = x_bounds
+        else:
+            x_min = float(np.min(eic_time))
+            x_max = float(np.max(eic_time))
         x_axis.setRange(x_min, x_max)
         y_max = scaled_y_max * PLOT_Y_AXIS_HEADROOM
         y_axis.setRange(0, y_max)

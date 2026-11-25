@@ -79,22 +79,32 @@ def test_mass_tolerance_change_keeps_each_tr_window(qapp, monkeypatch, tmp_path,
     integration.populate_fields_from_plots("Glucose", ["s1"], ["s1"])
     integration.tr_window_edit.setText(str(applied))
     integration.regenerate_button.click()
-    _wait_for(window._regen_thread)
+    if applied > 0.2:
+        _wait_for(window._regen_thread)
+    else:
+        assert not hasattr(window, "_regen_thread")
 
     # Add Compound extracts at the compound's tR tolerance.
     _insert_compound("Lactate", rt_tolerance=0.6)
     window._after_compound_added("Lactate")
     _wait_for(window._regen_thread)
 
+    expected_extract = max(applied, 0.2)
     before = {
-        "Glucose": (applied, round(5.0 - applied, 2), round(5.0 + applied, 2)),
+        "Glucose": (
+            expected_extract,
+            round(5.0 - expected_extract, 2),
+            round(5.0 + expected_extract, 2),
+        ),
         "Lactate": (0.6, 4.4, 5.6),
         "Pyruvate": (0.2, 4.8, 5.2),
     }
     assert _stored_windows() == before
+    assert window.graph_view.display_tr_window_for("Glucose") == pytest.approx(applied)
 
     window.apply_mass_tolerance(0.3)
     _wait_for(window._mass_tol_thread)
 
     assert _stored_windows() == before
+    assert window.graph_view.display_tr_window_for("Glucose") == pytest.approx(applied)
     assert messages == []

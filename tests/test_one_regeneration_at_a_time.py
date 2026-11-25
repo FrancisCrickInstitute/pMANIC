@@ -77,6 +77,8 @@ def _apply(window, tmp_path, monkeypatch, started):
 
 
 def _apply_window(window, tmp_path, monkeypatch, started):
+    # Widen past the stored 1.0 min extract so Apply window actually requests regeneration.
+    window.toolbar.integration.tr_window_edit.setText("1.5")
     window.toolbar.integration.regenerate_button.click()
 
 

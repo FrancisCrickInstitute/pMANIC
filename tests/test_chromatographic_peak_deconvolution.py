@@ -1116,7 +1116,8 @@ def test_false_extra_seeds_keep_single_component_model(monkeypatch):
     def extra_seeds(matrix, params):
         seeds = real(matrix, params)
         apex = seeds[0]
-        return list(dict.fromkeys(seeds + [max(0, apex - 3), 15, 57]))
+        last = matrix.shape[1] - 1
+        return list(dict.fromkeys(seeds + [max(0, apex - 3), min(15, last), max(0, last - 8)]))
 
     monkeypatch.setattr(deconv, "_candidate_peak_indices", extra_seeds)
 

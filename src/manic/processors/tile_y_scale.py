@@ -24,6 +24,8 @@ class TileScaleInput:
     prepared: PlotDisplay
     raw_intensity: np.ndarray
     independent_channels: bool
+    time: np.ndarray | None = None
+    x_bounds: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,13 +44,34 @@ def available_y_scale_policies(mode: AnalysisMode) -> frozenset[YScalePolicy]:
     return frozenset(YScalePolicy)
 
 
+def _slice_to_x_bounds(
+    values: np.ndarray,
+    time: np.ndarray | None,
+    x_bounds: tuple[float, float] | None,
+) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64)
+    if time is None or x_bounds is None or arr.size == 0:
+        return arr
+    t = np.asarray(time, dtype=np.float64)
+    if arr.shape[-1] != t.size:
+        return arr
+    x_min, x_max = x_bounds
+    mask = (t >= x_min) & (t <= x_max)
+    if not np.any(mask):
+        return arr
+    return arr[..., mask]
+
+
 def extract_scale_intensity(
     prepared: PlotDisplay,
     raw_intensity: np.ndarray,
     *,
     independent_channels: bool,
+    time: np.ndarray | None = None,
+    x_bounds: tuple[float, float] | None = None,
 ) -> np.ndarray:
     display = prepared.display
+    visible_prepared = _slice_to_x_bounds(prepared.intensity, time, x_bounds)
     if (
         display is not None
         and not prepared.includes_raw_underlay
@@ -56,13 +79,9 @@ def extract_scale_intensity(
             independent_channels=independent_channels
         )
     ):
-        return np.concatenate(
-            (
-                np.asarray(prepared.intensity, dtype=np.float64).ravel(),
-                np.asarray(raw_intensity, dtype=np.float64).ravel(),
-            )
-        )
-    return prepared.intensity
+        visible_raw = _slice_to_x_bounds(raw_intensity, time, x_bounds)
+        return np.concatenate((visible_prepared.ravel(), visible_raw.ravel()))
+    return visible_prepared
 
 
 def selected_peak_scale_intensity(
@@ -110,6 +129,8 @@ def tile_y_max(policy: YScalePolicy, tile: TileScaleInput) -> float:
                     tile.prepared,
                     tile.raw_intensity,
                     independent_channels=tile.independent_channels,
+                    time=tile.time,
+                    x_bounds=tile.x_bounds,
                 )
             )
         case YScalePolicy.PER_TILE_EXTRACT | YScalePolicy.SHARED_EXTRACT:
@@ -118,6 +139,8 @@ def tile_y_max(policy: YScalePolicy, tile: TileScaleInput) -> float:
                     tile.prepared,
                     tile.raw_intensity,
                     independent_channels=tile.independent_channels,
+                    time=tile.time,
+                    x_bounds=tile.x_bounds,
                 )
             )
         case unexpected:

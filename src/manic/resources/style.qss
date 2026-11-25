@@ -754,6 +754,16 @@ QPushButton#statusDeconvolution:hover {
     color: @text;
 }
 
+/* Filled by variant="primary", so an available update stands out from the status text. */
+QPushButton#statusUpdate {
+    border-radius: 4px;
+    margin: 0px 8px 0px 4px;
+    min-height: 20px;
+    padding: 0px 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
 QWidget#toastNotification {
     background-color: @text;
     border-radius: 6px;

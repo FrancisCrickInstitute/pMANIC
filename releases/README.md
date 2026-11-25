@@ -6,7 +6,7 @@ Two separate things both sound like "the latest version". They are not the same.
 
 **The download page.** GitHub's [latest release](https://github.com/FrancisCrickInstitute/pMANIC/releases/latest) link. People who do not know the version number land here. GitHub ignores any page marked as a pre-release, so this link still points at 4.1.0 while 5.0 is in testing.
 
-**The in-app update check.** Every installed copy of MANIC, on start-up, reads `releases/latest.json` from the `main` branch. That file has a version number and a URL. If the file's version is newer than the running app, MANIC shows "Update available" and opens that URL. The file still says 4.1.0. Leave it there until the lab should move.
+**The in-app update check.** Every installed copy of MANIC, on start-up, reads `releases/latest.json` from the `main` branch. That file has a version number and a URL. If the file's version is newer than the running app, MANIC asks the user to download the update on every start-up and keeps a reminder in the status bar. Both open that URL. The file still says 4.1.0. Leave it there until the lab should move.
 
 ## Testing page or lab-wide page
 

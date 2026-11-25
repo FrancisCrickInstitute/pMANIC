@@ -1,8 +1,9 @@
 """
 Update check against the ``releases/latest.json`` manifest on ``main``.
 
-raw.githubusercontent.com has no per-IP API rate limit, unlike
-``api.github.com``, so the check works on shared lab networks.
+raw.githubusercontent.com stays clear of the 60 requests an hour that
+``api.github.com`` allows a shared lab IP. GitHub still rate limits it per IP,
+with no published threshold, so a check can fail with a 429.
 """
 
 from __future__ import annotations

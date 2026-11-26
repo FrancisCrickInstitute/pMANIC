@@ -513,7 +513,6 @@ def _deconvolve_matrix(
             _local_fit_context.smoothed = None
         _local_fit_context.entry = (
             window_bytes,
-            _detection_key(params),
             tuple(seed_indices),
             smoothed_summed,
         )
@@ -670,27 +669,13 @@ _probe = threading.local()
 _local_fit_context = threading.local()
 
 
-def _detection_key(params: ChromatographicPeakDeconvolutionParameters) -> tuple:
-    return (
-        params.smooth_points,
-        params.min_prominence_fraction,
-        params.min_height_fraction,
-        params.min_width_points,
-        params.shoulder_curvature_fraction,
-    )
-
-
 def _consume_local_fit_context(
-    matrix_bytes: bytes, params: ChromatographicPeakDeconvolutionParameters
+    matrix_bytes: bytes,
 ) -> tuple[list[int] | None, np.ndarray | None]:
     entry = getattr(_local_fit_context, "entry", None)
-    if (
-        entry is not None
-        and entry[0] == matrix_bytes
-        and entry[1] == _detection_key(params)
-    ):
+    if entry is not None and entry[0] == matrix_bytes:
         _local_fit_context.entry = None
-        return list(entry[2]), entry[3]
+        return list(entry[1]), entry[2]
     return None, None
 
 
@@ -738,7 +723,7 @@ def _fit_single_from_bytes(
     params: ChromatographicPeakDeconvolutionParameters,
     target_rt: float | None,
 ) -> FittedComponentModel | None:
-    candidate_indices, summed_smoothed = _consume_local_fit_context(matrix_bytes, params)
+    candidate_indices, summed_smoothed = _consume_local_fit_context(matrix_bytes)
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
     cheap = dataclasses.replace(
@@ -788,7 +773,7 @@ def _fit_joint_from_bytes(
     params: ChromatographicPeakDeconvolutionParameters,
     target_rt: float | None,
 ) -> FittedComponentModel | None:
-    candidate_indices, summed_smoothed = _consume_local_fit_context(matrix_bytes, params)
+    candidate_indices, summed_smoothed = _consume_local_fit_context(matrix_bytes)
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
     return _fit_joint_component_model(

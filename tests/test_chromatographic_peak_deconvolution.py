@@ -1554,7 +1554,7 @@ def test_channel_scale_matches_numpy_percentile_across_lengths():
             np.percentile(y, 95, axis=1) - np.percentile(y, 10, axis=1),
             max(max_y * 1e-6, np.finfo(float).eps),
         )
-        np.testing.assert_allclose(deconv._channel_scale(y, max_y), expected, rtol=1e-14, atol=1e-12)
+        np.testing.assert_array_equal(deconv._channel_scale(y, max_y), expected)
 
 
 def test_deconvolve_eic_avoids_redundant_seed_and_smooth_passes(monkeypatch):

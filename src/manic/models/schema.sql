@@ -87,9 +87,6 @@ CREATE TABLE IF NOT EXISTS tic_data (
     FOREIGN KEY (sample_name) REFERENCES samples(sample_name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_tic_sample
-          ON tic_data(sample_name);
-
 -- Mass spectra (one compressed row per sample and scan time) ------
 CREATE TABLE IF NOT EXISTS ms_data (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,9 +98,6 @@ CREATE TABLE IF NOT EXISTS ms_data (
     FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
     UNIQUE(sample_name, time)
 );
-
-CREATE INDEX IF NOT EXISTS idx_ms_sample_time
-          ON ms_data(sample_name, time);
 
 -- Session activity -----------------------------------------------
 CREATE TABLE IF NOT EXISTS session_activity (

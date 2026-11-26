@@ -1,11 +1,8 @@
-import array
-import itertools
 import logging
 import os
 import sqlite3
 import threading
 import time
-import zlib
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import List
@@ -106,108 +103,6 @@ def reset_database() -> None:
         clear_database()
 
 
-def _compress_floats(values) -> bytes:
-    return zlib.compress(array.array("d", values).tobytes())
-
-
-def _migrate_tic_data_to_blobs(conn: sqlite3.Connection) -> None:
-    """Fold legacy row-per-scan tic_data rows into one compressed row per sample."""
-    conn.execute("DROP TABLE IF EXISTS tic_data_new")
-    conn.execute(
-        """
-        CREATE TABLE tic_data_new (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            sample_name    TEXT NOT NULL UNIQUE,
-            time_blob      BLOB NOT NULL,
-            intensity_blob BLOB NOT NULL,
-            deleted        INTEGER DEFAULT 0,
-            FOREIGN KEY (sample_name) REFERENCES samples(sample_name)
-        )
-        """
-    )
-    cursor = conn.execute(
-        """
-        SELECT sample_name, time, intensity
-        FROM tic_data
-        WHERE deleted = 0
-        ORDER BY sample_name, time
-        """
-    )
-    for sample_name, group in itertools.groupby(cursor, key=lambda row: row[0]):
-        times = []
-        intensities = []
-        for _, t, intensity in group:
-            if t is None or intensity is None:
-                continue
-            times.append(float(t))
-            intensities.append(float(intensity))
-        if times:
-            conn.execute(
-                """
-                INSERT INTO tic_data_new (sample_name, time_blob, intensity_blob, deleted)
-                VALUES (?, ?, ?, 0)
-                """,
-                (sample_name, _compress_floats(times), _compress_floats(intensities)),
-            )
-    cursor.close()
-    conn.execute("DROP TABLE tic_data")
-    conn.execute("ALTER TABLE tic_data_new RENAME TO tic_data")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_tic_sample ON tic_data(sample_name)")
-
-
-def _migrate_ms_data_to_blobs(conn: sqlite3.Connection) -> None:
-    """Fold legacy row-per-peak ms_data rows into one compressed row per (sample, time)."""
-    conn.execute("DROP TABLE IF EXISTS ms_data_new")
-    conn.execute(
-        """
-        CREATE TABLE ms_data_new (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            sample_name    TEXT NOT NULL,
-            time           REAL NOT NULL,
-            mz_blob        BLOB NOT NULL,
-            intensity_blob BLOB NOT NULL,
-            deleted        INTEGER DEFAULT 0,
-            FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
-            UNIQUE(sample_name, time)
-        )
-        """
-    )
-    cursor = conn.execute(
-        """
-        SELECT sample_name, time, mz, intensity
-        FROM ms_data
-        WHERE deleted = 0
-        ORDER BY sample_name, time, mz
-        """
-    )
-    for (sample_name, t), group in itertools.groupby(
-        cursor, key=lambda row: (row[0], row[1])
-    ):
-        if t is None:
-            continue
-        mzs = []
-        intensities = []
-        for _, _, mz, intensity in group:
-            if mz is None or intensity is None or intensity <= 0:
-                continue
-            mzs.append(float(mz))
-            intensities.append(float(intensity))
-        if mzs:
-            conn.execute(
-                """
-                INSERT INTO ms_data_new (sample_name, time, mz_blob, intensity_blob, deleted)
-                VALUES (?, ?, ?, ?, 0)
-                """,
-                (sample_name, float(t), _compress_floats(mzs), _compress_floats(intensities)),
-            )
-    cursor.close()
-    conn.execute("DROP TABLE ms_data")
-    conn.execute("ALTER TABLE ms_data_new RENAME TO ms_data")
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_ms_sample_time ON ms_data(sample_name, time)"
-    )
-
-
 def _run_migrations(conn: sqlite3.Connection) -> None:
     """Run database migrations to handle schema changes"""
 
@@ -243,18 +138,19 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE eic ADD COLUMN extraction_rt REAL")
         conn.commit()
 
-    # Migrate legacy row-per-point tic_data and ms_data tables to compressed BLOB rows.
-    # Fresh databases create the compact tables directly from schema.sql.
+    # Drop legacy row-per-point tic_data and ms_data tables so schema.sql
+    # recreates them as compact blob tables. Production only reaches init_db()
+    # via reset_database(), which clears all session tables anyway.
     tic_cols = {row[1] for row in conn.execute("PRAGMA table_info(tic_data)")}
     if tic_cols and "time_blob" not in tic_cols:
-        logger.info("Migrating legacy tic_data table to compressed blob rows")
-        _migrate_tic_data_to_blobs(conn)
+        logger.info("Replacing legacy row-per-point tic_data table with compact schema")
+        conn.execute("DROP TABLE tic_data")
         conn.commit()
 
     ms_cols = {row[1] for row in conn.execute("PRAGMA table_info(ms_data)")}
     if ms_cols and "mz_blob" not in ms_cols:
-        logger.info("Migrating legacy ms_data table to compressed blob rows")
-        _migrate_ms_data_to_blobs(conn)
+        logger.info("Replacing legacy row-per-point ms_data table with compact schema")
+        conn.execute("DROP TABLE ms_data")
         conn.commit()
 
     # Migration for formula and derivatization columns in compounds table

@@ -86,12 +86,12 @@ def test_ms_batch_stores_one_row_per_scan_deduplicates_and_filters(isolated_db):
     np.testing.assert_array_equal(replaced.intensity, np.array([8.0, 5.0]))
 
 
-def test_init_db_migrates_legacy_scalar_tic_and_ms_tables(tmp_path, monkeypatch):
+def test_init_db_replaces_legacy_scalar_tic_and_ms_tables(tmp_path, monkeypatch):
     db_path = tmp_path / "legacy.db"
     database._close_cached_connection()
     monkeypatch.setattr(database, "DB_FILE", db_path)
 
-    # Build a legacy scalar schema directly.
+    # Build a legacy scalar schema directly, including an orphaned sample row.
     with sqlite3.connect(db_path) as conn:
         conn.executescript(
             """
@@ -107,7 +107,6 @@ def test_init_db_migrates_legacy_scalar_tic_and_ms_tables(tmp_path, monkeypatch)
                 time REAL NOT NULL,
                 intensity REAL NOT NULL,
                 deleted INTEGER DEFAULT 0,
-                FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
                 UNIQUE(sample_name, time)
             );
             CREATE TABLE ms_data (
@@ -117,19 +116,13 @@ def test_init_db_migrates_legacy_scalar_tic_and_ms_tables(tmp_path, monkeypatch)
                 mz REAL NOT NULL,
                 intensity REAL NOT NULL,
                 deleted INTEGER DEFAULT 0,
-                FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
                 UNIQUE(sample_name, time, mz)
             );
             INSERT INTO samples (sample_name, file_name) VALUES ('S1', '/tmp/S1.cdf');
             INSERT INTO tic_data (sample_name, time, intensity, deleted) VALUES
-                ('S1', 2.0, 200.0, 0),
-                ('S1', 1.0, 100.0, 0),
-                ('S1', 3.0, 300.0, 1);
+                ('ORPHAN', 1.0, 100.0, 0);
             INSERT INTO ms_data (sample_name, time, mz, intensity, deleted) VALUES
-                ('S1', 5.0, 147.0, 25.0, 0),
-                ('S1', 5.0, 73.0, 80.0, 0),
-                ('S1', 5.0, 200.0, 10.0, 1),
-                ('S1', 8.0, 318.0, 40.0, 0);
+                ('ORPHAN', 5.0, 73.0, 80.0, 0);
             """
         )
 
@@ -138,22 +131,11 @@ def test_init_db_migrates_legacy_scalar_tic_and_ms_tables(tmp_path, monkeypatch)
     with database.get_connection() as conn:
         tic_cols = {row[1] for row in conn.execute("PRAGMA table_info(tic_data)")}
         ms_cols = {row[1] for row in conn.execute("PRAGMA table_info(ms_data)")}
-        tic_rows = conn.execute("SELECT COUNT(*) FROM tic_data").fetchone()[0]
-        ms_rows = conn.execute("SELECT COUNT(*) FROM ms_data").fetchone()[0]
 
     assert "time_blob" in tic_cols and "intensity_blob" in tic_cols
     assert "mz_blob" in ms_cols and "intensity_blob" in ms_cols
-    assert tic_rows == 1
-    assert ms_rows == 2
-
-    tic = read_tic("S1")
-    assert tic is not None
-    np.testing.assert_array_equal(tic.time, np.array([1.0, 2.0]))
-    np.testing.assert_array_equal(tic.intensity, np.array([100.0, 200.0]))
-
-    ms5 = read_ms_at_time("S1", 5.0, tolerance=0.05)
-    assert ms5 is not None
-    np.testing.assert_array_equal(ms5.mz, np.array([73.0, 147.0]))
-    np.testing.assert_array_equal(ms5.intensity, np.array([80.0, 25.0]))
-    assert read_ms_times_for_sample("S1") == [5.0, 8.0]
+    assert store_tic_data("S1", np.array([1.0, 2.0]), np.array([10.0, 20.0]))
+    assert store_ms_data("S1", 5.0, np.array([73.0]), np.array([80.0]))
+    assert read_tic("S1") is not None
+    assert read_ms_at_time("S1", 5.0) is not None
     database._close_cached_connection()

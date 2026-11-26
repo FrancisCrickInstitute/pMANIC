@@ -1543,3 +1543,66 @@ def test_emg_shape_gradients_match_finite_differences_in_long_tail(tau):
     np.testing.assert_allclose(
         analytic, numeric, rtol=1e-5, atol=1e-6 * np.max(np.abs(numeric))
     )
+
+
+def test_channel_scale_matches_numpy_percentile_across_lengths():
+    rng = np.random.default_rng(7)
+    for n in (1, 2, 5, 19, 20, 61, 100):
+        y = rng.uniform(0.0, 1000.0, size=(3, n))
+        max_y = max(float(np.max(y)), np.finfo(float).eps)
+        expected = np.maximum(
+            np.percentile(y, 95, axis=1) - np.percentile(y, 10, axis=1),
+            max(max_y * 1e-6, np.finfo(float).eps),
+        )
+        np.testing.assert_array_equal(deconv._channel_scale(y, max_y), expected)
+
+
+def test_deconvolve_eic_avoids_redundant_seed_and_smooth_passes(monkeypatch):
+    deconv._fit_single_component_model_cached.cache_clear()
+    deconv._fit_joint_component_model_cached.cache_clear()
+
+    time = np.linspace(0.0, 10.0, 121)
+    intensity = _gaussian(time, 4.0, 0.25, 10.0) + _gaussian(time, 6.0, 0.25, 8.0)
+
+    counts = {"seeds": 0, "smooth": 0, "raw_shapes": 0, "candidates": 0}
+    orig_seeds = deconv._candidate_peak_indices
+    orig_smooth = deconv._smooth
+    orig_raw = deconv._raw_component_shapes
+    orig_cand = deconv._fit_shape_candidate
+
+    def wrap_seeds(*args, **kwargs):
+        counts["seeds"] += 1
+        return orig_seeds(*args, **kwargs)
+
+    def wrap_smooth(*args, **kwargs):
+        counts["smooth"] += 1
+        return orig_smooth(*args, **kwargs)
+
+    def wrap_raw(*args, **kwargs):
+        counts["raw_shapes"] += 1
+        return orig_raw(*args, **kwargs)
+
+    def wrap_cand(*args, **kwargs):
+        counts["candidates"] += 1
+        return orig_cand(*args, **kwargs)
+
+    monkeypatch.setattr(deconv, "_candidate_peak_indices", wrap_seeds)
+    monkeypatch.setattr(deconv, "_smooth", wrap_smooth)
+    monkeypatch.setattr(deconv, "_raw_component_shapes", wrap_raw)
+    monkeypatch.setattr(deconv, "_fit_shape_candidate", wrap_cand)
+
+    result = deconvolve_eic(
+        time,
+        intensity,
+        retention_time=6.0,
+        loffset=3.0,
+        roffset=3.0,
+        stringency="4",
+    )
+
+    assert result.model is not None
+    assert counts["seeds"] == 1
+    assert counts["smooth"] == 1
+    if deconv.rust_fitter.is_available():
+        assert counts["raw_shapes"] == counts["candidates"]
+    assert getattr(deconv._local_fit_context, "entry", None) is None

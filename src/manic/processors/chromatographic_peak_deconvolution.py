@@ -500,10 +500,24 @@ def _deconvolve_matrix(
     if _too_messy_to_fit(summed_window, min_smoothness):
         fitted = None
     else:
-        candidate_count = len(_candidate_peak_indices(window_matrix, params))
+        smoothed_summed = (
+            _smooth(summed_window, params.smooth_points)
+            if summed_window.size >= 3 and float(np.max(summed_window)) > 0
+            else None
+        )
         window_bytes = window_matrix.tobytes()
+        _local_fit_context.smoothed = (window_matrix, params.smooth_points, smoothed_summed)
         try:
-            if candidate_count < 2:
+            seed_indices = _candidate_peak_indices(window_matrix, params)
+        finally:
+            _local_fit_context.smoothed = None
+        _local_fit_context.entry = (
+            window_bytes,
+            tuple(seed_indices),
+            smoothed_summed,
+        )
+        try:
+            if len(seed_indices) < 2:
                 fitted = _fit_single_component_model_cached(
                     window_time.tobytes(),
                     window_bytes,
@@ -523,6 +537,8 @@ def _deconvolve_matrix(
             raise
         except Exception:
             fitted = None
+        finally:
+            _local_fit_context.entry = None
 
         if fitted is not None and not _fit_reproduces_window(
             window_matrix,
@@ -648,6 +664,19 @@ _local_prefetched = threading.local()
 # While this thread's ``keys`` is a list, cache misses record their key there
 # and raise FitMissing. Thread-local so a background export never probes.
 _probe = threading.local()
+# Thread-local hand-off of candidate seeds and smoothed trace from
+# _deconvolve_matrix into a synchronous cache miss, avoiding recomputing them.
+_local_fit_context = threading.local()
+
+
+def _consume_local_fit_context(
+    matrix_bytes: bytes,
+) -> tuple[list[int] | None, np.ndarray | None]:
+    entry = getattr(_local_fit_context, "entry", None)
+    if entry is not None and entry[0] == matrix_bytes:
+        _local_fit_context.entry = None
+        return list(entry[1]), entry[2]
+    return None, None
 
 
 def _cached_fit(fit, *args) -> FittedComponentModel | None:
@@ -694,6 +723,7 @@ def _fit_single_from_bytes(
     params: ChromatographicPeakDeconvolutionParameters,
     target_rt: float | None,
 ) -> FittedComponentModel | None:
+    candidate_indices, summed_smoothed = _consume_local_fit_context(matrix_bytes)
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
     cheap = dataclasses.replace(
@@ -701,7 +731,14 @@ def _fit_single_from_bytes(
         max_components=1,
         max_nfev=min(80, params.max_nfev),
     )
-    return _fit_joint_component_model(time, matrix, cheap, target_rt=target_rt)
+    return _fit_joint_component_model(
+        time,
+        matrix,
+        cheap,
+        target_rt=target_rt,
+        candidate_indices=candidate_indices,
+        summed_smoothed=summed_smoothed,
+    )
 
 
 @functools.lru_cache(maxsize=8192)
@@ -736,9 +773,17 @@ def _fit_joint_from_bytes(
     params: ChromatographicPeakDeconvolutionParameters,
     target_rt: float | None,
 ) -> FittedComponentModel | None:
+    candidate_indices, summed_smoothed = _consume_local_fit_context(matrix_bytes)
     time = np.frombuffer(time_bytes, dtype=np.float64)
     matrix = np.frombuffer(matrix_bytes, dtype=np.float64).reshape(matrix_shape)
-    return _fit_joint_component_model(time, matrix, params, target_rt=target_rt)
+    return _fit_joint_component_model(
+        time,
+        matrix,
+        params,
+        target_rt=target_rt,
+        candidate_indices=candidate_indices,
+        summed_smoothed=summed_smoothed,
+    )
 
 
 def get_deconvolution_fit_cache_info():
@@ -746,11 +791,40 @@ def get_deconvolution_fit_cache_info():
     return _fit_joint_component_model_cached.cache_info()
 
 
+def _linear_percentile_axis1(sorted_y: np.ndarray, q: float) -> np.ndarray:
+    """Linear percentile along axis 1 on a pre-sorted 2-D array (matches numpy.percentile)."""
+    n = sorted_y.shape[1]
+    if n == 1:
+        return sorted_y[:, 0]
+    pos = (q / 100.0) * (n - 1)
+    lo = int(math.floor(pos))
+    hi = min(lo + 1, n - 1)
+    frac = pos - lo
+    a = sorted_y[:, lo]
+    b = sorted_y[:, hi]
+    if frac == 0.0:
+        return a
+    diff = b - a
+    return b - diff * (1.0 - frac) if frac >= 0.5 else a + diff * frac
+
+
+def _channel_scale(y: np.ndarray, max_y: float) -> np.ndarray:
+    """Robust per-channel intensity scale (95th minus 10th percentile, floored)."""
+    sorted_y = np.sort(y, axis=1)
+    spread = _linear_percentile_axis1(sorted_y, 95.0) - _linear_percentile_axis1(
+        sorted_y, 10.0
+    )
+    return np.maximum(spread, max(max_y * 1e-6, np.finfo(float).eps))
+
+
 def _fit_joint_component_model(
     time: np.ndarray,
     matrix: np.ndarray,
     params: ChromatographicPeakDeconvolutionParameters,
     target_rt: float | None = None,
+    *,
+    candidate_indices: list[int] | None = None,
+    summed_smoothed: np.ndarray | None = None,
 ) -> FittedComponentModel | None:
     if time.size < 5 or matrix.size == 0:
         return None
@@ -767,17 +841,28 @@ def _fit_joint_component_model(
     dt = float(np.median(np.diff(x))) if x.size > 1 else x_span
     min_sigma = max(dt, x_span / 500.0)
     max_y = max(float(np.max(y)), np.finfo(float).eps)
+    channel_scale = _channel_scale(y, max_y)
 
     # Data-driven width estimate from the dominant peak, so the initial sigma and
     # the sigma upper bound track the actual peaks instead of half the window.
     summed = y[0] if channels == 1 else np.sum(y, axis=0)
-    typical_sigma = _estimate_peak_sigma(summed, dt, params)
+    if summed_smoothed is None and summed.size >= 3 and float(np.max(summed)) > 0:
+        summed_smoothed = _smooth(summed, params.smooth_points)
+    typical_sigma = _estimate_peak_sigma(summed, dt, params, smoothed=summed_smoothed)
     init_sigma = float(np.clip(typical_sigma if typical_sigma > 0 else min_sigma * 2.0,
                                min_sigma, x_span))
     max_sigma = min(max(min_sigma * 4.0, init_sigma * 4.0), x_span)
 
+    if candidate_indices is not None:
+        raw_seeds = candidate_indices
+    else:
+        _local_fit_context.smoothed = (y, params.smooth_points, summed_smoothed)
+        try:
+            raw_seeds = _candidate_peak_indices(y, params)
+        finally:
+            _local_fit_context.smoothed = None
     seed_indices = _prioritize_target_seed(
-        _candidate_peak_indices(y, params),
+        raw_seeds,
         x,
         target_rt,
     )
@@ -800,6 +885,7 @@ def _fit_joint_component_model(
                 init_sigma,
                 max_y,
                 params,
+                channel_scale=channel_scale,
             )
             if fitted is None or not _is_usable_fit(fitted, params, min_sigma):
                 continue
@@ -844,14 +930,14 @@ def _fit_shape_candidate(
     init_sigma: float,
     max_y: float,
     params: ChromatographicPeakDeconvolutionParameters,
+    *,
+    channel_scale: np.ndarray | None = None,
 ) -> FittedComponentModel | None:
     channels, points = y.shape
     component_count = len(initial_centers)
     param_count = _shape_param_count(shape_model)
-    channel_scale = np.maximum(
-        np.percentile(y, 95, axis=1) - np.percentile(y, 10, axis=1),
-        max(max_y * 1e-6, np.finfo(float).eps),
-    )
+    if channel_scale is None:
+        channel_scale = _channel_scale(y, max_y)
     y_t = y.T
     ridge = 1e-12 * np.eye(1 + component_count)
     ones = np.ones(points)
@@ -867,23 +953,6 @@ def _fit_shape_candidate(
         low, high = _shape_param_bounds(shape_model, x_rel, min_sigma, max_sigma)
         lower.extend(low)
         upper.extend(high)
-
-    def shapes_from(
-        values: np.ndarray, sort: bool = True
-    ) -> tuple[np.ndarray, np.ndarray]:
-        values_matrix = np.asarray(values, dtype=np.float64).reshape(
-            component_count, param_count
-        )
-        center_array = values_matrix[:, 0]
-        shape_matrix = _component_shapes(x_rel, shape_model, values_matrix)
-        # Component order does not affect the objective (the model is a sum over
-        # components), so the sort is skipped on the optimizer's hot path and
-        # applied only when the ordered result is needed.
-        if sort:
-            order = np.argsort(center_array)
-            center_array = center_array[order]
-            shape_matrix = shape_matrix[order]
-        return center_array, shape_matrix
 
     def solve_linear(
         shape_matrix: np.ndarray, enforce_nonneg: bool = False, normal=None
@@ -981,7 +1050,17 @@ def _fit_shape_candidate(
     if not np.all(np.isfinite(result_x)):
         return None
 
-    centers, shape_matrix = shapes_from(result_x)
+    # Order parameters by centre once so shapes, norms, and continuous-model
+    # parameters come from a single _raw_component_shapes evaluation.
+    ordered_params = np.asarray(result_x, dtype=np.float64).reshape(
+        component_count, param_count
+    )
+    if component_count > 1:
+        ordered_params = ordered_params[np.argsort(ordered_params[:, 0])]
+    centers = ordered_params[:, 0]
+    raw_shapes = _raw_component_shapes(x_rel, shape_model, ordered_params)
+    norms = np.max(raw_shapes, axis=1)
+    shape_matrix = _normalize_rows(raw_shapes, max_shapes=norms)
     intercept, weights = solve_linear(shape_matrix, enforce_nonneg=True)
     baseline = np.repeat(intercept[:, None], points, axis=1)
     components = weights.T[:, :, None] * shape_matrix[:, None, :]
@@ -992,13 +1071,6 @@ def _fit_shape_candidate(
     bic = observation_count * np.log(max(rss / observation_count, np.finfo(float).eps))
     bic += parameter_count * np.log(max(observation_count, 2))
 
-    # Capture the continuous-model parameters in the same (center-sorted) order as
-    # ``centers``/``components`` so the fit can be re-evaluated on any time grid.
-    ordered_params = np.asarray(result_x, dtype=np.float64).reshape(
-        component_count, param_count
-    )
-    ordered_params = ordered_params[np.argsort(ordered_params[:, 0])]
-    norms = np.max(_raw_component_shapes(x_rel, shape_model, ordered_params), axis=1)
     return FittedComponentModel(
         baseline=np.maximum(baseline, 0.0),
         components=np.maximum(components, 0.0),
@@ -1030,10 +1102,19 @@ def _candidate_peak_indices(
 ) -> list[int]:
     summed = matrix[0] if matrix.shape[0] == 1 else np.sum(matrix, axis=0)
     traces = (summed,) if matrix.shape[0] == 1 else (summed, *matrix)
+    smoothed_hint = getattr(_local_fit_context, "smoothed", None)
+    summed_smoothed = (
+        smoothed_hint[2]
+        if smoothed_hint is not None
+        and smoothed_hint[0] is matrix
+        and smoothed_hint[1] == params.smooth_points
+        else None
+    )
     candidates: list[tuple[int, float]] = []
 
-    for trace in traces:
-        for component in _detect_components(trace, params):
+    for trace_index, trace in enumerate(traces):
+        pre_smoothed = summed_smoothed if trace_index == 0 else None
+        for component in _detect_components(trace, params, smoothed=pre_smoothed):
             candidates.append((component.apex, float(trace[component.apex])))
         for apex in _detect_shoulder_indices(trace, params):
             candidates.append((apex, float(trace[apex])))
@@ -1191,10 +1272,15 @@ def _fit_reproduces_window(
 
 
 def _estimate_peak_sigma(
-    summed: np.ndarray, dt: float, params: ChromatographicPeakDeconvolutionParameters
+    summed: np.ndarray,
+    dt: float,
+    params: ChromatographicPeakDeconvolutionParameters,
+    *,
+    smoothed: np.ndarray | None = None,
 ) -> float:
     """Estimate a characteristic peak sigma from the dominant peak's FWHM."""
-    smoothed = _smooth(np.maximum(summed, 0.0), params.smooth_points)
+    if smoothed is None:
+        smoothed = _smooth(np.maximum(summed, 0.0), params.smooth_points)
     if smoothed.size < 3 or float(np.max(smoothed)) <= 0:
         return 0.0
     apex = int(np.argmax(smoothed))
@@ -1246,13 +1332,16 @@ def _shape_param_count(shape_model: PeakShapeModel) -> int:
     return 2 if shape_model == "gaussian" else 3
 
 
-def _normalize_rows(shapes: np.ndarray) -> np.ndarray:
+def _normalize_rows(
+    shapes: np.ndarray, *, max_shapes: np.ndarray | None = None
+) -> np.ndarray:
     if shapes.shape[0] == 1:
-        m = float(shapes[0].max())
+        m = float(max_shapes[0]) if max_shapes is not None else float(shapes[0].max())
         if m > 0.0 and math.isfinite(m):
             return shapes / m
         return np.zeros_like(shapes, dtype=np.float64)
-    max_shapes = np.max(shapes, axis=1)
+    if max_shapes is None:
+        max_shapes = np.max(shapes, axis=1)
     normalized = np.zeros_like(shapes, dtype=np.float64)
     valid = (max_shapes > 0) & np.isfinite(max_shapes)
     normalized[valid] = shapes[valid] / max_shapes[valid, None]
@@ -1523,13 +1612,18 @@ def _smooth(y: np.ndarray, points: int) -> np.ndarray:
 
 
 def _detect_components(
-    detection_trace: np.ndarray, params: ChromatographicPeakDeconvolutionParameters
+    detection_trace: np.ndarray,
+    params: ChromatographicPeakDeconvolutionParameters,
+    *,
+    smoothed: np.ndarray | None = None,
 ) -> list[ComponentWindow]:
-    y = np.maximum(np.asarray(detection_trace, dtype=np.float64), 0.0)
-    if y.size < 3 or float(np.max(y)) <= 0:
+    if smoothed is None:
+        y = np.maximum(np.asarray(detection_trace, dtype=np.float64), 0.0)
+        if y.size < 3 or float(np.max(y)) <= 0:
+            return []
+        smoothed = _smooth(y, params.smooth_points)
+    elif smoothed.size < 3:
         return []
-
-    smoothed = _smooth(y, params.smooth_points)
     y_min = float(np.min(smoothed))
     y_range = float(np.max(smoothed) - y_min)
     if y_range <= 0:

@@ -138,55 +138,20 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE eic ADD COLUMN extraction_rt REAL")
         conn.commit()
 
-    # Migration for TIC and MS data tables (v4.0.0)
-    try:
-        existing_tables = [
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
-        ]
+    # Drop legacy row-per-point tic_data and ms_data tables so schema.sql
+    # recreates them as compact blob tables. Production only reaches init_db()
+    # via reset_database(), which clears all session tables anyway.
+    tic_cols = {row[1] for row in conn.execute("PRAGMA table_info(tic_data)")}
+    if tic_cols and "time_blob" not in tic_cols:
+        logger.info("Replacing legacy row-per-point tic_data table with compact schema")
+        conn.execute("DROP TABLE tic_data")
+        conn.commit()
 
-        if "tic_data" not in existing_tables:
-            logger.info("Creating tic_data table for v4.0.0")
-            conn.execute("""
-                CREATE TABLE tic_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sample_name TEXT NOT NULL,
-                    time REAL NOT NULL,
-                    intensity REAL NOT NULL,
-                    deleted INTEGER DEFAULT 0,
-                    FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
-                    UNIQUE(sample_name, time)
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX idx_tic_sample_time ON tic_data(sample_name, time)"
-            )
-            conn.commit()
-
-        if "ms_data" not in existing_tables:
-            logger.info("Creating ms_data table for v4.0.0")
-            conn.execute("""
-                CREATE TABLE ms_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sample_name TEXT NOT NULL,
-                    time REAL NOT NULL,
-                    mz REAL NOT NULL,
-                    intensity REAL NOT NULL,
-                    deleted INTEGER DEFAULT 0,
-                    FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
-                    UNIQUE(sample_name, time, mz)
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX idx_ms_sample_time ON ms_data(sample_name, time)"
-            )
-            conn.commit()
-
-    except sqlite3.OperationalError as e:
-        logger.error(f"Migration error for TIC/MS tables: {e}")
-        pass
+    ms_cols = {row[1] for row in conn.execute("PRAGMA table_info(ms_data)")}
+    if ms_cols and "mz_blob" not in ms_cols:
+        logger.info("Replacing legacy row-per-point ms_data table with compact schema")
+        conn.execute("DROP TABLE ms_data")
+        conn.commit()
 
     # Migration for formula and derivatization columns in compounds table
     try:

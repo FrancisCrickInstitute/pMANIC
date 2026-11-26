@@ -77,6 +77,34 @@ CREATE TABLE IF NOT EXISTS eic (
 CREATE INDEX IF NOT EXISTS idx_eic_compound_sample
           ON eic(compound_name, sample_name);
 
+-- TIC chromatograms (one compressed row per sample) ---------------
+CREATE TABLE IF NOT EXISTS tic_data (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    sample_name    TEXT NOT NULL UNIQUE,
+    time_blob      BLOB NOT NULL,
+    intensity_blob BLOB NOT NULL,
+    deleted        INTEGER DEFAULT 0,
+    FOREIGN KEY (sample_name) REFERENCES samples(sample_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tic_sample
+          ON tic_data(sample_name);
+
+-- Mass spectra (one compressed row per sample and scan time) ------
+CREATE TABLE IF NOT EXISTS ms_data (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    sample_name    TEXT NOT NULL,
+    time           REAL NOT NULL,
+    mz_blob        BLOB NOT NULL,
+    intensity_blob BLOB NOT NULL,
+    deleted        INTEGER DEFAULT 0,
+    FOREIGN KEY (sample_name) REFERENCES samples(sample_name),
+    UNIQUE(sample_name, time)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ms_sample_time
+          ON ms_data(sample_name, time);
+
 -- Session activity -----------------------------------------------
 CREATE TABLE IF NOT EXISTS session_activity (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
